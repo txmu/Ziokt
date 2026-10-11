@@ -28,6 +28,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install cryptography
       - run: python -m unittest discover -s tests -p test_protocol.py -v
+      - run: python -m unittest discover -s tests -p test_business.py -v
       - run: python ci/build.py
       - uses: actions/upload-artifact@v4
         with:
@@ -59,6 +60,8 @@ jobs:
           repository: txmu/Corium
           ref: ${{ steps.native.outputs.corium }}
           path: Corium
+          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: Shadow6/Core-Go/go.mod

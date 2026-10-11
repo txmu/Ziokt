@@ -28,7 +28,7 @@ def native_profile_matrix(shadow6_root):
     """Source contracts for all Profiles; never called runtime verification."""
     import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(shadow6_root) / "Control-Center"))
+    sys.path.insert(0, str(Path(shadow6_root) / "Crosed"))
     from native_profiles import profiles
     return [{"core": p["core"], "profile": p["id"], "boundary": p["applicationBoundary"],
              "observation": "source-contract", "runtime_verified": False} for p in profiles()]
