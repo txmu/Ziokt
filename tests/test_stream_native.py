@@ -34,6 +34,9 @@ class NativeStreamTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("ZIOKT_NATIVE_DATA_TEST") == "1", "explicit native data gate; enabled in integration CI")
     def test_installed_profiles_carry_signed_corium_ping(self):
         sys.path[:0] = [str(C), str(S), str(S/"integration"), str(S/"Crosed")]
+        extra_libs = [str(S / "Core-Nim"), str(S / "Core-Idris")]
+        existing_libs = [p for p in os.environ.get("LD_LIBRARY_PATH", "").split(":") if p]
+        os.environ["LD_LIBRARY_PATH"] = ":".join(extra_libs + existing_libs)
         from test_core import Fixture
         from Deployment.service_registry import ServiceRegistry
         from Deployment.core_catalog import CoreCatalog

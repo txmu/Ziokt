@@ -96,7 +96,7 @@ jobs:
       - name: Full Ziokt contract and native integration suites
         run: |
           python tools/sync_providers.py --check
-          LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/Shadow6/Core-Nim:${LD_LIBRARY_PATH:-}" ZIOKT_NATIVE_DATA_TEST=1 python -m unittest discover -s tests -v
+          LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/Shadow6/Core-Nim:${GITHUB_WORKSPACE}/Shadow6/Core-Idris:${LD_LIBRARY_PATH:-}" ZIOKT_NATIVE_DATA_TEST=1 python -m unittest discover -s tests -v
           python ci/build.py
       - name: Package tested native support artifacts
         run: python ci/package_native.py
