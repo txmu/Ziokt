@@ -16,3 +16,6 @@ ziokt = "ziokt.cli:main"
 
 [tool.setuptools]
 packages = ["ziokt"]
+
+[tool.setuptools.package-data]
+ziokt = ["web/*.html", "web/*.css", "web/*.js"]

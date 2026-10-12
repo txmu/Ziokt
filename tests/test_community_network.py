@@ -75,6 +75,9 @@ class CommunityNetworkTests(unittest.TestCase):
         self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
         self.assertEqual(self.source.view('wiki'), self.target.view('wiki'))
         self.assertTrue(list((self.source.root/'exchange').iterdir()))
+        repeated = sync_remote(self.target, {'host': '127.0.0.1', 'port': self.server.server_port}, self.context, self.private, publisher=self.public)
+        self.assertTrue(repeated['unchanged'])
+        self.assertEqual(len(list((self.source.root/'exchange').iterdir())), 1)
 
     def test_socks5_actual_stream_remote_dns_and_isolation(self):
         observed = []
@@ -137,6 +140,22 @@ class CommunityNetworkTests(unittest.TestCase):
             with self.assertRaises(ProtocolError): sync_remote(target, {'host': '127.0.0.1', 'port': self.server.server_port}, self.context, self.private, publisher=self.public)
             target.publish(self.private, 'wiki', 'offline', {'title': 'Offline', 'text': 'still available'})
             self.assertEqual(len(target.view('wiki')['events']), 1)
+
+    def test_browser_sync_action_uses_the_fixed_real_tls_peer(self):
+        import http.client
+        import json
+        from ziokt.community_ui import portal_server
+        portal, token = portal_server(self.target, self.private,
+            peer={'host': '127.0.0.1', 'port': self.server.server_port}, peer_context=self.context, publisher=self.public)
+        worker = threading.Thread(target=portal.serve_forever, daemon=True); worker.start()
+        connection = http.client.HTTPConnection('127.0.0.1', portal.server_port, timeout=10)
+        try:
+            connection.request('POST', '/api/sync', '{}', {'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200, response.read())
+            self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
+        finally:
+            connection.close(); portal.shutdown(); portal.server_close(); worker.join(5)
 
     def test_recipient_mail_and_private_invitation(self):
         mailbox = secrets.token_bytes(32)

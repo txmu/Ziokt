@@ -4,6 +4,7 @@ No host execution follows an application record. Native deployment continues to
 use reviewed workflows. A replica is measured by bytes, not catalog presence.
 """
 import copy
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -23,13 +24,14 @@ from .protocol import ProtocolError, encoded, identifier, strict_json, secure_re
 from .security import sign, verify
 
 DOMAINS = {'forum', 'chat', 'wiki', 'files', 'packages', 'mail', 'names', 'governance', 'hosting', 'compute', 'identity'}
-RIGHTS = DOMAINS | {'replicate', 'recover', 'discover'}
+RIGHTS = DOMAINS | {'replicate', 'recover', 'discover', 'moderate'}
 MAX_EVENTS = 1024
 MAX_BLOBS = 4096
 MAX_BYTES = 32 * 1024 * 1024
 EVENT_FRAME = 8192
 CHUNK_FRAME = 4096
 CHUNK_DATA = CHUNK_FRAME-32
+MAX_FILE = 8 * 1024 * 1024
 DIGEST = re.compile(r'sha256:[a-f0-9]{64}\Z')
 PUBLIC = re.compile(r'[a-f0-9]{64}\Z')
 
@@ -83,10 +85,14 @@ class Community:
             raise ProtocolError('INVALID_COMMUNITY', 'independently held 32-byte community key required')
         key = HKDF(hashes.SHA256(), 32, None, b'Ziokt/community/'+self.community_id.encode()).derive(encryption_key)
         self.cipher = AESGCM(key)
+        self._key_material = [key]
+        self._read_ciphers = [self.cipher]
         self.root = Path(root)
         if self.root.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'community directory cannot be a symlink')
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         make_private(self.root)
+        self._ring_path = self.root/'keyrings'/self.policy_id[7:]
+        if self._ring_path.exists(): self._adopt_keys(self._decode_ring(secure_read(self._ring_path, 4096)))
         path = self.root/'community.sqlite'
         if path.exists(): secure_read(path, 64*1024*1024)
         self.store = ArtifactStore(self.root/'objects')
@@ -129,14 +135,88 @@ class Community:
     def _open(self, blob, kind):
         if not isinstance(blob, bytes) or not 32 <= len(blob) <= MAX_BYTES:
             raise ProtocolError('INVALID_COMMUNITY', 'bounded authenticated community blob required')
-        try:
-            plain = self.cipher.decrypt(blob[:12], blob[12:], ('Ziokt/community/'+self.community_id+'/'+kind).encode())
-        except InvalidTag:
+        plain = None
+        for cipher in self._read_ciphers:
+            try:
+                plain = cipher.decrypt(blob[:12], blob[12:], ('Ziokt/community/'+self.community_id+'/'+kind).encode())
+                break
+            except InvalidTag: pass
+        if plain is None:
             raise ProtocolError('COMMUNITY_AUTH_FAILED', 'community blob authentication failed')
         if len(plain) < 4: raise ProtocolError('INVALID_COMMUNITY', 'truncated community plaintext')
         size = struct.unpack('!I', plain[:4])[0]
         if size > len(plain)-4: raise ProtocolError('INVALID_COMMUNITY', 'invalid encrypted length')
         return plain[4:4+size]
+
+    def _adopt_keys(self, keys):
+        merged = list(dict.fromkeys(self._key_material+keys))
+        if len(merged) > 16: raise ProtocolError('COMMUNITY_LIMIT', 'historical key budget exceeded')
+        self._key_material = merged
+        self._read_ciphers = [AESGCM(k) for k in merged]
+
+    def _ring_blob(self):
+        return self._seal(encoded({'policy': self.policy_id, 'keys': [k.hex() for k in self._key_material[1:]]}), 'keyring', 4096)
+
+    def _decode_ring(self, blob):
+        # Only the currently supplied key can unwrap historical keys. A revoked
+        # holder of an earlier key cannot unwrap the next epoch's keyring.
+        if not isinstance(blob, bytes) or len(blob) != 4096:
+            raise ProtocolError('INVALID_COMMUNITY', 'fixed encrypted historical keyring required')
+        try:
+            plain = self.cipher.decrypt(blob[:12], blob[12:], ('Ziokt/community/'+self.community_id+'/keyring').encode())
+            size = struct.unpack('!I', plain[:4])[0]
+            if size > len(plain)-4: raise ValueError()
+            value = strict_json(plain[4:4+size]); exact(value, {'policy', 'keys'})
+            if value['policy'] != self.policy_id or not isinstance(value['keys'], list) or len(value['keys']) > 15:
+                raise ValueError()
+            if any(not isinstance(k, str) or not PUBLIC.fullmatch(k) for k in value['keys']): raise ValueError()
+            return [bytes.fromhex(k) for k in value['keys']]
+        except (InvalidTag, ValueError, TypeError):
+            raise ProtocolError('COMMUNITY_AUTH_FAILED', 'current epoch key cannot unwrap historical keys')
+
+    def _persist_ring(self):
+        directory = self._ring_path.parent
+        if directory.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'keyring directory cannot be a symlink')
+        directory.mkdir(mode=0o700, exist_ok=True); make_private(directory)
+        if self._ring_path.exists():
+            self._adopt_keys(self._decode_ring(secure_read(self._ring_path, 4096)))
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as output:
+            temporary = Path(output.name)
+            output.write(self._ring_blob()); output.flush(); os.fsync(output.fileno())
+        try:
+            make_private(temporary); os.replace(temporary, self._ring_path)
+        finally: temporary.unlink(missing_ok=True)
+
+    def rotate(self, new_policy, new_key, private):
+        """Owner-authorized new epoch; old signed events and parent IDs survive."""
+        with self.lock:
+            self._current()
+            if sign({}, private, 'test')['public_key'] != self.owner:
+                raise ProtocolError('POLICY_DENIED', 'owner authority required for confidentiality rotation')
+            value = policy_document(new_policy, self.owner)
+            if value['community_id'] != self.community_id or value['epoch'] <= self.policy['epoch'] or new_key == private:
+                raise ProtocolError('POLICY_ROLLBACK', 'rotation requires matching scope and increasing epoch')
+            if not isinstance(new_key, bytes) or len(new_key) != 32:
+                raise ProtocolError('INVALID_COMMUNITY', 'new independent encryption key required')
+            derived = HKDF(hashes.SHA256(), 32, None, b'Ziokt/community/'+self.community_id.encode()).derive(new_key)
+            if derived in self._key_material:
+                raise ProtocolError('INVALID_COMMUNITY', 'confidentiality rotation requires a fresh key')
+            # Prepare the authenticated historical keyring before advancing the
+            # SQLite policy. If the process dies here, old policy still works;
+            # reopening with the reviewed new key/policy can complete rotation.
+            policy_id = content_id(encoded(new_policy)); nonce = secrets.token_bytes(12)
+            raw = encoded({'policy': policy_id, 'keys': [k.hex() for k in self._key_material]})
+            if len(self._key_material) >= 16: raise ProtocolError('COMMUNITY_LIMIT', 'historical key budget exceeded')
+            plain = struct.pack('!I', len(raw))+raw+secrets.token_bytes(4064-len(raw))
+            blob = nonce+AESGCM(derived).encrypt(nonce, plain, ('Ziokt/community/'+self.community_id+'/keyring').encode())
+            directory = self.root/'keyrings'
+            if directory.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'keyring directory cannot be a symlink')
+            directory.mkdir(mode=0o700, exist_ok=True); make_private(directory)
+            target = directory/policy_id[7:]
+            from .cli import write_binary_exclusive
+            write_binary_exclusive(target, blob)
+            return Community(self.root, new_policy, self.owner, new_key)
 
     def _member(self, public, right, policy=None):
         policy = self.policy if policy is None else policy
@@ -156,23 +236,29 @@ class Community:
             'packages': {'name', 'version', 'chunks', 'size', 'digest', 'native_kind', 'native_signature'},
             'mail': {'to', 'ciphertext'}, 'names': {'target'},
             'governance': {'proposal', 'choice'}, 'hosting': {'service', 'workflow_digest', 'content'},
-            'compute': {'job', 'workflow_digest', 'result'}, 'identity': {'name', 'public_key'}}
+            'compute': {'job', 'workflow_digest', 'result'}, 'identity': {'name', 'public_key', 'mailbox_public'}}
         exact(body, specs[domain], 'INVALID_APPLICATION')
         for name, value in body.items():
             if name in {'chunks', 'size'}: continue
             if not isinstance(value, str) or len(value.encode()) > (2800 if name == 'ciphertext' else 2048):
                 raise ProtocolError('INVALID_APPLICATION', 'bounded text application fields required')
         if domain in {'files', 'packages'}:
-            if (not isinstance(body['chunks'], list) or not 1 <= len(body['chunks']) <= 128 or type(body['size']) is not int or
-                    not 0 <= body['size'] <= CHUNK_DATA*128):
+            if type(body['size']) is not int or not 0 <= body['size'] <= MAX_FILE:
                 raise ProtocolError('INVALID_APPLICATION', 'bounded encrypted content manifest required')
-            for chunk in body['chunks']: hash_id(chunk)
+            if isinstance(body['chunks'], dict):
+                exact(body['chunks'], {'root'}, 'INVALID_APPLICATION'); hash_id(body['chunks']['root'])
+            elif isinstance(body['chunks'], list) and 1 <= len(body['chunks']) <= 32:
+                for chunk in body['chunks']: hash_id(chunk)
+            else:
+                raise ProtocolError('INVALID_APPLICATION', 'bounded content list or encrypted index required')
             hash_id(body['digest'])
         if domain == 'packages' and body['native_kind'] not in {'shadow6-app', 'shadow6-plugin', 'shadow6-mod', 'corium-package'}:
             raise ProtocolError('INVALID_APPLICATION', 'original native package kind required')
         if domain in {'hosting', 'compute'}: hash_id(body['workflow_digest'])
         if domain == 'identity' and not PUBLIC.fullmatch(body['public_key']):
             raise ProtocolError('INVALID_APPLICATION', 'exact identity key required')
+        if domain == 'identity' and not PUBLIC.fullmatch(body['mailbox_public']):
+            raise ProtocolError('INVALID_APPLICATION', 'exact recipient mailbox key required')
         if domain == 'mail' and not PUBLIC.fullmatch(body['to']):
             raise ProtocolError('INVALID_APPLICATION', 'exact recipient key required')
         if domain == 'mail':
@@ -202,13 +288,20 @@ class Community:
         if not isinstance(event['nonce'], str) or not re.fullmatch('[a-f0-9]{32}', event['nonce']):
             raise ProtocolError('INVALID_COMMUNITY', 'event nonce required')
         self._member(envelope['public_key'], event['domain'], policies[event['policy']])
+        if event['deleted']:
+            self._member(envelope['public_key'], 'moderate', policies[event['policy']])
         self._validate_body(event['domain'], event['body'], event['deleted'])
+        if event['domain'] == 'identity' and not event['deleted'] and event['body']['public_key'] != envelope['public_key']:
+            raise ProtocolError('POLICY_DENIED', 'identity records must prove their own signing key')
+        if event['domain'] == 'identity' and event['key'] != envelope['public_key']:
+            raise ProtocolError('POLICY_DENIED', 'identity namespace belongs to its signing key')
         return {**event, 'author': envelope['public_key'], 'id': content_id(blob)}
 
     def _policies(self):
         return {row[0]: policy_document(strict_json(row[1]), self.owner) for row in self.db.execute('SELECT id,document FROM policies')}
 
     def _events(self):
+        if self._ring_path.exists(): self._adopt_keys(self._decode_ring(secure_read(self._ring_path, 4096)))
         policies = self._policies()
         result = {}
         for event_id, blob in self.db.execute('SELECT id,sealed FROM records ORDER BY id'):
@@ -280,14 +373,54 @@ class Community:
                     'conflicts': {k: v for k, v in conflicts.items() if len(v) > 1}, 'runtime_ready': False}
 
     def put_file(self, data):
-        if not isinstance(data, bytes) or len(data) > CHUNK_DATA*128:
+        if not isinstance(data, bytes) or len(data) > MAX_FILE:
             raise ProtocolError('COMMUNITY_LIMIT', 'file exceeds bounded chunk manifest')
         chunks = []
         with self.lock:
             self._current()
             for offset in range(0, max(1, len(data)), CHUNK_DATA):
                 chunks.append(self.put_blob(self._seal(data[offset:offset+CHUNK_DATA], 'chunk', CHUNK_FRAME)))
+            if len(chunks) > 32:
+                level = 0
+                while True:
+                    nodes = []
+                    for start in range(0, len(chunks), 32):
+                        index = encoded({'schema': 'ziokt.content-index.v1', 'level': level, 'digests': chunks[start:start+32]})
+                        nodes.append(self.put_blob(self._seal(index, 'chunk', CHUNK_FRAME)))
+                    if len(nodes) == 1:
+                        chunks = {'root': nodes[0]}; break
+                    chunks = nodes; level += 1
         return {'chunks': chunks, 'size': len(data), 'digest': content_id(data)}
+
+    def _file_objects(self, manifest, supplied=None):
+        """Return ordered data chunks and all encrypted index dependencies."""
+        chunks = manifest['chunks']
+        if isinstance(chunks, list): return chunks, set(chunks)
+        leaves, objects, active = [], set(), set()
+        def visit(digest, expected_level=None):
+            if digest in active or len(objects) >= MAX_BLOBS:
+                raise ProtocolError('COMMUNITY_LIMIT', 'content index cycle or object budget exceeded')
+            active.add(digest); objects.add(digest)
+            if supplied is not None and digest not in supplied:
+                raise ProtocolError('MISSING_CONTENT', 'checkpoint lacks encrypted content index')
+            blob = supplied[digest] if supplied is not None else self.store.get(digest)
+            index = strict_json(self._open(blob, 'chunk'))
+            exact(index, {'schema', 'level', 'digests'}, 'INVALID_APPLICATION')
+            if (index['schema'] != 'ziokt.content-index.v1' or type(index['level']) is not int or not 0 <= index['level'] <= 2 or
+                    expected_level is not None and index['level'] != expected_level or
+                    not isinstance(index['digests'], list) or not 1 <= len(index['digests']) <= 32):
+                raise ProtocolError('INVALID_APPLICATION', 'bounded descending content index required')
+            for child in index['digests']:
+                hash_id(child)
+                if index['level']:
+                    visit(child, index['level']-1)
+                else:
+                    leaves.append(child); objects.add(child)
+            active.remove(digest)
+        visit(chunks['root'])
+        if len(leaves) > (MAX_FILE+CHUNK_DATA-1)//CHUNK_DATA or len(objects) > MAX_BLOBS:
+            raise ProtocolError('COMMUNITY_LIMIT', 'content expansion budget exceeded')
+        return leaves, objects
 
     def put_blob(self, blob, expected=None):
         if not isinstance(blob, bytes) or len(blob) != CHUNK_FRAME:
@@ -303,7 +436,8 @@ class Community:
     def get_file(self, manifest):
         if not isinstance(manifest, dict): raise ProtocolError('INVALID_APPLICATION', 'content manifest required')
         self._validate_body('files', {'name': 'content', **{k: manifest[k] for k in ('chunks', 'size', 'digest')}}, False)
-        data = b''.join(self._open(self.store.get(d), 'chunk') for d in manifest['chunks'])
+        leaves, _ = self._file_objects(manifest)
+        data = b''.join(self._open(self.store.get(d), 'chunk') for d in leaves)
         if len(data) != manifest['size'] or content_id(data) != manifest['digest']:
             raise ProtocolError('ARTIFACT_DIGEST_MISMATCH', 'complete plaintext file differs from signed manifest')
         return data
@@ -315,17 +449,35 @@ class Community:
             records = {row[0]: row[1] for row in self.db.execute('SELECT id,sealed FROM records ORDER BY id')}
             policies = [strict_json(row[0]) for row in self.db.execute('SELECT document FROM policies ORDER BY epoch')]
             events = self._events()
-            objects = sorted({d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in e['body']['chunks']})
+            objects = sorted({d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'])[1]})
             blobs = {d: self.store.get(d) for d in objects}
             # Sign only compact immutable byte digests; payload remains encrypted.
             manifest = sign({'schema': 'ziokt.community-checkpoint.v1', 'community_id': self.community_id,
                              'policy': self.policy_id, 'records': list(records), 'objects': list(blobs),
-                             'policies': policies}, private, 'Ziokt/community-checkpoint/v1')
+                             'policies': policies, 'keyring': base64.b64encode(self._ring_blob()).decode()}, private, 'Ziokt/community-checkpoint/v1')
             header = encoded(manifest)
             if len(header) > 1024*1024: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint header budget exceeded')
             body = struct.pack('!I', len(header))+header+b''.join(records.values())+b''.join(blobs.values())
             if len(body)+32 > MAX_BYTES: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint byte budget exceeded')
             return self._seal(body, 'checkpoint')
+
+    def inventory_digest(self):
+        with self.lock:
+            self._current()
+            events = self._events()
+            objects = sorted({d for event in events.values() if not event['deleted'] and event['domain'] in {'files', 'packages'}
+                              for d in self._file_objects(event['body'])[1]})
+            for digest in objects: self.store.get(digest)
+            return content_id(encoded({'policy': self.policy_id, 'records': sorted(events), 'objects': objects}))
+
+    def mailbox_for(self, recipient):
+        result = self.view('identity', recipient)
+        if len(result['heads']) != 1:
+            raise ProtocolError('IDENTITY_UNRESOLVED', 'recipient needs one unambiguous signed mailbox binding')
+        event = next(e for e in result['events'] if e['id'] == result['heads'][0])
+        if event['deleted'] or event['author'] != recipient:
+            raise ProtocolError('IDENTITY_UNRESOLVED', 'recipient identity was removed or does not prove ownership')
+        return event['body']['mailbox_public']
 
     def restore(self, blob, publisher):
         with self.lock:
@@ -336,9 +488,12 @@ class Community:
             if not 1 <= size <= 1024*1024 or size+4 > len(body): raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint header rejected')
             envelope = strict_json(body[4:4+size], 1024*1024, string_limit=8192)
             value = verify(envelope, publisher, 'Ziokt/community-checkpoint/v1', maximum=1024*1024)
-            exact(value, {'schema', 'community_id', 'policy', 'records', 'objects', 'policies'})
+            exact(value, {'schema', 'community_id', 'policy', 'records', 'objects', 'policies', 'keyring'})
             if value['schema'] != 'ziokt.community-checkpoint.v1' or value['community_id'] != self.community_id or value['policy'] != self.policy_id:
                 raise ProtocolError('POLICY_ROLLBACK', 'checkpoint must match currently pinned policy')
+            try: keys = self._decode_ring(base64.b64decode(value['keyring'], validate=True))
+            except (ValueError, TypeError): raise ProtocolError('INVALID_COMMUNITY', 'invalid encrypted historical keyring')
+            self._adopt_keys(keys)
             for name, limit in [('records', MAX_EVENTS), ('objects', MAX_BLOBS)]:
                 items = value[name]
                 if not isinstance(items, list) or len(items) > limit or len(set(items)) != len(items):
@@ -362,7 +517,7 @@ class Community:
             if offset != len(body): raise ProtocolError('INVALID_COMMUNITY', 'checkpoint trailing or truncated bytes')
             events = {d: self._validate_event(b, policies, historical=True) for d, b in pending.items()}
             self._check_graph(events)
-            required = {d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in e['body']['chunks']}
+            required = {d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'], objects)[1]}
             if required != set(objects): raise ProtocolError('MISSING_CONTENT', 'checkpoint must include exactly referenced content')
             for data in objects.values(): self._open(data, 'chunk')
             # Authenticate everything before writing any application state. CAS
@@ -380,6 +535,7 @@ class Community:
                     if old and old[0] != d: raise ProtocolError('POLICY_CONFLICT', 'local historical policy fork')
                     self.db.execute('INSERT OR IGNORE INTO policies VALUES (?,?,?)', (d, p['epoch'], encoded(document)))
                 self.db.executemany('INSERT OR IGNORE INTO records VALUES (?,?)', pending.items())
+                self._persist_ring()
             return {'records': len(events), 'objects': len(objects), 'runtime_ready': False,
                     'native_apply_required': True, 'policy': self.policy_id}
 

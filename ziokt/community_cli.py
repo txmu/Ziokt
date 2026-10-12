@@ -14,13 +14,13 @@ def register(sub):
     init.add_argument('--root', required=True, type=Path)
     init.add_argument('--name', required=True)
     init.add_argument('--privacy', choices=('private', 'restricted'), default='restricted')
-    for action in ('publish', 'view', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'serve', 'policy'):
+    for action in ('publish', 'view', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--root', required=True, type=Path)
         cmd.add_argument('--policy', required=True, type=Path)
         cmd.add_argument('--owner', required=True)
         cmd.add_argument('--encryption-key', required=True, type=Path)
-        if action in ('publish', 'checkpoint', 'replicate', 'sync', 'serve', 'policy'):
+        if action in ('publish', 'checkpoint', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
             cmd.add_argument('--signing-key', required=True, type=Path)
         if action in ('publish', 'view'):
             cmd.add_argument('--domain', choices=sorted(DOMAINS), required=True)
@@ -46,6 +46,45 @@ def register(sub):
             cmd.add_argument('--members', required=True, type=Path)
             cmd.add_argument('--epoch', required=True, type=int)
             cmd.add_argument('--output', required=True, type=Path)
+        if action in ('invite', 'accept'):
+            cmd.add_argument('--invitation-key', required=True, type=Path)
+        if action == 'invite':
+            cmd.add_argument('--host', required=True)
+            cmd.add_argument('--port', required=True, type=int)
+            cmd.add_argument('--output', required=True, type=Path)
+        if action == 'accept':
+            cmd.add_argument('--input', required=True, type=Path)
+            cmd.add_argument('--publisher', required=True)
+        if action == 'mail-send':
+            cmd.add_argument('--recipient', required=True)
+            cmd.add_argument('--recipient-mailbox')
+            cmd.add_argument('--message', required=True, type=Path)
+            cmd.add_argument('--object-key', required=True)
+        if action == 'mail-open':
+            cmd.add_argument('--message', required=True, type=Path)
+            cmd.add_argument('--mailbox-key', required=True, type=Path)
+            cmd.add_argument('--recipient', required=True)
+        if action == 'ui':
+            cmd.add_argument('--port', type=int, default=0)
+            cmd.add_argument('--session-file', type=Path, required=True)
+            cmd.add_argument('--mailbox-key', type=Path)
+            cmd.add_argument('--peer-tls', type=Path)
+            cmd.add_argument('--peer-publisher')
+        if action == 'materialize':
+            cmd.add_argument('--manifest', type=Path, required=True)
+            cmd.add_argument('--native-store', type=Path, required=True)
+        if action == 'native':
+            cmd.add_argument('--config', type=Path, required=True)
+            cmd.add_argument('--journal', type=Path, required=True)
+            cmd.add_argument('--manifest', type=Path, required=True)
+            cmd.add_argument('--domain', choices=('hosting', 'compute'), required=True)
+            cmd.add_argument('--object-key', required=True)
+            cmd.add_argument('--apply', action='store_true')
+            cmd.add_argument('--expected-digest')
+            cmd.add_argument('--confirm', action='store_true')
+        if action == 'rotate':
+            cmd.add_argument('--next-policy', type=Path, required=True)
+            cmd.add_argument('--next-encryption-key', type=Path, required=True)
 
 
 def execute(args):
@@ -60,20 +99,78 @@ def execute(args):
         policy = create_policy(private, args.name, {public: sorted(RIGHTS)}, privacy=args.privacy)
         write_binary_exclusive(args.root/'owner.key', private)
         write_binary_exclusive(args.root/'content.key', key)
+        mailbox = secrets.token_bytes(32)
+        write_binary_exclusive(args.root/'mailbox.key', mailbox)
+        from .community_privacy import mailbox_public
         write_exclusive(args.root/'policy.json', policy)
-        with Community(args.root/'state', policy, public, key): pass
+        with Community(args.root/'state', policy, public, key) as community:
+            community.publish(private, 'identity', public, {'name': args.name, 'public_key': public, 'mailbox_public': mailbox_public(mailbox)})
         return {'community_id': args.name, 'owner': public, 'policy': str(args.root/'policy.json'),
                 'encryption_key': str(args.root/'content.key'), 'signing_key': str(args.root/'owner.key'),
-                'state_root': str(args.root/'state'), 'network_enabled': False}
+                'state_root': str(args.root/'state'), 'mailbox_public': mailbox_public(mailbox), 'network_enabled': False}
     policy = strict_json(secure_read(args.policy))
     with Community(args.root, policy, args.owner, secure_read(args.encryption_key, 32)) as community:
         private = secure_read(args.signing_key, 32) if hasattr(args, 'signing_key') else None
         action = args.community_action
+        if action == 'rotate':
+            with community.rotate(strict_json(secure_read(args.next_policy)), secure_read(args.next_encryption_key, 32), private) as rotated:
+                return {'policy': rotated.policy_id, 'epoch': rotated.policy['epoch'], 'historical_data_preserved': True,
+                        'new_key_distribution_required': True}
+        if action == 'materialize':
+            from .community_native import materialize
+            from .artifacts import ArtifactStore
+            return materialize(community, strict_json(secure_read(args.manifest)), ArtifactStore(args.native_store))
+        if action == 'native':
+            from .community_native import native_workflow
+            from .workflow import WorkflowJournal
+            from .config import load
+            with WorkflowJournal(args.journal) as journal:
+                return native_workflow(community, private, load(args.config), journal, strict_json(secure_read(args.manifest)),
+                    domain=args.domain, object_key=args.object_key, apply=args.apply,
+                    expected_digest=args.expected_digest, confirmed=args.confirm)
+        if action == 'invite':
+            from .community_privacy import invitation
+            blob = invitation(community, private, secure_read(args.invitation_key, 32), args.host, args.port)
+            write_binary_exclusive(args.output, blob)
+            return {'output': str(args.output), 'encrypted': True}
+        if action == 'accept':
+            from .community_privacy import accept_invitation
+            return accept_invitation(community, secure_read(args.input, 4096), secure_read(args.invitation_key, 32), args.publisher)
+        if action == 'mail-send':
+            from .community_privacy import seal_mail
+            message = strict_json(secure_read(args.message))
+            from .community import exact
+            exact(message, {'subject', 'text'})
+            body = seal_mail(args.recipient, args.recipient_mailbox or community.mailbox_for(args.recipient), message['subject'], message['text'])
+            return {'event': community.publish(private, 'mail', args.object_key, body)}
+        if action == 'mail-open':
+            from .community_privacy import open_mail
+            return open_mail(secure_read(args.mailbox_key, 32), args.recipient, strict_json(secure_read(args.message)))
+        if action == 'ui':
+            from .community_ui import portal_server
+            mailbox = secure_read(args.mailbox_key, 32) if args.mailbox_key else None
+            peer = context = None
+            if args.peer_tls or args.peer_publisher:
+                if not args.peer_tls or not args.peer_publisher:
+                    raise ProtocolError('INVALID_CONFIG', 'fixed peer TLS config and publisher must be supplied together')
+                from .remote import load_remote, tls_context
+                peer = load_remote(args.peer_tls)
+                context = tls_context(peer['certificate'], peer['private_key'], peer['ca'])
+            server, token = portal_server(community, private, port=args.port, mailbox=mailbox,
+                peer=peer, peer_context=context, publisher=args.peer_publisher)
+            try:
+                write_exclusive(args.session_file, {'url': 'http://127.0.0.1:'+str(server.server_port)+'/', 'token': token})
+                server.serve_forever()
+            except KeyboardInterrupt: pass
+            finally: server.server_close()
+            return {'stopped': True}
         if action == 'publish':
             return {'event': community.publish(private, args.domain, args.object_key, strict_json(secure_read(args.body)),
                 parents=strict_json(secure_read(args.parents)) if args.parents else None, deleted=args.delete)}
         if action == 'view': return community.view(args.domain, args.object_key)
-        if action == 'put-file': return community.put_file(secure_read(args.input, 520192, private=None))
+        if action == 'put-file':
+            from .community import MAX_FILE
+            return community.put_file(secure_read(args.input, MAX_FILE, private=None))
         if action == 'get-file':
             data = community.get_file(strict_json(secure_read(args.manifest)))
             write_binary_exclusive(args.output, data)

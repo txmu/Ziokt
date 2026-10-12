@@ -42,11 +42,13 @@ class CommunityTests(unittest.TestCase):
             'governance': {'proposal': 'keep archives', 'choice': 'yes'},
             'hosting': {'service': 'wiki', 'workflow_digest': d, 'content': d},
             'compute': {'job': 'index', 'workflow_digest': d, 'result': d},
-            'identity': {'name': 'alice', 'public_key': self.public}}
+            'identity': {'name': 'alice', 'public_key': self.public,
+                'mailbox_public': __import__('ziokt.community_privacy', fromlist=['mailbox_public']).mailbox_public(self.key)}}
         self.assertEqual(set(bodies), DOMAINS)
         for domain, body in bodies.items():
-            event = self.a.publish(self.private, domain, 'main', body)
-            result = self.a.view(domain, 'main')
+            object_key = self.public if domain == 'identity' else 'main'
+            event = self.a.publish(self.private, domain, object_key, body)
+            result = self.a.view(domain, object_key)
             self.assertEqual(result['heads'], [event]); self.assertFalse(result['runtime_ready'])
             self.assertEqual(result['events'][0]['body'], body)
         self.assertEqual(self.a.get_file(manifest), b'community file')
@@ -154,6 +156,37 @@ class CommunityTests(unittest.TestCase):
         data = bytes(range(256))*32+b'\r\n\x1aafter-dos-eof'
         path.write_bytes(data); make_private(path)
         self.assertEqual(secure_read(path, len(data)), data)
+
+    def test_large_file_encrypted_index_and_complete_cold_restore(self):
+        data = bytes(range(256))*700
+        manifest = self.a.put_file(data)
+        self.assertIsInstance(manifest['chunks'], dict)
+        self.a.publish(self.private, 'files', 'large', {'name': 'large', **manifest})
+        b = self.node('indexed-replica'); b.restore(self.a.checkpoint(self.private), self.public)
+        self.assertEqual(b.get_file(manifest), data)
+        root = manifest['chunks']['root']
+        (b.store.root/root[7:]).write_bytes(b'corrupt index')
+        with self.assertRaises(ProtocolError): b.get_file(manifest)
+
+    def test_confidentiality_rotation_preserves_authorship_and_blocks_old_keys(self):
+        original = self.a.publish(self.private, 'wiki', 'home', {'title': 'Historic', 'text': 'signed author preserved'})
+        materials = self.a.put_file(b'old encrypted file')
+        self.a.publish(self.private, 'files', 'old', {'name': 'old', **materials})
+        new_policy = create_policy(self.private, 'village', {self.public: sorted(RIGHTS)}, epoch=1, privacy='private')
+        new_key = secrets.token_bytes(32)
+        with self.a.rotate(new_policy, new_key, self.private) as rotated:
+            self.assertEqual(rotated.get_file(materials), b'old encrypted file')
+            self.assertEqual(rotated.view('wiki')['heads'], [original])
+            rotated.publish(self.private, 'wiki', 'new', {'title': 'New', 'text': 'fresh confidentiality epoch'})
+            archive = rotated.checkpoint(self.private)
+            with Community(self.root/'rotated-peer', new_policy, self.public, new_key) as peer:
+                peer.restore(archive, self.public)
+                self.assertEqual(peer.get_file(materials), b'old encrypted file')
+                self.assertEqual(peer.view('wiki'), rotated.view('wiki'))
+            with self.assertRaises(ProtocolError): Community(self.root/'a', new_policy, self.public, self.key)
+        with Community(self.root/'rotated-peer', new_policy, self.public, new_key) as reopened:
+            self.assertEqual(reopened.get_file(materials), b'old encrypted file')
+            self.assertEqual(len(reopened.view('wiki')['events']), 2)
 
 
 if __name__ == '__main__': unittest.main()

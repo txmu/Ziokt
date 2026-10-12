@@ -100,7 +100,21 @@ class OperationTests(NativeFixture):
         payload = self.base/"payload"; payload.mkdir(); (payload/"readme").write_bytes(b"signed native app")
         archive = self.base/"app.zip"
         build_package(payload, archive, private, "test-publisher", "app", "wiki-client", "1.0.0")
-        store = ArtifactStore(self.base/"artifacts"); artifact = store.put(archive.read_bytes())
+        store = ArtifactStore(self.base/"artifacts")
+        from ziokt.community import Community, RIGHTS, create_policy
+        from ziokt.community_native import materialize
+        from ziokt.security import sign
+        import secrets
+        community_private, content_key = secrets.token_bytes(32), secrets.token_bytes(32)
+        community_public = sign({}, community_private, "test")["public_key"]
+        policy = create_policy(community_private, "test", {community_public: sorted(RIGHTS)})
+        with Community(self.base/"package-community", policy, community_public, content_key) as community:
+            materials = community.put_file(archive.read_bytes())
+            community.publish(community_private, "packages", "wiki-client", {"name": "wiki-client", "version": "1.0.0",
+                "native_kind": "shadow6-app", "native_signature": "original embedded package manifest", **materials})
+            handoff = materialize(community, materials, store)
+            self.assertFalse(handoff["native_signature_verified"])
+            artifact = handoff["artifact_digest"]
         packages = self.base/"packages"; packages.mkdir(mode=0o700)
         config = json.loads(self.sconfig.read_text())
         config.update(allow_mutations=True, allowed_operations=["package.install", "package.activate"],

@@ -19,6 +19,7 @@ class CommunityEndpoint:
         community._member(self.public, 'recover')
         self.exports = ArtifactStore(community.root/'exchange')
         self.lock = threading.RLock()
+        self.cached = None
 
     def call(self, method, params, principal):
         if method not in METHODS: raise ProtocolError('POLICY_DENIED', 'unknown community network method')
@@ -29,15 +30,22 @@ class CommunityEndpoint:
                 exact(params, set())
                 return {'community_id': self.community.community_id, 'policy': self.community.policy_id,
                         'records': self.community.db.execute('SELECT COUNT(*) FROM records').fetchone()[0],
-                        'publisher': self.public, 'runtime_ready': False}
+                        'publisher': self.public, 'runtime_ready': False,
+                        'inventory_digest': self.community.inventory_digest()}
             if method == 'community.checkpoint.create':
                 exact(params, set())
+                inventory = self.community.inventory_digest()
+                if self.cached and self.cached[0] == inventory:
+                    self.exports.get(self.cached[1]['digest'])
+                    return self.cached[1]
                 if len(list(self.exports.root.iterdir())) >= 4:
                     raise ProtocolError('BACKPRESSURE', 'archive or remove reviewed exchange snapshots before exporting more')
                 blob = self.community.checkpoint(self.private)
                 digest = self.exports.put(blob)
-                return {'digest': digest, 'size': len(blob), 'publisher': self.public,
-                        'community_id': self.community.community_id, 'policy': self.community.policy_id}
+                result = {'digest': digest, 'size': len(blob), 'publisher': self.public,
+                          'community_id': self.community.community_id, 'policy': self.community.policy_id}
+                self.cached = (inventory, result)
+                return result
             exact(params, {'digest', 'offset', 'length'})
             hash_id(params['digest'])
             if type(params['offset']) is not int or params['offset'] < 0 or type(params['length']) is not int or not 1 <= params['length'] <= 6144:
@@ -63,6 +71,12 @@ def sync_remote(community, endpoint, context, private, *, publisher):
         token = grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
         return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'))
+    status = call('community.status', {})
+    exact(status, {'community_id', 'policy', 'records', 'publisher', 'runtime_ready', 'inventory_digest'})
+    if status['community_id'] != community.community_id or status['policy'] != community.policy_id or status['publisher'] != publisher:
+        raise ProtocolError('SCOPE_MISMATCH', 'remote community policy or publisher differs')
+    if status['inventory_digest'] == community.inventory_digest():
+        return {'unchanged': True, 'runtime_ready': False, 'native_apply_required': True}
     item = call('community.checkpoint.create', {})
     exact(item, {'digest', 'size', 'publisher', 'community_id', 'policy'})
     hash_id(item['digest'])

@@ -12,6 +12,12 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 
 测试默认使用相邻的 `../Shadow6` 与 `../Corium`；可通过 `ZIOKT_SHADOW6_ROOT`、`ZIOKT_CORIUM_ROOT` 指定源码位置。测试只使用临时状态目录，不启用真实部署。
 
+## 私有社区与节点恢复
+
+`python3 -m ziokt community --help` 提供签名论坛/聊天/Wiki、加密文件和软件材料、收件人私信、身份与命名、治理记录、原生工作流回执、加密副本及冷恢复。本地浏览器门户可连接明确配置的 mTLS 对端；restricted 网络同步只使用显式 Tor v3 SOCKS5 路径，失败不直连。社区状态可在联邦协调器离线时继续使用，并保留并发编辑和原作者签名。
+
+初始化不启动网络：`python3 -m ziokt community init --root /absolute/village --name village`。部署、成员权限、独立恢复密钥、保密性换钥、真实网络条件、默认预算和各应用成熟度见 [社区操作指南](docs/community.zh-CN.md)。
+
 ## 本地配置
 
 Shadow6 使用自己的 `~/.config/shadow6/ziokt.json` 或 `shadow6 ziokt --config FILE`。配置需为当前用户所有、非符号链接、模式 `0600`：
