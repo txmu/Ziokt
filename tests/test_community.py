@@ -148,5 +148,12 @@ class CommunityTests(unittest.TestCase):
         again = subprocess.run([sys.executable, '-m', 'ziokt', 'community', 'init', '--root', str(self.root/'cli'), '--name', 'village'], capture_output=True)
         self.assertEqual(again.returncode, 2)
 
+    def test_secure_binary_read_preserves_crlf_and_dos_eof(self):
+        from ziokt.protocol import secure_read, make_private
+        path = self.root/'binary'
+        data = bytes(range(256))*32+b'\r\n\x1aafter-dos-eof'
+        path.write_bytes(data); make_private(path)
+        self.assertEqual(secure_read(path, len(data)), data)
+
 
 if __name__ == '__main__': unittest.main()
