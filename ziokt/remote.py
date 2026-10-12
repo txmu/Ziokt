@@ -18,10 +18,14 @@ from .client import NativeClient
 from .protocol import MAX_REQUEST, MAX_RESPONSE, ProtocolError, encoded, strict_json
 from .security import ReplayAuthority
 
-WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"}
+WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile", "community.checkpoint.create"}
 
 
 def resource_for(method, params):
+    if method == "community.checkpoint.get":
+        return params.get("digest")
+    if method.startswith("community."):
+        return "community:replicate"
     if method == "operation.prepare":
         return params.get("resource")
     if method.startswith("operation."):
@@ -50,7 +54,7 @@ def tls_context(cert, key, ca, server=False):
     return context
 
 
-def remote_server(federation, context, replay_path, trusted_clients, *, host="127.0.0.1", port=0, allow_mutations=False):
+def remote_server(federation, context, replay_path, trusted_clients, *, host="127.0.0.1", port=0, allow_mutations=False, community=None):
     if not federation["enabled"]:
         raise ProtocolError("ZIOKT_DISABLED", "remote federation must be explicitly enabled")
     if (type(allow_mutations) is not bool or not isinstance(trusted_clients, dict) or not 1 <= len(trusted_clients) <= 64 or
@@ -65,6 +69,9 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
             raise ProtocolError("INVALID_CONFIG", "exact pinned certificate principal required")
     authority = ReplayAuthority(replay_path)
     providers = {p["provider_id"]: p for p in federation["providers"]}
+    if community is not None and (community.community.community_id != federation["federation_id"] or community.community.community_id in providers):
+        authority.close()
+        raise ProtocolError("INVALID_CONFIG", "community endpoint needs its own matching federation scope")
     slots, authority_lock = threading.BoundedSemaphore(8), threading.RLock()
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -75,6 +82,17 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 
         def log_message(self, *_):
             pass
+
+        def send_response(self, code, message=None):
+            # Authenticated peers need status codes, not Python/product banners.
+            self.send_response_only(code, message)
+            self.send_header("Date", self.date_time_string())
+
+        def send_error(self, code, message=None, explain=None):
+            self.send_response(code)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
 
         def do_POST(self):
             status, result = 200, None
@@ -96,7 +114,8 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 principal = trusted_clients.get(hashlib.sha256(cert).hexdigest())
                 if not principal or request["method"] not in principal["methods"] or request["provider_id"] not in principal["providers"]:
                     raise ProtocolError("POLICY_DENIED", "certificate is not allowed for requested operation")
-                if request["provider_id"] not in providers:
+                is_community = community is not None and request["provider_id"] == community.community.community_id
+                if request["provider_id"] not in providers and not is_community:
                     raise ProtocolError("POLICY_DENIED", "provider not configured on this server")
                 if request["method"] in WRITE_METHODS and not allow_mutations:
                     raise ProtocolError("MUTATION_DISABLED", "remote mutations are disabled")
@@ -107,7 +126,10 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 if not slots.acquire(False):
                     raise ProtocolError("BACKPRESSURE", "remote native execution budget exhausted")
                 try:
-                    value = NativeClient(federation["federation_id"], providers[request["provider_id"]]).call(request["method"], request["params"])
+                    if is_community:
+                        value = community.call(request["method"], request["params"], principal["public_key"])
+                    else:
+                        value = NativeClient(federation["federation_id"], providers[request["provider_id"]]).call(request["method"], request["params"])
                 finally:
                     slots.release()
                 result = {"ok": True, "result": value}
@@ -144,9 +166,19 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     return server
 
 
-def request_remote(host, port, context, request, signed_grant):
+def request_remote(host, port, context, request, signed_grant, *, carrier=None):
     connection = http.client.HTTPSConnection(host, port, context=context, timeout=30)
     try:
+        if carrier is not None:
+            from .carrier import connect_onion
+            raw_socket = connect_onion(host, port, carrier)
+            try:
+                connection.sock = context.wrap_socket(raw_socket, server_hostname=host)
+            except BaseException:
+                raw_socket.close()
+                raise
+        elif isinstance(host, str) and host.endswith('.onion'):
+            raise ProtocolError("NO_POLICY_COMPLIANT_PATH", "onion destinations require an explicit local Tor carrier")
         body = encoded({"request": request, "grant": signed_grant})
         if len(body) > MAX_REQUEST:
             raise ProtocolError("INVALID_REQUEST", "remote request exceeds budget")
@@ -168,11 +200,15 @@ def load_remote(path, serving=False):
     config = strict_json(secure_read(path))
     base = {"schema", "host", "port", "certificate", "private_key", "ca"}
     extra = {"replay_state", "trusted_clients", "allow_mutations"} if serving else set()
-    if not isinstance(config, dict) or set(config) != base|extra or config["schema"] != "ziokt.remote.v1":
+    optional = set() if serving else {"carrier"}
+    if not isinstance(config, dict) or not base|extra <= set(config) or set(config)-(base|extra|optional) or config["schema"] != "ziokt.remote.v1":
         raise ProtocolError("INVALID_CONFIG", "exact private remote endpoint configuration required")
     for field in ("certificate", "private_key", "ca", *(["replay_state"] if serving else [])):
         if not isinstance(config[field], str) or not Path(config[field]).is_absolute() or ".." in Path(config[field]).parts:
             raise ProtocolError("INVALID_CONFIG", "fixed absolute remote material paths required")
     if not isinstance(config["host"], str) or type(config["port"]) is not int or not 0 <= config["port"] <= 65535:
         raise ProtocolError("INVALID_CONFIG", "bounded remote endpoint required")
+    if "carrier" in config:
+        from .carrier import validate_carrier
+        validate_carrier(config["carrier"], config["host"])
     return config

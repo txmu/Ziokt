@@ -88,6 +88,8 @@ def inspect(config, action, kind):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ziokt")
     sub = parser.add_subparsers(dest="action", required=True)
+    from .community_cli import register
+    register(sub)
     init = sub.add_parser("init", help="write a disabled federation config; native settings unchanged")
     init.add_argument("--shadow6", required=True, type=Path)
     init.add_argument("--corium", required=True, type=Path)
@@ -181,7 +183,10 @@ def main(argv=None):
     coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
-        if args.action == "remote":
+        if args.action == "community":
+            from .community_cli import execute
+            result = execute(args)
+        elif args.action == "remote":
             from .remote import load_remote, remote_server, tls_context, request_remote, resource_for
             endpoint = load_remote(args.tls_config, serving=args.remote_action == "serve")
             context = tls_context(endpoint["certificate"], endpoint["private_key"], endpoint["ca"], server=args.remote_action == "serve")
@@ -202,7 +207,7 @@ def main(argv=None):
             token = grant(secure_read(args.signing_key, 32), audience=request["provider_id"], action=request["method"],
                 resource=resource_for(request["method"], request["params"]), federation=args.federation,
                 request_digest="sha256:"+hashlib.sha256(encoded(request)).hexdigest(), epoch=args.epoch)
-            result = request_remote(endpoint["host"], endpoint["port"], context, request, token)
+            result = request_remote(endpoint["host"], endpoint["port"], context, request, token, carrier=endpoint.get("carrier"))
         elif args.action == "workflow":
             from .workflow import WorkflowJournal
             with WorkflowJournal(args.journal, read_only=args.workflow_action == "status") as journal:

@@ -55,7 +55,17 @@ class NativeStreamTests(unittest.TestCase):
         config.write_text("[ziokt]\nenabled=TRUE\nfederation_id=test\nprovider_id=corium-local\nallow_mutations=TRUE\nallowed_operations=artifact.stage\nallowed_resources=*\ntransport_bindings_file="+str(bindings_file)+"\n"); config.chmod(0o600)
         from ziokt.client import NativeClient
         from ziokt.config import fingerprint
-        content = b"Ziokt native dual-direction content"
+        from ziokt.community import Community, RIGHTS, create_policy
+        from ziokt.security import sign
+        community_private, community_key = secrets.token_bytes(32), secrets.token_bytes(32)
+        community_public = sign({}, community_private, "test")["public_key"]
+        community_policy = create_policy(community_private, "native-community", {community_public: sorted(RIGHTS)})
+        community_source = Community(fixture.root/"community-source", community_policy, community_public, community_key)
+        self.addCleanup(community_source.close)
+        manifest = community_source.put_file(b"Community survives native node loss")
+        community_source.publish(community_private, "files", "archive", {"name": "archive", **manifest})
+        sealed_event = community_source.db.execute("SELECT sealed FROM records").fetchone()[0]
+        content = community_source.store.get(manifest["chunks"][0])
         content_digest = "sha256:"+hashlib.sha256(content).hexdigest()
         client = NativeClient("test", {"native_project": "corium", "provider_id": "corium-local", "root": str(C),
             "native_config": str(config), "state_root": str(fixture.root), "network_id": "default",
@@ -132,6 +142,10 @@ class NativeStreamTests(unittest.TestCase):
                     response = fixture.run_core('load_config; dht_send_message '+fixture.identity+' ZIOKT_CONTENT_GET '+shlex.quote(query))
                     result = json.loads(response.stdout.strip().splitlines()[-1])
                     self.assertEqual(base64.b64decode(result["data_base64"]), content)
+                    with Community(base/"community-replica", community_policy, community_public, community_key) as replica:
+                        replica.admit([sealed_event])
+                        replica.put_blob(base64.b64decode(result["data_base64"]), content_digest)
+                        self.assertEqual(replica.get_file(manifest), b"Community survives native node loss")
                 finally:
                     for role in ("client", "agent", "broker"):
                         try: registry.stop(names[role])

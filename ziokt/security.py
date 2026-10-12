@@ -19,7 +19,7 @@ def sign(value, private_key, domain):
             "payload": value, "signature": key.sign((domain + "\n").encode() + encoded(value)).hex()}
 
 
-def verify(envelope, public_key, domain):
+def verify(envelope, public_key, domain, *, maximum=65536):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     from cryptography.exceptions import InvalidSignature
     if (not isinstance(envelope, dict) or set(envelope) != {"schema", "domain", "public_key", "payload", "signature"} or
@@ -27,7 +27,9 @@ def verify(envelope, public_key, domain):
             envelope["public_key"] != public_key):
         raise ProtocolError("SIGNATURE_REJECTED", "signature domain/authority mismatch")
     try:
-        strict_json(encoded(envelope["payload"]))
+        if type(maximum) is not int or not 1 <= maximum <= 1024*1024:
+            raise ValueError("signature payload budget")
+        strict_json(encoded(envelope["payload"]), maximum)
         Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key)).verify(
             bytes.fromhex(envelope["signature"]), (domain + "\n").encode() + encoded(envelope["payload"]))
     except (ValueError, TypeError, InvalidSignature):

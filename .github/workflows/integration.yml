@@ -33,12 +33,33 @@ jobs:
       - run: python -m unittest discover -s tests -p test_business.py -v
       - run: python -m unittest discover -s tests -p test_data_channel.py -v
       - run: python -m unittest discover -s tests -p test_zkt.py -v
+      - name: Community applications, node loss and encrypted recovery
+        run: python -m unittest discover -s tests -p 'test_community*.py' -v
       - run: python ci/build.py
       - uses: actions/upload-artifact@v4
         with:
           name: ziokt-${{ matrix.os }}
           path: Ziokt/dist/ziokt.pyz
           if-no-files-found: error
+  anonymous-carrier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Ziokt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Ziokt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y tor
+      - name: Actual onion service and mTLS community exchange
+        env:
+          ZIOKT_TOR_LIVE: '1'
+        run: python -m unittest discover -s tests -p test_tor_live.py -v
   native-integration:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
