@@ -1,4 +1,4 @@
-# 非 ZKT 实施与验收
+# 原生联邦实施与验收
 
 保留 Shadow6 多模块/独立 Core、Corium 单生产文件和双方默认关闭。原生 main 未合并；
 改造在各自 `ziokt/native-support` 分支，精确版本见 `native-sources.lock.json`。
@@ -25,10 +25,8 @@
 - 完整 Ziokt suite：39 项通过（一次 network gate 单独运行）；随后新增治理验收独立通过。
 - 完整 native data gate：12 家族/13 Profile、26 个真实原生 PING/内容往返；private padding
   版本在本地预编译基线运行 139.720 秒。后续相同协议的细节由远端全 gate 复验。
-- S 原生 Ziokt 5 项；C 原生 Ziokt + 既有 ZKT 14 项通过；C Bash 语法及 43 个真实 Python heredoc 通过。
 - 协调器 zipapp 成功；未执行本地 Core 编译、宿主路由/防火墙/服务或全局依赖安装。
 
 每次 native 代码更新同步 canonical spec 并锁定新 commit；最终 CI 链接与制品见
 `docs/verification.json`。便携 CI 分别验证 Linux/macOS/Windows，原生 gate 在 Linux
 编译 Ziokt-enabled Go/Rust/Control，并使用 SHA256 固定的成功上游产物验证全部 Profile。
-ZKT 按最新要求是可配置获得方式的信誉／名声积分。旧发币、固定总量与资产模型已废止；旧实验账本仅作回归夹具，新的信誉机制另轮实现。

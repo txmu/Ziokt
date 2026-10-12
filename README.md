@@ -56,6 +56,5 @@ Ziokt 仅启动固定原生入口，验证配置中固定的源文件摘要，�
 
 ## 实现与验收
 
-详细架构见 [架构设计](docs/architecture.zh-CN.md)；分阶段实现和验证见 [实施记录](docs/implementation-status.zh-CN.md)；可审查的配置与使用步骤见 [非 ZKT 操作指南](docs/operations.zh-CN.md)。
+详细架构见 [架构设计](docs/architecture.zh-CN.md)；分阶段实现和验证见 [实施记录](docs/implementation-status.zh-CN.md)；可审查的配置与使用步骤见 [操作指南](docs/operations.zh-CN.md)。
 
-ZKT 已按最新要求重新定义为可配置获得规则的信誉／名声积分，用于奖励 Shadow6 与 Corium 的服务贡献，尤其是紧缺 Core 与应用服务。此前固定总量、创世发行和资产模型不再作为 ZKT 设计。旧实验账本暂仅保留作回归夹具；新的信誉机制留待下一轮 ZKT 指令。

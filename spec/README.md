@@ -14,7 +14,6 @@ Read methods: capabilities.get, status.get, objects.list, operation.status,
 events.list, and C-owned content.get/governance.fact. Write methods:
 operation.prepare/commit/abort/reconcile, additionally gated by native action and
 resource policies. Operations retain original ownership; no arbitrary argv,
-function name, host path or SQL is admitted. Existing ZKT methods remain frozen.
 
 64 KiB requests; 256 KiB responses; depth 16; strings 8 KiB; safe integers;
 30 second control deadlines; 4096 inventory objects/native journal entries;

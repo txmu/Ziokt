@@ -175,19 +175,6 @@ def main(argv=None):
             cmd.add_argument("--signing-key", type=Path, required=True)
             cmd.add_argument("--federation", required=True)
             cmd.add_argument("--epoch", type=int, default=0)
-    chain = sub.add_parser("testnet", help="isolated native ZKT developer chain; never production issuance")
-    chain_actions = chain.add_subparsers(dest="testnet_action", required=True)
-    for action in ("init", "status", "account", "send", "mine", "rebuild"):
-        cmd = chain_actions.add_parser(action); cmd.add_argument("--root", type=Path, required=True)
-        if action == "init": cmd.add_argument("--corium", type=Path, required=True)
-        if action in {"account", "send"}: cmd.add_argument("address")
-        if action == "send":
-            cmd.add_argument("units", type=int); cmd.add_argument("nonce", type=int); cmd.add_argument("--confirm", action="store_true")
-        if action in {"init", "mine", "rebuild"}: cmd.add_argument("--confirm-test-only", action="store_true")
-    coin = sub.add_parser("zkt", help="query native ZKT status or account through the federation")
-    coin.add_argument("--config", type=Path, required=True)
-    coin.add_argument("--provider", required=True)
-    coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
         if args.action == "remote":
@@ -290,28 +277,6 @@ def main(argv=None):
         elif args.action == "privacy":
             from .policy import evaluate
             result = evaluate(args.profile, strict_json(secure_read(args.observations)))
-        elif args.action == "testnet":
-            from .testnet import initialize as init_chain, invoke
-            if args.testnet_action == "init":
-                if not args.confirm_test_only: raise ProtocolError("APPROVAL_REQUIRED", "explicit --confirm-test-only required")
-                result = init_chain(args.corium, args.root)
-            else:
-                arguments = ["zkt", args.testnet_action]
-                if args.testnet_action in {"account", "send"}: arguments.append(args.address)
-                if args.testnet_action == "send":
-                    if not args.confirm: raise ProtocolError("APPROVAL_REQUIRED", "explicit transfer --confirm required")
-                    arguments.extend([str(args.units), str(args.nonce), "--confirm"])
-                if args.testnet_action in {"mine", "rebuild"}:
-                    if not args.confirm_test_only: raise ProtocolError("APPROVAL_REQUIRED", "explicit --confirm-test-only required")
-                    arguments.append("--confirm-test-only")
-                text = invoke(args.root, arguments)
-                result = strict_json(text.strip().encode()) if args.testnet_action in {"status", "account"} else {"test_only": True, "native_action": args.testnet_action, "completed": True}
-        elif args.action == "zkt":
-            config = load(args.config)
-            if not config["enabled"]: raise ProtocolError("ZIOKT_DISABLED", "federation is disabled")
-            provider = next((p for p in config["providers"] if p["provider_id"] == args.provider and p["native_project"] == "corium"), None)
-            if provider is None: raise ProtocolError("INVALID_CONFIG", "known native Corium asset provider required")
-            result = NativeClient(config["federation_id"], provider).call("zkt.account" if args.address else "zkt.status", {"address": args.address} if args.address else {})
         else:
             result = initialize(args) if args.action == "init" else inspect(load(args.config), args.action, args.kind)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))

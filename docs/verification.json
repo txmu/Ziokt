@@ -1,24 +1,22 @@
 {
-  "status": "remote-validation-pending",
+  "status": "previous-validation-reference; financial components removed",
   "native_sources": {
     "shadow6": {
       "repository": "txmu/Shadow6",
-      "revision": "017492fb8c9504793ada33d7743f19375c0ae06d"
+      "revision": "28f84f87437627d0c638e42a9b839207b9f86964"
     },
     "corium": {
       "repository": "txmu/Corium",
-      "revision": "8c41d0bd88c92970435347753ddf7f0416914fab"
+      "revision": "421f01823dda01402940569f6f4102ddbe7dcbb3"
     }
   },
   "local": {
-    "ziokt_tests": 40,
+    "ziokt_tests": 39,
     "ziokt_network_gate_separate": true,
     "shadow6_native_tests": 5,
-    "corium_regression_tests": 14,
-    "python_heredocs": 43,
+    "python_heredocs": 42,
     "native_families": 12,
     "native_profiles": 13,
     "heavyweight_builds": 0
-  },
-  "zkt_definition": "configurable reputation/fame points; legacy asset design superseded"
+  }
 }
