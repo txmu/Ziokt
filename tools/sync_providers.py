@@ -6,24 +6,46 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 START = "# BEGIN ZIOKT LOCAL PROVIDER (generated from Ziokt/spec/provider_runtime.py)\n"
 END = "# END ZIOKT LOCAL PROVIDER\n"
+ZKT_START = "# BEGIN ZIOKT ZKT ENGINE\n"
+ZKT_END = "# END ZIOKT ZKT ENGINE\n"
 ACTION_START = "# BEGIN ZIOKT NATIVE ACTIONS (generated, fixed monolith dispatcher)\n"
 ACTION_END = "# END ZIOKT NATIVE ACTIONS\n"
 
 
-def embedded(runtime):
+def embedded(runtime, zkt):
     return START + '''# This early machine entry deliberately precedes native locks/recovery/TUI.
 if [[ "${BASH_SOURCE[0]}" -ef "$0" && "${1:-}" == ziokt ]]; then
     shift
     command -v python3 >/dev/null 2>&1 || { printf '%s\\n' 'Ziokt requires Python 3.' >&2; exit 2; }
     # Python source uses stdin; request bytes remain on inherited descriptor 3.
     _ZIOKT_CORIUM_SOURCE="${BASH_SOURCE[0]}" python3 - "$@" 3<&0 <<'PY_ZIOKT_PROVIDER'
-''' + runtime + '''
+''' + runtime + '\n' + zkt + '''
 sys.dont_write_bytecode = True
 raise SystemExit(main("corium", argv=sys.argv[1:], rpc_stream=os.fdopen(3, "rb", closefd=False)))
 PY_ZIOKT_PROVIDER
     exit $?
 fi
 ''' + END
+
+
+def zkt_engine(runtime, zkt):
+    return ZKT_START + '''_ziokt_zkt_engine() {
+    "${PYTHON_CMD:-python3}" - "$@" <<'PY_ZIOKT_ZKT_ENGINE'
+''' + runtime + '\n' + zkt + '''
+raise SystemExit(zkt_engine_main(sys.argv[1:]))
+PY_ZIOKT_ZKT_ENGINE
+}
+corix_zkt() {
+    local action="${1:-}"; [ $# -ge 1 ] && shift
+    case "$action" in
+        status) [ $# -eq 0 ] || return 2; _ziokt_zkt_engine status "$BLOCKCHAIN_DB" ;;
+        account) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine account "$BLOCKCHAIN_DB" "$1" ;;
+        record) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine record "$BLOCKCHAIN_DB" "$1" ;;
+        policy) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine policy "$BLOCKCHAIN_DB" "$1" ;;
+        *) printf '%s\\n' 'corix_zkt status | account ADDRESS | record CLAIM_JSON | policy POLICY_JSON' >&2; return 2 ;;
+    esac
+}
+''' + ZKT_END
 
 
 def native_actions(runtime):
@@ -104,11 +126,14 @@ def main():
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/data_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/native_transport.py").read_text()
+    zkt = (ROOT / "spec/zkt_runtime.py").read_text()
     target = args.shadow6 / "Ziokt-Support/zfcp_runtime.py"
     coordinator_target = ROOT / "ziokt/_runtime.py"
+    currency_target = ROOT / "ziokt/_zkt_runtime.py"
+    currency = 'from ._runtime import *\n' + zkt
     script = args.corium / "corix_v108.sh"
     source = script.read_text()
-    block = embedded(runtime)
+    block = embedded(runtime, zkt)
     if START in source:
         prefix, tail = source.split(START, 1)
         old, suffix = tail.split(END, 1)
@@ -118,6 +143,13 @@ def main():
         if source.count(marker) != 1:
             raise SystemExit("native strict-mode anchor is ambiguous")
         updated = source.replace(marker, marker + "\n" + block, 1)
+    engine = zkt_engine(runtime, zkt)
+    if ZKT_START in updated:
+        prefix, tail = updated.split(ZKT_START, 1)
+        _, suffix = tail.split(ZKT_END, 1)
+        updated = prefix + engine + suffix
+    else:
+        updated = updated.replace(END, END + '\n' + engine, 1)
     actions = native_actions(runtime)
     if ACTION_START in updated:
         prefix, tail = updated.split(ACTION_START, 1)
@@ -127,13 +159,15 @@ def main():
         updated = updated.replace(END, END + '\n' + actions, 1)
     if args.check:
         if (not target.is_file() or target.read_text() != runtime or updated != source or
-                not coordinator_target.is_file() or coordinator_target.read_text() != runtime):
+                not coordinator_target.is_file() or coordinator_target.read_text() != runtime or
+                not currency_target.is_file() or currency_target.read_text() != currency):
             raise SystemExit("native provider protocol drift")
         print("Native protocol copies match Ziokt specification")
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(runtime)
         coordinator_target.write_text(runtime)
+        currency_target.write_text(currency)
         script.write_text(updated)
 
 

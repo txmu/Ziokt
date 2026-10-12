@@ -56,5 +56,5 @@ Ziokt 仅启动固定原生入口，验证配置中固定的源文件摘要，�
 
 ## 实现与验收
 
-详细架构见 [架构设计](docs/architecture.zh-CN.md)；分阶段实现和验证见 [实施记录](docs/implementation-status.zh-CN.md)；可审查的配置与使用步骤见 [操作指南](docs/operations.zh-CN.md)。
+详细架构见 [架构设计](docs/architecture.zh-CN.md)；分阶段实现和验证见 [实施记录](docs/implementation-status.zh-CN.md)；可审查的配置与使用步骤见 [操作指南](docs/operations.zh-CN.md)；非代币信誉与贡献积分机制见 [ZKT 信誉积分设计](docs/zkt-reputation.zh-CN.md)。
 

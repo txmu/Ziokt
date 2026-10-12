@@ -175,6 +175,10 @@ def main(argv=None):
             cmd.add_argument("--signing-key", type=Path, required=True)
             cmd.add_argument("--federation", required=True)
             cmd.add_argument("--epoch", type=int, default=0)
+    coin = sub.add_parser("zkt", help="query native ZKT reputation status or account through the federation")
+    coin.add_argument("--config", type=Path, required=True)
+    coin.add_argument("--provider", required=True)
+    coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
         if args.action == "remote":
@@ -277,6 +281,12 @@ def main(argv=None):
         elif args.action == "privacy":
             from .policy import evaluate
             result = evaluate(args.profile, strict_json(secure_read(args.observations)))
+        elif args.action == "zkt":
+            config = load(args.config)
+            if not config["enabled"]: raise ProtocolError("ZIOKT_DISABLED", "federation is disabled")
+            provider = next((p for p in config["providers"] if p["provider_id"] == args.provider and p["native_project"] == "corium"), None)
+            if provider is None: raise ProtocolError("INVALID_CONFIG", "known native Corium provider required")
+            result = NativeClient(config["federation_id"], provider).call("zkt.account" if args.address else "zkt.status", {"address": args.address} if args.address else {})
         else:
             result = initialize(args) if args.action == "init" else inspect(load(args.config), args.action, args.kind)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))

@@ -32,6 +32,7 @@ jobs:
       - run: python -m unittest discover -s tests -p test_protocol.py -v
       - run: python -m unittest discover -s tests -p test_business.py -v
       - run: python -m unittest discover -s tests -p test_data_channel.py -v
+      - run: python -m unittest discover -s tests -p test_zkt.py -v
       - run: python ci/build.py
       - uses: actions/upload-artifact@v4
         with:
@@ -91,7 +92,7 @@ jobs:
         run: |
           bash -n corix_v108.sh
           python ci/static-checks.py
-          python -m unittest -v test_ziokt
+          python -m unittest -v test_ziokt test_zkt
       - name: Full Ziokt contract and native integration suites
         run: |
           python tools/sync_providers.py --check

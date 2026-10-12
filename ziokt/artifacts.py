@@ -33,9 +33,10 @@ class ArtifactStore:
         with tempfile.NamedTemporaryFile(dir=self.root, prefix=".artifact-", delete=False) as output:
             temporary = Path(output.name)
             output.write(data); output.flush(); os.fsync(output.fileno())
+        make_private(temporary)
         try:
             os.link(temporary, target)
-        except FileExistsError:
+        except (FileExistsError, OSError):
             self.get(digest)
         finally:
             temporary.unlink(missing_ok=True)
