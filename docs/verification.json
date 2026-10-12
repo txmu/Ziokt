@@ -1,5 +1,5 @@
 {
-  "status": "remote-validation-pending",
+  "status": "all-ci-jobs-passed",
   "native_sources": {
     "shadow6": {
       "repository": "txmu/Shadow6",
