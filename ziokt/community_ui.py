@@ -70,12 +70,21 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                     raise ProtocolError('INVALID_REQUEST', 'exact bounded request body required')
                 size = int(self.headers.get('Content-Length', '0'))
                 if self.path == '/api/file-upload':
+                    if not set(community.policy['members'].get(public, [])) & {'files', 'packages'}:
+                        raise ProtocolError('POLICY_DENIED', 'file or package upload permission required')
                     if self.headers.get('Content-Type') != 'application/octet-stream' or not 0 <= size <= MAX_FILE:
                         raise ProtocolError('INVALID_REQUEST', 'bounded binary upload required')
                     self.reply(200, community.put_file(self.rfile.read(size))); return
                 if not 1 <= size <= 65536: raise ProtocolError('INVALID_REQUEST', 'portal request budget exceeded')
                 if self.headers.get('Content-Type') != 'application/json': raise ProtocolError('INVALID_REQUEST', 'JSON portal request required')
                 value = strict_json(self.rfile.read(size))
+                if self.path == '/api/vote':
+                    exact(value, {'proposal', 'choice'})
+                    event = community.vote(private, value['proposal'], value['choice'])
+                    self.reply(200, {'event': event, 'tally': community.tally(value['proposal'])}); return
+                if self.path == '/api/tally':
+                    exact(value, {'proposal'})
+                    self.reply(200, community.tally(value['proposal'])); return
                 if self.path == '/api/sync':
                     exact(value, set())
                     if peer is None: raise ProtocolError('NO_POLICY_COMPLIANT_PATH', 'no explicitly configured community peer')

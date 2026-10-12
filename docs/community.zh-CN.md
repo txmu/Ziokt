@@ -14,9 +14,9 @@
 | Mail | 独立 X25519 信箱、收件人加密主题与正文、离线收件、同步、解密 | 当前为社区内部邮件；未实现互联网 SMTP/IMAP 互通 |
 | Names | 签名社区名称与目标引用、版本与冲突 | 引用记录不替代互联网 DNS/HTTPS；不自动访问任意 URL |
 | Identity | 原始签名者所有权、身份/信箱公钥绑定、携带与撤销 | 权限由当前成员策略决定，显示名不授予权限 |
-| Governance | 签名提案/意见记录及历史 | 投票结果不自动产生宿主执行权；原生治理 guard 继续独立核验 |
+| Governance | 签名提案、按身份去重的投票、并发票冲突与计票、历史 | 投票结果不自动产生宿主执行权；原生治理 guard 继续独立核验 |
 | Hosting | 审查并执行固定原生工作流，保存原始执行回执 | 已配置原生服务与依赖；不把资料恢复当作服务已就绪 |
-| Compute | 受原生动作允许列表约束的工作流、结果回执与材料 | 尚未提供通用分布式作业调度或任意用户代码执行 API |
+| Compute | 绑定原生激活引擎的实际执行、签名回执、证明材料、受审查工作流 | 使用 Corium 原有计算引擎与沙箱；不提供任意宿主代码执行 API |
 | Recovery | 签名加密检查点、多副本验证、节点销毁后重建、换密钥后保留历史 | 独立保存当前策略、根公钥和当前解密密钥；运行授权须重新核验 |
 
 这张表列出真实实现边界；不能把 Hosting/Compute 记录或 Names 映射当作已完成动态网站、通用计算集群或浏览器 DNS 系统。手机可使用响应式页面，但当前入口仅绑定本机，不包含新 Android 客户端。
@@ -145,12 +145,12 @@ python3 -m ziokt community rotate [旧共同参数] \
 
 `community materialize --manifest FILE --native-store DIRECTORY` 只把经完整摘要验证的社区材料交给显式指定的原生 artifact store，输出 `native_signature_verified: false`。之后 Shadow6 原生 package.install/package.activate 必须独立验签。CI 覆盖从社区加密软件材料到真正原生安装、激活和篡改拒绝。
 
-`community native --config FEDERATION --journal JOURNAL --manifest WORKFLOW --domain hosting --object-key SERVICE` 先生成可审查计划。执行时还须 `--apply --expected-digest DIGEST --confirm`。每步复查当前社区权限，最终仍由 Native Provider 的动作/资源策略、revision 和租约裁决。保存原生回执为加密文件和签名应用引用，不能把 committed 偷换为 application_ready。需原生治理或领导权 fencing 的部署可继续用既有 `workflow apply` 对应参数。
+`community native --config FEDERATION --journal JOURNAL --manifest WORKFLOW --domain hosting --object-key SERVICE` 先生成可审查计划。执行时还须 `--apply --expected-digest DIGEST --confirm`。每步复查当前社区权限，最终仍由 Native Provider 的动作/资源策略、revision 和租约裁决。保存原生回执为加密文件和签名应用引用，不能把 committed 偷换为 application_ready。Corium 原生 `compute.run` 的 resource 为 `compute:ENGINE_ID`，arguments 为 `{}`：引擎必须在原生允许列表和链上激活状态内，问题集/引擎摘要绑定到准备阶段。实际运行走原来的 corix_compute 与沙箱，有限预算内返回由原生 secp256k1 身份签名的执行回执；证明材料未提交或未经原生验证时保持 proof_verified=false。需原生治理或领导权 fencing 的部署可继续用既有 `workflow apply` 对应参数。
 
 ## 性能、预算与测试
 
 - 8 KiB 固定事件，4 KiB 固定内容分块，三级有界加密内容索引，单文件 8 MiB。
-- 默认 1024 事件、4096 内容对象、32 MiB 检查点，16 个旧密钥；达到预算明确报错，不默默删除历史或无限增长。
+- 默认 1024 事件、4096 内容对象、32 MiB 检查点，16 个旧密钥；达到预算明确报错，不默默删除历史或无限增长。init/policy 的 `--limits` 可以在签名策略中降低 events/objects/file_bytes/checkpoint_bytes，不能超过硬安全上限。
 - 原始签名验证缓存只在内存中保存，读取仍校验密文摘要和 DB 中实际字节，不接受被更改的本地内容。
 - 网络最多八个执行槽、32 个 TLS 连接；本地门户最多16个连接，所有路径有超时和请求预算。
 - 没有共识式多主宿主执行、永久匿名、通用 CRDT 编辑器或无限留存保证。成员可导出副本和历史，通过自己的新社区继续组织；迁移后的信任关系须显式批准。

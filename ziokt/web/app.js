@@ -7,7 +7,7 @@ const apps={
  packages:{name:'软件仓库',description:'发布原生签名的软件材料。安装和激活仍需原生系统验包。',fields:{name:'软件名称',version:'版本',native_kind:'原生软件类型',native_signature:'原生签名或签名材料引用'}},
  mail:{name:'私信',description:'使用收件人独立的信箱密钥加密。其他社区成员不能用社区密钥解密正文。',fields:{recipient:'收件人身份公钥',mailbox:'收件人信箱公钥',subject:'主题',text:'正文'}},
  names:{name:'命名',description:'为社区内容和服务保存签名名称映射。',fields:{target:'目标内容或服务引用'}},
- governance:{name:'社区自治',description:'保存签名提案和投票。系统操作需要另行审查与授权。',fields:{proposal:'提案内容或提案标识',choice:'意见 / yes / no / abstain / propose'}},
+ governance:{name:'社区自治',description:'保存签名提案和投票。系统操作需要另行审查与授权。',fields:{proposal:'提案内容或提案标识',choice:'提案类型（propose）'}},
  identity:{name:'成员身份',description:'发布可携带的社区身份。名字由签名声明，权限来自成员策略。',fields:{name:'显示名称',public_key:'身份公钥',mailbox_public:'信箱公钥'}},
  hosting:{name:'应用托管',description:'记录服务、部署计划与内容材料。使用原生工作流审查并执行部署。',fields:{service:'原生服务名称',workflow_digest:'已审查部署计划摘要',content:'内容材料引用'}},
  compute:{name:'计算任务',description:'记录经过授权的原生作业及其结果材料。',fields:{job:'任务名称',workflow_digest:'已审查任务计划摘要',result:'结果材料引用'}}
@@ -29,7 +29,7 @@ function fields(){
   const lab=node('label',label);lab.htmlFor='field-'+key;
   const input=node(key==='text'?'textarea':'input');input.id='field-'+key;input.name=key;input.required=key!=='reply_to'&&key!=='mailbox';
   if(key==='text')input.maxLength=1800;else input.maxLength=256;
-  if(domain==='identity'&&key==='public_key')input.value=status.public_key;if(domain==='identity'&&key==='mailbox_public')input.value=status.mailbox_public||'';
+  if(domain==='governance'&&key==='choice'){input.value='propose';input.readOnly=true;}if(domain==='identity'&&key==='public_key')input.value=status.public_key;if(domain==='identity'&&key==='mailbox_public')input.value=status.mailbox_public||'';
   $('fields').append(lab,input);
  }
  if(domain==='files'||domain==='packages'){
@@ -54,6 +54,8 @@ function render(){
   }
   const actions=node('div');actions.className='actions';
   if(domain==='files'||domain==='packages'){const button=node('button','下载文件');button.onclick=async()=>{button.disabled=true;try{download(await api('/api/file-get',event.body,true),event.body.name);}catch(error){feedback(error.message,true);}finally{button.disabled=false;}};actions.append(button);}
+  if(domain==='governance'&&event.body.choice==='propose'){for(const [choice,label] of [['yes','赞成'],['no','反对'],['abstain','弃权']]){const vote=node('button',label);vote.onclick=async()=>{vote.disabled=true;try{const result=await api('/api/vote',{proposal:event.key,choice});feedback('投票已签名保存：'+JSON.stringify(result.tally.votes));await select(domain);}catch(error){feedback(error.message,true);}finally{vote.disabled=false;}};actions.append(vote);}}
+  if(status.rights.includes('moderate')){const remove=node('button','删除标记');remove.onclick=async()=>{if(!window.confirm('为这条内容添加删除标记？已有副本和历史仍会保留。'))return;remove.disabled=true;try{await api('/api/publish',{domain,key:event.key,body:{reason:'community moderation'},parents:null,deleted:true});await select(domain);}catch(error){feedback(error.message,true);remove.disabled=false;}};actions.append(remove);}
   if(status.rights.includes(domain)){const edit=node('button','引用 / 更新');edit.onclick=()=>{$('object-key').value=event.key;for(const key of Object.keys(apps[domain].fields)){const input=$('field-'+key);if(typeof event.body[key]==='string')input.value=event.body[key];}$('compose').scrollIntoView({behavior:'auto'});$('object-key').focus();};actions.append(edit);}
   card.append(actions);$('content').append(card);
  }

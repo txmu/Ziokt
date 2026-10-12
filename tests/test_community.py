@@ -39,7 +39,7 @@ class CommunityTests(unittest.TestCase):
             'mail': __import__('ziokt.community_privacy', fromlist=['seal_mail']).seal_mail(self.public,
                 __import__('ziokt.community_privacy', fromlist=['mailbox_public']).mailbox_public(self.key), 'hello', 'community mailbox'),
             'names': {'target': 'ziokt://village/wiki/home'},
-            'governance': {'proposal': 'keep archives', 'choice': 'yes'},
+            'governance': {'proposal': 'keep archives', 'choice': 'propose'},
             'hosting': {'service': 'wiki', 'workflow_digest': d, 'content': d},
             'compute': {'job': 'index', 'workflow_digest': d, 'result': d},
             'identity': {'name': 'alice', 'public_key': self.public,
@@ -187,6 +187,29 @@ class CommunityTests(unittest.TestCase):
         with Community(self.root/'rotated-peer', new_policy, self.public, new_key) as reopened:
             self.assertEqual(reopened.get_file(materials), b'old encrypted file')
             self.assertEqual(len(reopened.view('wiki')['events']), 2)
+
+    def test_votes_count_once_per_signer_and_conflicts_do_not_double_count(self):
+        self.a.publish(self.private, 'governance', 'backup', {'proposal': 'Keep two replicas', 'choice': 'propose'})
+        self.a.vote(self.private, 'backup', 'yes')
+        b = self.node('voter'); b.restore(self.a.checkpoint(self.private), self.public)
+        self.a.vote(self.private, 'backup', 'no')
+        b.vote(self.private, 'backup', 'abstain')
+        self.a.restore(b.checkpoint(self.private), self.public)
+        tally = self.a.tally('backup')
+        self.assertEqual(tally['votes'], {'yes': 0, 'no': 0, 'abstain': 0})
+        self.assertEqual(tally['conflicting_voters'], [self.public])
+        self.a.vote(self.private, 'backup', 'yes')
+        self.assertEqual(self.a.tally('backup')['votes']['yes'], 1)
+        self.assertFalse(self.a.tally('backup')['execution_authorized'])
+
+    def test_configurable_budgets_fail_without_deleting_committed_history(self):
+        limits = {'events': 1, 'objects': 4, 'file_bytes': 16, 'checkpoint_bytes': 32768}
+        policy = create_policy(self.private, 'village', {self.public: sorted(RIGHTS)}, privacy='private', limits=limits)
+        limited = self.node('limited', policy)
+        limited.publish(self.private, 'wiki', 'home', {'title': 'First', 'text': 'preserved'})
+        with self.assertRaises(ProtocolError): limited.publish(self.private, 'wiki', 'other', {'title': 'Second', 'text': 'over budget'})
+        with self.assertRaises(ProtocolError): limited.put_file(b'a'*17)
+        self.assertEqual(len(limited.view('wiki')['events']), 1)
 
 
 if __name__ == '__main__': unittest.main()

@@ -53,7 +53,9 @@ def hash_id(value):
 
 def policy_document(envelope, owner):
     value = verify(envelope, owner, 'Ziokt/community-policy/v1')
-    exact(value, {'schema', 'community_id', 'epoch', 'members', 'privacy'})
+    base = {'schema', 'community_id', 'epoch', 'members', 'privacy'}
+    if not isinstance(value, dict) or not base <= set(value) or set(value)-base-{'limits'}:
+        raise ProtocolError('INVALID_COMMUNITY', 'exact signed community policy required')
     if value['schema'] != 'ziokt.community-policy.v1' or type(value['epoch']) is not int or not 0 <= value['epoch'] < 2**53:
         raise ProtocolError('INVALID_COMMUNITY', 'bounded community policy epoch required')
     identifier(value['community_id'], 'community_id')
@@ -65,12 +67,19 @@ def policy_document(envelope, owner):
         if (not PUBLIC.fullmatch(key) or not isinstance(rights, list) or len(rights) > len(RIGHTS) or
                 any(not isinstance(r, str) or r not in RIGHTS for r in rights) or len(rights) != len(set(rights))):
             raise ProtocolError('INVALID_COMMUNITY', 'exact member permissions required')
+    if 'limits' in value:
+        exact(value['limits'], {'events', 'objects', 'file_bytes', 'checkpoint_bytes'})
+        for field, maximum in [('events', MAX_EVENTS), ('objects', MAX_BLOBS), ('file_bytes', MAX_FILE), ('checkpoint_bytes', MAX_BYTES)]:
+            if type(value['limits'][field]) is not int or not 1 <= value['limits'][field] <= maximum:
+                raise ProtocolError('INVALID_COMMUNITY', 'explicit resource budget exceeds hard safety ceiling')
     return value
 
 
-def create_policy(private, community_id, members, *, epoch=0, privacy='restricted'):
-    envelope = sign({'schema': 'ziokt.community-policy.v1', 'community_id': community_id,
-                     'epoch': epoch, 'members': members, 'privacy': privacy}, private, 'Ziokt/community-policy/v1')
+def create_policy(private, community_id, members, *, epoch=0, privacy='restricted', limits=None):
+    document = {'schema': 'ziokt.community-policy.v1', 'community_id': community_id,
+                'epoch': epoch, 'members': members, 'privacy': privacy}
+    if limits is not None: document['limits'] = limits
+    envelope = sign(document, private, 'Ziokt/community-policy/v1')
     policy_document(envelope, envelope['public_key'])
     return envelope
 
@@ -79,6 +88,8 @@ class Community:
     def __init__(self, root, policy, owner, encryption_key):
         self.policy = policy_document(policy, owner)
         self.policy_envelope, self.owner = policy, owner
+        self.limits = self.policy.get('limits', {'events': MAX_EVENTS, 'objects': MAX_BLOBS,
+                                               'file_bytes': MAX_FILE, 'checkpoint_bytes': MAX_BYTES})
         self.community_id = self.policy['community_id']
         self.policy_id = content_id(encoded(policy))
         if not isinstance(encryption_key, bytes) or len(encryption_key) != 32:
@@ -255,6 +266,8 @@ class Community:
         if domain == 'packages' and body['native_kind'] not in {'shadow6-app', 'shadow6-plugin', 'shadow6-mod', 'corium-package'}:
             raise ProtocolError('INVALID_APPLICATION', 'original native package kind required')
         if domain in {'hosting', 'compute'}: hash_id(body['workflow_digest'])
+        if domain == 'governance' and body['choice'] not in {'propose', 'yes', 'no', 'abstain'}:
+            raise ProtocolError('INVALID_APPLICATION', 'proposal or explicit vote choice required')
         if domain == 'identity' and not PUBLIC.fullmatch(body['public_key']):
             raise ProtocolError('INVALID_APPLICATION', 'exact identity key required')
         if domain == 'identity' and not PUBLIC.fullmatch(body['mailbox_public']):
@@ -295,6 +308,10 @@ class Community:
             raise ProtocolError('POLICY_DENIED', 'identity records must prove their own signing key')
         if event['domain'] == 'identity' and event['key'] != envelope['public_key']:
             raise ProtocolError('POLICY_DENIED', 'identity namespace belongs to its signing key')
+        if event['domain'] == 'governance' and not event['deleted'] and event['body']['choice'] != 'propose':
+            expected = hashlib.sha256((envelope['public_key']+'\n'+event['body']['proposal']).encode()).hexdigest()
+            if event['key'] != expected:
+                raise ProtocolError('POLICY_DENIED', 'one vote namespace per signer and proposal required')
         return {**event, 'author': envelope['public_key'], 'id': content_id(blob)}
 
     def _policies(self):
@@ -314,13 +331,18 @@ class Community:
             result[event_id] = copy.deepcopy(cached[1])
         return result
 
-    def _check_graph(self, events):
+    def _check_graph(self, events, policies=None):
+        policies = self._policies() if policies is None else policies
         for event in events.values():
             for parent in event['parents']:
                 if parent not in events: raise ProtocolError('MISSING_PARENT', 'causal parent unavailable; sync ancestors first')
                 other = events[parent]
                 if (other['domain'], other['key']) != (event['domain'], event['key']):
                     raise ProtocolError('INVALID_PARENT', 'parent belongs to another application object')
+                if event['domain'] != 'wiki' and event['author'] != other['author']:
+                    policy = policies[event['policy']]
+                    if 'moderate' not in policy['members'].get(event['author'], []):
+                        raise ProtocolError('POLICY_DENIED', 'updating another author requires moderation authority')
         # Hash-addressed signed events cannot practically form cycles, but reject
         # cycles explicitly instead of relying on that cryptographic assumption.
         visited, active = set(), set()
@@ -355,8 +377,8 @@ class Community:
                 event = self._validate_event(blob, policies)
                 if event['id'] not in events: pending[event['id']] = blob
                 events[event['id']] = event
-            if len(events) > MAX_EVENTS: raise ProtocolError('COMMUNITY_LIMIT', 'event retention budget exhausted; archive first')
-            self._check_graph(events)
+            if len(events) > self.limits['events']: raise ProtocolError('COMMUNITY_LIMIT', 'event retention budget exhausted; archive first')
+            self._check_graph(events, policies)
             self.db.executemany('INSERT OR IGNORE INTO records VALUES (?,?)', pending.items())
             return {'events': [content_id(blob) for blob in blobs], 'added': len(pending)}
 
@@ -373,7 +395,7 @@ class Community:
                     'conflicts': {k: v for k, v in conflicts.items() if len(v) > 1}, 'runtime_ready': False}
 
     def put_file(self, data):
-        if not isinstance(data, bytes) or len(data) > MAX_FILE:
+        if not isinstance(data, bytes) or len(data) > self.limits['file_bytes']:
             raise ProtocolError('COMMUNITY_LIMIT', 'file exceeds bounded chunk manifest')
         chunks = []
         with self.lock:
@@ -429,7 +451,7 @@ class Community:
         with self.lock:
             self._current()
             existing = list(self.store.root.iterdir())
-            if len(existing) >= MAX_BLOBS and not (self.store.root/content_id(blob)[7:]).exists():
+            if len(existing) >= self.limits['objects'] and not (self.store.root/content_id(blob)[7:]).exists():
                 raise ProtocolError('COMMUNITY_LIMIT', 'encrypted chunk retention budget exhausted')
             return self.store.put(blob, expected)
 
@@ -458,7 +480,7 @@ class Community:
             header = encoded(manifest)
             if len(header) > 1024*1024: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint header budget exceeded')
             body = struct.pack('!I', len(header))+header+b''.join(records.values())+b''.join(blobs.values())
-            if len(body)+32 > MAX_BYTES: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint byte budget exceeded')
+            if len(body)+32 > self.limits['checkpoint_bytes']: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint byte budget exceeded')
             return self._seal(body, 'checkpoint')
 
     def inventory_digest(self):
@@ -479,9 +501,34 @@ class Community:
             raise ProtocolError('IDENTITY_UNRESOLVED', 'recipient identity was removed or does not prove ownership')
         return event['body']['mailbox_public']
 
+    def vote(self, private, proposal, choice):
+        identifier(proposal, 'proposal key')
+        if choice not in {'yes', 'no', 'abstain'}: raise ProtocolError('INVALID_APPLICATION', 'known vote choice required')
+        public = sign({}, private, 'test')['public_key']
+        key = hashlib.sha256((public+'\n'+proposal).encode()).hexdigest()
+        return self.publish(private, 'governance', key, {'proposal': proposal, 'choice': choice})
+
+    def tally(self, proposal):
+        identifier(proposal, 'proposal key')
+        result = self.view('governance')
+        heads = set(result['heads']); votes = {}; conflicts = []
+        for event in result['events']:
+            body = event['body']
+            if event['id'] not in heads or event['deleted'] or body['proposal'] != proposal or body['choice'] == 'propose': continue
+            if 'governance' not in self.policy['members'].get(event['author'], []): continue
+            votes.setdefault(event['author'], []).append(body['choice'])
+        counts = {'yes': 0, 'no': 0, 'abstain': 0}
+        for author, choices in votes.items():
+            if len(choices) != 1: conflicts.append(author)
+            else: counts[choices[0]] += 1
+        return {'proposal': proposal, 'votes': counts, 'conflicting_voters': sorted(conflicts),
+                'execution_authorized': False, 'consensus_finality_verified': False}
+
     def restore(self, blob, publisher):
         with self.lock:
             self._current(); self._member(publisher, 'recover')
+            if not isinstance(blob, bytes) or len(blob) > self.limits['checkpoint_bytes']:
+                raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint exceeds configured receive budget')
             body = self._open(blob, 'checkpoint')
             if len(body) < 4: raise ProtocolError('INVALID_COMMUNITY', 'truncated checkpoint header')
             size = struct.unpack('!I', body[:4])[0]
@@ -516,7 +563,7 @@ class Community:
                     target[digest] = data
             if offset != len(body): raise ProtocolError('INVALID_COMMUNITY', 'checkpoint trailing or truncated bytes')
             events = {d: self._validate_event(b, policies, historical=True) for d, b in pending.items()}
-            self._check_graph(events)
+            self._check_graph(events, policies)
             required = {d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'], objects)[1]}
             if required != set(objects): raise ProtocolError('MISSING_CONTENT', 'checkpoint must include exactly referenced content')
             for data in objects.values(): self._open(data, 'chunk')
@@ -525,8 +572,8 @@ class Community:
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE'); self._current()
                 merged = self._events(); merged.update(events)
-                if len(merged) > MAX_EVENTS: raise ProtocolError('COMMUNITY_LIMIT', 'merged event retention budget exceeded')
-                self._check_graph(merged)
+                if len(merged) > self.limits['events']: raise ProtocolError('COMMUNITY_LIMIT', 'merged event retention budget exceeded')
+                self._check_graph(merged, {**self._policies(), **policies})
                 for d, data in objects.items(): self.put_blob(data, d)
                 for document in value['policies']:
                     p = policy_document(document, self.owner)

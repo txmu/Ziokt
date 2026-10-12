@@ -82,6 +82,18 @@ _ziokt_native_dispatch() {
             corix_strata_create "$resource" "$package_manager"
             ;;
         chain.mine) blockchain_mine_block ;;
+        compute.run)
+            local engine_id compute_work
+            engine_id=${resource#compute:}
+            compute_work="${VAR_LIB_CORIUM_DIR}/ziokt/compute-$1"
+            mkdir -m 700 "$compute_work" || return 2
+            (
+                cd "$compute_work" || exit 2
+                ulimit -f 128 || exit 2
+                corix_compute run --engine "$engine_id" || exit 2
+            ) || return 2
+            _ziokt_native_compute_result "$CORIUM_ROOT" "$CORIUM_NETWORK_ID" "$1"
+            ;;
         recovery.checkpoint)
             local checkpoint_height checkpoint_path
             checkpoint_height=$(jq -er '.binding_evidence.height' <<< "$descriptor") || return 2
@@ -110,6 +122,16 @@ except (ProtocolError, OSError, ValueError, ImportError) as exc:
     raise SystemExit(2)
 PY_ZIOKT_NATIVE_TRANSPORT
 }
+''' + '''_ziokt_native_compute_result() {
+    "${PYTHON_CMD:-python3}" - "$@" <<'PY_ZIOKT_NATIVE_COMPUTE'
+''' + runtime + '''
+try:
+    compute_finish(sys.argv[1:])
+except (ProtocolError, OSError, ValueError) as exc:
+    print(getattr(exc, "code", "NATIVE_COMPUTE_FAILED"), file=sys.stderr)
+    raise SystemExit(2)
+PY_ZIOKT_NATIVE_COMPUTE
+}
 ''' + ACTION_END
 
 
@@ -124,6 +146,7 @@ def main():
     runtime += '\n' + operations
     runtime += '\n' + (ROOT / "spec/recovery_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
+    runtime += '\n' + (ROOT / "spec/compute_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/data_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/native_transport.py").read_text()
     zkt = (ROOT / "spec/zkt_runtime.py").read_text()

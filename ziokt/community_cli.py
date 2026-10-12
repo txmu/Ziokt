@@ -14,13 +14,14 @@ def register(sub):
     init.add_argument('--root', required=True, type=Path)
     init.add_argument('--name', required=True)
     init.add_argument('--privacy', choices=('private', 'restricted'), default='restricted')
-    for action in ('publish', 'view', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
+    init.add_argument('--limits', type=Path)
+    for action in ('publish', 'view', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--root', required=True, type=Path)
         cmd.add_argument('--policy', required=True, type=Path)
         cmd.add_argument('--owner', required=True)
         cmd.add_argument('--encryption-key', required=True, type=Path)
-        if action in ('publish', 'checkpoint', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
+        if action in ('publish', 'vote', 'checkpoint', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
             cmd.add_argument('--signing-key', required=True, type=Path)
         if action in ('publish', 'view'):
             cmd.add_argument('--domain', choices=sorted(DOMAINS), required=True)
@@ -46,6 +47,7 @@ def register(sub):
             cmd.add_argument('--members', required=True, type=Path)
             cmd.add_argument('--epoch', required=True, type=int)
             cmd.add_argument('--output', required=True, type=Path)
+            cmd.add_argument('--limits', type=Path)
         if action in ('invite', 'accept'):
             cmd.add_argument('--invitation-key', required=True, type=Path)
         if action == 'invite':
@@ -85,6 +87,9 @@ def register(sub):
         if action == 'rotate':
             cmd.add_argument('--next-policy', type=Path, required=True)
             cmd.add_argument('--next-encryption-key', type=Path, required=True)
+        if action in ('vote', 'tally'):
+            cmd.add_argument('--proposal', required=True)
+        if action == 'vote': cmd.add_argument('--choice', choices=('yes', 'no', 'abstain'), required=True)
 
 
 def execute(args):
@@ -96,7 +101,8 @@ def execute(args):
         make_private(args.root)
         private, key = secrets.token_bytes(32), secrets.token_bytes(32)
         public = sign({}, private, 'Ziokt/check-key/v1')['public_key']
-        policy = create_policy(private, args.name, {public: sorted(RIGHTS)}, privacy=args.privacy)
+        policy = create_policy(private, args.name, {public: sorted(RIGHTS)}, privacy=args.privacy,
+                               limits=strict_json(secure_read(args.limits)) if args.limits else None)
         write_binary_exclusive(args.root/'owner.key', private)
         write_binary_exclusive(args.root/'content.key', key)
         mailbox = secrets.token_bytes(32)
@@ -112,6 +118,8 @@ def execute(args):
     with Community(args.root, policy, args.owner, secure_read(args.encryption_key, 32)) as community:
         private = secure_read(args.signing_key, 32) if hasattr(args, 'signing_key') else None
         action = args.community_action
+        if action == 'vote': return {'event': community.vote(private, args.proposal, args.choice)}
+        if action == 'tally': return community.tally(args.proposal)
         if action == 'rotate':
             with community.rotate(strict_json(secure_read(args.next_policy)), secure_read(args.next_encryption_key, 32), private) as rotated:
                 return {'policy': rotated.policy_id, 'epoch': rotated.policy['epoch'], 'historical_data_preserved': True,
@@ -183,7 +191,8 @@ def execute(args):
             if sign({}, private, 'Ziokt/check-key/v1')['public_key'] != args.owner or args.epoch <= community.policy['epoch']:
                 raise ProtocolError('POLICY_DENIED', 'owner signature and increasing policy epoch required')
             document = create_policy(private, community.community_id, strict_json(secure_read(args.members)),
-                                     epoch=args.epoch, privacy=community.policy['privacy'])
+                                     epoch=args.epoch, privacy=community.policy['privacy'],
+                                     limits=strict_json(secure_read(args.limits)) if args.limits else community.policy.get('limits'))
             write_exclusive(args.output, document)
             return {'policy': str(args.output), 'epoch': args.epoch, 'content_key_rotation_required_for_confidential_revocation': True}
         if action == 'replicate':
