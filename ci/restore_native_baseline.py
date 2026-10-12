@@ -37,4 +37,32 @@ with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-") as directory:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(file, target)
                 target.chmod(0o755 if file.stat().st_mode & 0o111 else 0o644)
+    # Recompile Idris Chez scheme application if chezscheme is available, ensuring
+    # the generated image matches the host Chez Scheme FASL ABI and interpreter.
+    idris_dir = destination / "Core-Idris"
+    if idris_dir.is_dir():
+        sodium_ffi = idris_dir / "libsodium_ffi.so"
+        for app_dir in sorted(idris_dir.glob("*_app")):
+            if sodium_ffi.is_file():
+                target_ffi = app_dir / "libsodium_ffi.so"
+                if not target_ffi.exists():
+                    shutil.copyfile(sodium_ffi, target_ffi)
+                    target_ffi.chmod(0o755)
+            ss_file = app_dir / "shadow6-idris.ss"
+            so_file = app_dir / "shadow6-idris.so"
+            chez = shutil.which("chezscheme") or shutil.which("chez")
+            if ss_file.is_file() and chez:
+                cmd = f'(parameterize ([optimize-level 3] [compile-file-message #f]) (compile-program "{ss_file.resolve()}" "{so_file.resolve()}")) (exit 0)'
+                import subprocess
+                subprocess.run([chez, "-q"], input=cmd.encode(), check=True)
+                so_file.chmod(0o755)
+        for launcher_name in ("shadow6-idris", "shadow6-idris-crosed"):
+            launcher = idris_dir / launcher_name
+            if launcher.is_file():
+                content = launcher.read_text(encoding="utf-8")
+                if 'export LD_LIBRARY_PATH="$DIR:' not in content:
+                    content = content.replace('export LD_LIBRARY_PATH="$DIR/', 'export LD_LIBRARY_PATH="$DIR:$DIR/')
+                    launcher.write_text(content, encoding="utf-8")
+                    launcher.chmod(0o755)
 print("Verified unchanged Core products restored for all Native Profiles")
+
