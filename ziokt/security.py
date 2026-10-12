@@ -5,8 +5,9 @@ from pathlib import Path
 import secrets
 import sqlite3
 import time
+import threading
 
-from .protocol import ProtocolError, encoded, identifier, secure_read, strict_json
+from .protocol import ProtocolError, encoded, identifier, secure_read, strict_json, make_private
 
 
 def sign(value, private_key, domain):
@@ -40,10 +41,12 @@ class ReplayAuthority:
         if path.is_symlink():
             raise ProtocolError("UNSAFE_FILE", "replay state cannot be a symlink")
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if path.exists():
+        existed = path.exists()
+        if existed:
             secure_read(path, 16 * 1024 * 1024)
-        self.db = sqlite3.connect(path, timeout=5)
-        path.chmod(0o600)
+        self.db = sqlite3.connect(path, timeout=5, check_same_thread=False)
+        self._lock = threading.RLock()
+        if not existed: make_private(path)
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("CREATE TABLE IF NOT EXISTS used (issuer TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(issuer,nonce))")
         self.db.execute("CREATE TABLE IF NOT EXISTS epochs (issuer TEXT PRIMARY KEY, epoch INTEGER NOT NULL)")
@@ -53,17 +56,30 @@ class ReplayAuthority:
         self.db.close()
 
     def revoke(self, issuer, epoch):
+        with self._lock:
+            return self._revoke(issuer, epoch)
+
+    def _revoke(self, issuer, epoch):
         if type(epoch) is not int or not 0 <= epoch <= 2**53-1:
             raise ProtocolError("INVALID_GRANT", "bounded revocation epoch required")
-        with self.db:
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
             old = self.db.execute("SELECT epoch FROM epochs WHERE issuer=?", (issuer,)).fetchone()
             if old and epoch < old[0]:
                 raise ProtocolError("REVOCATION_ROLLBACK", "revocation epoch cannot decrease")
             self.db.execute("INSERT OR REPLACE INTO epochs VALUES (?,?)", (issuer, epoch))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback(); raise
 
     def admit(self, envelope, issuer, *, audience, action, resource, federation, request_digest):
+        with self._lock:
+            return self._admit(envelope, issuer, audience=audience, action=action,
+                               resource=resource, federation=federation, request_digest=request_digest)
+
+    def _admit(self, envelope, issuer, *, audience, action, resource, federation, request_digest):
         grant = verify(envelope, issuer, "Ziokt/grant/v1")
-        if set(grant) != {"audience", "action", "resource", "federation_id", "request_digest", "issued_at", "expires_at", "nonce", "epoch"}:
+        if not isinstance(grant, dict) or set(grant) != {"audience", "action", "resource", "federation_id", "request_digest", "issued_at", "expires_at", "nonce", "epoch"}:
             raise ProtocolError("INVALID_GRANT", "exact scoped grant required")
         now = int(time.time())
         if (any(grant[k] != v for k, v in {"audience": audience, "action": action,
@@ -113,25 +129,67 @@ def identity_binding(ziokt_public, native_project, native_identity, federation):
             "federation_id": federation, "challenge": secrets.token_hex(16)}
 
 
-def verify_native_binding(binding, native_signature, native_public):
+def verify_native_binding(binding, native_signature, native_public, trusted_names=None):
     """Verify native proof without converting EC/RSA signatures into Ed25519."""
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec, ed25519
     from cryptography.exceptions import InvalidSignature
     message = b"Ziokt/native-binding/v1\n" + encoded(binding)
     try:
+        if (not isinstance(binding, dict) or set(binding) != {"schema", "ziokt_public", "native_project", "native_identity", "federation_id", "challenge"} or
+                binding["schema"] != "ziokt.identity-binding.v1" or not isinstance(binding["challenge"], str) or len(bytes.fromhex(binding["challenge"])) != 16):
+            raise ValueError()
         if binding["native_project"] == "shadow6":
             key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(native_public))
             key.verify(bytes.fromhex(native_signature), message)
-            expected_identity = native_public
-        else:
+            # ShadowIdentity is a native name plus key; the name is never
+            # inferred from raw key bytes or asserted by an untrusted caller.
+            if not isinstance(trusted_names, dict) or trusted_names.get(binding["native_identity"]) != native_public:
+                raise ValueError()
+            expected_identity = binding["native_identity"]
+        elif binding["native_project"] == "corium":
             key = serialization.load_pem_public_key(native_public.encode())
             if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256K1):
                 raise ValueError()
             key.verify(bytes.fromhex(native_signature), message, ec.ECDSA(hashes.SHA256()))
             expected_identity = hashlib.sha256(native_public.rstrip("\n").encode()).hexdigest()
+        else: raise ValueError()
         if binding["native_identity"] != expected_identity:
             raise ValueError()
-    except (ValueError, InvalidSignature, KeyError):
+    except (ValueError, TypeError, InvalidSignature, KeyError):
         raise ProtocolError("BINDING_REJECTED", "native ownership proof rejected")
     return binding
+
+
+class BindingRegistry(ReplayAuthority):
+    """Two ownership proofs, persistent revocation; no native ACL promotion."""
+    def __init__(self, path):
+        super().__init__(path)
+        self.db.execute("CREATE TABLE IF NOT EXISTS bindings (federation TEXT,project TEXT,native_id TEXT,ziokt_key TEXT,epoch INTEGER,proof TEXT,PRIMARY KEY(federation,project,native_id))")
+        self.db.commit()
+
+    def enroll(self, envelope, federation, trusted_names=None):
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("public_key"), str):
+            raise ProtocolError("INVALID_BINDING", "signed dual ownership proof required")
+        public = envelope["public_key"]
+        payload = verify(envelope, public, "Ziokt/binding/v1")
+        if not isinstance(payload, dict) or set(payload) != {"binding", "native_public", "native_signature", "epoch"}:
+            raise ProtocolError("INVALID_BINDING", "exact binding proof required")
+        binding = verify_native_binding(payload["binding"], payload["native_signature"], payload["native_public"], trusted_names)
+        if binding["ziokt_public"] != public or binding["federation_id"] != federation or type(payload["epoch"]) is not int:
+            raise ProtocolError("SCOPE_MISMATCH", "binding authority or federation differs")
+        with self._lock, self.db:
+            epoch = self.db.execute("SELECT epoch FROM epochs WHERE issuer=?", (public,)).fetchone()
+            if payload["epoch"] != (epoch[0] if epoch else 0):
+                raise ProtocolError("BINDING_REVOKED", "binding revocation epoch differs")
+            old = self.db.execute("SELECT ziokt_key FROM bindings WHERE federation=? AND project=? AND native_id=?",
+                (federation, binding["native_project"], binding["native_identity"])).fetchone()
+            if old and old[0] != public: raise ProtocolError("BINDING_CONFLICT", "native identity already has a different reviewed binding")
+            self.db.execute("INSERT OR REPLACE INTO bindings VALUES (?,?,?,?,?,?)", (federation, binding["native_project"], binding["native_identity"], public, payload["epoch"], encoded(envelope).decode()))
+        return {"binding": binding, "epoch": payload["epoch"], "native_permissions_granted": False}
+
+    def bindings(self, federation):
+        with self._lock:
+            rows = self.db.execute("SELECT proof FROM bindings b WHERE federation=? AND epoch=COALESCE((SELECT epoch FROM epochs e WHERE e.issuer=b.ziokt_key),0) LIMIT 4097", (federation,)).fetchall()
+        if len(rows) > 4096: raise ProtocolError("BINDING_LIMIT", "binding inventory requires archival")
+        return [strict_json(row[0].encode()) for row in rows]

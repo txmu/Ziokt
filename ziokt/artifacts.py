@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import tempfile
 
-from .protocol import ProtocolError, encoded, secure_read, strict_json
+from .protocol import ProtocolError, encoded, secure_read, strict_json, make_private
 from .security import verify
 
 MAX_ARTIFACT = 64 * 1024 * 1024
@@ -16,7 +16,9 @@ class ArtifactStore:
         self.root = Path(root)
         if self.root.is_symlink():
             raise ProtocolError("UNSAFE_FILE", "artifact store cannot be a symlink")
+        existed = self.root.exists()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not existed: make_private(self.root)
 
     def put(self, data, expected=None):
         if not isinstance(data, bytes) or len(data) > MAX_ARTIFACT:
@@ -56,6 +58,40 @@ class ArtifactStore:
             except (ProtocolError, OSError) as exc:
                 failures.append(getattr(exc, "code", "SOURCE_UNAVAILABLE"))
         raise ProtocolError("ALL_SOURCES_FAILED", "no approved source supplied matching content: " + ",".join(failures))
+
+    def fetch_native(self, digest, sources):
+        """Verified ranged content via native C -> native S -> native C bindings.
+
+        Each source is (NativeClient, peer_id). At most four reviewed providers;
+        restart at the last admitted offset, verify the entire digest at publish.
+        """
+        import base64
+        if not isinstance(digest, str) or not re.fullmatch("sha256:[a-f0-9]{64}", digest) or not isinstance(sources, list) or not 1 <= len(sources) <= 4:
+            raise ProtocolError("INVALID_ARTIFACT", "exact digest and bounded reviewed native sources required")
+        data, total = bytearray(), None
+        failures = []
+        for client, peer in sources:
+            try:
+                while total is None or len(data) < total:
+                    part = client.call("content.get", {"peer_id": peer, "digest": digest, "offset": len(data), "length": 6144})
+                    if (not isinstance(part, dict) or set(part) != {"status", "digest", "offset", "total_size", "data_base64"} or
+                            part["status"] != "success" or part["digest"] != digest or part["offset"] != len(data) or
+                            type(part["total_size"]) is not int or not 0 <= part["total_size"] <= MAX_ARTIFACT or
+                            (total is not None and total != part["total_size"])):
+                        raise ProtocolError("INVALID_RESPONSE", "native immutable content range drifted")
+                    total = part["total_size"]
+                    chunk = base64.b64decode(part["data_base64"], validate=True)
+                    if len(chunk) != min(6144, total-len(data)):
+                        raise ProtocolError("INVALID_RESPONSE", "native content range length changed")
+                    data.extend(chunk)
+                    if not total: break
+                return self.put(bytes(data), digest)
+            except (ProtocolError, OSError, ValueError, TypeError) as exc:
+                failures.append(getattr(exc, "code", "SOURCE_UNAVAILABLE"))
+                # A failed final hash does not let a corrupt earlier prefix
+                # poison the next reviewed source.
+                if getattr(exc, "code", "") == "ARTIFACT_DIGEST_MISMATCH": data.clear(); total = None
+        raise ProtocolError("ALL_SOURCES_FAILED", "reviewed native content sources exhausted: "+",".join(failures))
 
 
 def publication(envelope, publisher):

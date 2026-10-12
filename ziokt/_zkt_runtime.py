@@ -78,6 +78,8 @@ def zkt_genesis_file(path):
     value = strict_json(secure_read(path, MAX_CONFIG, private=None), MAX_CONFIG)
     if "ziokt_zkt" not in value:
         return None
+    if value.get("ziokt_zkt_enabled") is not True:
+        fail("ZKT_DISABLED", "native genesis requires ziokt_zkt_enabled=true")
     validators = value.get("genesis_validators")
     if not isinstance(validators, list) or not validators or not isinstance(validators[0].get("public_key"), str):
         fail("ZKT_INVALID_GENESIS", "native genesis validator required")
@@ -193,6 +195,28 @@ def zkt_validate_pending(db, policy, asset, state, tx_hash, previous):
     return state
 
 
+def zkt_read_status(path, address=None):
+    path = Path(path).absolute()
+    if not path.is_file() or path.is_symlink():
+        fail("ZKT_NOT_INITIALIZED", "native ZKT chain unavailable")
+    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+    try:
+        db.execute("BEGIN")
+        policy, asset, state = zkt_load(db)
+        tip = db.execute("SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1").fetchone()
+        projection = db.execute("SELECT value FROM chain_state WHERE key='last_processed_height'").fetchone()
+        result = {"schema": "ziokt.zkt-status.v1", "asset_id": asset, "network_id": policy["network_id"],
+                  "total_units": policy["total_units"], "decimals": policy["decimals"], "fee_units": policy["fee_units"],
+                  "issuance": "fixed-genesis", "height": tip[0], "block_hash": tip[1], "finality": "unverified",
+                  "projection_height": int(projection[0]) if projection else None, "account_count": len(state)}
+        if address is not None:
+            address = zkt_address(address)
+            result["account"] = {"address": address, **state.get(address, {"balance": 0, "nonce": 0})}
+        return result
+    finally:
+        db.close()
+
+
 def zkt_engine_main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     action = args[0]
@@ -200,6 +224,11 @@ def zkt_engine_main(argv=None):
         if action == "commitment":
             genesis = zkt_genesis_file(args[1])
             print(genesis[1].removeprefix("sha256:") if genesis else "")
+            return 0
+        if action == "test-marker":
+            marker = strict_json(secure_read(args[1]))
+            if marker.get("schema") != "ziokt.testnet.v1" or marker.get("test_only") is not True or marker.get("network_id") != args[2] or not args[2].startswith("ziokt-test-"):
+                fail("ZKT_TEST_ONLY_REQUIRED", "explicit isolated testnet marker required")
             return 0
         if action == "verify-recovery":
             snapshot = strict_json(secure_read(args[1], 16 * 1024 * 1024, private=None), 16 * 1024 * 1024, string_limit=16 * 1024 * 1024)
@@ -231,6 +260,7 @@ def zkt_engine_main(argv=None):
                 if not genesis:
                     return 0
                 policy, asset, public = genesis
+                make_private(dbpath)
                 zkt_tables(db)
                 if db.execute("SELECT 1 FROM zkt_meta").fetchone():
                     fail("ZKT_ALREADY_INITIALIZED", "genesis issuance cannot be repeated")

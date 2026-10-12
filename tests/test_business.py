@@ -10,7 +10,7 @@ from ziokt.artifacts import ArtifactStore, dependency_lock, publication
 from ziokt.policy import Budget, evaluate, select_path
 from ziokt.protocol import ProtocolError
 from ziokt.recovery import export_bundle, import_bundle
-from ziokt.security import ReplayAuthority, grant, sign, verify
+from ziokt.security import ReplayAuthority, BindingRegistry, identity_binding, grant, sign, verify
 from ziokt.workspace import review
 
 
@@ -117,6 +117,37 @@ class BusinessTests(unittest.TestCase):
         result = review(manifest, inventory)
         self.assertEqual(result["missing"], ["missing"])
         self.assertFalse(result["runtime_ready"])
+
+    def test_dual_identity_proof_named_native_key_and_revocation(self):
+        native = Ed25519PrivateKey.generate()
+        native_public = native.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
+        binding = identity_binding(self.public, "shadow6", "alice", "test")
+        from ziokt.protocol import encoded
+        signature = native.sign(b"Ziokt/native-binding/v1\n"+encoded(binding)).hex()
+        document = sign({"binding": binding, "native_public": native_public, "native_signature": signature, "epoch": 0}, self.private, "Ziokt/binding/v1")
+        state = BindingRegistry(self.root/"bindings.sqlite"); self.addCleanup(state.close)
+        with self.assertRaises(ProtocolError): state.enroll(document, "test", {"mallory": native_public})
+        admitted = state.enroll(document, "test", {"alice": native_public})
+        self.assertFalse(admitted["native_permissions_granted"])
+        self.assertEqual(len(state.bindings("test")), 1)
+        state.revoke(self.public, 1)
+        self.assertEqual(state.bindings("test"), [])
+        with self.assertRaises(ProtocolError): state.enroll(document, "test", {"alice": native_public})
+
+    def test_native_multisource_ranged_transfer_and_final_integrity(self):
+        import base64
+        data = b"native ranged content"*1024
+        digest = "sha256:"+hashlib.sha256(data).hexdigest()
+        class Source:
+            def __init__(self, fail=False): self.fail = fail
+            def call(self, method, params):
+                if self.fail and params["offset"] >= 6144: raise ProtocolError("DATA_TIMEOUT", "injected source outage")
+                start = params["offset"]
+                return {"status": "success", "digest": digest, "offset": start, "total_size": len(data),
+                        "data_base64": base64.b64encode(data[start:start+params["length"]]).decode()}
+        store = ArtifactStore(self.root/"ranges")
+        self.assertEqual(store.fetch_native(digest, [(Source(True), "first"), (Source(), "second")]), digest)
+        self.assertEqual(store.get(digest), data)
 
 
 if __name__ == "__main__":

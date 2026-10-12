@@ -1,5 +1,6 @@
 """Common workspace intent with native ownership and evidence-based readiness."""
-from .protocol import ProtocolError, identifier
+import hashlib
+from .protocol import ProtocolError, identifier, encoded
 from .policy import PROFILES
 
 
@@ -28,3 +29,20 @@ def review(manifest, inventory):
     return {"schema": "ziokt.workspace-review.v1", "workspace_id": manifest["workspace_id"],
             "resolved": resolved, "missing": missing, "materials_resolved": not missing,
             "runtime_ready": False, "privacy": manifest["privacy"], "recovery": manifest["recovery"]}
+
+
+def provision(manifest, steps, federation, inventory, journal, *, apply=False, expected_digest=None, confirmed=False):
+    """A workspace materializes through reviewed original native operations."""
+    reviewed = review(manifest, inventory)
+    identity = hashlib.sha256(encoded({"workspace": manifest, "steps": steps})).hexdigest()
+    workflow_id = "ws-"+identity[:48]
+    flow = {"schema": "ziokt.workflow.v1", "workflow_id": workflow_id, "steps": steps}
+    plan = journal.plan(flow, federation)
+    if apply:
+        if inventory.get("healthy") is not True:
+            raise ProtocolError("NATIVE_STATE_UNAVAILABLE", "workspace providers must pass native inventory before apply")
+        if expected_digest != plan["plan_digest"]:
+            raise ProtocolError("STALE_PLAN", "workspace workflow differs from reviewed plan")
+        plan = journal.apply(workflow_id, federation, expected_digest, confirmed)
+    return {"schema": "ziokt.workspace-plan.v1", "workspace": reviewed, "workflow": plan,
+            "privacy_requires_runtime_evidence": True}

@@ -1,58 +1,57 @@
-# Active implementation state
+# Working state (2026-10-12)
 
-User requests all original P0-P6 integration stages, deep functional fusion,
-privacy/resilience, core-neutral support for every Shadow6 family, as much
-cross-platform support as possible, a GitHub repository and focused remote CI
-that builds Ziokt-enabled native artifacts and passes full Ziokt/ZKT testchain
-tests. Do not run heavyweight compilation locally. ZKT is fixed-supply genesis
-issuance; user explicitly wants mechanism/test data only, no formal issuance.
+LATEST USER CORRECTION: ZKT is NOT a token/asset. It is configurable reputation/fame points rewarding more Shadow6/Corium service, especially scarce Core/application service. Earlier fixed-supply/genesis issuance design is obsolete. Retain old experimental ledger only as regression fixture; new reputation mechanisms deferred.
 
-Baselines: S 14a75b57, C 87c4973. Initially clean. All local edits are ours.
-No subagents authorized; none spawned. No push/commit yet. Ziokt git initialized.
+User: finish ALL non-ZKT mechanisms, commit and end this turn. Future ZKT instructions
+will come separately. Freeze further currency feature work; retain prior code/tests.
+NO heavyweight local compilation. No agents authorized/spawned. No goal object.
 
-Completed first slice: Ziokt spec/provider_runtime.py shared strict local
-read-only protocol; S Ziokt-Support native module and CLI route, Makefile native
-tests/install entries; C generated early machine entry in its one production
-Bash file before native locks/recovery/TUI; native C CI test step; Z real CLI
-clients, bounded process execution and union service/package/Strata inventory.
-Generated copies synchronized via tools/sync_providers.py.
+Workspace /home/admin/{Shadow6,Corium,Ziokt}. Native branches ziokt/native-support,
+main unchanged. Root private txmu/Ziokt origin SSH. Latest native commits pinned in
+native-sources.lock.json; more generated changes since those commits must publish.
 
-Tests passed: Ziokt 14 tests, S native 5 tests, C native 6 tests, C bash syntax
-and 40 directly-invoked Python heredoc compilation. No build or packaging yet.
-Source docs and README created. P0/P1 only; P2-P6/ZKT not claimed complete.
+Implemented P0-P6 mechanisms: strict opt-in native JSONL, union metadata including
+services/packages/Strata/Wiki/Forum/Mail/templates/identity/Nomen/proposals/snapshots;
+fixed original native actions, durable operation journal/outbox/revision/lease and
+Saga with unknown/reconcile; S signed package install/activation; C wiki/native mine,
+snapshot/Strata dispatch; original SDK data stream+message, native C gateway signature,
+real C dht_send_message hook, pinned peer/lock, safe fallback, range content multi-source
+CAS; private record padding/no clear brand marker; typed workspaces, dual native/Z
+identity proof+revocation; native S stopped-service/material cold restore and original
+C Phoenix checkpoint/cold restore; signed encrypted recovery bundle+epoch; mTLS remote
+CLI/grants/replay; one-authority leadership+native fencing; original signed C inclusion
+facts guarding each workflow step, original consensus retains authority.
 
-Important defects/next work: client currently POSIX /dev/fd only; replace with
-portable private source snapshots and bounded thread pipe pumps. S/C independent
-entrypoints remain default disabled. Protocol copies must be resynced after spec
-edits. Add BUILD_ZIOKT configure flag and targeted remote integration CI. Runtime
-native_objects deliberately avoids ServiceRegistry @transaction read methods
-because they create locks/migrate state. C uses its native file metadata for
-packages (name/slot/version), owned dirs and non-symlinks. Test fixture chmods
-because environment umask is 0002.
+Canonical spec/provider_runtime, operation_runtime, data_runtime, native_transport,
+recovery_runtime, governance_runtime generated via tools/sync_providers.py. ZKT spec
+unchanged in this resumed task; older pending edits preserved, not newly developed.
 
-GitHub gh authenticated as txmu; S/C origin git@github.com:txmu/{Shadow6,Corium}.git.
-Need inspect/create txmu/Ziokt (private unless user specifies) and publish concrete
-branches/PRs, do not overwrite stable native main. User authorized remote repo/CI.
+Local validated: Z 39 full suite (network gate separately enabled), S5, C6+existing
+ZKT8, 43 C heredocs, real mTLS, cold restore2, old leader fencing1, native governance1,
+S package install+activate/tamper, real C ACL/wiki/mine/snapshot and original S chat,
+actual SIGKILL after artifact effect -> unknown -> reconcile single completion event.
+Original optional local binaries were stale. Precompiled current upstream baseline
+in /tmp/ziokt-native-artifacts.Ri1nwg/verified-release/Shadow6 tested all12 families /
+13 Profiles: real C dht send PING+content over original S trios (139.720s with private
+padding), no compile. Latest small framing (removing brand marker), gov/metadata changes
+need final remote full gate. No Core logic modified.
 
-ZKT native integration targets: _validate_single_transaction (native signature
-already validated then case), blockchain_create_genesis_block, and
-_update_chain_state_cache. _internal_replay_chain_state calls these during replay;
-Phoenix and semantic state support custom schemas. Avoid separate fake currency
-ledger: deterministic ZKT state must be native canonical transactions, genesis
-signed commitment, no mint after genesis, nonce + balance + fee validation,
-double spends inside same block, rebuild on reorg, recover via Phoenix. Genesis
-currently hashes only height/prev/timestamp/empty tx list; token networks must add
-asset commitment to genesis hash while preserving non-ZKT legacy hash. Source
-schema detector sees regex CREATE TABLE IF NOT EXISTS; optional ZKT tables should
-use explicit CREATE TABLE (checked existence) so Phoenix captures custom schemas.
-Use integer base units, 2^53-1 maximum portable integer, EC SECP256K1 native
-signatures for C. No actual network launch or mainnet issuance.
+GitHub CI first run 38181367157 private C checkout failure; read-only deploy key
+166128055 secret CORIUM_READ_KEY fixed; second run38181811719 native integration+
+Linux/macOS success, Windows ACL failure. Real Windows owner/DACL make_private now
+implemented, need final rerun. Do not call dynamic Dependabot success integration.
+Private prerelease native-baseline-14a75b57 asset Shadow6.tar.gz sha256 recorded in
+native-baseline.lock; baseline14a75b57 upstream full CI38138197552 success. Restore
+unchanged Core products only then rebuild changed native supports+Go/Rust remotely.
+Need shared libs including Idris libsodium_ffi.so; generic .so/.dll/.dylib restoration
+now included. Ubuntu libsctp1 chezscheme libsodium23 libunistring5 installed in CI.
 
-Prebuilt S Go and Rust binaries exist; use existing artifacts for local genuine
-network E2E only. Core-neutral adapter should consume libshadow6 Application
-Boundary without hardcoded family selection. Native family semantic differences
-must remain truthful, not silently translated or downgraded.
-
-Pending user decisions: none required; formal supply/decimals/distribution deferred
-explicitly. Use marked test manifests only. Last user steering prioritizes all
-non-ZKT stages and remote green CI, rather than stopping after test currency.
+Remaining execution: finish relevant tests/source sync/diff checks, publish final
+native source commits [skip ci], update exact root native lock, publish root main,
+monitor precise integration.yml (45min max) to all-green portable+native. Fix failures,
+validate artifacts and docs/verification.json. Ensure all3 clean and report concise
+Chinese with repo/CI link, actual coverage, no heavy local build and ZKT frozen.
+Docs README, operations.zh-CN.md and implementation-status updated; status evidence
+must be finalized to the actual newest remote run and count. Runtime platform limits,
+restricted anonymous evidence, foreground Strata budget, one authority vs distributed
+consensus and signed inclusion vs C finality remain documented honest constraints.

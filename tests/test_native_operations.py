@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
+import os
+import subprocess
+import time
+from contextlib import closing
 import unittest
 
 from test_native_integration import NativeFixture, C, S
@@ -40,7 +44,7 @@ class OperationTests(NativeFixture):
         result = client.call("operation.commit", {"operation_id": params["operation_id"], "plan_digest": first["plan_digest"]})
         self.assertEqual(result["state"], "committed")
         self.assertEqual(client.call("operation.commit", {"operation_id": params["operation_id"], "plan_digest": first["plan_digest"]}), result)
-        with sqlite3.connect(self.state / "var/lib/corix/p2p/dht.db") as db:
+        with closing(sqlite3.connect(self.state / "var/lib/corix/p2p/dht.db")) as db:
             row = db.execute("SELECT file_path,size FROM local_chunks WHERE hash=?", (resource[7:],)).fetchone()
         self.assertEqual(Path(row[0]).read_bytes(), data)
         events = client.call("events.list")
@@ -86,6 +90,66 @@ class OperationTests(NativeFixture):
             self.assertEqual(done["state"], "committed")
         with WorkflowJournal(path) as journal:
             self.assertEqual(journal.apply("test-workflow", self.federation, plan["plan_digest"], confirmed=True), done)
+
+    def test_signed_native_package_install_activate_and_tamper_rejection(self):
+        sys.path.insert(0, str(S/"Package-Manager"))
+        from shadow6_pkg import keygen, build_package
+        from ziokt.artifacts import ArtifactStore
+        private, trust = self.base/"publisher.key", self.base/"trust.json"
+        keygen(private, trust, "test-publisher"); trust.chmod(0o600)
+        payload = self.base/"payload"; payload.mkdir(); (payload/"readme").write_bytes(b"signed native app")
+        archive = self.base/"app.zip"
+        build_package(payload, archive, private, "test-publisher", "app", "wiki-client", "1.0.0")
+        store = ArtifactStore(self.base/"artifacts"); artifact = store.put(archive.read_bytes())
+        packages = self.base/"packages"; packages.mkdir(mode=0o700)
+        config = json.loads(self.sconfig.read_text())
+        config.update(allow_mutations=True, allowed_operations=["package.install", "package.activate"],
+                      allowed_resources=["app/wiki-client@1.0.0"], package_root=str(packages),
+                      package_trust_file=str(trust), artifact_root=str(store.root))
+        self.sconfig.write_text(json.dumps(config))
+        client = NativeClient("test", self.providers[0])
+        for action, arguments in (("package.install", {"artifact_digest": artifact}), ("package.activate", {})):
+            op_id = action.replace(".", "-")
+            prepared = client.call("operation.prepare", {"operation_id": op_id, "action": action,
+                "resource": "app/wiki-client@1.0.0", "arguments": arguments, "expected_revision": None})
+            done = client.call("operation.commit", {"operation_id": op_id, "plan_digest": prepared["plan_digest"]})
+            self.assertTrue(done["result"]["native_signature_verified"])
+        base = packages/"app/wiki-client"
+        self.assertEqual(json.loads((base/"active.json").read_text())["version"], "1.0.0")
+        (base/"versions/1.0.0/readme").write_bytes(b"tampered")
+        with self.assertRaises(ProtocolError):
+            client.call("operation.prepare", {"operation_id": "bad-activation", "action": "package.activate",
+                        "resource": "app/wiki-client@1.0.0", "arguments": {}, "expected_revision": None})
+
+    def test_real_process_crash_after_content_write_reconciles_without_duplicate_event(self):
+        self.enable_writes()
+        data = b"persist native effect before SIGKILL"
+        resource = "sha256:" + hashlib.sha256(data).hexdigest()
+        params = {"operation_id": "crash-test", "action": "artifact.stage", "resource": resource,
+                  "arguments": {"data_base64": base64.b64encode(data).decode()}, "expected_revision": None, "lease_ms": 1000}
+        client = NativeClient("test", self.providers[1]); plan = client.call("operation.prepare", params)
+        # Test-only injection outside production source; execute the actual
+        # generated native journal and native filesystem/database write first.
+        code = '''import os,sys,signal
+from pathlib import Path
+from ziokt import _runtime as r
+root=Path(sys.argv[1]); config=r.load_config("corium",root/"etc/corix/networks/default/corix.conf")
+original=r.operation_execute
+def crash(*args,**kw):
+    original(*args,**kw)
+    os.kill(os.getpid(),signal.SIGKILL)
+r.operation_execute=crash
+r.operation_dispatch("corium",root,"default",config,"operation.commit",{"operation_id":"crash-test","plan_digest":sys.argv[2]})
+'''
+        process = subprocess.run([sys.executable, "-c", code, str(self.state), plan["plan_digest"]], timeout=10)
+        self.assertLess(process.returncode, 0)
+        self.assertEqual(client.call("operation.status", {"operation_id": "crash-test"})["state"], "unknown")
+        remaining = (plan["expires_at_ms"]-int(time.time()*1000))/1000
+        if remaining > 0: time.sleep(remaining+.02)
+        done = client.call("operation.reconcile", {"operation_id": "crash-test"})
+        self.assertEqual(done["state"], "committed")
+        self.assertEqual(client.call("operation.reconcile", {"operation_id": "crash-test"}), done)
+        self.assertEqual(len(client.call("events.list")["events"]), 1)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-"""ZFCP/1 local read-only profile. Vendored in S and embedded in C.
+"""ZFCP/1 opt-in native profile. Vendored in S and embedded in C.
 
-No Ziokt installation is needed by either native provider. This profile has no
-remote transport, grants, mutations or persistent replay protection.
+No Ziokt installation is needed by either native provider. Local owner authority
+gates fixed journaled operations; remote grants belong to the separate mTLS API.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account")
 
 
 class ProtocolError(ValueError):
@@ -114,6 +114,70 @@ def windows_owner_controlled(handle, private):
             kernel.LocalFree(descriptor)
         for sid in allowed:
             kernel.LocalFree(sid)
+
+
+def make_private(path):
+    """Restrict a newly created Ziokt object, including a real Windows DACL."""
+    path = Path(path)
+    if os.name != "nt":
+        path.chmod(0o700 if path.is_dir() else 0o600)
+        return
+    import ctypes
+    from ctypes import wintypes
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                  wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    advapi.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    advapi.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    advapi.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
+    advapi.SetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    advapi.SetSecurityInfo.restype = wintypes.DWORD
+    token, descriptor, text = wintypes.HANDLE(), ctypes.c_void_p(), ctypes.c_void_p()
+    handle = None
+    try:
+        if path.is_symlink():
+            fail("UNSAFE_FILE", "private object cannot be a symlink")
+        # READ_CONTROL | WRITE_DAC, OPEN_EXISTING, BACKUP_SEMANTICS and
+        # OPEN_REPARSE_POINT. Only this object's handle is ever modified.
+        handle = kernel.CreateFileW(str(path.absolute()), 0x60000, 7, None, 3, 0x02200000, None)
+        if handle in (None, ctypes.c_void_p(-1).value):
+            fail("UNSAFE_FILE", "private Windows object cannot be opened")
+        windows_owner_controlled(handle, False)
+        if not advapi.OpenProcessToken(kernel.GetCurrentProcess(), 8, ctypes.byref(token)):
+            fail("UNSAFE_FILE", "Windows private owner unavailable")
+        size = wintypes.DWORD()
+        advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+        if not 1 <= size.value <= 16384:
+            fail("UNSAFE_FILE", "invalid Windows private owner")
+        buffer = ctypes.create_string_buffer(size.value)
+        if not advapi.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)):
+            fail("UNSAFE_FILE", "Windows private owner unavailable")
+        sid = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]
+        if not advapi.ConvertSidToStringSidW(sid, ctypes.byref(text)):
+            fail("UNSAFE_FILE", "Windows private SID unavailable")
+        current = ctypes.wstring_at(text)
+        inheritance = "OICI" if path.is_dir() else ""
+        sddl = "D:P" + "".join("(A;" + inheritance + ";FA;;;" + identity + ")" for identity in ("SY", "BA", current))
+        if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
+            fail("UNSAFE_FILE", "private Windows DACL invalid")
+        present, defaulted, dacl = wintypes.BOOL(), wintypes.BOOL(), ctypes.c_void_p()
+        if not advapi.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)) or not present:
+            fail("UNSAFE_FILE", "private Windows DACL missing")
+        if advapi.SetSecurityInfo(handle, 1, 4 | 0x80000000, None, None, dacl, None):
+            fail("UNSAFE_FILE", "private Windows DACL could not be applied")
+        windows_owner_controlled(handle, True)
+    finally:
+        if handle not in (None, ctypes.c_void_p(-1).value): kernel.CloseHandle(handle)
+        if token: kernel.CloseHandle(token)
+        if descriptor: kernel.LocalFree(descriptor)
+        if text: kernel.LocalFree(text)
 
 
 def strict_json(raw, limit=MAX_REQUEST, string_limit=8192):
@@ -214,7 +278,7 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
 
 def validate_config(value):
     allowed = {"schema", "enabled", "federation_id", "provider_id", "allow_mutations",
-               "allowed_operations", "allowed_resources"}
+               "allowed_operations", "allowed_resources", "package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "coordinator_public_key"}
     if (not isinstance(value, dict) or set(value) - allowed or
             value.get("schema") != "ziokt.provider.v1" or
             type(value.get("enabled", False)) is not bool or
@@ -234,8 +298,15 @@ def validate_config(value):
         if (not isinstance(values, list) or len(values) > 64 or
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
-    if any(v not in {"service.stop", "artifact.stage"} for v in result["allowed_operations"]):
+    known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "recovery.checkpoint", "recovery.restore"}
+    if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
+    if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
+        fail("INVALID_CONFIG", "pinned Ed25519 coordinator authority required")
+    for name in ("package_root", "package_trust_file", "artifact_root", "transport_bindings_file"):
+        if name in result and (not isinstance(result[name], str) or not Path(result[name]).is_absolute() or ".." in Path(result[name]).parts):
+            fail("INVALID_CONFIG", "native package settings require fixed absolute paths")
     if result["allow_mutations"] and (not result["enabled"] or not result["allowed_operations"] or not result["allowed_resources"]):
         fail("INVALID_CONFIG", "mutations require enabled support and explicit action/resource allowlists")
     return result
@@ -273,7 +344,8 @@ def load_config(provider, path):
                 key, sep, value = line.partition("=")
                 key, value = key.strip(), value.strip()
                 if not sep or key in fields or key not in {
-                        "enabled", "federation_id", "provider_id", "allow_mutations", "allowed_operations", "allowed_resources"}:
+                        "enabled", "federation_id", "provider_id", "allow_mutations", "allowed_operations", "allowed_resources",
+                        "package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "coordinator_public_key"}:
                     raise ValueError("field")
                 if key in {"enabled", "allow_mutations"}:
                     if value not in {"TRUE", "FALSE"}:
@@ -311,15 +383,33 @@ def validate_request(value, config):
     if any(value[k] != config[k] for k in ("federation_id", "provider_id")):
         fail("SCOPE_MISMATCH", "provider scope does not match")
     if value["method"] not in METHODS:
-        fail("METHOD_UNSUPPORTED", "operation not available in read-only profile")
+        fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method.startswith("operation."):
+    if method == "governance.fact":
+        if set(params) != {"transaction_hash"} or not isinstance(params["transaction_hash"], str) or not re.fullmatch("[a-f0-9]{64}", params["transaction_hash"]):
+            fail("INVALID_PARAMS", "exact native signed transaction reference required")
+    elif method == "content.get":
+        if (not {"peer_id", "digest"} <= set(params) or set(params)-{"peer_id", "digest", "offset", "length"} or
+                not isinstance(params["peer_id"], str) or not re.fullmatch("[a-f0-9]{64}", params["peer_id"]) or
+                not isinstance(params["digest"], str) or not re.fullmatch("sha256:[a-f0-9]{64}", params["digest"]) or
+                type(params.get("offset", 0)) is not int or not 0 <= params.get("offset", 0) <= 64*1024*1024 or
+                type(params.get("length", 6144)) is not int or not 1 <= params.get("length", 6144) <= 6144):
+            fail("INVALID_PARAMS", "fixed native peer and bounded content range required")
+    elif method in {"zkt.status", "zkt.account"}:
+        if set(params) != (set() if method == "zkt.status" else {"address"}):
+            fail("INVALID_PARAMS", "exact native asset query required")
+        if method == "zkt.account" and (not isinstance(params["address"], str) or not re.fullmatch(r"[a-f0-9]{64}", params["address"])):
+            fail("INVALID_PARAMS", "native account identity required")
+    elif method.startswith("operation."):
         expected = ({"operation_id", "action", "resource", "arguments", "expected_revision"}
                     if method == "operation.prepare" else
                     {"operation_id", "plan_digest"} if method in {"operation.commit", "operation.abort"} else {"operation_id"})
-        if set(params) != expected:
+        optional = {"lease_ms", "fence"} if method == "operation.prepare" else set()
+        if not expected <= set(params) or set(params) - expected - optional:
             fail("INVALID_PARAMS", "exact native operation parameters required")
+        if "lease_ms" in params and (type(params["lease_ms"]) is not int or not 250 <= params["lease_ms"] <= 30000):
+            fail("INVALID_PARAMS", "native prepare lease must be 250..30000 ms")
         identifier(params.get("operation_id"), "operation_id")
         if method == "operation.prepare" and (not isinstance(params["action"], str) or not isinstance(params["resource"], str) or not isinstance(params["arguments"], dict)):
             fail("INVALID_PARAMS", "typed native operation required")
@@ -337,7 +427,7 @@ def validate_request(value, config):
                 not 1 <= params.get("limit", 50) <= 100):
             fail("INVALID_PARAMS", "page size must be 1..100")
         if (not isinstance(params.get("kind", "all"), str) or
-                params.get("kind", "all") not in {"all", "service", "package", "environment"}):
+                params.get("kind", "all") not in {"all", "service", "package", "environment", "application", "identity", "proposal", "recovery", "name"}):
             fail("INVALID_PARAMS", "unsupported object kind")
         if "cursor" in params and (not isinstance(params["cursor"], str) or
                 not re.fullmatch(r"[0-9a-f]{64}:[0-9]{1,5}", params["cursor"])):
@@ -390,10 +480,28 @@ def native_objects(provider, root, network, config):
             from service_registry import digest as native_digest, encoded as native_encode
             record["revision"] = native_digest(native_encode(item))
             records.append(record)
+        if "package_root" in config and Path(config["package_root"]).exists():
+            sys.path.insert(0, str(root/"Package-Manager"))
+            from shadow6_pkg import list_packages, verify_package
+            safe_directory(config["package_root"])
+            packages = list_packages(Path(config["package_root"]))
+            if len(packages) > MAX_OBJECTS: fail("INVENTORY_LIMIT", "native package inventory exceeds budget")
+            for item in packages:
+                selector = item["kind"]+"/"+item["id"]+"@"+item["version"]
+                properties = {**item, "native_signature_verified": False}
+                if "package_trust_file" in config:
+                    source = Path(config["package_root"])/item["kind"]/item["id"]/"versions"/item["version"]
+                    manifest, package = verify_package(source, Path(config["package_trust_file"]))
+                    package.close(); properties["native_signature_verified"] = True
+                    properties["manifest_digest"] = "sha256:"+digest(manifest)
+                records.append(object_record(config, "package", selector, "active" if item["active"] else "installed", properties))
+                if item["kind"] == "app":
+                    records.append(object_record(config, "application", selector, "active" if item["active"] else "installed", properties))
     else:
         suffix = "networks/" + network
         directories = (("package", root / "var/lib/corix" / suffix / "installed"),
-                       ("environment", root / "usr/corix/strata" / suffix))
+                       ("environment", root / "usr/corix/strata" / suffix),
+                       ("recovery", root / "var/lib/corix" / suffix / "snapshots"))
         for kind, path in directories:
             try:
                 safe_directory(path)
@@ -421,6 +529,25 @@ def native_objects(provider, root, network, config):
                     else:
                         native_id, fields, state = entry.name, {"network_id": network}, "present"
                     records.append(object_record(config, kind, native_id, state, fields))
+        # Project fixed public metadata from the original native databases.
+        # Message bodies, ACL members, keys and peer addresses stay native.
+        queries = (("forum/forum.db", "identity", "SELECT id_hash,type,last_updated_height FROM identity_cache", ("native_type", "height")),
+                   ("forum/forum.db", "application", "SELECT group_id || '/' || slug,latest_version_hash,locked_by_user_id IS NOT NULL FROM wiki_pages", ("version_hash", "locked")),
+                   ("forum/forum.db", "application", "SELECT 'forum/' || tx_hash,source_type,encryption_mode FROM messages", ("native_type", "encryption_mode")),
+                   ("forum/forum.db", "application", "SELECT 'mail/' || tx_hash,mail_object_hash,timestamp FROM mails", ("content_digest", "timestamp")),
+                   ("blockchain/chain.db", "application", "SELECT 'template/' || template_name,package_hash,activation_height FROM active_app_templates", ("package_hash", "height")),
+                   ("forum/forum.db", "name", "SELECT domain_name,target_hash,last_update_height FROM nns_records", ("target_hash", "height")),
+                   ("blockchain/chain.db", "proposal", "SELECT hash,type,block_height FROM transactions WHERE type LIKE '%proposal%'", ("native_type", "height")))
+        from contextlib import closing
+        for filename, kind, query, columns in queries:
+            path = root/"var/lib/corix"/suffix/filename
+            if not path.exists(): continue
+            with closing(native_database(path)) as db:
+                rows = db.execute(query+" LIMIT ?", (MAX_OBJECTS+1,)).fetchall()
+            if len(rows) > MAX_OBJECTS: fail("INVENTORY_LIMIT", "native object projection exceeds budget")
+            for row in rows:
+                properties = dict(zip(columns, row[1:]))
+                records.append(object_record(config, kind, row[0], "native-recorded", properties))
     if len(records) > MAX_OBJECTS:
         fail("INVENTORY_LIMIT", "native inventory exceeds snapshot budget")
     records.sort(key=lambda item: item["object_id"])
@@ -454,7 +581,10 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                             for method in METHODS]}
+                             for method in METHODS if provider == "corium" or (not method.startswith("zkt.") and method not in {"content.get", "governance.fact"})],
+            "native_actions": sorted(OPERATIONS[provider]),
+            "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
+            "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
 
 
 def status(provider, config, network):
@@ -462,7 +592,7 @@ def status(provider, config, network):
             "enabled": config["enabled"], "provider_id": config["provider_id"],
             "federation_id": config["federation_id"], "network_id": network,
             "mutations": config["allow_mutations"], "listeners": 0,
-            "recovery": "not-run-by-readonly-provider"}
+            "listener_scope": "local-rpc-process", "recovery": "explicit-native-operation"}
 
 
 def rpc(provider, root, network, config, stream):
@@ -484,6 +614,23 @@ def rpc(provider, root, network, config, stream):
             result = status(provider, config, network)
         elif method.startswith("operation.") or method == "events.list":
             result = operation_dispatch(provider, root, network, config, method, request["params"])
+        elif method == "governance.fact":
+            if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
+            result = governance_fact(root, network, request["params"]["transaction_hash"])
+        elif method == "content.get":
+            if provider != "corium": fail("METHOD_UNSUPPORTED", "content peer ownership belongs to native Corium")
+            import contextlib, io
+            params = request["params"]
+            query = {k:v for k,v in params.items() if k != "peer_id"}
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = native_transport_main([str(root), network, params["peer_id"], "ZIOKT_CONTENT_GET", encoded(query).decode()])
+            if code != 0: fail("NO_APPROVED_BINDING", "content retrieval requires an explicit native application binding")
+            result = strict_json(output.getvalue().strip().encode())
+        elif method in {"zkt.status", "zkt.account"}:
+            if provider != "corium":
+                fail("METHOD_UNSUPPORTED", "native ZKT ledger belongs to Corium")
+            result = zkt_read_status(root / "var/lib/corix/networks" / network / "blockchain/chain.db", request["params"].get("address"))
         else:
             result = page(native_objects(provider, root, network, config), request["params"])
         if time.time_ns() // 1_000_000 >= request["deadline_ms"]:
@@ -494,7 +641,7 @@ def rpc(provider, root, network, config, stream):
     except ProtocolError as exc:
         response = {"protocol": PROTOCOL, "request_id": request_id, "ok": False,
                     "error": {"code": exc.code, "message": str(exc)}}
-    except (OSError, ValueError, ImportError, UnicodeError):
+    except (OSError, ValueError, ImportError, UnicodeError, sqlite3.Error, TypeError, KeyError):
         response = {"protocol": PROTOCOL, "request_id": request_id, "ok": False,
                     "error": {"code": "NATIVE_STATE_UNAVAILABLE", "message": "native inventory cannot be read safely"}}
     sys.stdout.buffer.write(encoded(response) + b"\n")
@@ -506,8 +653,10 @@ def main(provider, root=None, argv=None, rpc_stream=None):
     parser.add_argument("--config", type=Path, help="private native provider configuration")
     if provider == "corium":
         parser.add_argument("--network", default=os.environ.get("CORIUM_NETWORK_ID_OVERRIDE", "default"))
-    parser.add_argument("action", choices=("capabilities", "status", "rpc"))
+    parser.add_argument("action", choices=("capabilities", "status", "rpc", "serve-data"))
     parser.add_argument("--stdio", action="store_true")
+    parser.add_argument("--key-file", type=Path)
+    parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args(argv)
     try:
         if args.stdio != (args.action == "rpc"):
@@ -531,6 +680,13 @@ def main(provider, root=None, argv=None, rpc_stream=None):
             if not path.exists() and not path.is_symlink():
                 path = None
         config = load_config(provider, path)
+        if args.action == "serve-data":
+            if provider != "corium" or not config["enabled"]:
+                fail("ZIOKT_DISABLED", "Corium native Ziokt data support must be enabled")
+            if args.key_file is None or not 0 <= args.port <= 65535:
+                fail("INVALID_CONFIG", "private application key and bounded loopback port required")
+            serve_corium_data(root, network, args.key_file, args.port)
+            return 0
         if args.action == "rpc":
             return rpc(provider, root, network, config, rpc_stream or sys.stdin.buffer)
         value = capabilities(provider, config) if args.action == "capabilities" else status(provider, config, network)

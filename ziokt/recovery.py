@@ -52,7 +52,7 @@ def import_bundle(blob, store, publisher, encryption_key, *, federation, minimum
     body, pending = plaintext[4+size:], []
     expected_offset = 0
     for entry in value["entries"]:
-        if (set(entry) != {"digest", "offset", "size"} or type(entry["offset"]) is not int or type(entry["size"]) is not int or
+        if (not isinstance(entry, dict) or set(entry) != {"digest", "offset", "size"} or type(entry["offset"]) is not int or type(entry["size"]) is not int or
                 entry["offset"] != expected_offset or entry["size"] < 0 or entry["offset"] + entry["size"] > len(body)):
             raise ProtocolError("INVALID_RECOVERY", "exact nonoverlapping recovery entries required")
         data = body[entry["offset"]:entry["offset"]+entry["size"]]

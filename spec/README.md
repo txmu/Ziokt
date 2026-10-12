@@ -1,21 +1,33 @@
-# ZFCP/1 local-readonly-v1
+# ZFCP/1 native-v1
 
-Production providers carry `provider_runtime.py` independently: S vendors it,
-C embeds it in its single Bash artifact. `tools/sync_providers.py --check` detects
-protocol drift. Editing generated copies directly is unsupported.
+Canonical source is split into provider, operation, data, native transport,
+recovery and governance runtimes. tools/sync_providers.py vendors the same code
+into S, embeds it in C's one production file, and generates Ziokt's zipapp-safe
+runtime. --check detects drift. Native projects do not need this checkout.
 
-The exact request fields are `protocol`, `request_id`, `federation_id`,
-`provider_id`, `method`, `params`, `deadline_ms`, `nonce`. Requests are bounded
-UTF-8/NFC JSON, reject duplicate keys/floats/unknown fields and use a 128-bit nonce.
-One newline-terminated request and EOF are required per process. There is no
-persistent replay protection in the read-only profile.
+Requests have exactly protocol/request_id/federation_id/provider_id/method/params/
+deadline_ms/nonce. One JSONL record plus EOF; duplicate keys, floats, unknown fields,
+non-NFC strings and excess bounds are rejected. Local nonce correlates the request;
+remote use requires the separate mTLS API and scoped persistent replay grants.
 
-Native methods: `capabilities.get`, `status.get`, `objects.list`.
-Pagination parameters: `kind`, `limit` (1..100), optional snapshot-bound `cursor`.
-Every provider retains its own scope and authority. A disabled provider cannot
-be activated by the federation configuration. Mutation methods are rejected.
+Read methods: capabilities.get, status.get, objects.list, operation.status,
+events.list, and C-owned content.get/governance.fact. Write methods:
+operation.prepare/commit/abort/reconcile, additionally gated by native action and
+resource policies. Operations retain original ownership; no arbitrary argv,
+function name, host path or SQL is admitted. Existing ZKT methods remain frozen.
 
-Control frame limit 64 KiB; response limit 256 KiB; nesting 16; strings 8 KiB;
-integers within +/- (2^53-1); deadline within 30 seconds; snapshot 4096 objects.
-Inventory is stored metadata, not live connection or authenticated remote
-identity evidence. Current kinds: S service; C package/environment.
+64 KiB requests; 256 KiB responses; depth 16; strings 8 KiB; safe integers;
+30 second control deadlines; 4096 inventory objects/native journal entries;
+32-step workflows, 250..30000 ms native prepare leases. Snapshot cursors reject
+changed inventory. A native crash after an effect leaves durable unknown, with
+explicit action-specific reconciliation and committed scoped outbox receipts.
+
+Data consumes the original stream/message application boundary. Directional
+AES-GCM, native C signatures/identity pins, bounded fragments and retries,
+authenticated version/AAD and optional record-budget padding are identical for
+all families. No family selector or Core wire translation is added.
+
+See docs/operations.zh-CN.md for exact native actions, binding/configuration,
+workspace, cold recovery, fencing, governance and remote grant use. Stored
+metadata, verified signed inclusion, current readiness and actual application
+completion are distinct observations.

@@ -12,7 +12,12 @@ s = root.parent / "Shadow6"
 c = root.parent / "Corium"
 with tarfile.open(dist / "shadow6-ziokt.tar.gz", "w:gz") as archive:
     names = subprocess.check_output(["git", "ls-files", "-z"], cwd=s).decode().split("\0")
-    names = sorted(set(filter(None, names)) | {"Core-Go/shadow6-go", "Core-Rust/shadow6-rust"})
+    products = {str(p.relative_to(s)) for directory in s.glob("Core-*") if directory.is_dir()
+                for p in directory.rglob("*") if p.is_file() and
+                (p.name.startswith("shadow6-") or any(part.startswith("shadow6-") and part.endswith("_app") for part in p.parts) or
+                 ".so" in p.suffixes or p.suffix in {".dll", ".dylib"})
+                and p.suffix not in {".py", ".txt", ".md", ".c", ".cpp", ".o"}}
+    names = sorted(set(filter(None, names)) | products)
     for name in names:
         file = s / name
         if file.is_symlink() or not file.is_file():

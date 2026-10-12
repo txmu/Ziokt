@@ -45,7 +45,7 @@ def exchange(provider, request, timeout=30):
             command = ["bash", str(source), *args]
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env,
-                                   start_new_session=os.name == "posix")
+                                   start_new_session=os.name == "posix", **({"umask": 0o077} if os.name == "posix" else {}))
         try:
             body = encoded(request) + b"\n"
             deadline = time.monotonic() + timeout

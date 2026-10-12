@@ -1,18 +1,34 @@
-# 实施记录
+# 非 ZKT 实施与验收
 
-基线：Shadow6 `14a75b57`，Corium `87c4973`。用户确认该基线已通过各自 CI；新增改动须重新验证，不能沿用旧 CI 结果。
+保留 Shadow6 多模块/独立 Core、Corium 单生产文件和双方默认关闭。原生 main 未合并；
+改造在各自 `ziokt/native-support` 分支，精确版本见 `native-sources.lock.json`。
+本地不运行重量级编译；原生编译与发行物验收由 Ziokt 的 focused CI 执行。
 
-运行约束：不执行重量级编译、不安装全局依赖、不修改主机路由/防火墙/服务、不正式发行 ZKT。
-
-| 阶段 | 已实现 | 尚需完成 |
+| 阶段 | 已交付机制 | 验证证据 |
 |---|---|---|
-| P0 | 架构、原生所有权、协议字段与限制、固定总量 ZKT 决策 | 全能力 inventory 与增强验收逐项扩展 |
-| P1 | 默认关闭、S 独立模块和统一 CLI、C 单文件提前分流、真实只读 RPC、严格配置和联合目录 | 完善原生能力/对象覆盖 |
-| P2 | 尚未开放写操作 | 原生 prepare/commit/status、持久化幂等、outbox、Saga |
-| P3 | 尚未声明网络融合完成 | C 原生认证会话经 S stream 真实 E2E、内容与背压 |
-| P4 | 服务/包/Strata 元数据联合投影 | 联邦 lock、工作空间、应用与身份联动 |
-| P5 | 协议限额、无联邦监听、敏感字段不进入投影 | 隐私 profile、故障注入、联合恢复与测量 |
-| P6 | 原生副本独立交付、协议复制一致性工具 | 多家族、远程签名认证和控制面接管 |
-| ZKT | 固定创世发行，正式发行关闭 | 测试链、签名资产承诺、余额/转账/费用、重组/Phoenix |
+| P0 | 原生所有权、版本/限额、13 Profile 契约、开关、联合对象目录与故障边界 | source-contract 12 Core/13 Profile；目录含服务/包/应用、Wiki/Forum/Mail/模板、身份/Nomen、提案、Strata、快照 |
+| P1 | S 独立模块和安装入口、C 单文件提前分流、严格配置/JSONL、独立可用 | S 原生 5 项、C 原生 6 项；复制 C 单文件仍能运行，关闭不创建联邦状态 |
+| P2 | native prepare/commit/abort/status/reconcile、revision/lease、SQLite FULL intent、scope 幂等、outbox、持久化 Saga | 12 家族相同 stop 契约；真实 SIGKILL 在内容写入后留下 unknown，恢复后单一完成事件；签名包篡改拒绝 |
+| P3 | 原 SDK 应用边界、C 原签名网关、C 原生发送函数绑定、同一 stream/message 协议、分片/重试/范围内容、多源 CAS | 12 Core/13 Profile 实际 broker/agent/client → C native PING/内容读取；私有帧预算 padding 同样通过 |
+| P4 | 原生 S 验包与激活、C Wiki/快照/Strata 固定动作、依赖 lock、可审查工作空间、双 ownership proof、S 原 ShadowChat 引用 C 原 Wiki | 真正 C ACL 拒绝、交易创建/挖块、Wiki 投影、快照；原 S 聊天验签/解密/重放拒绝；原签名包安装/激活 |
+| P5 | 方向 AES-GCM、原生 C 身份 pin、私有文件/DACL、无明文产品标记、private 固定帧 padding、禁止未批准回退、有限预算、签名加密联合恢复包、原生冷恢复 | 流/消息篡改与反射拒绝、背压、多源中断接续、密文/epoch/作用域拒绝；真正 Phoenix 销毁后冷恢复，S 材料重建且保持停止 |
+| P6 | TLS1.3 mTLS、证书/Ed25519 grant 双绑定、持久 nonce/epoch、单权威领导任期、Provider fencing、每步治理事实复查、三平台协调器 CI、哈希固定 native 发行物 | 真正 mTLS 调原生 Provider 与重放拒绝；原生旧任期 commit 拒绝；C 原签名链事实/错误 workflow/引用消失拒绝 |
 
-本表随实际实现及验证更新；未验证项目不标为通过。所有 native capabilities 仍需区分声明、可用和实际验证。
+本表区分机制实现与部署保证。原生 Strata 引导仍须原项目 root/工具及运行预算；
+超出固定前台执行预算时保留 unknown/原生审查，CI 不安装主机系统。restricted 连接
+要求可核实匿名载体；当前缺少证据时明确拒绝。单权威 SQLite 任期不宣称跨机共识。
+链观察是原生 signed inclusion，不能替代 C 原共识和最终性判断。元数据投影不证明
+线上可用，恢复不复活旧 PID、就绪或运行授权。原生各平台与 Core 的能力限制保持真实。
+
+## 本地验证
+
+- 完整 Ziokt suite：39 项通过（一次 network gate 单独运行）；随后新增治理验收独立通过。
+- 完整 native data gate：12 家族/13 Profile、26 个真实原生 PING/内容往返；private padding
+  版本在本地预编译基线运行 139.720 秒。后续相同协议的细节由远端全 gate 复验。
+- S 原生 Ziokt 5 项；C 原生 Ziokt + 既有 ZKT 14 项通过；C Bash 语法及 43 个真实 Python heredoc 通过。
+- 协调器 zipapp 成功；未执行本地 Core 编译、宿主路由/防火墙/服务或全局依赖安装。
+
+每次 native 代码更新同步 canonical spec 并锁定新 commit；最终 CI 链接与制品见
+`docs/verification.json`。便携 CI 分别验证 Linux/macOS/Windows，原生 gate 在 Linux
+编译 Ziokt-enabled Go/Rust/Control，并使用 SHA256 固定的成功上游产物验证全部 Profile。
+ZKT 按最新要求是可配置获得方式的信誉／名声积分。旧发币、固定总量与资产模型已废止；旧实验账本仅作回归夹具，新的信誉机制另轮实现。

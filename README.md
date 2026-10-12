@@ -2,7 +2,7 @@
 
 Shadow6 与 Corium 的自治联邦。Shadow6 保留多模块和独立 Native Core；Corium 的生产支持全部内嵌于 `corix_v108.sh`。两者默认关闭 Ziokt，无需安装本仓库即可独立使用。
 
-当前已实现 ZFCP/1 本地只读契约、真实原生 CLI Provider、联合诊断和服务/软件包/Strata 对象投影。投影代表原生存储元数据，不证明服务在线、网络可达或共识最终性。
+已实现原生双向接入、持久化操作/Saga、12 Core/13 Profile 共用的数据协议、内容/签名包、工作空间、身份与治理校验、冷恢复、隐私 profile、mTLS 和任期隔离。原生能力和权限保持各自所有权；目录投影表示存储元数据，在线与应用完成须有各自原生证据。
 
 ```sh
 python3 -m ziokt --help
@@ -52,10 +52,10 @@ python3 -m ziokt inventory --config federation.json
 
 Ziokt 仅启动固定原生入口，验证配置中固定的源文件摘要，并执行私有副本；未允许任意 argv、Shell、函数或 SQL。源码更新后须人工审查并刷新摘要。协调调用采用有界管道线程，不依赖 `/dev/fd` 或 POSIX selector；原生运行前提仍按双方实际平台契约检查。
 
-协议使用单请求 JSONL + EOF、严格有界 JSON、精确 schema/作用域、短 deadline 和相关 ID。分页绑定整个快照摘要，原生状态变更后拒绝旧游标。此版本没有远程传输或持久化重放保护，不能把本地只读协议当成远程授权协议。
+协议使用单请求 JSONL + EOF、严格有界 JSON、精确 schema/作用域、短 deadline 和相关 ID。分页绑定整个快照摘要，原生状态变更后拒绝旧游标。远端入口另用 TLS 1.3 双向证书和 Ed25519 作用域 grant，持久化 nonce/epoch；本地协议不能直接作为远端授权。写操作还须各自原生动作/资源策略。
 
 ## 实现与验收
 
-详细架构见 [架构设计](docs/architecture.zh-CN.md)；当前分阶段状态见 [实施记录](docs/implementation-status.zh-CN.md)。
+详细架构见 [架构设计](docs/architecture.zh-CN.md)；分阶段实现和验证见 [实施记录](docs/implementation-status.zh-CN.md)；可审查的配置与使用步骤见 [非 ZKT 操作指南](docs/operations.zh-CN.md)。
 
-ZKT 采用固定总量、全部创世发行；当前仅开发机制与测试数据，不正式发行。发行数量、精度和分配不由代码自行决定。
+ZKT 已按最新要求重新定义为可配置获得规则的信誉／名声积分，用于奖励 Shadow6 与 Corium 的服务贡献，尤其是紧缺 Core 与应用服务。此前固定总量、创世发行和资产模型不再作为 ZKT 设计。旧实验账本暂仅保留作回归夹具；新的信誉机制留待下一轮 ZKT 指令。
