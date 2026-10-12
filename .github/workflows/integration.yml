@@ -74,6 +74,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y sqlite3 jq openssl curl rsync gnupg libsctp1 chezscheme libsodium23 libunistring5
+          sudo ln -sf $(which chezscheme) /usr/local/bin/chez || true
           python -m pip install -r ../Shadow6/requirements.txt
       - name: Restore verified unchanged Core products for all Profile tests
         env:

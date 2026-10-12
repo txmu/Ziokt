@@ -42,6 +42,7 @@ with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-") as directory:
     idris_dir = destination / "Core-Idris"
     if idris_dir.is_dir():
         sodium_ffi = idris_dir / "libsodium_ffi.so"
+        chez = shutil.which("chezscheme") or shutil.which("chez")
         for app_dir in sorted(idris_dir.glob("*_app")):
             if sodium_ffi.is_file():
                 target_ffi = app_dir / "libsodium_ffi.so"
@@ -50,11 +51,14 @@ with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-") as directory:
                     target_ffi.chmod(0o755)
             ss_file = app_dir / "shadow6-idris.ss"
             so_file = app_dir / "shadow6-idris.so"
-            chez = shutil.which("chezscheme") or shutil.which("chez")
             if ss_file.is_file() and chez:
                 cmd = f'(parameterize ([optimize-level 3] [compile-file-message #f]) (compile-program "{ss_file.resolve()}" "{so_file.resolve()}")) (exit 0)'
                 import subprocess
                 subprocess.run([chez, "-q"], input=cmd.encode(), check=True)
+                data = so_file.read_bytes()
+                if data.startswith(b"#!"):
+                    nl = data.index(b"\n")
+                    so_file.write_bytes(b"#!/usr/bin/env -S chezscheme --program\n" + data[nl + 1:])
                 so_file.chmod(0o755)
         for launcher_name in ("shadow6-idris", "shadow6-idris-crosed"):
             launcher = idris_dir / launcher_name
@@ -62,7 +66,16 @@ with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-") as directory:
                 content = launcher.read_text(encoding="utf-8")
                 if 'export LD_LIBRARY_PATH="$DIR:' not in content:
                     content = content.replace('export LD_LIBRARY_PATH="$DIR/', 'export LD_LIBRARY_PATH="$DIR:$DIR/')
-                    launcher.write_text(content, encoding="utf-8")
-                    launcher.chmod(0o755)
+                app_name = f"{launcher_name}_app" if (idris_dir / f"{launcher_name}_app").is_dir() else "shadow6-idris_app"
+                exec_target = f'"$DIR/{app_name}/shadow6-idris.so"'
+                fallback_exec = (
+                    f'CHEZ="$(command -v chezscheme 2>/dev/null || command -v chez 2>/dev/null || true)"\n'
+                    f'if [ -n "$CHEZ" ]; then exec "$CHEZ" --program {exec_target} "$@"; else exec {exec_target} "$@"; fi\n'
+                )
+                if 'exec "$CHEZ"' not in content:
+                    content = content.replace(f'exec {exec_target} "$@"\n', fallback_exec)
+                launcher.write_text(content, encoding="utf-8")
+                launcher.chmod(0o755)
 print("Verified unchanged Core products restored for all Native Profiles")
+
 
