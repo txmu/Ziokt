@@ -149,7 +149,12 @@ class PeerDirectory:
             rows = self.db.execute('SELECT document FROM records WHERE expires>? LIMIT 64', (int(time.time()),)).fetchall()
         for envelope in [*(strict_json(row[0]) for row in rows), *incoming]:
             try:
-                _, value = self.validate(envelope)
+                public, value = self.validate(envelope)
+                with self.lock:
+                    water = self.db.execute('SELECT epoch,sequence,digest FROM water WHERE public=?',(public,)).fetchone()
+                if water and water[0] == value['epoch'] and (value['sequence'] < water[1] or
+                        value['sequence'] == water[1] and content_id(encoded(envelope)) != water[2]):
+                    continue
                 if value['client_fingerprint'] == fingerprint: return True
             except ProtocolError: continue
         return False

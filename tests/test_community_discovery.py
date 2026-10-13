@@ -37,6 +37,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(self.directory.ingest([new]), 0)
         with self.assertRaises(ProtocolError): self.directory.ingest([old])
         self.assertEqual(self.directory.ingest([old], ignore_stale=True), 0)
+        rotated = dict(new['payload']); rotated['client_fingerprint'] = '9'*64; rotated['sequence'] += 1
+        self.directory.ingest([sign(rotated,self.keys[1],DOMAIN)])
+        self.assertFalse(self.directory.certificate_admitted('1'*64,[old]))
+        self.assertTrue(self.directory.certificate_admitted('9'*64))
         payload = dict(new['payload']); payload['client_fingerprint'] = '4'*64
         with self.assertRaises(ProtocolError): self.directory.ingest([sign(payload, self.keys[1], DOMAIN)])
         self.directory.observe(self.public[1], success=False)

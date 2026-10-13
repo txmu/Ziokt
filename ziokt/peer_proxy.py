@@ -197,11 +197,21 @@ def connect_peer(host, port, carrier, timeout=30, cancellation=None):
             raise ProtocolError('INVALID_PROXY', 'peer TLS config must match this direct hop')
         contexts.append(tls_context(config['certificate'], config['private_key'], config['ca']))
     stream = None
+    finished = threading.Event()
     try:
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('peer path deadline')
         from .carrier import open_carrier
         stream = open_carrier(hops[0]['host'], hops[0]['port'], carrier.get('entry_carrier'), timeout=remaining, cancellation=cancellation)
+        if cancellation is not None:
+            root_stream = stream
+            def watch():
+                while not finished.wait(.1):
+                    if cancellation.is_set():
+                        try: root_stream.shutdown(socket.SHUT_RDWR)
+                        except OSError: pass
+                        return
+            threading.Thread(target=watch, name='ziokt-hop-cancellation', daemon=True).start()
         for index, hop in enumerate(hops):
             stream = TLSStream(stream, contexts[index], hop['host'], deadline)
             stream.do_handshake()
@@ -218,6 +228,7 @@ def connect_peer(host, port, carrier, timeout=30, cancellation=None):
     except BaseException:
         if stream is not None: stream.close()
         raise
+    finally: finished.set()
 
 
 def proxy_server(config, context):
