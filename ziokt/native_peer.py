@@ -29,6 +29,7 @@ class NativeStream:
     def recv(self, size): return self.socket.recv(size)
     def sendall(self, data): return self.socket.sendall(data)
     def settimeout(self, timeout): self.socket.settimeout(timeout)
+    def gettimeout(self): return self.socket.gettimeout()
     def fileno(self): return self.socket.fileno()
     def shutdown(self, how): self.socket.shutdown(how)
     def close(self):
@@ -46,9 +47,10 @@ def connect_native(host, port, value, timeout=30, cancellation=None):
         raise ProtocolError('STALE_PLAN', 'reviewed Shadow6 SDK source changed')
     secure_read(value['registry_path'], 4*1024*1024)
     with _imports:
-        existing = sys.modules.get('libshadow6')
-        if existing is not None and Path(existing.__file__).resolve() != source.resolve():
-            raise ProtocolError('STALE_PLAN', 'loaded SDK belongs to another native source tree')
+        for name in ('libshadow6', 'Deployment', 'Deployment.service_registry', 'Deployment.core_catalog'):
+            existing = sys.modules.get(name)
+            if existing is not None and getattr(existing, '__file__', None) is not None and not Path(existing.__file__).resolve().is_relative_to(root.resolve()):
+                raise ProtocolError('STALE_PLAN', 'loaded SDK belongs to another native source tree')
         sys.path[:0] = [str(root), str(root/'Deployment'), str(root/'Crosed')]
         from Deployment.service_registry import ServiceRegistry
         from Deployment.core_catalog import CoreCatalog

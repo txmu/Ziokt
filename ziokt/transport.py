@@ -31,6 +31,8 @@ def native_profile_matrix(shadow6_root):
     sys.path.insert(0, str(Path(shadow6_root) / "Crosed"))
     from native_profiles import profiles
     return [{"core": p["core"], "profile": p["id"], "boundary": p["applicationBoundary"],
+             "native_transport":p['nativeTransport'], "resource_limits":p['limits'],
+             "platform_requirements":p['requirements'], "shutdown":p['shutdown'],
              "observation": "source-contract", "runtime_verified": False} for p in profiles()]
 
 

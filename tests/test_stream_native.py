@@ -161,6 +161,19 @@ class NativeStreamTests(unittest.TestCase):
                     learned = fetch_records(client,fixture.identity,discovery_digest)
                     self.assertEqual(learned,[record])
                     self.assertEqual(discovery_directory.ingest(learned),0)
+                    if profile['benchmarkAlias'] in {'go','nim'}:
+                        for role in ('client','agent','broker'): registry.stop(names[role])
+                        for role in names: registry.run(names[role])
+                        from ziokt.native_peer import connect_native
+                        carrier = {'kind':'shadow6-stream','shadow6_root':str(S),'registry_path':str(base/'services.json'),
+                            'service_name':names['client'],'lock_digest':binding['lock_digest'],
+                            'sdk_digest':'sha256:'+hashlib.sha256((S/'libshadow6/__init__.py').read_bytes()).hexdigest()}
+                        stream = connect_native('127.0.0.1',ready['port'],carrier)
+                        try:
+                            channel = CoriumDataChannel(stream.handle,ready_key.read_bytes(),native_key,fixture.identity,'default','private')
+                            channel.frames.socket = stream
+                            self.assertEqual(channel.call('PING')['data'],'PONG:'+fixture.identity)
+                        finally: stream.close()
                 finally:
                     for role in ("client", "agent", "broker"):
                         try: registry.stop(names[role])
