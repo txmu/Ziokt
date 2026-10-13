@@ -1,6 +1,8 @@
 """Deterministic portable community websites built from signed current versions."""
 import html
 import io
+import os
+from pathlib import Path
 import zipfile
 
 from .community import content_id
@@ -61,3 +63,73 @@ def publish_site(community, private, name, title, *, anonymous=False):
         binding = community.publish(private, 'names', name, {'target': reference})
         return {'materials': materials, 'manifest': manifest, 'file_event': event, 'name_event': binding,
                 'reference': reference, 'runtime_ready': False, 'plaintext_publication_automatic': False}
+
+
+def list_sites(community):
+    state = community.view('files')
+    heads = set(state['heads'])
+    sites = []
+    for event in state['events']:
+        if event['id'] not in heads or event['deleted']:
+            continue
+        if event['key'].startswith('site-'):
+            site_name = event['key'][5:]
+            body = event['body']
+            sites.append({
+                'name': site_name,
+                'key': event['key'],
+                'author': event['author'],
+                'event_id': event['id'],
+                'size': body.get('size', 0),
+                'digest': body.get('digest', '')
+            })
+    return sorted(sites, key=lambda s: s['name'])
+
+
+def load_site_file(community, name, subpath='index.html'):
+    identifier(name, 'website name')
+    subpath_str = (subpath or 'index.html').strip()
+    if not subpath_str or subpath_str == '/':
+        subpath_str = 'index.html'
+    subpath_str = subpath_str.lstrip('/')
+    norm = os.path.normpath(subpath_str).replace('\\', '/')
+    if norm.startswith('../') or norm == '..' or norm.startswith('/'):
+        raise ProtocolError('INVALID_SITE', 'invalid subpath for site file')
+    target_key = 'site-' + name
+    state = community.view('files', target_key)
+    heads = set(state['heads'])
+    active = [e for e in state['events'] if e['id'] in heads and not e['deleted']]
+    if not active:
+        raise ProtocolError('NOT_FOUND', f'site {name} not found')
+    event = active[-1]
+    archive_bytes = community.get_file(event['body'])
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        try:
+            content = archive.read(norm)
+        except KeyError:
+            raise ProtocolError('NOT_FOUND', f'file {norm} not found in site {name}')
+
+    ext = Path(norm).suffix.lower()
+    content_types = {
+        '.html': 'text/html; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'application/javascript; charset=utf-8',
+        '.json': 'application/json; charset=utf-8',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.txt': 'text/plain; charset=utf-8',
+        '.ico': 'image/x-icon',
+        '.woff2': 'font/woff2',
+        '.woff': 'font/woff',
+    }
+    content_type = content_types.get(ext, 'application/octet-stream')
+    return {
+        'content': content,
+        'content_type': content_type,
+        'path': norm,
+        'size': len(content),
+        'site': name,
+        'author': event['author']
+    }

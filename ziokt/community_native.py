@@ -47,3 +47,31 @@ def native_workflow(community, private, federation, journal, manifest, *, domain
                  'content': 'ziokt://'+community.community_id+'/files/'+receipt_key})
         event = community.publish(private, domain, object_key, body)
     return {'plan': result, 'receipt_event': event, 'materials': materials, 'runtime_ready': False}
+
+
+def stage_package(community, package_key, store):
+    """Retrieve package materials from community and stage to native artifact store.
+
+    Verifies that package exists in community causal DAG, downloads complete CAS blob,
+    and stages it into the local native ArtifactStore for execution verification.
+    """
+    state = community.view('packages', package_key)
+    heads = set(state['heads'])
+    active = [e for e in state['events'] if e['id'] in heads and not e['deleted']]
+    if not active:
+        raise ProtocolError('NOT_FOUND', f'package {package_key} not found')
+    event = active[-1]
+    body = event['body']
+    manifest = {'chunks': body['chunks'], 'size': body['size'], 'digest': body['digest']}
+    materialized = materialize(community, manifest, store)
+    return {
+        'package_key': package_key,
+        'event_id': event['id'],
+        'author': event['author'],
+        'name': body['name'],
+        'version': body['version'],
+        'native_kind': body['native_kind'],
+        'native_signature': body['native_signature'],
+        'artifact_digest': materialized['artifact_digest'],
+        'native_signature_verified': False
+    }

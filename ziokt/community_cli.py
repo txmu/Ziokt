@@ -20,13 +20,15 @@ def register(sub):
     relay.add_argument('--policy', type=Path, required=True)
     relay.add_argument('--owner', required=True)
     relay.add_argument('--tls-config', type=Path, required=True)
-    for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize', 'registration-purge'):
+    info = actions.add_parser('capsule-info', help='inspect air-gapped capsule envelope without community state')
+    info.add_argument('--input', required=True, type=Path)
+    for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize', 'registration-purge', 'capsule-export', 'capsule-import', 'stage-package'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--root', required=True, type=Path)
         cmd.add_argument('--policy', required=True, type=Path)
         cmd.add_argument('--owner', required=True)
         cmd.add_argument('--encryption-key', required=True, type=Path)
-        if action in ('publish', 'site', 'vote', 'checkpoint', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native', 'registration-purge'):
+        if action in ('publish', 'site', 'vote', 'checkpoint', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native', 'registration-purge', 'capsule-export'):
             cmd.add_argument('--signing-key', required=True, type=Path)
         if action in ('publish', 'view'):
             cmd.add_argument('--domain', choices=sorted(DOMAINS), required=True)
@@ -104,6 +106,15 @@ def register(sub):
             cmd.add_argument('--anonymous', action='store_true', help='redact author public keys in published static site')
         if action == 'registration-purge':
             cmd.add_argument('--config', type=Path, required=True, help='local federation config required by registration policy')
+        if action == 'capsule-export':
+            cmd.add_argument('--output', required=True, type=Path)
+            cmd.add_argument('--description', default='')
+        if action == 'capsule-import':
+            cmd.add_argument('--input', required=True, type=Path)
+            cmd.add_argument('--expected-publisher')
+        if action == 'stage-package':
+            cmd.add_argument('--package-key', required=True)
+            cmd.add_argument('--native-store', required=True, type=Path)
         if action in ('follow', 'ui', 'serve'):
             cmd.add_argument('--peers', type=Path, required=action == 'follow')
             cmd.add_argument('--sync-interval', type=int, default=10)
@@ -111,6 +122,9 @@ def register(sub):
 
 def execute(args):
     from .cli import write_exclusive, write_binary_exclusive
+    if args.community_action == 'capsule-info':
+        from .capsule import capsule_info
+        return capsule_info(args.input)
     if args.community_action == 'relay-serve':
         from .rendezvous import OpaqueRendezvous
         from .remote import load_remote, tls_context, remote_server
@@ -181,6 +195,16 @@ def execute(args):
             from .community_native import materialize
             from .artifacts import ArtifactStore
             return materialize(community, strict_json(secure_read(args.manifest)), ArtifactStore(args.native_store))
+        if action == 'stage-package':
+            from .community_native import stage_package
+            from .artifacts import ArtifactStore
+            return stage_package(community, args.package_key, ArtifactStore(args.native_store))
+        if action == 'capsule-export':
+            from .capsule import export_capsule
+            return export_capsule(community, private, args.output, description=args.description)
+        if action == 'capsule-import':
+            from .capsule import import_capsule
+            return import_capsule(community, args.input, expected_publisher=args.expected_publisher)
         if action == 'native':
             from .community_native import native_workflow
             from .workflow import WorkflowJournal

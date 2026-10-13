@@ -34,7 +34,7 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self): super().setup(); self.connection.settimeout(10)
         def log_message(self, *_): pass
-        def reply(self, status, data, kind='application/json'):
+        def reply(self, status, data, kind='application/json', csp=None, set_cookie=False):
             if not isinstance(data, bytes): data = encoded(data)
             self.send_response_only(status)
             self.send_header('Content-Type', kind)
@@ -42,13 +42,33 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'no-referrer')
-            self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+            default_csp = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+            self.send_header('Content-Security-Policy', csp or default_csp)
+            if set_cookie:
+                self.send_header('Set-Cookie', f'ziokt_session={token}; SameSite=Strict; HttpOnly; Path=/')
             self.send_header('Connection', 'close'); self.end_headers(); self.wfile.write(data)
-        def authorize(self, allow_unregistered=False):
+        def authorize(self, allow_unregistered=False, request_token=None):
             origin = 'http://127.0.0.1:'+str(self.server.server_port)
             if self.headers.get('Host') != origin[7:] or self.headers.get('Origin') not in {None, origin}:
                 raise ProtocolError('POLICY_DENIED', 'local origin required')
-            if len(self.headers.get_all('Authorization', [])) != 1 or not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer '+token):
+            auth_header = self.headers.get('Authorization', '')
+            cookie_header = self.headers.get('Cookie', '')
+            cookie_token = None
+            if cookie_header:
+                for part in cookie_header.split(';'):
+                    if '=' in part:
+                        k, v = part.strip().split('=', 1)
+                        if k == 'ziokt_session':
+                            cookie_token = v
+                            break
+            authorized = False
+            if auth_header and hmac.compare_digest(auth_header, 'Bearer '+token):
+                authorized = True
+            elif cookie_token and hmac.compare_digest(cookie_token, token):
+                authorized = True
+            elif request_token and hmac.compare_digest(request_token, token):
+                authorized = True
+            if not authorized:
                 raise ProtocolError('POLICY_DENIED', 'local browser session required')
             community._current()
             if registration is not None and not allow_unregistered:
@@ -63,6 +83,23 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 mapping = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/app.css': ('app.css', 'text/css; charset=utf-8')}
                 if parsed.path in mapping:
                     name, kind = mapping[parsed.path]; self.reply(200, (assets/name).read_bytes(), kind); return
+                if parsed.path.startswith('/site/'):
+                    site_tail = parsed.path[len('/site/'):]
+                    if not site_tail or '/' not in site_tail:
+                        target = f'/site/{site_tail}/' if site_tail else '/'
+                        if parsed.query: target += f'?{parsed.query}'
+                        self.send_response_only(302)
+                        self.send_header('Location', target)
+                        self.send_header('Connection', 'close')
+                        self.end_headers()
+                        return
+                    query_token = parse_qs(parsed.query).get('token', [None])[0]
+                    self.authorize(request_token=query_token)
+                    site_name, subpath = site_tail.split('/', 1)
+                    from .community_site import load_site_file
+                    res = load_site_file(community, site_name, subpath)
+                    site_csp = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+                    self.reply(200, res['content'], kind=res['content_type'], csp=site_csp, set_cookie=True); return
                 self.authorize(allow_unregistered=parsed.path == '/api/status')
                 if parsed.path == '/api/status':
                     from .community_privacy import mailbox_public
@@ -71,7 +108,10 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                         'rights': community.policy['members'][public], 'public_key': public, 'mailbox': mailbox is not None,
                         'mailbox_public': mailbox_public(mailbox) if mailbox is not None else None,
                         'network_sync_available': peer is not None,
-                        'registration': self.registration_state()}); return
+                        'registration': self.registration_state()}, set_cookie=True); return
+                if parsed.path == '/api/sites':
+                    from .community_site import list_sites
+                    self.reply(200, {'sites': list_sites(community)}); return
                 if parsed.path == '/api/view':
                     params = parse_qs(parsed.query)
                     if set(params) != {'domain'} or len(params['domain']) != 1: raise ProtocolError('INVALID_REQUEST', 'one application domain required')
@@ -104,9 +144,28 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                     if self.headers.get('Content-Type') != 'application/octet-stream' or not 0 <= size <= MAX_FILE:
                         raise ProtocolError('INVALID_REQUEST', 'bounded binary upload required')
                     self.reply(200, community.put_file(self.rfile.read(size))); return
+                if self.path == '/api/capsule-import':
+                    if 'recover' not in community.policy['members'].get(public, []):
+                        raise ProtocolError('POLICY_DENIED', 'recover permission required to import capsule')
+                    if self.headers.get('Content-Type') != 'application/octet-stream' or not 1 <= size <= 64 * 1024 * 1024:
+                        raise ProtocolError('INVALID_REQUEST', 'bounded binary capsule upload required')
+                    from .capsule import import_capsule
+                    self.reply(200, import_capsule(community, self.rfile.read(size))); return
+                if self.path == '/api/capsule-info':
+                    if self.headers.get('Content-Type') != 'application/octet-stream' or not 1 <= size <= 64 * 1024 * 1024:
+                        raise ProtocolError('INVALID_REQUEST', 'bounded binary capsule upload required')
+                    from .capsule import capsule_info
+                    self.reply(200, capsule_info(self.rfile.read(size))); return
                 if not 1 <= size <= 65536: raise ProtocolError('INVALID_REQUEST', 'portal request budget exceeded')
                 if self.headers.get('Content-Type') != 'application/json': raise ProtocolError('INVALID_REQUEST', 'JSON portal request required')
                 value = strict_json(self.rfile.read(size))
+                if self.path == '/api/capsule-export':
+                    exact(value, {'description'} if 'description' in value else set())
+                    if 'recover' not in community.policy['members'].get(public, []):
+                        raise ProtocolError('POLICY_DENIED', 'recover permission required to export capsule')
+                    from .capsule import export_capsule
+                    res = export_capsule(community, private, None, description=value.get('description', ''))
+                    self.reply(200, res['body'], kind='application/octet-stream'); return
                 if self.path == '/api/site':
                     exact(value, {'name', 'title'}|({'anonymous'} if 'anonymous' in value else set()))
                     from .community_site import publish_site
