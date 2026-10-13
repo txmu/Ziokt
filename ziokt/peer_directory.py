@@ -45,7 +45,7 @@ class PeerDirectory:
             'CREATE TABLE IF NOT EXISTS records(public TEXT PRIMARY KEY,sequence INTEGER,expires INTEGER,document BLOB);'
             'CREATE TABLE IF NOT EXISTS water(public TEXT PRIMARY KEY,epoch INTEGER,sequence INTEGER,digest TEXT);'
             'CREATE TABLE IF NOT EXISTS health(public TEXT PRIMARY KEY,failures INTEGER,cooldown INTEGER,rtt INTEGER);')
-        self.lock = threading.RLock(); self.worker = None; self.latest = []; self.local_public = None; self.cursor = 0
+        self.lock = threading.RLock(); self.worker = None; self.latest = []; self.local_public = None; self.cursor = 0; self.policy_path = None
         old = self.db.execute('SELECT epoch,digest FROM meta WHERE id=1').fetchone()
         if old and (self.policy['epoch'] < old[0] or self.policy['epoch'] == old[0] and self.policy_id != old[1]):
             self.db.close(); raise ProtocolError('POLICY_ROLLBACK', 'discovery policy rollback or fork rejected')
@@ -57,6 +57,8 @@ class PeerDirectory:
                 self.db.execute(f'DELETE FROM {table} WHERE public NOT IN ({",".join("?" for _ in current)})', current)
 
     def _current(self):
+        if self.policy_path is not None and content_id(encoded(strict_json(secure_read(self.policy_path)))) != self.policy_id:
+            raise ProtocolError('STALE_POLICY', 'discovery policy file changed; review and restart the directory')
         if self.db.execute('SELECT digest FROM meta WHERE id=1').fetchone()[0] != self.policy_id:
             raise ProtocolError('STALE_POLICY', 'discovery authority was superseded')
 
@@ -426,6 +428,7 @@ def load_directory(path):
             raise ProtocolError('INVALID_DISCOVERY', 'bounded discovered hop count required')
         directory = PeerDirectory(config['root'], strict_json(secure_read(config['policy'])), config['owner'],
                                   allowed_networks=config['allowed_networks'], native_bindings=config['native_bindings'])
+        directory.policy_path = config['policy']
         _directories[str(path)] = (digest, directory, config)
         return directory, config
 

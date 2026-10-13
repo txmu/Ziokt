@@ -112,3 +112,7 @@ class DiscoveryTests(unittest.TestCase):
             tls_context(*materials[0][1]['client'][:2],ca_all),self.keys[0],publisher=self.owner)
         self.assertEqual(target.view('wiki'),source.view('wiki'))
         self.assertTrue(all(not hasattr(s,'community') for s in servers))
+        revised = create_policy(self.keys[0],'discovery',{self.owner:sorted(RIGHTS)},epoch=1)
+        policy_path.write_text(json.dumps(revised)); make_private(policy_path)
+        with self.assertRaises(ProtocolError) as error: dirs[0].certificate_admitted(fps[1]['client'])
+        self.assertEqual(error.exception.code,'STALE_POLICY')
