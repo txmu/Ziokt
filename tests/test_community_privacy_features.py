@@ -93,6 +93,10 @@ class PrivacyAndAnonymityTests(unittest.TestCase):
             'end_to_end_authentication': True, 'encrypted_content': True,
             'private_discovery': True, 'anonymous_carrier': True, 'direct_fallback': False
         }}
+        from test_community_network import ONION
+        direct_path.update({'host': '127.0.0.1', 'port': 443})
+        onion_path.update({'host': ONION, 'port': 443,
+                           'carrier': {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': 9050}})
 
         endpoint_missing = {
             'connection_policy': {'mode': 'approved-paths', 'allow_direct_fallback': False}
@@ -137,6 +141,14 @@ class PrivacyAndAnonymityTests(unittest.TestCase):
         self.assertTrue(manifest['anonymous'])
 
         archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        event = self.community.view('wiki')['events'][0]
+        all_bytes = b''.join(archive.read(name) for name in archive.namelist())
+        self.assertNotIn(self.community.policy_id.encode(), all_bytes)
+        self.assertNotIn(event['id'][7:19].encode(), all_bytes)
+        self.assertNotIn(self.public.encode(), all_bytes)
+        self.assertIsNone(manifest['community_id'])
+        self.assertIsNone(manifest['policy'])
+        self.assertIn('wiki-document-1.html', archive.namelist())
         for filename in archive.namelist():
             if filename.endswith('.html') and filename != 'index.html':
                 content = archive.read(filename).decode('utf-8')
@@ -167,8 +179,8 @@ class PrivacyAndAnonymityTests(unittest.TestCase):
             'schema': 'ziokt.federation.v1', 'enabled': True, 'federation_id': 'village',
             'providers': [{
                 'native_project': 'corium', 'provider_id': 'reg-auth',
-                'root': '/corium', 'native_config': '/corium/etc/corix/networks/net1/corix.conf',
-                'entrypoint_digest': 'sha256:' + '0' * 64, 'network_id': 'net1', 'state_root': '/corium'
+                'root': str(self.root / 'corium'), 'native_config': str(self.root / 'corium/etc/corix/networks/net1/corix.conf'),
+                'entrypoint_digest': 'sha256:' + '0' * 64, 'network_id': 'net1', 'state_root': str(self.root / 'corium')
             }]
         }))
         from ziokt.protocol import make_private

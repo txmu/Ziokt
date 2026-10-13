@@ -22,7 +22,7 @@ exec(compile(code,path,'exec'),{'__name__':'__main__','__file__':path,'__builtin
 """
 
 
-def exchange(provider, request, timeout=30):
+def exchange(provider, request, timeout=30, cancellation=None):
     path = entrypoint(provider)
     code = source_bytes(path)
     if "sha256:" + hashlib.sha256(code).hexdigest() != provider["entrypoint_digest"]:
@@ -83,6 +83,8 @@ def exchange(provider, request, timeout=30):
             for thread in threads:
                 thread.start()
             while any(thread.is_alive() for thread in threads):
+                if cancellation is not None and cancellation.is_set():
+                    raise ProtocolError('CANCELLED', 'native provider call cancelled')
                 if violations:
                     raise ProtocolError("PROVIDER_OUTPUT_LIMIT", "native provider exceeded pipe budget")
                 if time.monotonic() >= deadline:
@@ -132,12 +134,12 @@ class NativeClient:
         self.federation = federation
         self.provider = provider
 
-    def call(self, method, params=None):
+    def call(self, method, params=None, *, timeout=30, cancellation=None):
         request = {"protocol": PROTOCOL, "request_id": secrets.token_hex(16),
                    "federation_id": self.federation, "provider_id": self.provider["provider_id"],
                    "method": method, "params": params or {},
                    "nonce": secrets.token_hex(16), "deadline_ms": time.time_ns() // 1_000_000 + 25_000}
-        return exchange(self.provider, request)
+        return exchange(self.provider, request, timeout=timeout, cancellation=cancellation)
 
     def objects(self, kind="all"):
         records, cursor, snapshot = [], None, None

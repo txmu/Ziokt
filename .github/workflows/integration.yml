@@ -35,6 +35,8 @@ jobs:
       - run: python -m unittest discover -s tests -p test_zkt.py -v
       - name: Community applications, node loss and encrypted recovery
         run: python -m unittest discover -s tests -p 'test_community*.py' -v
+      - name: Offline capsules and isolated site hosting
+        run: python -m unittest discover -s tests -p test_capsule_and_site_hosting.py -v
       - run: python ci/build.py
       - uses: actions/upload-artifact@v4
         with:
@@ -56,7 +58,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y tor
-      - name: Actual onion service and mTLS community exchange
+      - name: Actual onion services, nested SOCKS hop and mTLS community exchange
         env:
           ZIOKT_TOR_LIVE: '1'
         run: python -m unittest discover -s tests -p test_tor_live.py -v
@@ -70,11 +72,11 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y iproute2 iptables
-      - name: Real double NAT, outbound opaque relay and changed client address
+      - name: Real double NAT, keyless peer multihop, opaque relay and changed client address
         run: sudo env PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_RUN_ID="$GITHUB_RUN_ID" bash ci/run-nat.sh
   native-integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: Ziokt
@@ -121,6 +123,23 @@ jobs:
           ./configure --disable-all --disable-cores --enable-core-go --enable-core-rust --enable-control --enable-ziokt
           make build PYTHON=python
           make ziokt-test PYTHON=python
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.2.10'
+      - name: Compile pinned RTC and the updated Nim L5 and restored L0
+        working-directory: Shadow6
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y cmake libssl-dev libsodium-dev
+          git clone --no-checkout https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/ziokt-rtc"
+          git -C "$RUNNER_TEMP/ziokt-rtc" checkout --detach c7428680803bf3f2a629a83081bf231a5e5600bd
+          git -C "$RUNNER_TEMP/ziokt-rtc" submodule update --init --recursive --depth 1
+          cmake -S "$RUNNER_TEMP/ziokt-rtc" -B "$RUNNER_TEMP/ziokt-rtc-build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build "$RUNNER_TEMP/ziokt-rtc-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/ziokt-rtc-build"
+          sudo ldconfig
+          cp -L /usr/local/lib/libdatachannel.so.0.23 Core-Nim/libdatachannel.so.0.23
+          make core-nim nim-crosed-variant test-nim PYTHON=python
       - name: Verify Corium single-file production artifact
         working-directory: Corium
         run: |
@@ -135,7 +154,7 @@ jobs:
       - name: Package tested native support artifacts
         run: python ci/package_native.py
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: ziokt-enabled-native-artifacts
           path: |

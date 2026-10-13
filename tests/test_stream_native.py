@@ -73,6 +73,16 @@ class NativeStreamTests(unittest.TestCase):
         prepared = client.call("operation.prepare", {"operation_id": "network-content", "action": "artifact.stage",
             "resource": content_digest, "arguments": {"data_base64": base64.b64encode(content).decode()}, "expected_revision": None})
         client.call("operation.commit", {"operation_id": "network-content", "plan_digest": prepared["plan_digest"]})
+        from ziokt.peer_directory import PeerDirectory
+        from ziokt.discovery_native import fetch_records
+        directory = PeerDirectory(fixture.root/'native-discovery',community_policy,community_public,allowed_networks=['127.0.0.0/8'])
+        self.addCleanup(directory.close)
+        record = directory.advertise(community_private,[{'host':'127.0.0.1','port':12345,'fingerprint':'1'*64,'service':'proxy'}],'2'*64)
+        discovery_data = json.dumps([record],separators=(',',':')).encode()
+        discovery_digest = 'sha256:'+hashlib.sha256(discovery_data).hexdigest()
+        prepared = client.call('operation.prepare',{'operation_id':'network-discovery','action':'artifact.stage','resource':discovery_digest,
+            'arguments':{'data_base64':base64.b64encode(discovery_data).decode()},'expected_revision':None})
+        client.call('operation.commit',{'operation_id':'network-discovery','plan_digest':prepared['plan_digest']})
         server = subprocess.Popen(["bash", str(C/"corix_v108.sh"), "ziokt", "serve-data", "--key-file", str(ready_key)],
                                   env=fixture.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         self.addCleanup(self.stop_server, server)
@@ -146,6 +156,11 @@ class NativeStreamTests(unittest.TestCase):
                         replica.admit([sealed_event])
                         replica.put_blob(base64.b64decode(result["data_base64"]), content_digest)
                         self.assertEqual(replica.get_file(manifest), b"Community survives native node loss")
+                    for role in ('client','agent','broker'): registry.stop(names[role])
+                    for role in names: registry.run(names[role])
+                    learned = fetch_records(client,fixture.identity,discovery_digest)
+                    self.assertEqual(learned,[record])
+                    self.assertEqual(directory.ingest(learned),0)
                 finally:
                     for role in ("client", "agent", "broker"):
                         try: registry.stop(names[role])

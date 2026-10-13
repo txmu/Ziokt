@@ -97,13 +97,16 @@ class RegistrationGate:
             row=self.community.db.execute('SELECT cipher_digest FROM registration_uploads WHERE member=? AND policy=?',(member,self.community.policy_id)).fetchone()
             if not row: return {'purged':False,'state':'无登记记录'}
             target=self.directory/row[0][7:]
+            if target.is_symlink():
+                raise ProtocolError('UNSAFE_FILE','registration ciphertext cannot be a symlink')
             if target.exists():
-                try:
-                    length=target.stat().st_size
-                    target.write_bytes(secrets.token_bytes(length))
-                except OSError: pass
+                secure_read(target,65632)
+                # Unlink encrypted material without following or overwriting
+                # another file through a replaced path. Storage media and
+                # backups determine whether physical erasure is possible.
                 target.unlink(missing_ok=True)
+            self.community.db.execute('PRAGMA secure_delete=ON')
             with self.community.db:
                 self.community.db.execute('DELETE FROM registration_uploads WHERE member=? AND policy=?',(member,self.community.policy_id))
-            return {'purged':True,'member':member,'state':'个人信息已安全清除'}
+            return {'purged':True,'member':member,'state':'本地登记材料与索引已删除'}
 

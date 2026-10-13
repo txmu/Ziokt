@@ -20,24 +20,26 @@ def page(title, body):
 def build_site(community, title, *, domains=('wiki', 'forum'), anonymous=False):
     if not isinstance(title, str) or not 1 <= len(title) <= 128 or not isinstance(domains, (tuple, list)) or not domains or any(d not in {'wiki', 'forum'} for d in domains):
         raise ProtocolError('INVALID_SITE', 'bounded title and explicit public document domains required')
+    if type(anonymous) is not bool:
+        raise ProtocolError('INVALID_SITE', 'explicit author privacy flag required')
     files = {'style.css': STYLE.encode()}; sections = []
     for domain in sorted(set(domains)):
         state = community.view(domain); heads = set(state['heads']); links = []
-        for event in state['events']:
+        for event in sorted(state['events'], key=lambda e: e['id']):
             if event['id'] not in heads or event['deleted']: continue
-            name = domain+'-'+event['key']+'-'+event['id'][7:19]+'.html'
+            name = domain+'-document-'+str(len(links)+1)+'.html' if anonymous else domain+'-'+event['key']+'-'+event['id'][7:19]+'.html'
             body = event['body']; heading = body['title']
             conflict = '<p>此内容存在并发版本；全部当前版本均保留。</p>' if event['key'] in state['conflicts'] else ''
             author_label = '匿名成员' if anonymous else event['author']
-            id_label = event['id'][:19] if anonymous else event['id']
+            record_label = '' if anonymous else ' · 记录 '+html.escape(event['id'])
             files[name] = page(heading, '<nav><a href="index.html">返回社区</a></nav><article><h1>'+html.escape(heading)+
                 '</h1>'+conflict+'<pre>'+html.escape(body['text'])+'</pre><small>作者 '+html.escape(author_label)+
-                ' · 记录 '+html.escape(id_label)+'</small></article>')
+                record_label+'</small></article>')
             links.append('<li><a href="'+name+'">'+html.escape(heading)+'</a></li>')
         sections.append('<section><h2>'+html.escape(domain)+'</h2><ul>'+''.join(links)+'</ul></section>')
     files['index.html'] = page(title, '<h1>'+html.escape(title)+'</h1><p>可携带的社区文档与讨论副本</p>'+''.join(sections))
-    manifest = {'schema': 'ziokt.site.v1', 'community_id': community.community_id,
-                'policy': community.policy_id, 'anonymous': bool(anonymous), 'files': {name: content_id(data) for name, data in sorted(files.items())}}
+    manifest = {'schema': 'ziokt.site.v1', 'community_id': None if anonymous else community.community_id,
+                'policy': None if anonymous else community.policy_id, 'anonymous': anonymous, 'files': {name: content_id(data) for name, data in sorted(files.items())}}
     files['site-manifest.json'] = encoded(manifest)
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:

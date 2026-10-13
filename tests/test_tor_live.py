@@ -30,12 +30,14 @@ class TorLiveTests(unittest.TestCase):
         self.assertIsNotNone(shutil.which('tor'), 'real Tor executable required')
         with tempfile.TemporaryDirectory(prefix='ziokt-onion-') as directory:
             root = Path(directory); hidden = root/'hidden'; hidden.mkdir(mode=0o700)
+            intermediary = root/'intermediary'; intermediary.mkdir(mode=0o700)
             with socket.socket() as available:
                 available.bind(('127.0.0.1', 0)); service_port = available.getsockname()[1]
             with socket.socket() as available:
                 available.bind(('127.0.0.1', 0)); socks_port = available.getsockname()[1]
             process = subprocess.Popen(['tor', '--DataDirectory', str(root/'tor'), '--SocksPort', '127.0.0.1:'+str(socks_port),
                 '--HiddenServiceDir', str(hidden), '--HiddenServicePort', '443 127.0.0.1:'+str(service_port),
+                '--HiddenServiceDir', str(intermediary), '--HiddenServicePort', '1080 127.0.0.1:'+str(socks_port),
                 '--Log', 'notice stdout', '--ClientOnly', '0'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             messages = queue.Queue()
             reader = threading.Thread(target=lambda: [messages.put(line) for line in process.stdout], daemon=True); reader.start()
@@ -73,8 +75,27 @@ class TorLiveTests(unittest.TestCase):
                         sync_remote(target, endpoint, tls_context(*pairs['client'][:2], ca), private, publisher=public)
                         success = True; break
                     except OSError: time.sleep(2)
+                    except ProtocolError as exc:
+                        if exc.code != 'CARRIER_UNAVAILABLE': raise
+                        time.sleep(2)
                 self.assertTrue(success, 'genuine onion endpoint did not complete mTLS sync')
                 self.assertEqual(target.get_file(manifest), b'encrypted community archive')
+                self.assertEqual(target.view('wiki'), source.view('wiki'))
+                # Traverse another actual onion service exposing Tor SOCKS,
+                # then verify the final community certificate end to end.
+                intermediate_host = (intermediary/'hostname').read_text().strip()
+                source.publish(private, 'wiki', 'multihop', {'title': 'Onion chain', 'text': 'real nested onion SOCKS and mTLS'})
+                endpoint['carrier']['hops'] = [{'host': intermediate_host, 'port': 1080}]
+                success = False; deadline = time.monotonic()+180
+                while time.monotonic() < deadline:
+                    try:
+                        sync_remote(target, endpoint, tls_context(*pairs['client'][:2], ca), private, publisher=public)
+                        success = True; break
+                    except OSError: time.sleep(2)
+                    except ProtocolError as exc:
+                        if exc.code != 'CARRIER_UNAVAILABLE': raise
+                        time.sleep(2)
+                self.assertTrue(success, 'actual intermediate onion SOCKS path did not complete mTLS sync')
                 self.assertEqual(target.view('wiki'), source.view('wiki'))
             finally:
                 if server: server.shutdown(); server.server_close()

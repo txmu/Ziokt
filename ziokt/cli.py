@@ -90,6 +90,9 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="action", required=True)
     from .community_cli import register
     register(sub)
+    profiles = sub.add_parser('profiles', help='review every native Profile for an application purpose')
+    profiles.add_argument('--shadow6', required=True, type=Path)
+    profiles.add_argument('--purpose', choices=('proxy-stream','discovery','content'), required=True)
     init = sub.add_parser("init", help="write a disabled federation config; native settings unchanged")
     init.add_argument("--shadow6", required=True, type=Path)
     init.add_argument("--corium", required=True, type=Path)
@@ -183,7 +186,10 @@ def main(argv=None):
     coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
-        if args.action == "community":
+        if args.action == 'profiles':
+            from .transport import plan_profiles
+            result = {'schema':'ziokt.profile-plan.v1','profiles':plan_profiles(args.shadow6,args.purpose), 'runtime_verified':False}
+        elif args.action == "community":
             from .community_cli import execute
             result = execute(args)
         elif args.action == "remote":
@@ -200,11 +206,14 @@ def main(argv=None):
                 return 0
             import hashlib
             from .security import grant
+            from .routes import resolve_endpoint
+            endpoint = resolve_endpoint('standard', endpoint)
             request = strict_json(secure_read(args.request))
             if (not isinstance(request, dict) or set(request) != {"provider_id", "method", "params"} or
                     not isinstance(request["method"], str) or not isinstance(request["params"], dict)):
                 raise ProtocolError("INVALID_REQUEST", "exact remote provider operation required")
-            token = grant(secure_read(args.signing_key, 32), audience=request["provider_id"], action=request["method"],
+            private = secure_read(args.signing_key, 32)
+            token = lambda: grant(private, audience=request["provider_id"], action=request["method"],
                 resource=resource_for(request["method"], request["params"]), federation=args.federation,
                 request_digest="sha256:"+hashlib.sha256(encoded(request)).hexdigest(), epoch=args.epoch)
             result = request_remote(endpoint["host"], endpoint["port"], context, request, token, carrier=endpoint.get("carrier"))

@@ -20,6 +20,8 @@ def register(sub):
     relay.add_argument('--policy', type=Path, required=True)
     relay.add_argument('--owner', required=True)
     relay.add_argument('--tls-config', type=Path, required=True)
+    proxy = actions.add_parser('proxy-serve', help='opt-in lightweight peer proxy; no community content key needed')
+    proxy.add_argument('--config', type=Path, required=True)
     info = actions.add_parser('capsule-info', help='inspect air-gapped capsule envelope without community state')
     info.add_argument('--input', required=True, type=Path)
     for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize', 'registration-purge', 'capsule-export', 'capsule-import', 'stage-package'):
@@ -122,6 +124,15 @@ def register(sub):
 
 def execute(args):
     from .cli import write_exclusive, write_binary_exclusive
+    if args.community_action == 'proxy-serve':
+        from .peer_proxy import load_proxy, proxy_server
+        from .remote import tls_context
+        config = load_proxy(args.config)
+        server = proxy_server(config, tls_context(config['certificate'], config['private_key'], config['ca'], server=True))
+        try: server.serve_forever()
+        except KeyboardInterrupt: pass
+        finally: server.server_close()
+        return {'stopped': True}
     if args.community_action == 'capsule-info':
         from .capsule import capsule_info
         return capsule_info(args.input)

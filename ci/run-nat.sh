@@ -43,6 +43,8 @@ for attempt in $(seq 1 100);do [[ -f "$ci_nat_root/ready" ]] && break;sleep .1;d
 ip netns exec "$ci_nat_a" python3 ci/nat_peer.py send "$ci_nat_root"
 ip -n "$ci_nat_a" addr del 10.241.1.2/24 dev za0
 ip -n "$ci_nat_a" addr add 10.241.1.3/24 dev za0
+# Removing the interface's last address also removes its dependent gateway route.
+ip -n "$ci_nat_a" route replace default via 10.241.1.1 dev za0
 ip -n "$ci_nat_r2" addr del 198.18.241.2/24 dev zrw1
 ip -n "$ci_nat_r2" addr add 198.18.241.3/24 dev zrw1
 ip netns exec "$ci_nat_a" python3 ci/nat_peer.py receive "$ci_nat_root"

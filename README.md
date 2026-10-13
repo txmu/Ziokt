@@ -18,6 +18,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 
 初始化不启动网络：`python3 -m ziokt community init --root /absolute/village --name village`。部署、成员权限、独立恢复密钥、保密性换钥、真实网络条件、默认预算和各应用成熟度见 [社区操作指南](docs/community.zh-CN.md)。
 
+支持最多三个显式洋葱 SOCKS5 中间节点；无 Tor／I2P 时，可显式开启用户轻量代理并使用两到四跳 mTLS 隧道，代理无需社区内容解密密钥。另提供实际候选路径选择、加密长度填充的 rendezvous 和门户站点沙箱。配置、兼容性及隐私边界见 [隐私路由与多跳](docs/privacy-routing.zh-CN.md)。
+
 ## 本地配置
 
 Shadow6 使用自己的 `~/.config/shadow6/ziokt.json` 或 `shadow6 ziokt --config FILE`。配置需为当前用户所有、非符号链接、模式 `0600`：

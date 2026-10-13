@@ -20,6 +20,8 @@ def select_path(profile, candidates):
     if not isinstance(candidates, list) or len(candidates) > 4:
         raise ProtocolError("INVALID_POLICY", "at most four approved fallback paths")
     for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ProtocolError('INVALID_POLICY', 'typed approved path required')
         if candidate.get("approved") is True and evaluate(profile, candidate.get("observed", {}))["satisfied"]:
             return candidate
     raise ProtocolError("NO_POLICY_COMPLIANT_PATH", "no approved path satisfies privacy requirements")

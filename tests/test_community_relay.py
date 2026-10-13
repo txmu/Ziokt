@@ -42,6 +42,10 @@ class RelayTests(unittest.TestCase):
                     a = RendezvousClient(source, endpoint, tls_context(*pairs1['client'][:2], ca1), first)
                     b = RendezvousClient(receiver, endpoint, tls_context(*pairs2['client'][:2], ca1), second)
                     result = a.send(p2); self.assertFalse(result['delivered'])
+                    queued = backend.db.execute('SELECT size,document FROM envelopes').fetchone()
+                    self.assertGreaterEqual(queued[0], 16384)
+                    self.assertEqual(queued[0] & (queued[0]-1), 0)
+                    self.assertIn(b'ziokt.rendezvous.v2', queued[1])
                     self.assertFalse(hasattr(backend, 'cipher'))
                     self.assertNotIn(b'end-to-end content hidden from relay', (root/'relay/relay.sqlite').read_bytes())
                     with self.assertRaises(ProtocolError):

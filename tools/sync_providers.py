@@ -225,10 +225,14 @@ def main():
         if updated.count(mint_anchor)!=1: raise SystemExit('native packed NFT anchor ambiguous')
         updated=updated.replace(mint_anchor,mint_anchor+mint_hook,1)
     if args.check:
-        if (not target.is_file() or target.read_text() != runtime or updated != source or
-                not coordinator_target.is_file() or coordinator_target.read_text() != runtime or
-                not currency_target.is_file() or currency_target.read_text() != currency):
-            raise SystemExit("native provider protocol drift")
+        mismatches = []
+        for path, expected in ((target, runtime), (script, updated),
+                               (coordinator_target, runtime), (currency_target, currency)):
+            if not path.is_file() or path.read_text() != expected:
+                mismatches.append(str(path))
+        if mismatches:
+            raise SystemExit("native provider protocol drift: " + ", ".join(mismatches) +
+                             "; verify native-sources.lock.json against the published protocol copies")
         print("Native protocol copies match Ziokt specification")
     else:
         target.parent.mkdir(parents=True, exist_ok=True)

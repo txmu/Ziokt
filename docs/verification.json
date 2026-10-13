@@ -1,24 +1,33 @@
 {
-  "status": "all-ci-jobs-passed",
+  "status": "privacy-routing-local-validation-passed-new-network-work-in-progress",
+  "date": "2026-10-13",
+  "diagnosed_actions_run": "https://github.com/txmu/Ziokt/actions/runs/38427974586",
   "native_sources": {
     "shadow6": {
       "repository": "txmu/Shadow6",
-      "revision": "3bcd229b126024e195543521d521efc960e5be7a"
+      "revision": "72a36d66f23de612b5dfdb9dab8dcad9c28b797b"
     },
     "corium": {
       "repository": "txmu/Corium",
-      "revision": "53d16da895093abc2c0c017365eb9fb96f6cb32e"
+      "revision": "de47b69e06f93cc1b29f2fd8b36d6512d70d2c48"
     }
   },
   "local": {
-    "ziokt_tests": 46,
+    "full_suite": {"total": 99, "passed": 98, "skipped": 1, "native_data_gate_enabled": true},
+    "final_community_suite": {"total": 46, "passed": 46},
+    "capsule_site_suite": {"total": 5, "passed": 5},
+    "peer_proxy_suite": {"total": 9, "passed": 9, "resource_warning_check": "passed"},
+    "live_tor": {"passed": true, "tor_version": "0.4.9.14", "nested_onion_socks": true},
+    "nested_nat": {"passed": true, "peer_proxy_hops": 2, "address_change": true},
     "ziokt_network_gate_separate": true,
-    "shadow6_native_tests": 5,
-    "corium_regression_tests": 14,
-    "python_heredocs": 43,
+    "cryptography": "50.0.1",
+    "native_protocol_copy_check": "passed",
+    "zipapp_build": "passed",
+    "native_baseline_restored_in_isolated_source_tree": true,
     "native_families": 12,
     "native_profiles": 13,
     "heavyweight_builds": 0
   },
+  "remote_validation": {"rerun": false, "windows": "pending", "macos": "pending"},
   "zkt_definition": "configurable reputation/fame points; legacy asset design superseded"
 }

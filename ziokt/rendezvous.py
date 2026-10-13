@@ -30,6 +30,7 @@ class OpaqueRendezvous:
         if path.exists(): secure_read(path, 128*1024*1024)
         self.db = sqlite3.connect(path, timeout=5, check_same_thread=False); make_private(path)
         self.db.execute('PRAGMA synchronous=FULL')
+        self.db.execute('PRAGMA secure_delete=ON')
         self.db.executescript('CREATE TABLE IF NOT EXISTS envelopes (id TEXT PRIMARY KEY,sender TEXT,recipient TEXT,size INTEGER,parts INTEGER,expires INTEGER,document BLOB); CREATE TABLE IF NOT EXISTS chunks (id TEXT,part INTEGER,data BLOB,PRIMARY KEY(id,part));')
         self.db.execute('CREATE TABLE IF NOT EXISTS relay_policy (id INTEGER PRIMARY KEY,epoch INTEGER,digest TEXT)')
         old = self.db.execute('SELECT epoch,digest FROM relay_policy WHERE id=1').fetchone()
@@ -56,13 +57,15 @@ class OpaqueRendezvous:
                 exact(params, {'envelope'})
                 value = verify(params['envelope'], principal, 'Ziokt/rendezvous/v1')
                 exact(value, {'schema', 'community_id', 'policy', 'sender', 'recipient', 'digest', 'size', 'parts', 'nonce', 'expires'})
-                if (value['schema'] != 'ziokt.rendezvous.v1' or value['community_id'] != self.community.community_id or value['policy'] != self.policy_id or value['sender'] != principal or
+                if (value['schema'] not in {'ziokt.rendezvous.v1', 'ziokt.rendezvous.v2'} or value['community_id'] != self.community.community_id or value['policy'] != self.policy_id or value['sender'] != principal or
                         value['recipient'] not in self.policy['members'] or type(value['size']) is not int or not 32 <= value['size'] <= MAX_BYTES or
                         type(value['parts']) is not int or value['parts'] != (value['size']+PART-1)//PART or
                         not isinstance(value['nonce'], str) or not __import__('re').fullmatch('[a-f0-9]{32}', value['nonce']) or
                         type(value['expires']) is not int or not int(time.time()) < value['expires'] <= int(time.time())+3600):
                     raise ProtocolError('INVALID_RELAY', 'signed scoped relay envelope rejected')
                 hash_id(value['digest']); packet_id = content_id(encoded(params['envelope']))
+                if value['schema'] == 'ziokt.rendezvous.v2' and (value['size'] < 16384 or value['size'] & (value['size']-1)):
+                    raise ProtocolError('INVALID_RELAY', 'v2 relay requires a padded power-of-two frame')
                 old = self.db.execute('SELECT document FROM envelopes WHERE id=?', (packet_id,)).fetchone()
                 if old:
                     if old[0] != encoded(params['envelope']): raise ProtocolError('IDEMPOTENCY_CONFLICT', 'relay packet changed')
@@ -105,8 +108,8 @@ class OpaqueRendezvous:
 
 class RendezvousClient:
     def __init__(self, community, endpoint, context, private):
-        from .routes import admit_endpoint
-        admit_endpoint(community.policy['privacy'], endpoint)
+        from .routes import resolve_endpoint
+        resolve_endpoint(community.policy['privacy'], endpoint)
         self.community, self.endpoint, self.context, self.private = community, endpoint, context, private
         self.public = sign({}, private, 'test')['public_key']
         self.community._member(self.public, 'replicate')
@@ -114,17 +117,25 @@ class RendezvousClient:
     def call(self, method, params):
         from .remote import request_remote, resource_for
         with self.community.lock: self.community._current()
+        from .routes import resolve_endpoint
+        endpoint = resolve_endpoint(self.community.policy['privacy'], self.endpoint)
         request = {'provider_id': self.community.community_id, 'method': method, 'params': params}
-        token = grant(self.private, audience=self.community.community_id, action=method, resource=resource_for(method, params),
+        token = lambda: grant(self.private, audience=self.community.community_id, action=method, resource=resource_for(method, params),
                       federation=self.community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(self.endpoint['host'], self.endpoint['port'], self.context, request, token, carrier=self.endpoint.get('carrier'))
+        return request_remote(endpoint['host'], endpoint['port'], self.context, request, token, carrier=endpoint.get('carrier'))
 
     def send(self, recipient):
         # The approved archival sender signs a checkpoint; the relay gets only
         # ciphertext and scoped routing metadata, never community decryption keys.
         with self.community.lock:
             checkpoint = self.community.checkpoint(self.private)
-            value = {'schema': 'ziokt.rendezvous.v1', 'community_id': self.community.community_id,
+            # Encrypt the true length too: merely appending padding would leave
+            # the signed envelope or checkpoint framing revealing it.
+            frame = max(16384, 1 << (len(checkpoint)+31).bit_length())
+            if frame > MAX_BYTES:
+                raise ProtocolError('COMMUNITY_LIMIT', 'padded relay checkpoint exceeds transport budget')
+            checkpoint = self.community._seal(checkpoint, 'relay-padded', frame)
+            value = {'schema': 'ziokt.rendezvous.v2', 'community_id': self.community.community_id,
                      'policy': self.community.policy_id, 'sender': self.public, 'recipient': recipient,
                      'digest': content_id(checkpoint), 'size': len(checkpoint), 'parts': (len(checkpoint)+PART-1)//PART,
                      'nonce': secrets.token_hex(16), 'expires': int(time.time())+3600}
@@ -147,11 +158,16 @@ class RendezvousClient:
             sender = envelope.get('public_key') if isinstance(envelope, dict) else None
             self.community._member(sender, 'recover')
             value = verify(envelope, sender, 'Ziokt/rendezvous/v1')
-            if (value.get('recipient') != self.public or value.get('community_id') != self.community.community_id or
+            exact(value, {'schema', 'community_id', 'policy', 'sender', 'recipient', 'digest', 'size', 'parts', 'nonce', 'expires'})
+            if (value['schema'] not in {'ziokt.rendezvous.v1', 'ziokt.rendezvous.v2'} or value['sender'] != sender or
+                    not isinstance(value['nonce'], str) or not __import__('re').fullmatch('[a-f0-9]{32}', value['nonce']) or
+                    value.get('recipient') != self.public or value.get('community_id') != self.community.community_id or
                     value.get('policy') != self.community.policy_id or type(value.get('size')) is not int or not 32 <= value['size'] <= MAX_BYTES or
                     type(value.get('parts')) is not int or value['parts'] != (value['size']+PART-1)//PART or
-                    type(value.get('expires')) is not int or value['expires'] <= int(time.time()) or content_id(encoded(envelope)) != item['packet_id']):
+                    type(value.get('expires')) is not int or not int(time.time()) < value['expires'] <= int(time.time())+3600 or content_id(encoded(envelope)) != item['packet_id']):
                 raise ProtocolError('INVALID_RELAY', 'relay envelope scope or expiry rejected')
+            if value['schema'] == 'ziokt.rendezvous.v2' and (value['size'] < 16384 or value['size'] & (value['size']-1)):
+                raise ProtocolError('INVALID_RELAY', 'v2 relay requires a padded power-of-two frame')
             data = bytearray()
             for index in range(value['parts']):
                 part = self.call('relay.part.get', {'packet_id': item['packet_id'], 'part': index}); exact(part, {'data_base64'})
@@ -160,7 +176,8 @@ class RendezvousClient:
                 if len(raw) != min(PART, value['size']-len(data)): raise ProtocolError('INVALID_RESPONSE', 'relay response size changed')
                 data.extend(raw)
             if content_id(data) != value['digest']: raise ProtocolError('ARTIFACT_DIGEST_MISMATCH', 'relay ciphertext differs from signed digest')
-            restored.append(self.community.restore(bytes(data), sender))
+            checkpoint = self.community._open(bytes(data), 'relay-padded') if value['schema'] == 'ziokt.rendezvous.v2' else bytes(data)
+            restored.append(self.community.restore(checkpoint, sender))
             if self.call('relay.ack', {'packet_id': item['packet_id']}) != {'acknowledged': True}:
                 raise ProtocolError('INVALID_RESPONSE', 'relay acknowledgement not confirmed')
         return {'received': len(restored), 'results': restored}

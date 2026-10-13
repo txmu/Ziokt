@@ -1,5 +1,7 @@
 """Real TLS sockets, opaque range sync and a SOCKS5 proxy with no onion DNS."""
 import datetime
+import base64
+from contextlib import contextmanager
 import hashlib
 import ipaddress
 from pathlib import Path
@@ -25,6 +27,63 @@ from ziokt.remote import remote_server, tls_context
 from ziokt.security import sign
 
 ONION = 'pg6mmjiyjmcrsslvykfwnntlaru7p5svn6y2ymmju6nubxndf4pscryd.onion'
+
+
+def test_onion(seed):
+    public = hashlib.sha256(seed.encode()).digest()
+    checksum = hashlib.sha3_256(b'.onion checksum'+public+b'\x03').digest()[:2]
+    return base64.b32encode(public+checksum+b'\x03').decode().lower()+'.onion'
+
+
+@contextmanager
+def onion_proxy(destination, upstream_port, observed, *, reject=False):
+    """A real forwarding SOCKS socket with exactly one approved next hop."""
+    class Proxy(socketserver.BaseRequestHandler):
+        def handle(self):
+            stream = self.request
+            stream.settimeout(5)
+            upstream = None
+            def read(size):
+                data = bytearray()
+                while len(data) < size:
+                    part = stream.recv(size-len(data))
+                    if not part: raise OSError('EOF')
+                    data.extend(part)
+                return bytes(data)
+            try:
+                if read(3) != b'\x05\x01\x02': raise OSError('method')
+                if reject:
+                    observed.append(('rejected', destination))
+                    stream.sendall(b'\x05\x00')
+                    return
+                stream.sendall(b'\x05\x02')
+                if read(1) != b'\x01': raise OSError('auth')
+                username = read(read(1)[0]); password = read(read(1)[0])
+                stream.sendall(b'\x01\x00')
+                if read(4) != b'\x05\x01\x00\x03': raise OSError('remote DNS required')
+                host = read(read(1)[0]).decode(); port = struct.unpack('!H', read(2))[0]
+                if host != destination or port != 443: raise OSError('unapproved destination')
+                observed.append((host, username, password))
+                upstream = socket.create_connection(('127.0.0.1', upstream_port), timeout=5)
+                stream.sendall(b'\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x00')
+                def copy(a, b):
+                    try:
+                        while part := a.recv(16384): b.sendall(part)
+                    except OSError: pass
+                    try: b.shutdown(socket.SHUT_WR)
+                    except OSError: pass
+                worker = threading.Thread(target=copy, args=(stream, upstream), daemon=True)
+                worker.start(); copy(upstream, stream); worker.join(5)
+            except OSError: pass
+            finally:
+                if upstream is not None: upstream.close()
+    class Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+    proxy = Server(('127.0.0.1', 0), Proxy)
+    thread = threading.Thread(target=proxy.serve_forever, daemon=True); thread.start()
+    try: yield proxy.server_address[1]
+    finally: proxy.shutdown(); proxy.server_close(); thread.join(5)
 
 
 def certificates(root, host=ONION):
@@ -178,6 +237,59 @@ class CommunityNetworkTests(unittest.TestCase):
             with self.assertRaises(ProtocolError): sync_remote(target, {'host': '127.0.0.1', 'port': self.server.server_port}, self.context, self.private, publisher=self.public)
             target.publish(self.private, 'wiki', 'offline', {'title': 'Offline', 'text': 'still available'})
             self.assertEqual(len(target.view('wiki')['events']), 1)
+
+    def test_multihop_selected_candidate_uses_real_tls_without_local_onion_dns(self):
+        first, second = test_onion('first'), test_onion('second')
+        observed = []
+        with onion_proxy(ONION, self.server.server_port, observed) as final_proxy:
+            with onion_proxy(second, final_proxy, observed) as middle_proxy:
+                with onion_proxy(first, middle_proxy, observed) as entry_proxy:
+                    observations = {'end_to_end_authentication': True, 'encrypted_content': True,
+                                    'private_discovery': True, 'anonymous_carrier': True, 'direct_fallback': False}
+                    selected = {'approved': True, 'observed': observations, 'host': ONION, 'port': 443,
+                                'carrier': {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': entry_proxy,
+                                            'hops': [{'host': first, 'port': 443}, {'host': second, 'port': 443}]}}
+                    endpoint = {'host': 'unselected.example', 'port': 1,
+                                'connection_policy': {'mode': 'approved-paths', 'allow_direct_fallback': False},
+                                'candidates': [selected]}
+                    original_dns = socket.getaddrinfo
+                    def dns(host, *args, **kwargs):
+                        self.assertEqual(host, '127.0.0.1')
+                        return original_dns(host, *args, **kwargs)
+                    with patch('socket.getaddrinfo', side_effect=dns):
+                        sync_remote(self.target, endpoint, self.context, self.private, publisher=self.public)
+                    self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
+        self.assertGreater(len(observed), 3)
+        self.assertEqual({item[0] for item in observed}, {first, second, ONION})
+        self.assertEqual(len({item[2] for item in observed}), len(observed))
+
+    def test_multihop_authentication_downgrade_stops_before_final_peer(self):
+        intermediate = test_onion('rejecting-hop'); observed = []
+        with onion_proxy(ONION, self.server.server_port, observed, reject=True) as middle:
+            with onion_proxy(intermediate, middle, observed) as entry:
+                carrier = {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': entry,
+                           'hops': [{'host': intermediate, 'port': 443}]}
+                with self.assertRaises(ProtocolError) as error:
+                    connect_onion(ONION, 443, carrier, timeout=5)
+                self.assertEqual(error.exception.code, 'CARRIER_UNAVAILABLE')
+        self.assertEqual(len(observed), 2)
+        self.assertEqual(observed[-1], ('rejected', ONION))
+
+    def test_multihop_invalid_or_repeated_hops_are_rejected_before_network(self):
+        from ziokt.routes import resolve_endpoint
+        carrier = {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': 9050}
+        for hops in [[{'host': ONION, 'port': 443}], [{'host': 'example.com', 'port': 443}],
+                     [{'host': test_onion('same'), 'port': 443}]*2,
+                     [{'host': test_onion(str(i)), 'port': 443} for i in range(4)],
+                     [{'host': test_onion('valid'), 'port': True}]]:
+            with patch('socket.create_connection') as dial:
+                with self.assertRaises(ProtocolError): connect_onion(ONION, 443, {**carrier, 'hops': hops})
+                dial.assert_not_called()
+        claimed = {'approved': True, 'host': '127.0.0.1', 'port': 443,
+                   'observed': {'end_to_end_authentication': True, 'encrypted_content': True,
+                                'private_discovery': True, 'anonymous_carrier': True, 'direct_fallback': False}}
+        endpoint = {'connection_policy': {'mode': 'approved-paths', 'allow_direct_fallback': False}, 'candidates': [claimed]}
+        with self.assertRaises(ProtocolError): resolve_endpoint('restricted', endpoint)
 
     def test_browser_sync_action_uses_the_fixed_real_tls_peer(self):
         import http.client

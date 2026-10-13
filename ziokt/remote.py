@@ -80,7 +80,9 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self):
-            super().setup()
+            # Authenticate before creating buffered HTTP files. Failed TLS
+            # handshakes otherwise leave makefile references holding sockets.
+            self.connection = self.request
             def expire():
                 try: self.connection.shutdown(socket.SHUT_RDWR)
                 except OSError: pass
@@ -88,7 +90,9 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
             self.deadline_timer.daemon = True
             self.deadline_timer.start()
             self.connection.settimeout(5)
-            try: self.connection.do_handshake()
+            try:
+                self.connection.do_handshake()
+                super().setup()
             except BaseException:
                 self.deadline_timer.cancel()
                 raise
@@ -183,22 +187,38 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     return server
 
 
-def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=30):
-    if type(timeout) not in {int, float} or not 0 < timeout <= 30:
+def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None):
+    from .carrier import open_carrier, validate_carrier
+    if carrier is not None: validate_carrier(carrier, host)
+    preferred = 30
+    if carrier is not None:
+        entry = carrier.get('entry_carrier') or {}
+        preferred = carrier.get('deadline_seconds', 90 if carrier['kind'] == 'i2p-sam' or entry.get('kind') == 'i2p-sam' else 30)
+    maximum = 120 if preferred > 30 else 30
+    if timeout is None: timeout = preferred
+    if type(timeout) not in {int, float} or not 0 < timeout <= maximum:
         raise ProtocolError("INVALID_CONFIG", "bounded remote deadline required")
     connection = http.client.HTTPSConnection(host, port, context=context, timeout=timeout)
     deadline = time.monotonic()+timeout
     timer = None
+    response = None
+    done = threading.Event()
     try:
-        if carrier is not None:
-            from .carrier import connect_onion
-            raw_socket = connect_onion(host, port, carrier, timeout=timeout)
-        elif isinstance(host, str) and host.endswith('.onion'):
-            raise ProtocolError("NO_POLICY_COMPLIANT_PATH", "onion destinations require an explicit local Tor carrier")
-        else:
-            raw_socket = socket.create_connection((host, port), timeout=timeout)
+        raw_socket = open_carrier(host, port, carrier, timeout=timeout, cancellation=cancellation)
+        if cancellation is not None:
+            def monitor():
+                while not done.wait(.2):
+                    if cancellation.is_set():
+                        try: raw_socket.shutdown(socket.SHUT_RDWR)
+                        except OSError: pass
+                        return
+            watcher = threading.Thread(target=monitor, daemon=True); watcher.start()
         try:
-            connection.sock = context.wrap_socket(raw_socket, server_hostname=host, do_handshake_on_connect=False)
+            if carrier is not None and carrier['kind'] in {'peer-multihop', 'shadow6-stream'}:
+                from .peer_proxy import TLSStream
+                connection.sock = TLSStream(raw_socket, context, host, deadline)
+            else:
+                connection.sock = context.wrap_socket(raw_socket, server_hostname=host, do_handshake_on_connect=False)
         except BaseException:
             raw_socket.close()
             raise
@@ -207,12 +227,11 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
         connection.sock.settimeout(remaining)
         def expire():
             try:
-                current_socket = connection.sock
-                if current_socket: current_socket.shutdown(socket.SHUT_RDWR)
+                raw_socket.shutdown(socket.SHUT_RDWR)
             except OSError: pass
         timer = threading.Timer(remaining, expire); timer.daemon = True; timer.start()
         connection.sock.do_handshake()
-        body = encoded({"request": request, "grant": signed_grant})
+        body = encoded({"request": request, "grant": signed_grant() if callable(signed_grant) else signed_grant})
         if len(body) > MAX_REQUEST:
             raise ProtocolError("INVALID_REQUEST", "remote request exceeds budget")
         connection.request("POST", "/zfcp", body, {"Content-Type": "application/json"})
@@ -225,7 +244,9 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
             raise ProtocolError(result["error"]["code"], result["error"]["message"])
         return result["result"]
     finally:
+        done.set()
         if timer is not None: timer.cancel()
+        if response is not None: response.close()
         connection.close()
 
 
@@ -234,7 +255,7 @@ def load_remote(path, serving=False):
     config = strict_json(secure_read(path))
     base = {"schema", "host", "port", "certificate", "private_key", "ca"}
     extra = {"replay_state", "trusted_clients", "allow_mutations"} if serving else set()
-    optional = set() if serving else {"carrier", "connection_policy", "rendezvous"}
+    optional = set() if serving else {"carrier", "connection_policy", "rendezvous", "candidates", "discovery"}
     if not isinstance(config, dict) or not base|extra <= set(config) or set(config)-(base|extra|optional) or config["schema"] != "ziokt.remote.v1":
         raise ProtocolError("INVALID_CONFIG", "exact private remote endpoint configuration required")
     for field in ("certificate", "private_key", "ca", *(["replay_state"] if serving else [])):
@@ -248,6 +269,8 @@ def load_remote(path, serving=False):
     if "connection_policy" in config:
         from .routes import validate_route
         validate_route(config["connection_policy"], config)
+    if 'candidates' in config and config.get('connection_policy', {}).get('mode') != 'approved-paths':
+        raise ProtocolError('INVALID_CONFIG', 'candidates require explicit approved-paths mode')
     if "rendezvous" in config:
         value = config["rendezvous"]
         if not isinstance(value, dict) or set(value) != {"recipient"} or not isinstance(value["recipient"], str) or not re.fullmatch('[a-f0-9]{64}', value['recipient']):

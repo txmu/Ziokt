@@ -17,9 +17,21 @@ lock = json.loads((root / "native-baseline.lock.json").read_text())
 if hashlib.sha256(source.read_bytes()).hexdigest() != lock["sha256"]:
     raise ValueError("upstream native baseline digest mismatch")
 destination = root.parent / "Shadow6"
-with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-") as directory:
+with tempfile.TemporaryDirectory(prefix="ziokt-native-baseline-", dir=destination.parent) as directory:
     with tarfile.open(source) as archive:
-        archive.extractall(directory, filter="data")
+        # The archive also contains large unrelated source/build trees. Admit
+        # only the Core products used below, retaining safe tar extraction.
+        products = []
+        for member in archive:
+            path = Path(member.name)
+            if not member.isfile() or len(path.parts) < 3 or path.parts[0] != 'Shadow6' or not path.parts[1].startswith('Core-'):
+                continue
+            relative = path.parts[2:]
+            if (path.name.startswith('shadow6-') or any(p.startswith('shadow6-') and p.endswith('_app') for p in relative) or
+                    '.so' in path.suffixes or path.suffix in {'.dll', '.dylib'}):
+                if path.suffix not in {'.py', '.txt', '.md', '.c', '.cpp', '.o'}:
+                    products.append(member)
+        archive.extractall(directory, members=products, filter="data")
     bundle = Path(directory) / "Shadow6"
     # All native families and the second Gleam Profile share exactly this rule;
     # no business adapter is selected by Core name.

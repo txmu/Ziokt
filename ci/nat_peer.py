@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import secrets
 import sys
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'tests')]
@@ -14,6 +15,7 @@ from ziokt.community import Community, RIGHTS, create_policy
 from ziokt.protocol import make_private
 from ziokt.remote import tls_context, remote_server
 from ziokt.rendezvous import OpaqueRendezvous, RendezvousClient, RELAY_METHODS
+from ziokt.peer_proxy import proxy_server
 from ziokt.security import sign
 
 p=argparse.ArgumentParser(); p.add_argument('mode',choices=['prepare','serve','send','receive']);p.add_argument('root',type=Path);a=p.parse_args();r=a.root
@@ -33,16 +35,33 @@ if a.mode=='prepare':
     for i,private in enumerate([first,second]):
         data={'root':str(r), 'policy':policy,'owner':publics[0],'private':private.hex(),'content_key':key.hex(),'recipient':publics[1], 'ca':str(tls[0][0]),'certificate':str(tls[i][1]['client'][0]),'private_key':str(tls[i][1]['client'][1])}
         path=r/('client'+str(i)+'.json');path.write_text(json.dumps(data));make_private(path)
+        for proxy_port in (24444,24445):
+            proxy_config={'schema':'ziokt.remote.v1','host':'198.18.241.1','port':proxy_port,
+                          'certificate':data['certificate'],'private_key':data['private_key'],'ca':data['ca']}
+            proxy_path=r/f'proxy-client-{i}-{proxy_port}.json'
+            proxy_path.write_text(json.dumps(proxy_config));make_private(proxy_path)
     raise SystemExit(0)
 if a.mode=='serve':
     cfg=json.loads((r/'server.json').read_text()); backend=OpaqueRendezvous(r/'relay',cfg['policy'],cfg['owner'])
     server=remote_server({'enabled':True,'federation_id':'nat-community','providers':[]},tls_context(cfg['certificate'],cfg['private_key'],cfg['ca'],server=True),r/'replay.sqlite',cfg['trusted'],host='198.18.241.1',port=24443,allow_mutations=True,community=backend)
+    proxies=[];threads=[]
+    for proxy_port,next_port in ((24444,24445),(24445,24443)):
+        proxy=proxy_server({'schema':'ziokt.peer-proxy.v1','enabled':True,'host':'198.18.241.1','port':proxy_port,
+                           'trusted_clients':list(cfg['trusted']),'targets':[{'host':'198.18.241.1','port':next_port}],
+                           'max_connections':8,'max_bytes':64*1024*1024,'max_seconds':60},
+                          tls_context(cfg['certificate'],cfg['private_key'],cfg['ca'],server=True))
+        thread=threading.Thread(target=proxy.serve_forever,daemon=True);thread.start()
+        proxies.append(proxy);threads.append(thread)
     (r/'ready').write_text('ready')
     try:server.serve_forever()
-    finally:server.server_close();backend.close()
+    finally:
+        server.server_close();backend.close()
+        for proxy in proxies:proxy.shutdown();proxy.server_close()
+        for thread in threads:thread.join(5)
 else:
     index=0 if a.mode=='send' else 1;cfg=json.loads((r/('client'+str(index)+'.json')).read_text())
     endpoint={'host':'198.18.241.1','port':24443,'connection_policy':{'mode':'relay','allow_direct_fallback':False},'rendezvous':{'recipient':cfg['recipient']}}
+    endpoint['carrier']={'kind':'peer-multihop','hops':[{'host':'198.18.241.1','port':port,'tls_config':str(r/f'proxy-client-{index}-{port}.json')} for port in (24444,24445)]}
     with Community(r/('node'+str(index)),cfg['policy'],cfg['owner'],bytes.fromhex(cfg['content_key'])) as node:
         client=RendezvousClient(node,endpoint,tls_context(cfg['certificate'],cfg['private_key'],cfg['ca']),bytes.fromhex(cfg['private']))
         if a.mode=='send':

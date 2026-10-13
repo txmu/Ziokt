@@ -42,15 +42,22 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'no-referrer')
+            self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+            self.send_header('X-DNS-Prefetch-Control', 'off')
+            self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), browsing-topics=()')
             default_csp = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
             self.send_header('Content-Security-Policy', csp or default_csp)
             if set_cookie:
                 self.send_header('Set-Cookie', f'ziokt_session={token}; SameSite=Strict; HttpOnly; Path=/')
             self.send_header('Connection', 'close'); self.end_headers(); self.wfile.write(data)
-        def authorize(self, allow_unregistered=False, request_token=None):
+        def authorize(self, allow_unregistered=False):
             origin = 'http://127.0.0.1:'+str(self.server.server_port)
             if self.headers.get('Host') != origin[7:] or self.headers.get('Origin') not in {None, origin}:
                 raise ProtocolError('POLICY_DENIED', 'local origin required')
+            if self.headers.get('Sec-Fetch-Site') not in {None, 'none', 'same-origin'}:
+                raise ProtocolError('POLICY_DENIED', 'cross-site browser requests rejected')
+            if self.path.startswith('/api/') and self.headers.get('Sec-Fetch-Dest') not in {None, 'empty'}:
+                raise ProtocolError('POLICY_DENIED', 'portal APIs require explicit fetch requests')
             auth_header = self.headers.get('Authorization', '')
             cookie_header = self.headers.get('Cookie', '')
             cookie_token = None
@@ -65,8 +72,6 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
             if auth_header and hmac.compare_digest(auth_header, 'Bearer '+token):
                 authorized = True
             elif cookie_token and hmac.compare_digest(cookie_token, token):
-                authorized = True
-            elif request_token and hmac.compare_digest(request_token, token):
                 authorized = True
             if not authorized:
                 raise ProtocolError('POLICY_DENIED', 'local browser session required')
@@ -84,22 +89,26 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if parsed.path in mapping:
                     name, kind = mapping[parsed.path]; self.reply(200, (assets/name).read_bytes(), kind); return
                 if parsed.path.startswith('/site/'):
+                    self.authorize()
+                    if parsed.query:
+                        raise ProtocolError('INVALID_REQUEST', 'site credentials cannot be placed in URLs')
                     site_tail = parsed.path[len('/site/'):]
                     if not site_tail or '/' not in site_tail:
                         target = f'/site/{site_tail}/' if site_tail else '/'
-                        if parsed.query: target += f'?{parsed.query}'
                         self.send_response_only(302)
                         self.send_header('Location', target)
                         self.send_header('Connection', 'close')
                         self.end_headers()
                         return
-                    query_token = parse_qs(parsed.query).get('token', [None])[0]
-                    self.authorize(request_token=query_token)
                     site_name, subpath = site_tail.split('/', 1)
                     from .community_site import load_site_file
                     res = load_site_file(community, site_name, subpath)
-                    site_csp = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
-                    self.reply(200, res['content'], kind=res['content_type'], csp=site_csp, set_cookie=True); return
+                    # Published community content shares the listener with a
+                    # signing portal, so disable scripts and forms. Retaining
+                    # same-origin permits authenticated CSS and document links;
+                    # no script execution or API subresource access is allowed.
+                    site_csp = "sandbox allow-same-origin; default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+                    self.reply(200, res['content'], kind=res['content_type'], csp=site_csp); return
                 self.authorize(allow_unregistered=parsed.path == '/api/status')
                 if parsed.path == '/api/status':
                     from .community_privacy import mailbox_public
@@ -169,7 +178,7 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if self.path == '/api/site':
                     exact(value, {'name', 'title'}|({'anonymous'} if 'anonymous' in value else set()))
                     from .community_site import publish_site
-                    self.reply(200, publish_site(community, private, value['name'], value['title'], anonymous=bool(value.get('anonymous', False)))); return
+                    self.reply(200, publish_site(community, private, value['name'], value['title'], anonymous=value.get('anonymous', False))); return
                 if self.path == '/api/vote':
                     exact(value, {'proposal', 'choice'})
                     event = community.vote(private, value['proposal'], value['choice'])

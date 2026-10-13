@@ -121,14 +121,14 @@ def sync_remote(community, endpoint, context, private, *, publisher, cancellatio
     """
     from .remote import request_remote, resource_for
     with community.lock: community._current()
-    from .routes import admit_endpoint
-    admit_endpoint(community.policy['privacy'], endpoint)
+    from .routes import resolve_endpoint
+    endpoint = resolve_endpoint(community.policy['privacy'], endpoint)
     def call(method, params):
         if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'community sync cancelled')
         request = {'provider_id': community.community_id, 'method': method, 'params': params}
-        token = grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
+        token = lambda: grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'))
+        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation)
     status = call('community.status', {})
     exact(status, {'community_id', 'policy', 'records', 'publisher', 'runtime_ready', 'inventory_digest', 'origin'})
     if status['community_id'] != community.community_id or status['policy'] != community.policy_id or status['publisher'] != publisher:
@@ -163,8 +163,8 @@ def sync_remote(community, endpoint, context, private, *, publisher, cancellatio
 def push_remote(community, endpoint, context, private, *, cancellation=None):
     """Idempotent submission of this member's current-policy signed events."""
     from .remote import request_remote, resource_for
-    from .routes import admit_endpoint
-    admit_endpoint(community.policy['privacy'], endpoint)
+    from .routes import resolve_endpoint
+    endpoint = resolve_endpoint(community.policy['privacy'], endpoint)
     public = sign({}, private, 'test')['public_key']
     if public not in community.policy['members']: raise ProtocolError('POLICY_DENIED', 'current writer membership required')
     peer = content_id(encoded({'host': endpoint['host'], 'port': endpoint['port']}))
@@ -178,9 +178,9 @@ def push_remote(community, endpoint, context, private, *, cancellation=None):
     def call(method, params):
         if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'community submission cancelled')
         request = {'provider_id': community.community_id, 'method': method, 'params': params}
-        token = grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
+        token = lambda: grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'))
+        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation)
     order, visited = [], set()
     def visit(d):
         if d in visited: return
