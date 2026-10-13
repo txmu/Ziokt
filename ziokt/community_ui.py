@@ -24,8 +24,9 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
     if public not in community.policy['members']:
         raise ProtocolError('POLICY_DENIED', 'portal signer is not a community member')
     registration = None
-    if community.policy.get('registration', {}).get('required') and registration_config is None:
-        raise ProtocolError('INVALID_CONFIG', 'required registration needs the local federation config')
+    if community.policy.get('registration', {}).get('required'):
+        if registration_config is None:
+            raise ProtocolError('INVALID_CONFIG', 'required registration needs the local federation config')
     if registration_config is not None:
         from .registration import RegistrationGate
         registration = RegistrationGate(community, registration_config)
@@ -99,6 +100,10 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if not 1 <= size <= 65536: raise ProtocolError('INVALID_REQUEST', 'portal request budget exceeded')
                 if self.headers.get('Content-Type') != 'application/json': raise ProtocolError('INVALID_REQUEST', 'JSON portal request required')
                 value = strict_json(self.rfile.read(size))
+                if self.path == '/api/site':
+                    exact(value, {'name', 'title'})
+                    from .community_site import publish_site
+                    self.reply(200, publish_site(community, private, value['name'], value['title'])); return
                 if self.path == '/api/vote':
                     exact(value, {'proposal', 'choice'})
                     event = community.vote(private, value['proposal'], value['choice'])

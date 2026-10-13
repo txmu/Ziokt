@@ -57,7 +57,7 @@ class TorLiveTests(unittest.TestCase):
                 target = Community(root/'target', policy, public, key)
                 ca, pairs = certificates(root, host)
                 trusted = {hashlib.sha256(pairs['client'][2].public_bytes(serialization.Encoding.DER)).hexdigest(): {
-                    'public_key': public, 'methods': ['community.status', 'community.checkpoint.create', 'community.checkpoint.get'], 'providers': ['village']}}
+                    'public_key': public, 'methods': ['community.status', 'community.checkpoint.create', 'community.checkpoint.get', 'community.checkpoint.release', 'community.event.put', 'community.blob.put'], 'providers': ['village']}}
                 server = remote_server({'enabled': True, 'federation_id': 'village', 'providers': []},
                     tls_context(*pairs['server'][:2], ca, server=True), root/'replay.sqlite', trusted,
                     port=service_port, allow_mutations=True, community=CommunityEndpoint(source, private))

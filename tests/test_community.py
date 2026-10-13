@@ -211,5 +211,24 @@ class CommunityTests(unittest.TestCase):
         with self.assertRaises(ProtocolError): limited.put_file(b'a'*17)
         self.assertEqual(len(limited.view('wiki')['events']), 1)
 
+    def test_delta_cursor_is_durable_and_rejects_rollback_or_missing_ancestors(self):
+        self.a.publish(self.private, 'wiki', 'home', {'title': 'Base', 'text': 'first'})
+        b = self.node('delta-target')
+        b.restore(self.a.checkpoint(self.private, after=0, origin=self.a.origin()), self.public)
+        self.assertEqual(b.cursor(self.public, self.a.origin()), 1)
+        self.a.publish(self.private, 'wiki', 'home', {'title': 'Next', 'text': 'second'})
+        delta = self.a.checkpoint(self.private, after=1, origin=self.a.origin())
+        empty = self.node('empty')
+        with self.assertRaises(ProtocolError): empty.restore(delta, self.public)
+        self.assertEqual(empty.view('wiki')['events'], [])
+        self.assertEqual(empty.cursor(self.public, self.a.origin()), 0)
+        b.restore(delta, self.public)
+        self.assertEqual(b.cursor(self.public, self.a.origin()), 2)
+        old = self.a.checkpoint(self.private, after=0, origin=self.a.origin())
+        b.restore(old, self.public)
+        with Community(self.root/'delta-target', self.policy, self.public, self.key) as reopened:
+            self.assertEqual(reopened.cursor(self.public, self.a.origin()), 2)
+            self.assertEqual(reopened.view('wiki'), self.a.view('wiki'))
+
 
 if __name__ == '__main__': unittest.main()

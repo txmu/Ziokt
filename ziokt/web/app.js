@@ -69,12 +69,20 @@ async function activateWorkspace(){
  if(!uiReady){
   for(const [key,app] of Object.entries(apps)){const button=node('button',app.name);button.dataset.domain=key;button.onclick=()=>select(key).catch(error=>feedback(error.message,true));$('navigation').append(button);}
   if(status.network_sync_available){const sync=node('button','同步网络副本');sync.onclick=async()=>{sync.disabled=true;feedback('正在通过已批准路径同步…');try{await api('/api/sync',{});await select(domain);feedback('网络副本已验证并同步');}catch(error){feedback(error.message,true);}finally{sync.disabled=false;}};$('navigation').append(sync);}
+  if(status.rights.includes('files')&&status.rights.includes('names')){const site=node('button','发布社区网站');site.onclick=async()=>{const name=window.prompt('网站名称（字母、数字、点、下划线或连字符）');if(!name)return;const title=window.prompt('网站标题',status.community_id);if(!title)return;site.disabled=true;try{const result=await api('/api/site',{name,title});await select('files');feedback('网站材料已加密保存并命名：'+result.reference);}catch(error){feedback(error.message,true);}finally{site.disabled=false;}};$('navigation').append(site);}
   const recovery=node('button','导出恢复包');recovery.onclick=async()=>{recovery.disabled=true;try{download(await api('/api/checkpoint',{},true),'community-recovery.bin');feedback('加密恢复包已导出，请与密钥分开保存。');}catch(error){feedback(error.message,true);}finally{recovery.disabled=false;}};$('navigation').append(recovery);uiReady=true;
  }
  await select(domain);
 }
-function showRegistration(){ $('workspace').hidden=true;$('registration').hidden=false;$('registration-state').textContent=status.registration.state||'请上传个人信息文本文件'; }
-async function refreshRegistration(){status=await api('/api/status');if(status.registration.registered){await activateWorkspace();return;}showRegistration();}
+function showRegistration(){
+ $('workspace').hidden=true;$('registration').hidden=false;
+ $('registration-state').textContent=status.registration.state||'请上传个人信息文本文件';
+}
+async function refreshRegistration(){
+ status=await api('/api/status');
+ if(status.registration.registered){await activateWorkspace();return;}
+ showRegistration();
+}
 $('session').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;token=$('token').value;
  try{status=await api('/api/status');$('login').hidden=true;if(status.registration&&status.registration.required&&!status.registration.registered)showRegistration();else await activateWorkspace();}
  catch(error){$('login').append(node('p',error.message));}finally{button.disabled=false;}

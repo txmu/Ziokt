@@ -124,6 +124,7 @@ class Community:
         make_private(path)
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.executescript('CREATE TABLE IF NOT EXISTS policies (id TEXT PRIMARY KEY, epoch INTEGER UNIQUE, document BLOB); CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, sealed BLOB NOT NULL);')
+        self.db.executescript('CREATE TABLE IF NOT EXISTS node_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_cursors (publisher TEXT,origin TEXT,policy TEXT,seq INTEGER NOT NULL,PRIMARY KEY(publisher,origin,policy));')
         try:
             with self.db:
                 newest = self.db.execute('SELECT id,epoch,document FROM policies ORDER BY epoch DESC LIMIT 1').fetchone()
@@ -134,6 +135,7 @@ class Community:
                     if self.policy['epoch'] == newest[1] and self.policy_id != newest[0]:
                         raise ProtocolError('POLICY_CONFLICT', 'same epoch has another policy')
                 self.db.execute('INSERT OR IGNORE INTO policies VALUES (?,?,?)', (self.policy_id, self.policy['epoch'], encoded(policy)))
+                self.db.execute("INSERT OR IGNORE INTO node_metadata VALUES ('origin',?)", (secrets.token_hex(32),))
         except BaseException:
             self.db.close(); raise
 
@@ -475,24 +477,44 @@ class Community:
             raise ProtocolError('ARTIFACT_DIGEST_MISMATCH', 'complete plaintext file differs from signed manifest')
         return data
 
-    def checkpoint(self, private):
+    def checkpoint(self, private, *, after=None, origin=None):
         with self.lock:
             self._current()
             public = sign({}, private, 'Ziokt/check-key/v1')['public_key']; self._member(public, 'recover')
-            records = {row[0]: row[1] for row in self.db.execute('SELECT id,sealed FROM records ORDER BY id')}
+            sequence = self.db.execute('SELECT COALESCE(MAX(rowid),0) FROM records').fetchone()[0]
+            delta = None
+            if after is not None:
+                if type(after) is not int or not 0 <= after <= sequence or not isinstance(origin, str):
+                    raise ProtocolError('INVALID_REQUEST', 'bounded source sequence required')
+                if origin != self.origin(): after = 0
+                delta = {'origin': self.origin(), 'after': after, 'through': sequence}
+            records = {row[0]: row[1] for row in self.db.execute('SELECT id,sealed FROM records WHERE rowid>? ORDER BY id', (after or 0,))}
             policies = [strict_json(row[0]) for row in self.db.execute('SELECT document FROM policies ORDER BY epoch')]
             events = self._events()
-            objects = sorted({d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'])[1]})
+            objects = sorted({d for event_id, e in events.items() if event_id in records and not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'])[1]})
             blobs = {d: self.store.get(d) for d in objects}
             # Sign only compact immutable byte digests; payload remains encrypted.
-            manifest = sign({'schema': 'ziokt.community-checkpoint.v1', 'community_id': self.community_id,
+            payload = {'schema': 'ziokt.community-checkpoint.v1', 'community_id': self.community_id,
                              'policy': self.policy_id, 'records': list(records), 'objects': list(blobs),
-                             'policies': policies, 'keyring': base64.b64encode(self._ring_blob()).decode()}, private, 'Ziokt/community-checkpoint/v1')
+                             'policies': policies, 'keyring': base64.b64encode(self._ring_blob()).decode()}
+            if delta is not None:
+                payload['schema'] = 'ziokt.community-checkpoint.v2'; payload['delta'] = delta
+            manifest = sign(payload, private, 'Ziokt/community-checkpoint/v1')
             header = encoded(manifest)
             if len(header) > 1024*1024: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint header budget exceeded')
             body = struct.pack('!I', len(header))+header+b''.join(records.values())+b''.join(blobs.values())
             if len(body)+32 > self.limits['checkpoint_bytes']: raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint byte budget exceeded')
             return self._seal(body, 'checkpoint')
+
+    def origin(self):
+        with self.lock:
+            return self.db.execute("SELECT value FROM node_metadata WHERE key='origin'").fetchone()[0]
+
+    def cursor(self, publisher, origin):
+        with self.lock:
+            row = self.db.execute('SELECT seq FROM sync_cursors WHERE publisher=? AND origin=? AND policy=?',
+                                  (publisher, origin, self.policy_id)).fetchone()
+            return row[0] if row else 0
 
     def inventory_digest(self):
         with self.lock:
@@ -546,9 +568,20 @@ class Community:
             if not 1 <= size <= 1024*1024 or size+4 > len(body): raise ProtocolError('COMMUNITY_LIMIT', 'checkpoint header rejected')
             envelope = strict_json(body[4:4+size], 1024*1024, string_limit=8192)
             value = verify(envelope, publisher, 'Ziokt/community-checkpoint/v1', maximum=1024*1024)
-            exact(value, {'schema', 'community_id', 'policy', 'records', 'objects', 'policies', 'keyring'})
-            if value['schema'] != 'ziokt.community-checkpoint.v1' or value['community_id'] != self.community_id or value['policy'] != self.policy_id:
+            fields = {'schema', 'community_id', 'policy', 'records', 'objects', 'policies', 'keyring'}
+            delta = value.get('delta') if isinstance(value, dict) else None
+            exact(value, fields|({'delta'} if delta is not None else set()))
+            expected_schema = 'ziokt.community-checkpoint.v2' if delta is not None else 'ziokt.community-checkpoint.v1'
+            if value['schema'] != expected_schema or value['community_id'] != self.community_id or value['policy'] != self.policy_id:
                 raise ProtocolError('POLICY_ROLLBACK', 'checkpoint must match currently pinned policy')
+            if delta is not None:
+                exact(delta, {'origin', 'after', 'through'})
+                if (not isinstance(delta['origin'], str) or not PUBLIC.fullmatch(delta['origin']) or type(delta['after']) is not int or
+                        type(delta['through']) is not int or not 0 <= delta['after'] <= delta['through'] < 2**53):
+                    raise ProtocolError('INVALID_COMMUNITY', 'exact signed delta sequence required')
+                cursor = self.cursor(publisher, delta['origin'])
+                if delta['after'] not in {0, cursor} or delta['through'] < cursor:
+                    raise ProtocolError('SNAPSHOT_ROLLBACK', 'delta does not extend the admitted source sequence')
             try: keys = self._decode_ring(base64.b64decode(value['keyring'], validate=True))
             except (ValueError, TypeError): raise ProtocolError('INVALID_COMMUNITY', 'invalid encrypted historical keyring')
             self._adopt_keys(keys)
@@ -574,7 +607,8 @@ class Community:
                     target[digest] = data
             if offset != len(body): raise ProtocolError('INVALID_COMMUNITY', 'checkpoint trailing or truncated bytes')
             events = {d: self._validate_event(b, policies, historical=True) for d, b in pending.items()}
-            self._check_graph(events, policies)
+            checked = {**self._events(), **events} if delta is not None else events
+            self._check_graph(checked, {**self._policies(), **policies})
             required = {d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'], objects)[1]}
             if required != set(objects): raise ProtocolError('MISSING_CONTENT', 'checkpoint must include exactly referenced content')
             for data in objects.values(): self._open(data, 'chunk')
@@ -594,6 +628,12 @@ class Community:
                     self.db.execute('INSERT OR IGNORE INTO policies VALUES (?,?,?)', (d, p['epoch'], encoded(document)))
                 self.db.executemany('INSERT OR IGNORE INTO records VALUES (?,?)', pending.items())
                 self._persist_ring()
+                if delta is not None:
+                    cursor = self.cursor(publisher, delta['origin'])
+                    if delta['after'] not in {0, cursor} or delta['through'] < cursor:
+                        raise ProtocolError('SNAPSHOT_ROLLBACK', 'another receiver advanced this source cursor')
+                    self.db.execute('INSERT OR REPLACE INTO sync_cursors VALUES (?,?,?,?)',
+                        (publisher, delta['origin'], self.policy_id, delta['through']))
             return {'records': len(events), 'objects': len(objects), 'runtime_ready': False,
                     'native_apply_required': True, 'policy': self.policy_id}
 

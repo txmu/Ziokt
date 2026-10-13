@@ -30,13 +30,15 @@ ONION = 'pg6mmjiyjmcrsslvykfwnntlaru7p5svn6y2ymmju6nubxndf4pscryd.onion'
 def certificates(root, host=ONION):
     now = datetime.datetime.now(datetime.timezone.utc)
     private = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Test CA')])
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Test CA '+root.name)])
     ca = x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(private.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(days=1)).add_extension(x509.BasicConstraints(ca=True, path_length=0), True).sign(private, hashes.SHA256())
     ca_path = root/'ca.pem'; ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     pairs = {}
     for name, usage in [('server', ExtendedKeyUsageOID.SERVER_AUTH), ('client', ExtendedKeyUsageOID.CLIENT_AUTH)]:
         key = ec.generate_private_key(ec.SECP256R1())
-        cert = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(days=1)).add_extension(x509.BasicConstraints(ca=False, path_length=None), True).add_extension(x509.ExtendedKeyUsage([usage]), False).add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address('127.0.0.1')), x509.DNSName(host)]), False).sign(private, hashes.SHA256())
+        try: target_name = x509.IPAddress(ipaddress.ip_address(host))
+        except ValueError: target_name = x509.DNSName(host)
+        cert = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(days=1)).add_extension(x509.BasicConstraints(ca=False, path_length=None), True).add_extension(x509.ExtendedKeyUsage([usage]), False).add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address('127.0.0.1')), target_name]), False).sign(private, hashes.SHA256())
         cp, kp = root/(name+'.pem'), root/(name+'.key')
         cp.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
         kp.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())); make_private(kp)
@@ -55,10 +57,12 @@ class CommunityNetworkTests(unittest.TestCase):
         ca, pairs = certificates(self.root)
         self.context = tls_context(*pairs['client'][:2], ca)
         trusted = {hashlib.sha256(pairs['client'][2].public_bytes(serialization.Encoding.DER)).hexdigest(): {
-            'public_key': self.public, 'methods': ['community.status', 'community.checkpoint.create', 'community.checkpoint.get'], 'providers': ['village']}}
+            'public_key': self.public, 'methods': ['community.status', 'community.checkpoint.create', 'community.checkpoint.get', 'community.checkpoint.release', 'community.event.put', 'community.blob.put'], 'providers': ['village']}}
+        self.trusted = trusted
+        self.backend = CommunityEndpoint(self.source, self.private)
         self.server = remote_server({'enabled': True, 'federation_id': 'village', 'providers': []},
             tls_context(*pairs['server'][:2], ca, server=True), self.root/'replay.sqlite', trusted,
-            allow_mutations=True, community=CommunityEndpoint(self.source, self.private))
+            allow_mutations=True, community=self.backend)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
         self.addCleanup(self.stop)
         manifest = self.source.put_file(b'real network content'*800)
@@ -74,10 +78,44 @@ class CommunityNetworkTests(unittest.TestCase):
         self.assertFalse(result['runtime_ready'])
         self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
         self.assertEqual(self.source.view('wiki'), self.target.view('wiki'))
-        self.assertTrue(list((self.source.root/'exchange').iterdir()))
+        self.assertEqual(len(list((self.source.root/'exchange').iterdir())), 0)
         repeated = sync_remote(self.target, {'host': '127.0.0.1', 'port': self.server.server_port}, self.context, self.private, publisher=self.public)
         self.assertTrue(repeated['unchanged'])
-        self.assertEqual(len(list((self.source.root/'exchange').iterdir())), 1)
+        self.assertEqual(len(list((self.source.root/'exchange').iterdir())), 0)
+
+    def test_repeated_network_edits_use_deltas_and_release_export_leases(self):
+        endpoint = {'host': '127.0.0.1', 'port': self.server.server_port}
+        initial = sync_remote(self.target, endpoint, self.context, self.private, publisher=self.public)
+        for index in range(6):
+            self.source.publish(self.private, 'wiki', 'home', {'title': 'Wiki', 'text': 'revision '+str(index)})
+            result = sync_remote(self.target, endpoint, self.context, self.private, publisher=self.public)
+            self.assertEqual(result['records'], 1)
+            self.assertEqual(result['objects'], 0)
+            self.assertLess(result['download_bytes'], initial['download_bytes'])
+            self.assertEqual(len(list((self.source.root/'exchange').iterdir())), 0)
+        self.assertEqual(self.target.view('wiki'), self.source.view('wiki'))
+        self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
+
+    def test_member_submits_own_files_and_posts_without_archive_authority(self):
+        from ziokt.community_network import push_remote, SyncWorker
+        writer = secrets.token_bytes(32); writer_public = sign({}, writer, 'test')['public_key']
+        policy = create_policy(self.private, 'village', {self.public: sorted(RIGHTS), writer_public: ['forum', 'wiki', 'files', 'replicate', 'identity']}, epoch=1, privacy='private')
+        self.source.close(); self.target.close()
+        self.source = Community(self.root/'source', policy, self.public, self.key); self.addCleanup(self.source.close)
+        self.target = Community(self.root/'target', policy, self.public, self.key); self.addCleanup(self.target.close)
+        self.backend.community = self.source
+        for principal in self.trusted.values(): principal['public_key'] = writer_public
+        endpoint = {'host': '127.0.0.1', 'port': self.server.server_port}
+        self.target.publish(writer, 'forum', 'member-post', {'title': 'Member post', 'text': 'network submission', 'reply_to': ''})
+        materials = self.target.put_file(b'member-owned file')
+        self.target.publish(writer, 'files', 'member-file', {'name': 'member-file', **materials})
+        with self.assertRaises(ProtocolError): self.target.checkpoint(writer)
+        worker = SyncWorker(self.target, writer, [{'endpoint': endpoint, 'context': self.context, 'publisher': self.public}])
+        result = worker.cycle()
+        self.assertTrue(result[0]['healthy'], result)
+        self.assertEqual(self.source.get_file(materials), b'member-owned file')
+        self.assertEqual(self.source.view('forum')['events'][0]['author'], writer_public)
+        self.assertEqual(push_remote(self.target, endpoint, self.context, writer)['submitted'], 0)
 
     def test_socks5_actual_stream_remote_dns_and_isolation(self):
         observed = []

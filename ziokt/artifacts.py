@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import stat
 
 from .protocol import ProtocolError, encoded, secure_read, strict_json, make_private
 from .security import verify
@@ -49,6 +50,66 @@ class ArtifactStore:
         if hashlib.sha256(data).hexdigest() != digest[7:]:
             raise ProtocolError("ARTIFACT_DIGEST_MISMATCH", "stored artifact integrity failed")
         return data
+
+    def read_range(self, digest, offset, length):
+        """Bounded immutable-source read; caller verifies the final whole digest.
+
+        Reading a 32 MiB export once per 6 KiB range would be quadratic. This
+        checks stable owned file metadata and reads only the requested range.
+        A range alone never establishes the full artifact's integrity.
+        """
+        if (not isinstance(digest, str) or not re.fullmatch('sha256:[a-f0-9]{64}', digest) or
+                type(offset) is not int or offset < 0 or type(length) is not int or not 1 <= length <= 6144):
+            raise ProtocolError('INVALID_ARTIFACT', 'bounded exact artifact range required')
+        path = self.root/digest[7:]
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode): raise ProtocolError('UNSAFE_FILE', 'regular immutable export required')
+        fd = os.open(path, os.O_RDONLY|getattr(os, 'O_BINARY', 0)|getattr(os, 'O_NOFOLLOW', 0)|getattr(os, 'O_NONBLOCK', 0))
+        try:
+            opened = os.fstat(fd)
+            def identity(info):
+                if os.name == 'nt': return (info.st_mode, info.st_size)
+                return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+                        info.st_ctime_ns, info.st_mode, info.st_nlink)
+            if identity(before) != identity(opened) or not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_ARTIFACT or offset > opened.st_size:
+                raise ProtocolError('UNSAFE_FILE', 'export identity or range changed')
+            if os.name == 'nt':
+                import msvcrt
+                from ._runtime import windows_owner_controlled, windows_file_info
+                handle = msvcrt.get_osfhandle(fd)
+                windows_owner_controlled(handle, True)
+                info = windows_file_info(handle)
+                if info.nNumberOfLinks != 1 or info.dwFileAttributes & 0x400:
+                    raise ProtocolError('UNSAFE_FILE', 'private non-reparse export required')
+                import ctypes
+                from ctypes import wintypes
+                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                kernel.GetFinalPathNameByHandleW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+                kernel.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+                buffer = ctypes.create_unicode_buffer(32768)
+                count = kernel.GetFinalPathNameByHandleW(handle, buffer, len(buffer), 0)
+                def clean(value):
+                    if value.lower().startswith('\\\\?\\unc\\'): value = '\\\\'+value[8:]
+                    elif value.startswith('\\\\?\\'): value = value[4:]
+                    return os.path.normcase(os.path.normpath(value))
+                if not count or count >= len(buffer) or clean(buffer.value) != clean(os.path.realpath(path)):
+                    raise ProtocolError('UNSAFE_FILE', 'opened export path differs from requested file')
+                def native_identity(value):
+                    return (value.dwVolumeSerialNumber, value.nFileIndexHigh, value.nFileIndexLow,
+                            value.nNumberOfLinks, value.nFileSizeHigh, value.nFileSizeLow,
+                            value.ftLastWriteTime.dwHighDateTime, value.ftLastWriteTime.dwLowDateTime)
+            elif opened.st_uid != os.geteuid() or opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) != 0o600:
+                raise ProtocolError('UNSAFE_FILE', 'private owned export required')
+            os.lseek(fd, offset, os.SEEK_SET)
+            data = os.read(fd, min(length, opened.st_size-offset))
+            if len(data) != min(length, opened.st_size-offset) or identity(opened) != identity(os.fstat(fd)) or identity(opened) != identity(path.lstat()):
+                raise ProtocolError('UNSAFE_FILE', 'export changed during range read')
+            if (before.st_dev, before.st_ino, before.st_size) != (path.lstat().st_dev, path.lstat().st_ino, path.lstat().st_size):
+                raise ProtocolError('UNSAFE_FILE', 'export path replaced during range read')
+            if os.name == 'nt' and native_identity(info) != native_identity(windows_file_info(handle)):
+                raise ProtocolError('UNSAFE_FILE', 'native export identity changed during range read')
+            return data, opened.st_size
+        finally: os.close(fd)
 
     def fetch(self, digest, sources):
         """Explicit source readers; a corrupt source never changes trust policy."""

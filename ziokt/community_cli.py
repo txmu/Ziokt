@@ -15,13 +15,18 @@ def register(sub):
     init.add_argument('--name', required=True)
     init.add_argument('--privacy', choices=('private', 'restricted'), default='restricted')
     init.add_argument('--limits', type=Path)
-    for action in ('publish', 'view', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
+    relay = actions.add_parser('relay-serve', help='approved opaque rendezvous without a community decryption key')
+    relay.add_argument('--root', type=Path, required=True)
+    relay.add_argument('--policy', type=Path, required=True)
+    relay.add_argument('--owner', required=True)
+    relay.add_argument('--tls-config', type=Path, required=True)
+    for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--root', required=True, type=Path)
         cmd.add_argument('--policy', required=True, type=Path)
         cmd.add_argument('--owner', required=True)
         cmd.add_argument('--encryption-key', required=True, type=Path)
-        if action in ('publish', 'vote', 'checkpoint', 'replicate', 'sync', 'serve', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
+        if action in ('publish', 'site', 'vote', 'checkpoint', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
             cmd.add_argument('--signing-key', required=True, type=Path)
         if action in ('publish', 'view'):
             cmd.add_argument('--domain', choices=sorted(DOMAINS), required=True)
@@ -41,7 +46,8 @@ def register(sub):
         if action == 'replicate':
             cmd.add_argument('--peer-root', type=Path, required=True, action='append')
             cmd.add_argument('--minimum', type=int, default=2)
-        if action in ('sync', 'serve'): cmd.add_argument('--tls-config', required=True, type=Path)
+        if action in ('sync', 'push', 'serve', 'relay-send', 'relay-receive'): cmd.add_argument('--tls-config', required=True, type=Path)
+        if action == 'relay-send': cmd.add_argument('--recipient', required=True)
         if action == 'sync': cmd.add_argument('--publisher', required=True)
         if action == 'policy':
             cmd.add_argument('--members', required=True, type=Path)
@@ -92,10 +98,31 @@ def register(sub):
         if action in ('vote', 'tally'):
             cmd.add_argument('--proposal', required=True)
         if action == 'vote': cmd.add_argument('--choice', choices=('yes', 'no', 'abstain'), required=True)
+        if action == 'site':
+            cmd.add_argument('--name', required=True)
+            cmd.add_argument('--title', required=True)
+        if action in ('follow', 'ui', 'serve'):
+            cmd.add_argument('--peers', type=Path, required=action == 'follow')
+            cmd.add_argument('--sync-interval', type=int, default=10)
 
 
 def execute(args):
     from .cli import write_exclusive, write_binary_exclusive
+    if args.community_action == 'relay-serve':
+        from .rendezvous import OpaqueRendezvous
+        from .remote import load_remote, tls_context, remote_server
+        backend = OpaqueRendezvous(args.root, strict_json(secure_read(args.policy)), args.owner)
+        try:
+            endpoint = load_remote(args.tls_config, serving=True)
+            context = tls_context(endpoint['certificate'], endpoint['private_key'], endpoint['ca'], server=True)
+            server = remote_server({'enabled': True, 'federation_id': backend.community.community_id, 'providers': []},
+                context, endpoint['replay_state'], endpoint['trusted_clients'], host=endpoint['host'], port=endpoint['port'],
+                allow_mutations=endpoint['allow_mutations'], community=backend)
+            try: server.serve_forever()
+            except KeyboardInterrupt: pass
+            finally: server.server_close()
+        finally: backend.close()
+        return {'stopped': True}
     if args.community_action == 'init':
         if args.root.exists(): raise ProtocolError('ALREADY_EXISTS', 'new community root required')
         args.root.mkdir(mode=0o700, parents=True)
@@ -120,6 +147,24 @@ def execute(args):
     with Community(args.root, policy, args.owner, secure_read(args.encryption_key, 32)) as community:
         private = secure_read(args.signing_key, 32) if hasattr(args, 'signing_key') else None
         action = args.community_action
+        if action in ('relay-send', 'relay-receive'):
+            from .rendezvous import RendezvousClient
+            from .remote import load_remote, tls_context
+            endpoint = load_remote(args.tls_config)
+            client = RendezvousClient(community, endpoint, tls_context(endpoint['certificate'], endpoint['private_key'], endpoint['ca']), private)
+            return client.send(args.recipient) if action == 'relay-send' else client.receive()
+        if action == 'follow':
+            from .community_network import load_peers, SyncWorker
+            worker = SyncWorker(community, private, load_peers(args.peers), args.sync_interval)
+            worker.start()
+            try:
+                while not worker.stopped.wait(1): pass
+            except KeyboardInterrupt: pass
+            finally: worker.close()
+            return {'stopped': True}
+        if action == 'site':
+            from .community_site import publish_site
+            return publish_site(community, private, args.name, args.title)
         if action == 'vote': return {'event': community.vote(private, args.proposal, args.choice)}
         if action == 'tally': return community.tally(args.proposal)
         if action == 'rotate':
@@ -169,11 +214,18 @@ def execute(args):
             server, token = portal_server(community, private, port=args.port, mailbox=mailbox,
                 peer=peer, peer_context=context, publisher=args.peer_publisher,
                 registration_config=args.registration_config)
+            worker = None
             try:
+                if args.peers:
+                    from .community_network import SyncWorker, load_peers
+                    worker = SyncWorker(community, private, load_peers(args.peers), args.sync_interval)
+                    worker.start()
                 write_exclusive(args.session_file, {'url': 'http://127.0.0.1:'+str(server.server_port)+'/', 'token': token})
                 server.serve_forever()
             except KeyboardInterrupt: pass
-            finally: server.server_close()
+            finally:
+                server.server_close()
+                if worker: worker.close()
             return {'stopped': True}
         if action == 'publish':
             return {'event': community.publish(private, args.domain, args.object_key, strict_json(secure_read(args.body)),
@@ -207,20 +259,29 @@ def execute(args):
                 result['healthy'] = result['satisfied']; return result
             finally:
                 for peer in peers: peer.close()
-        if action in ('sync', 'serve'):
+        if action in ('sync', 'push', 'serve'):
             from .remote import load_remote, tls_context, remote_server
-            from .community_network import CommunityEndpoint, sync_remote
+            from .community_network import CommunityEndpoint, sync_remote, push_remote
             endpoint = load_remote(args.tls_config, serving=action == 'serve')
             context = tls_context(endpoint['certificate'], endpoint['private_key'], endpoint['ca'], server=action == 'serve')
             if action == 'sync': return sync_remote(community, endpoint, context, private, publisher=args.publisher)
+            if action == 'push': return push_remote(community, endpoint, context, private)
             if endpoint['host'] != '127.0.0.1':
                 raise ProtocolError('INVALID_CONFIG', 'community server is loopback-only; expose via explicitly configured onion service')
             federation = {'enabled': True, 'federation_id': community.community_id, 'providers': []}
             server = remote_server(federation, context, endpoint['replay_state'], endpoint['trusted_clients'],
                 host=endpoint['host'], port=endpoint['port'], allow_mutations=endpoint['allow_mutations'],
                 community=CommunityEndpoint(community, private))
-            try: server.serve_forever()
+            worker = None
+            try:
+                if args.peers:
+                    from .community_network import load_peers, SyncWorker
+                    worker = SyncWorker(community, private, load_peers(args.peers), args.sync_interval)
+                    worker.start()
+                server.serve_forever()
             except KeyboardInterrupt: pass
-            finally: server.server_close()
+            finally:
+                server.server_close()
+                if worker: worker.close()
             return {'stopped': True}
         raise ProtocolError('INVALID_APPLICATION', 'unknown community action')

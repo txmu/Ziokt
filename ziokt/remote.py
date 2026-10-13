@@ -13,16 +13,20 @@ import ssl
 import threading
 import tempfile
 import re
+import time
 
 from .client import NativeClient
 from .protocol import MAX_REQUEST, MAX_RESPONSE, ProtocolError, encoded, strict_json
 from .security import ReplayAuthority
 
-WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile", "community.checkpoint.create"}
+WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile", "community.checkpoint.create", "community.checkpoint.release", "community.event.put", "community.blob.put"}
+WRITE_METHODS |= {"relay.start", "relay.part.put", "relay.ack"}
 
 
 def resource_for(method, params):
-    if method == "community.checkpoint.get":
+    if method.startswith("relay."):
+        return params.get("packet_id", "relay:queue")
+    if method in {"community.checkpoint.get", "community.checkpoint.release", "community.event.put", "community.blob.put"}:
         return params.get("digest")
     if method.startswith("community."):
         return "community:replicate"
@@ -77,8 +81,21 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self):
             super().setup()
+            def expire():
+                try: self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+            self.deadline_timer = threading.Timer(30, expire)
+            self.deadline_timer.daemon = True
+            self.deadline_timer.start()
             self.connection.settimeout(5)
-            self.connection.do_handshake()
+            try: self.connection.do_handshake()
+            except BaseException:
+                self.deadline_timer.cancel()
+                raise
+
+        def finish(self):
+            try: super().finish()
+            finally: self.deadline_timer.cancel()
 
         def log_message(self, *_):
             pass
@@ -166,19 +183,35 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     return server
 
 
-def request_remote(host, port, context, request, signed_grant, *, carrier=None):
-    connection = http.client.HTTPSConnection(host, port, context=context, timeout=30)
+def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=30):
+    if type(timeout) not in {int, float} or not 0 < timeout <= 30:
+        raise ProtocolError("INVALID_CONFIG", "bounded remote deadline required")
+    connection = http.client.HTTPSConnection(host, port, context=context, timeout=timeout)
+    deadline = time.monotonic()+timeout
+    timer = None
     try:
         if carrier is not None:
             from .carrier import connect_onion
-            raw_socket = connect_onion(host, port, carrier)
-            try:
-                connection.sock = context.wrap_socket(raw_socket, server_hostname=host)
-            except BaseException:
-                raw_socket.close()
-                raise
+            raw_socket = connect_onion(host, port, carrier, timeout=timeout)
         elif isinstance(host, str) and host.endswith('.onion'):
             raise ProtocolError("NO_POLICY_COMPLIANT_PATH", "onion destinations require an explicit local Tor carrier")
+        else:
+            raw_socket = socket.create_connection((host, port), timeout=timeout)
+        try:
+            connection.sock = context.wrap_socket(raw_socket, server_hostname=host, do_handshake_on_connect=False)
+        except BaseException:
+            raw_socket.close()
+            raise
+        remaining = deadline-time.monotonic()
+        if remaining <= 0: raise TimeoutError("remote deadline")
+        connection.sock.settimeout(remaining)
+        def expire():
+            try:
+                current_socket = connection.sock
+                if current_socket: current_socket.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+        timer = threading.Timer(remaining, expire); timer.daemon = True; timer.start()
+        connection.sock.do_handshake()
         body = encoded({"request": request, "grant": signed_grant})
         if len(body) > MAX_REQUEST:
             raise ProtocolError("INVALID_REQUEST", "remote request exceeds budget")
@@ -192,6 +225,7 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None):
             raise ProtocolError(result["error"]["code"], result["error"]["message"])
         return result["result"]
     finally:
+        if timer is not None: timer.cancel()
         connection.close()
 
 
@@ -200,7 +234,7 @@ def load_remote(path, serving=False):
     config = strict_json(secure_read(path))
     base = {"schema", "host", "port", "certificate", "private_key", "ca"}
     extra = {"replay_state", "trusted_clients", "allow_mutations"} if serving else set()
-    optional = set() if serving else {"carrier"}
+    optional = set() if serving else {"carrier", "connection_policy", "rendezvous"}
     if not isinstance(config, dict) or not base|extra <= set(config) or set(config)-(base|extra|optional) or config["schema"] != "ziokt.remote.v1":
         raise ProtocolError("INVALID_CONFIG", "exact private remote endpoint configuration required")
     for field in ("certificate", "private_key", "ca", *(["replay_state"] if serving else [])):
@@ -211,4 +245,11 @@ def load_remote(path, serving=False):
     if "carrier" in config:
         from .carrier import validate_carrier
         validate_carrier(config["carrier"], config["host"])
+    if "connection_policy" in config:
+        from .routes import validate_route
+        validate_route(config["connection_policy"], config)
+    if "rendezvous" in config:
+        value = config["rendezvous"]
+        if not isinstance(value, dict) or set(value) != {"recipient"} or not isinstance(value["recipient"], str) or not re.fullmatch('[a-f0-9]{64}', value['recipient']):
+            raise ProtocolError('INVALID_CONFIG', 'fixed approved relay recipient identity required')
     return config
