@@ -74,6 +74,22 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y iproute2 iptables
       - name: Real double NAT, keyless peer multihop, opaque relay and changed client address
         run: sudo env PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_RUN_ID="$GITHUB_RUN_ID" bash ci/run-nat.sh
+  i2p-carrier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Ziokt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Ziokt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Actual I2P router, SAM, public tunnels and community mTLS
+        run: bash ci/run-i2p.sh
   native-integration:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -159,7 +175,7 @@ jobs:
           sudo apt-get install -y coturn
           turnserver --no-cli --no-tls --no-dtls --lt-cred-mech --user ziokt:ci-only --realm ziokt-ci --listening-ip 127.0.0.1 --relay-ip 127.0.0.1 --listening-port 34780 --min-port 34800 --max-port 34820 --allow-loopback-peers --log-file "$RUNNER_TEMP/ziokt-turn.log" --pidfile "$RUNNER_TEMP/ziokt-turn.pid" > "$RUNNER_TEMP/ziokt-turn-output.log" 2>&1 &
           turn_pid=$!
-          trap 'kill "$turn_pid" 2>/dev/null || true; wait "$turn_pid" 2>/dev/null || true; tail -80 "$RUNNER_TEMP/ziokt-turn-output.log"; tail -80 "$RUNNER_TEMP"/ziokt-turn*.log' EXIT
+          trap 'result=$?; kill "$turn_pid" 2>/dev/null || true; wait "$turn_pid" 2>/dev/null || true; tail -n 80 -- "$RUNNER_TEMP"/ziokt-turn*.log || true; exit "$result"' EXIT
           sleep 2
           kill -0 "$turn_pid"
           SHADOW6_TEST_TURN=turn:ziokt:ci-only@127.0.0.1:34780 python Core-Nim/test_core.py CoreTests.test_actual_webrtc_loopback_relay
