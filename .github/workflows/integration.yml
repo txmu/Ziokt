@@ -145,12 +145,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y coturn
-          turnserver --no-cli --no-tls --no-dtls --no-auth --realm ziokt-ci --listening-ip 127.0.0.1 --relay-ip 127.0.0.1 --listening-port 34780 --min-port 34800 --max-port 34820 --allow-loopback-peers --log-file "$RUNNER_TEMP/ziokt-turn.log" --pidfile "$RUNNER_TEMP/ziokt-turn.pid" > "$RUNNER_TEMP/ziokt-turn-output.log" 2>&1 &
+          turnserver --no-cli --no-tls --no-dtls --lt-cred-mech --user ziokt:ci-only --realm ziokt-ci --listening-ip 127.0.0.1 --relay-ip 127.0.0.1 --listening-port 34780 --min-port 34800 --max-port 34820 --allow-loopback-peers --log-file "$RUNNER_TEMP/ziokt-turn.log" --pidfile "$RUNNER_TEMP/ziokt-turn.pid" > "$RUNNER_TEMP/ziokt-turn-output.log" 2>&1 &
           turn_pid=$!
-          trap 'kill "$turn_pid" 2>/dev/null || true; wait "$turn_pid" 2>/dev/null || true' EXIT
+          trap 'kill "$turn_pid" 2>/dev/null || true; wait "$turn_pid" 2>/dev/null || true; tail -80 "$RUNNER_TEMP/ziokt-turn-output.log"' EXIT
           sleep 2
           kill -0 "$turn_pid"
-          SHADOW6_TEST_TURN=turn:127.0.0.1:34780 python Core-Nim/test_core.py CoreTests.test_actual_webrtc_loopback_relay
+          SHADOW6_TEST_TURN=turn:ziokt:ci-only@127.0.0.1:34780 python Core-Nim/test_core.py CoreTests.test_actual_webrtc_loopback_relay
       - name: Verify Corium single-file production artifact
         working-directory: Corium
         run: |

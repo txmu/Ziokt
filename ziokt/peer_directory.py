@@ -37,6 +37,7 @@ class PeerDirectory:
         if self.root.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'discovery root cannot be a symlink')
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True); make_private(self.root)
         path = self.root/'peers.sqlite'
+        if path.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'discovery database cannot be a symlink')
         if path.exists(): secure_read(path, 16*1024*1024)
         self.db = sqlite3.connect(path, timeout=5, check_same_thread=False); make_private(path)
         self.db.execute('PRAGMA synchronous=FULL'); self.db.execute('PRAGMA secure_delete=ON')
@@ -385,12 +386,13 @@ class DiscoveryWorker:
 def _write_private(path, data):
     import os, tempfile
     if path.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'discovery material cannot be a symlink')
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
-        temporary = Path(output.name)
-        try:
+    fd, name = tempfile.mkstemp(dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as output:
             make_private(temporary); output.write(data); output.flush(); os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally: temporary.unlink(missing_ok=True)
+        os.replace(temporary, path)
+    finally: temporary.unlink(missing_ok=True)
 
 
 def load_directory(path):

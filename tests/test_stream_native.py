@@ -75,9 +75,9 @@ class NativeStreamTests(unittest.TestCase):
         client.call("operation.commit", {"operation_id": "network-content", "plan_digest": prepared["plan_digest"]})
         from ziokt.peer_directory import PeerDirectory
         from ziokt.discovery_native import fetch_records
-        directory = PeerDirectory(fixture.root/'native-discovery',community_policy,community_public,allowed_networks=['127.0.0.0/8'])
-        self.addCleanup(directory.close)
-        record = directory.advertise(community_private,[{'host':'127.0.0.1','port':12345,'fingerprint':'1'*64,'service':'proxy'}],'2'*64)
+        discovery_directory = PeerDirectory(fixture.root/'native-discovery',community_policy,community_public,allowed_networks=['127.0.0.0/8'])
+        self.addCleanup(discovery_directory.close)
+        record = discovery_directory.advertise(community_private,[{'host':'127.0.0.1','port':12345,'fingerprint':'1'*64,'service':'proxy'}],'2'*64)
         discovery_data = json.dumps([record],separators=(',',':')).encode()
         discovery_digest = 'sha256:'+hashlib.sha256(discovery_data).hexdigest()
         prepared = client.call('operation.prepare',{'operation_id':'network-discovery','action':'artifact.stage','resource':discovery_digest,
@@ -160,7 +160,7 @@ class NativeStreamTests(unittest.TestCase):
                     for role in names: registry.run(names[role])
                     learned = fetch_records(client,fixture.identity,discovery_digest)
                     self.assertEqual(learned,[record])
-                    self.assertEqual(directory.ingest(learned),0)
+                    self.assertEqual(discovery_directory.ingest(learned),0)
                 finally:
                     for role in ("client", "agent", "broker"):
                         try: registry.stop(names[role])
