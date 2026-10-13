@@ -12,7 +12,7 @@ const apps={
  hosting:{name:'应用托管',description:'记录服务、部署计划与内容材料。使用原生工作流审查并执行部署。',fields:{service:'原生服务名称',workflow_digest:'已审查部署计划摘要',content:'内容材料引用'}},
  compute:{name:'计算任务',description:'记录经过授权的原生作业及其结果材料。',fields:{job:'任务名称',workflow_digest:'已审查任务计划摘要',result:'结果材料引用'}}
 };
-let token='',domain='forum',state=null,status=null;
+let token='',domain='forum',state=null,status=null,uiReady=false;
 const $=id=>document.getElementById(id);
 const node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
 async function api(path,data,binary=false){
@@ -64,13 +64,27 @@ async function select(next){domain=next;feedback('正在读取本地副本…');
  for(const button of $('navigation').querySelectorAll('button'))button.setAttribute('aria-current',button.dataset.domain===domain?'page':'false');
  fields();$('object-key').value=domain==='identity'?status.public_key:'';state=await api('/api/view?domain='+encodeURIComponent(domain));render();feedback('本地内容已加载');
 }
+async function activateWorkspace(){
+ $('registration').hidden=true;$('workspace').hidden=false;$('status').textContent=status.community_id+' · '+status.privacy;
+ if(!uiReady){
+  for(const [key,app] of Object.entries(apps)){const button=node('button',app.name);button.dataset.domain=key;button.onclick=()=>select(key).catch(error=>feedback(error.message,true));$('navigation').append(button);}
+  if(status.network_sync_available){const sync=node('button','同步网络副本');sync.onclick=async()=>{sync.disabled=true;feedback('正在通过已批准路径同步…');try{await api('/api/sync',{});await select(domain);feedback('网络副本已验证并同步');}catch(error){feedback(error.message,true);}finally{sync.disabled=false;}};$('navigation').append(sync);}
+  const recovery=node('button','导出恢复包');recovery.onclick=async()=>{recovery.disabled=true;try{download(await api('/api/checkpoint',{},true),'community-recovery.bin');feedback('加密恢复包已导出，请与密钥分开保存。');}catch(error){feedback(error.message,true);}finally{recovery.disabled=false;}};$('navigation').append(recovery);uiReady=true;
+ }
+ await select(domain);
+}
+function showRegistration(){ $('workspace').hidden=true;$('registration').hidden=false;$('registration-state').textContent=status.registration.state||'请上传个人信息文本文件'; }
+async function refreshRegistration(){status=await api('/api/status');if(status.registration.registered){await activateWorkspace();return;}showRegistration();}
 $('session').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;token=$('token').value;
- try{status=await api('/api/status');$('login').hidden=true;$('workspace').hidden=false;$('status').textContent=status.community_id+' · '+status.privacy;
- for(const [key,app] of Object.entries(apps)){const button=node('button',app.name);button.dataset.domain=key;button.onclick=()=>select(key).catch(error=>feedback(error.message,true));$('navigation').append(button);}
- if(status.network_sync_available){const sync=node('button','同步网络副本');sync.onclick=async()=>{sync.disabled=true;feedback('正在通过已批准路径同步…');try{await api('/api/sync',{});await select(domain);feedback('网络副本已验证并同步');}catch(error){feedback(error.message,true);}finally{sync.disabled=false;}};$('navigation').append(sync);}
- const recovery=node('button','导出恢复包');recovery.onclick=async()=>{recovery.disabled=true;try{download(await api('/api/checkpoint',{},true),'community-recovery.bin');feedback('加密恢复包已导出，请与密钥分开保存。');}catch(error){feedback(error.message,true);}finally{recovery.disabled=false;}};$('navigation').append(recovery);await select(domain);
- }catch(error){$('login').append(node('p',error.message));}finally{button.disabled=false;}
+ try{status=await api('/api/status');$('login').hidden=true;if(status.registration&&status.registration.required&&!status.registration.registered)showRegistration();else await activateWorkspace();}
+ catch(error){$('login').append(node('p',error.message));}finally{button.disabled=false;}
 };
+$('registration-form').onsubmit=async event=>{event.preventDefault();const button=$('registration-submit'),file=$('registration-file').files[0];if(!file)return;button.disabled=true;
+ try{const headers={'Authorization':'Bearer '+token,'Content-Type':'application/octet-stream'};const response=await fetch('/api/registration',{method:'POST',headers,body:file,cache:'no-store'});let result;try{result=await response.json();}catch{result={error:'提交失败'};}if(!response.ok)throw Error(result.error||'提交失败');status.registration=result.registration;document.getElementById('registration-state').textContent=result.registration.state||'登记交易已提交，等待区块确认';if(result.registration.registered)await activateWorkspace();}
+ catch(error){document.getElementById('registration-state').textContent=error.message;}
+ finally{button.disabled=false;}
+};
+$('registration-refresh').onclick=async event=>{const button=event.currentTarget;button.disabled=true;try{await refreshRegistration();}catch(error){document.getElementById('registration-state').textContent=error.message;}finally{button.disabled=false;}};
 $('refresh').onclick=()=>select(domain).catch(error=>feedback(error.message,true));
 $('publish').onsubmit=async event=>{event.preventDefault();$('submit').disabled=true;feedback('正在签名保存…');
  try{

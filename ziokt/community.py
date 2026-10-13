@@ -54,7 +54,7 @@ def hash_id(value):
 def policy_document(envelope, owner):
     value = verify(envelope, owner, 'Ziokt/community-policy/v1')
     base = {'schema', 'community_id', 'epoch', 'members', 'privacy'}
-    if not isinstance(value, dict) or not base <= set(value) or set(value)-base-{'limits'}:
+    if not isinstance(value, dict) or not base <= set(value) or set(value)-base-{'limits', 'registration'}:
         raise ProtocolError('INVALID_COMMUNITY', 'exact signed community policy required')
     if value['schema'] != 'ziokt.community-policy.v1' or type(value['epoch']) is not int or not 0 <= value['epoch'] < 2**53:
         raise ProtocolError('INVALID_COMMUNITY', 'bounded community policy epoch required')
@@ -72,13 +72,24 @@ def policy_document(envelope, owner):
         for field, maximum in [('events', MAX_EVENTS), ('objects', MAX_BLOBS), ('file_bytes', MAX_FILE), ('checkpoint_bytes', MAX_BYTES)]:
             if type(value['limits'][field]) is not int or not 1 <= value['limits'][field] <= maximum:
                 raise ProtocolError('INVALID_COMMUNITY', 'explicit resource budget exceeds hard safety ceiling')
+    if 'registration' in value:
+        registration = value['registration']
+        exact(registration, {'required', 'provider_id', 'issuer', 'admin_public', 'admin_mailbox'})
+        if (type(registration['required']) is not bool or
+                not isinstance(registration['provider_id'], str) or
+                not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', registration['provider_id']) or
+                any(not isinstance(registration[k], str) or not PUBLIC.fullmatch(registration[k])
+                    for k in ('issuer', 'admin_public', 'admin_mailbox')) or
+                registration['admin_public'] not in value['members']):
+            raise ProtocolError('INVALID_COMMUNITY', 'exact registration authority and mailbox required')
     return value
 
 
-def create_policy(private, community_id, members, *, epoch=0, privacy='restricted', limits=None):
+def create_policy(private, community_id, members, *, epoch=0, privacy='restricted', limits=None, registration=None):
     document = {'schema': 'ziokt.community-policy.v1', 'community_id': community_id,
                 'epoch': epoch, 'members': members, 'privacy': privacy}
     if limits is not None: document['limits'] = limits
+    if registration is not None: document['registration'] = registration
     envelope = sign(document, private, 'Ziokt/community-policy/v1')
     policy_document(envelope, envelope['public_key'])
     return envelope

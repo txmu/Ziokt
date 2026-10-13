@@ -48,6 +48,7 @@ def register(sub):
             cmd.add_argument('--epoch', required=True, type=int)
             cmd.add_argument('--output', required=True, type=Path)
             cmd.add_argument('--limits', type=Path)
+            cmd.add_argument('--registration', type=Path, help='signed community registration policy JSON')
         if action in ('invite', 'accept'):
             cmd.add_argument('--invitation-key', required=True, type=Path)
         if action == 'invite':
@@ -67,6 +68,7 @@ def register(sub):
             cmd.add_argument('--mailbox-key', required=True, type=Path)
             cmd.add_argument('--recipient', required=True)
         if action == 'ui':
+            cmd.add_argument('--registration-config', type=Path, help='local federation config required by registration policy')
             cmd.add_argument('--port', type=int, default=0)
             cmd.add_argument('--session-file', type=Path, required=True)
             cmd.add_argument('--mailbox-key', type=Path)
@@ -165,7 +167,8 @@ def execute(args):
                 peer = load_remote(args.peer_tls)
                 context = tls_context(peer['certificate'], peer['private_key'], peer['ca'])
             server, token = portal_server(community, private, port=args.port, mailbox=mailbox,
-                peer=peer, peer_context=context, publisher=args.peer_publisher)
+                peer=peer, peer_context=context, publisher=args.peer_publisher,
+                registration_config=args.registration_config)
             try:
                 write_exclusive(args.session_file, {'url': 'http://127.0.0.1:'+str(server.server_port)+'/', 'token': token})
                 server.serve_forever()
@@ -192,7 +195,8 @@ def execute(args):
                 raise ProtocolError('POLICY_DENIED', 'owner signature and increasing policy epoch required')
             document = create_policy(private, community.community_id, strict_json(secure_read(args.members)),
                                      epoch=args.epoch, privacy=community.policy['privacy'],
-                                     limits=strict_json(secure_read(args.limits)) if args.limits else community.policy.get('limits'))
+                                     limits=strict_json(secure_read(args.limits)) if args.limits else community.policy.get('limits'),
+                                     registration=strict_json(secure_read(args.registration)) if args.registration else community.policy.get('registration'))
             write_exclusive(args.output, document)
             return {'policy': str(args.output), 'epoch': args.epoch, 'content_key_rotation_required_for_confidential_revocation': True}
         if action == 'replicate':

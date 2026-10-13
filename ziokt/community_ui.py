@@ -13,7 +13,8 @@ from .protocol import ProtocolError, encoded, strict_json
 from .security import sign
 
 
-def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_context=None, publisher=None):
+def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_context=None, publisher=None,
+                  registration_config=None):
     if type(port) is not int or not 0 <= port <= 65535:
         raise ProtocolError('INVALID_CONFIG', 'bounded local portal port required')
     token = secrets.token_urlsafe(32)
@@ -22,6 +23,12 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
     public = sign({}, private, 'test')['public_key']
     if public not in community.policy['members']:
         raise ProtocolError('POLICY_DENIED', 'portal signer is not a community member')
+    registration = None
+    if community.policy.get('registration', {}).get('required') and registration_config is None:
+        raise ProtocolError('INVALID_CONFIG', 'required registration needs the local federation config')
+    if registration_config is not None:
+        from .registration import RegistrationGate
+        registration = RegistrationGate(community, registration_config)
     assets = Path(__file__).parent/'web'
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self): super().setup(); self.connection.settimeout(10)
@@ -36,26 +43,33 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
             self.send_header('Connection', 'close'); self.end_headers(); self.wfile.write(data)
-        def authorize(self):
+        def authorize(self, allow_unregistered=False):
             origin = 'http://127.0.0.1:'+str(self.server.server_port)
             if self.headers.get('Host') != origin[7:] or self.headers.get('Origin') not in {None, origin}:
                 raise ProtocolError('POLICY_DENIED', 'local origin required')
             if len(self.headers.get_all('Authorization', [])) != 1 or not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer '+token):
                 raise ProtocolError('POLICY_DENIED', 'local browser session required')
             community._current()
+            if registration is not None and not allow_unregistered:
+                registration.require(public)
+        def registration_state(self):
+            if registration is None:
+                return {'required': False, 'registered': True, 'state': '未启用材料登记'}
+            return {'required': registration.policy['required'], **registration.status(public)}
         def do_GET(self):
             try:
                 parsed = urlsplit(self.path)
                 mapping = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/app.css': ('app.css', 'text/css; charset=utf-8')}
                 if parsed.path in mapping:
                     name, kind = mapping[parsed.path]; self.reply(200, (assets/name).read_bytes(), kind); return
-                self.authorize()
+                self.authorize(allow_unregistered=parsed.path == '/api/status')
                 if parsed.path == '/api/status':
                     from .community_privacy import mailbox_public
                     self.reply(200, {'community_id': community.community_id, 'privacy': community.policy['privacy'],
                         'rights': community.policy['members'][public], 'public_key': public, 'mailbox': mailbox is not None,
                         'mailbox_public': mailbox_public(mailbox) if mailbox is not None else None,
-                        'network_sync_available': peer is not None}); return
+                        'network_sync_available': peer is not None,
+                        'registration': registration_state()}); return
                 if parsed.path == '/api/view':
                     params = parse_qs(parsed.query)
                     if set(params) != {'domain'} or len(params['domain']) != 1: raise ProtocolError('INVALID_REQUEST', 'one application domain required')
@@ -65,10 +79,17 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 self.reply(403, {'error': getattr(exc, 'code', 'PORTAL_ERROR')})
         def do_POST(self):
             try:
-                self.authorize()
+                self.authorize(allow_unregistered=self.path == '/api/registration')
                 if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                     raise ProtocolError('INVALID_REQUEST', 'exact bounded request body required')
                 size = int(self.headers.get('Content-Length', '0'))
+                if self.path == '/api/registration':
+                    if registration is None:
+                        raise ProtocolError('POLICY_DENIED', 'materials registration is not configured')
+                    if self.headers.get('Content-Type') != 'application/octet-stream' or not 1 <= size <= 65536:
+                        raise ProtocolError('INVALID_REQUEST', 'bounded text document upload required')
+                    result = registration.submit(public, self.rfile.read(size))
+                    self.reply(200, {'registration': registration_state(), **result}); return
                 if self.path == '/api/file-upload':
                     if not set(community.policy['members'].get(public, [])) & {'files', 'packages'}:
                         raise ProtocolError('POLICY_DENIED', 'file or package upload permission required')

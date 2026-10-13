@@ -82,6 +82,12 @@ _ziokt_native_dispatch() {
             corix_strata_create "$resource" "$package_manager"
             ;;
         chain.mine) blockchain_mine_block ;;
+        identity.register|content.publish|zkn.transfer)
+            local transaction_type transaction_payload
+            transaction_type=$(jq -er '.binding_evidence.transaction_type' <<< "$descriptor") || return 2
+            transaction_payload=$(jq -ec '.binding_evidence.payload' <<< "$descriptor") || return 2
+            blockchain_create_transaction "$transaction_type" "$transaction_payload"
+            ;;
         compute.run)
             local engine_id compute_work
             engine_id=${resource#compute:}
@@ -132,6 +138,22 @@ except (ProtocolError, OSError, ValueError) as exc:
     raise SystemExit(2)
 PY_ZIOKT_NATIVE_COMPUTE
 }
+_ziokt_asset_engine() {
+    "${PYTHON_CMD:-python3}" - "$@" <<'PY_ZIOKT_NATIVE_ASSETS'
+''' + runtime + '''
+try:
+    raise SystemExit(asset_engine_main(sys.argv[1:]))
+except (ProtocolError,OSError,ValueError,sqlite3.Error) as exc:
+    print(getattr(exc,"code","NATIVE_ASSET_FAILED"),file=sys.stderr)
+    raise SystemExit(2)
+PY_ZIOKT_NATIVE_ASSETS
+}
+_ziokt_zkn_after_pack() {
+    local mint_payload
+    mint_payload=$(_ziokt_asset_engine snapshot "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$CORIUM_ROOT" "$1") || return 1
+    [ -z "$mint_payload" ] && return 0
+    blockchain_create_transaction zkn_mint "$mint_payload" >/dev/null
+}
 ''' + ACTION_END
 
 
@@ -147,6 +169,7 @@ def main():
     runtime += '\n' + (ROOT / "spec/recovery_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/compute_runtime.py").read_text()
+    runtime += '\n' + (ROOT / "spec/asset_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/data_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/native_transport.py").read_text()
     zkt = (ROOT / "spec/zkt_runtime.py").read_text()
@@ -180,6 +203,27 @@ def main():
         updated = prefix + actions + suffix
     else:
         updated = updated.replace(END, END + '\n' + actions, 1)
+    validation_anchor='    # --- Step 3: State & Logic Verification by Type ---\n    case "$tx_type" in\n'
+    validation_hook='''        ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)
+            _ziokt_asset_engine validate "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" || return 1
+            ;;
+'''
+    if validation_hook not in updated:
+        if updated.count(validation_anchor)!=1: raise SystemExit('native asset validation anchor ambiguous')
+        updated=updated.replace(validation_anchor,validation_anchor+validation_hook,1)
+    apply_anchor='            # case 语句现在只负责改变数据库状态。\n            case "$tx_type" in\n'
+    apply_hook='''                ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)
+                    _ziokt_asset_engine apply "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" "$tx_hash" "$height" || return 1
+                    ;;
+'''
+    if apply_hook not in updated:
+        if updated.count(apply_anchor)!=1: raise SystemExit('native asset apply anchor ambiguous')
+        updated=updated.replace(apply_anchor,apply_anchor+apply_hook,1)
+    mint_anchor='    db_execute_safe "$BLOCKCHAIN_DB" "INSERT OR REPLACE INTO chain_state VALUES (\'chain_info\',%s);" "$block_hash|$height" || return 1\n'
+    mint_hook='    _ziokt_zkn_after_pack "$block_hash" || return 1\n'
+    if mint_hook not in updated:
+        if updated.count(mint_anchor)!=1: raise SystemExit('native packed NFT anchor ambiguous')
+        updated=updated.replace(mint_anchor,mint_anchor+mint_hook,1)
     if args.check:
         if (not target.is_file() or target.read_text() != runtime or updated != source or
                 not coordinator_target.is_file() or coordinator_target.read_text() != runtime or
