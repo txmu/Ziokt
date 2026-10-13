@@ -67,10 +67,11 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if parsed.path == '/api/status':
                     from .community_privacy import mailbox_public
                     self.reply(200, {'community_id': community.community_id, 'privacy': community.policy['privacy'],
+                        'carrier_required': community.policy['privacy'] == 'restricted',
                         'rights': community.policy['members'][public], 'public_key': public, 'mailbox': mailbox is not None,
                         'mailbox_public': mailbox_public(mailbox) if mailbox is not None else None,
                         'network_sync_available': peer is not None,
-                        'registration': registration_state()}); return
+                        'registration': self.registration_state()}); return
                 if parsed.path == '/api/view':
                     params = parse_qs(parsed.query)
                     if set(params) != {'domain'} or len(params['domain']) != 1: raise ProtocolError('INVALID_REQUEST', 'one application domain required')
@@ -90,7 +91,13 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                     if self.headers.get('Content-Type') != 'application/octet-stream' or not 1 <= size <= 65536:
                         raise ProtocolError('INVALID_REQUEST', 'bounded text document upload required')
                     result = registration.submit(public, self.rfile.read(size))
-                    self.reply(200, {'registration': registration_state(), **result}); return
+                    self.reply(200, {'registration': self.registration_state(), **result}); return
+                if self.path == '/api/registration-purge':
+                    if registration is None:
+                        raise ProtocolError('POLICY_DENIED', 'materials registration is not configured')
+                    exact(strict_json(self.rfile.read(size)) if size else {}, set())
+                    result = registration.purge(public)
+                    self.reply(200, {'registration': self.registration_state(), **result}); return
                 if self.path == '/api/file-upload':
                     if not set(community.policy['members'].get(public, [])) & {'files', 'packages'}:
                         raise ProtocolError('POLICY_DENIED', 'file or package upload permission required')
@@ -101,9 +108,9 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if self.headers.get('Content-Type') != 'application/json': raise ProtocolError('INVALID_REQUEST', 'JSON portal request required')
                 value = strict_json(self.rfile.read(size))
                 if self.path == '/api/site':
-                    exact(value, {'name', 'title'})
+                    exact(value, {'name', 'title'}|({'anonymous'} if 'anonymous' in value else set()))
                     from .community_site import publish_site
-                    self.reply(200, publish_site(community, private, value['name'], value['title'])); return
+                    self.reply(200, publish_site(community, private, value['name'], value['title'], anonymous=bool(value.get('anonymous', False)))); return
                 if self.path == '/api/vote':
                     exact(value, {'proposal', 'choice'})
                     event = community.vote(private, value['proposal'], value['choice'])
@@ -122,8 +129,9 @@ def portal_server(community, private, *, port=0, mailbox=None, peer=None, peer_c
                 if self.path == '/api/mail-send':
                     from .community_privacy import seal_mail
                     exact(value, {'recipient', 'mailbox', 'subject', 'text', 'key'})
+                    key = value['key'] or ('msg-' + secrets.token_hex(12))
                     body = seal_mail(value['recipient'], value['mailbox'] or community.mailbox_for(value['recipient']), value['subject'], value['text'])
-                    self.reply(200, {'event': community.publish(private, 'mail', value['key'], body)}); return
+                    self.reply(200, {'event': community.publish(private, 'mail', key, body)}); return
                 if self.path == '/api/mail-open':
                     from .community_privacy import open_mail
                     if mailbox is None: raise ProtocolError('POLICY_DENIED', 'local mailbox key unavailable')

@@ -20,13 +20,13 @@ def register(sub):
     relay.add_argument('--policy', type=Path, required=True)
     relay.add_argument('--owner', required=True)
     relay.add_argument('--tls-config', type=Path, required=True)
-    for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize'):
+    for action in ('publish', 'view', 'site', 'vote', 'tally', 'put-file', 'get-file', 'checkpoint', 'restore', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'accept', 'mail-send', 'mail-open', 'ui', 'native', 'materialize', 'registration-purge'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--root', required=True, type=Path)
         cmd.add_argument('--policy', required=True, type=Path)
         cmd.add_argument('--owner', required=True)
         cmd.add_argument('--encryption-key', required=True, type=Path)
-        if action in ('publish', 'site', 'vote', 'checkpoint', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native'):
+        if action in ('publish', 'site', 'vote', 'checkpoint', 'replicate', 'sync', 'push', 'follow', 'serve', 'relay-send', 'relay-receive', 'policy', 'rotate', 'invite', 'mail-send', 'ui', 'native', 'registration-purge'):
             cmd.add_argument('--signing-key', required=True, type=Path)
         if action in ('publish', 'view'):
             cmd.add_argument('--domain', choices=sorted(DOMAINS), required=True)
@@ -101,6 +101,9 @@ def register(sub):
         if action == 'site':
             cmd.add_argument('--name', required=True)
             cmd.add_argument('--title', required=True)
+            cmd.add_argument('--anonymous', action='store_true', help='redact author public keys in published static site')
+        if action == 'registration-purge':
+            cmd.add_argument('--config', type=Path, required=True, help='local federation config required by registration policy')
         if action in ('follow', 'ui', 'serve'):
             cmd.add_argument('--peers', type=Path, required=action == 'follow')
             cmd.add_argument('--sync-interval', type=int, default=10)
@@ -164,7 +167,10 @@ def execute(args):
             return {'stopped': True}
         if action == 'site':
             from .community_site import publish_site
-            return publish_site(community, private, args.name, args.title)
+            return publish_site(community, private, args.name, args.title, anonymous=args.anonymous)
+        if action == 'registration-purge':
+            from .registration import RegistrationGate
+            return RegistrationGate(community, args.config).purge(public)
         if action == 'vote': return {'event': community.vote(private, args.proposal, args.choice)}
         if action == 'tally': return community.tally(args.proposal)
         if action == 'rotate':

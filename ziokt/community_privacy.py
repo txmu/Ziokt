@@ -1,5 +1,7 @@
 """Recipient-only mailboxes and privately exchanged scoped service invitations."""
 import base64
+import hashlib
+import hmac
 import secrets
 import struct
 import time
@@ -88,3 +90,61 @@ def accept_invitation(community, blob, invitation_key, publisher):
         return {'host': value['host'], 'port': value['port'], 'membership_granted': False, 'tls_trust_required': True}
     except (ValueError, TypeError, InvalidTag):
         raise ProtocolError('INVITATION_REJECTED', 'invitation authentication, scope or expiry rejected')
+
+
+def ballot_commitment(choice, salt, proposal, voter_public):
+    if choice not in {'yes', 'no', 'abstain'} or not isinstance(salt, str) or not 16 <= len(salt) <= 64 or not isinstance(proposal, str) or not PUBLIC.fullmatch(voter_public):
+        raise ProtocolError('INVALID_BALLOT', 'exact bounded ballot choice, salt, proposal and voter public key required')
+    return hashlib.sha256(('Ziokt/ballot-commitment/v1\n' + proposal + '\n' + voter_public + '\n' + choice + '\n' + salt).encode()).hexdigest()
+
+
+def verify_ballot(commitment, choice, salt, proposal, voter_public):
+    expected = ballot_commitment(choice, salt, proposal, voter_public)
+    return hmac.compare_digest(expected, commitment)
+
+
+def seal_ballot(tally_mailbox_key, choice, salt, proposal, voter_public):
+    if not isinstance(tally_mailbox_key, str) or not PUBLIC.fullmatch(tally_mailbox_key):
+        raise ProtocolError('INVALID_BALLOT', 'exact tally authority mailbox key required')
+    commitment = ballot_commitment(choice, salt, proposal, voter_public)
+    payload = encoded({'proposal': proposal, 'voter': voter_public, 'choice': choice, 'salt': salt})
+    if len(payload) > 400: raise ProtocolError('BALLOT_LIMIT', 'ballot exceeds padded budget')
+    ephemeral = X25519PrivateKey.generate()
+    try:
+        shared = ephemeral.exchange(X25519PublicKey.from_public_bytes(bytes.fromhex(tally_mailbox_key)))
+        key = HKDF(hashes.SHA256(), 32, None, b'Ziokt/ballot/v1/' + proposal.encode()).derive(shared)
+    except (ValueError, TypeError):
+        raise ProtocolError('INVALID_BALLOT', 'exact X25519 tally mailbox key required')
+    public = ephemeral.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    nonce = secrets.token_bytes(12)
+    plain = struct.pack('!I', len(payload)) + payload
+    plain += secrets.token_bytes(452 - len(plain))
+    ciphertext = public + nonce + AESGCM(key).encrypt(nonce, plain, proposal.encode())
+    return {'proposal': proposal, 'commitment': commitment, 'ciphertext': base64.b64encode(ciphertext).decode()}
+
+
+def open_ballot(tally_private, proposal, body):
+    exact(body, {'proposal', 'commitment', 'ciphertext'}, 'INVALID_BALLOT')
+    if body['proposal'] != proposal: raise ProtocolError('POLICY_DENIED', 'ballot belongs to another proposal')
+    try:
+        blob = base64.b64decode(body['ciphertext'], validate=True)
+        if len(blob) != 512: raise ValueError()
+        shared = X25519PrivateKey.from_private_bytes(tally_private).exchange(X25519PublicKey.from_public_bytes(blob[:32]))
+        key = HKDF(hashes.SHA256(), 32, None, b'Ziokt/ballot/v1/' + proposal.encode()).derive(shared)
+        plain = AESGCM(key).decrypt(blob[32:44], blob[44:], proposal.encode())
+        size = struct.unpack('!I', plain[:4])[0]
+        if size > len(plain) - 4: raise ValueError()
+        value = strict_json(plain[4:4+size])
+        exact(value, {'proposal', 'voter', 'choice', 'salt'}, 'INVALID_BALLOT')
+        if value['proposal'] != proposal or not verify_ballot(body['commitment'], value['choice'], value['salt'], proposal, value['voter']):
+            raise ValueError()
+        return {**value, 'commitment': body['commitment']}
+    except (ValueError, TypeError, InvalidTag):
+        raise ProtocolError('BALLOT_AUTH_FAILED', 'ballot decryption or commitment verification rejected')
+
+
+def pseudonym_token(member_private, context_id):
+    if not isinstance(member_private, bytes) or len(member_private) != 32 or not isinstance(context_id, str) or not context_id:
+        raise ProtocolError('INVALID_PSEUDONYM', '32-byte private key and non-empty context required')
+    return HKDF(hashes.SHA256(), 32, None, b'Ziokt/pseudonym/v1/' + context_id.encode()).derive(member_private).hex()
+

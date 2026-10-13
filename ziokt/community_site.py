@@ -15,7 +15,7 @@ def page(title, body):
         '<title>'+html.escape(title)+'</title><link rel="stylesheet" href="style.css"></head><body>'+body+'</body></html>').encode()
 
 
-def build_site(community, title, *, domains=('wiki', 'forum')):
+def build_site(community, title, *, domains=('wiki', 'forum'), anonymous=False):
     if not isinstance(title, str) or not 1 <= len(title) <= 128 or not isinstance(domains, (tuple, list)) or not domains or any(d not in {'wiki', 'forum'} for d in domains):
         raise ProtocolError('INVALID_SITE', 'bounded title and explicit public document domains required')
     files = {'style.css': STYLE.encode()}; sections = []
@@ -26,14 +26,16 @@ def build_site(community, title, *, domains=('wiki', 'forum')):
             name = domain+'-'+event['key']+'-'+event['id'][7:19]+'.html'
             body = event['body']; heading = body['title']
             conflict = '<p>此内容存在并发版本；全部当前版本均保留。</p>' if event['key'] in state['conflicts'] else ''
+            author_label = '匿名成员' if anonymous else event['author']
+            id_label = event['id'][:19] if anonymous else event['id']
             files[name] = page(heading, '<nav><a href="index.html">返回社区</a></nav><article><h1>'+html.escape(heading)+
-                '</h1>'+conflict+'<pre>'+html.escape(body['text'])+'</pre><small>作者 '+html.escape(event['author'])+
-                ' · 记录 '+html.escape(event['id'])+'</small></article>')
+                '</h1>'+conflict+'<pre>'+html.escape(body['text'])+'</pre><small>作者 '+html.escape(author_label)+
+                ' · 记录 '+html.escape(id_label)+'</small></article>')
             links.append('<li><a href="'+name+'">'+html.escape(heading)+'</a></li>')
         sections.append('<section><h2>'+html.escape(domain)+'</h2><ul>'+''.join(links)+'</ul></section>')
     files['index.html'] = page(title, '<h1>'+html.escape(title)+'</h1><p>可携带的社区文档与讨论副本</p>'+''.join(sections))
     manifest = {'schema': 'ziokt.site.v1', 'community_id': community.community_id,
-                'policy': community.policy_id, 'files': {name: content_id(data) for name, data in sorted(files.items())}}
+                'policy': community.policy_id, 'anonymous': bool(anonymous), 'files': {name: content_id(data) for name, data in sorted(files.items())}}
     files['site-manifest.json'] = encoded(manifest)
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
@@ -44,7 +46,7 @@ def build_site(community, title, *, domains=('wiki', 'forum')):
     return output.getvalue(), manifest
 
 
-def publish_site(community, private, name, title):
+def publish_site(community, private, name, title, *, anonymous=False):
     identifier(name, 'website name')
     if len(name) > 59: raise ProtocolError('INVALID_SITE', 'website name must fit the signed file namespace')
     from .security import sign
@@ -52,7 +54,7 @@ def publish_site(community, private, name, title):
     community._member(public, 'files'); community._member(public, 'names')
     with community.lock:
         community._current()
-        archive, manifest = build_site(community, title)
+        archive, manifest = build_site(community, title, anonymous=anonymous)
         materials = community.put_file(archive)
         event = community.publish(private, 'files', 'site-'+name, {'name': name+'.zip', **materials})
         reference = 'ziokt://'+community.community_id+'/files/site-'+name
