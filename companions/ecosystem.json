@@ -1,0 +1,19 @@
+{
+ "schema":"ziokt.ecosystem.v1",
+ "default_enabled":false,
+ "privacy":"explicit encrypted federation; no direct fallback",
+ "components":[
+  {"id":"shadow6","source":"../Shadow6","integration":"native Profiles, S6EPE, Virtual Broker, six-core signed Extensions","runtime":"explicit native deployment"},
+  {"id":"corium","source":"../Corium","integration":"P2P, DHT, signed ledger facts, ZKN/ZKC","runtime":"interpreted native provider"},
+  {"id":"watchat","source":"watchat/WATChat-code","integration":"browser sealed chat, PWA, scoped companion bridge","runtime":"Node 22+, explicit private federation config"},
+  {"id":"safefs","source":"safefs","integration":"scoped AEAD file vault and signed community files","runtime":"ziokt companion safefs"},
+  {"id":"zda","source":"zda","integration":"typed Ano evidence gates, exact ZDA arithmetic","runtime":"ziokt companion ano"},
+  {"id":"ufs","source":"ufsdcpm","integration":"encrypted native UFS/DCPM storage coupling","runtime":"ziokt companion ufsdcpm"},
+  {"id":"dcpm","source":"ufsdcpm","integration":"signed software packages, exact file digests, explicit extraction","runtime":"ziokt companion ufsdcpm"},
+  {"id":"tc16","source":"ufsdcpm","integration":"16-bit VM, bounded TCC, controlled compute; native ETP variant","runtime":"ziokt companion tc16"},
+  {"id":"etp","source":"etp/src","integration":"pinned out-of-process native onion gateway, approved 2–4-hop paths","runtime":"native CI-built ziokt_gateway required"},
+  {"id":"sim-manager","source":"sim-manager/src","integration":"encrypted browser state, PWA, durable privacy-preserving reminder gateway","runtime":"built PWA and authenticated HTTPS notification gateway"}
+ ],
+ "additional_components":[{"id":"tri","source":"tri","integration":"preserved original bilingual ternary simulators; Ano typed compute interface"}],
+ "limits":{"anonymous_against_global_observer":false,"absolute_noninterception":false,"physical_phone_notification_verified":false,"etp_native_runtime_verified":false}
+}

@@ -1,0 +1,168 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>全球通套餐管家</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f3f4f6;
+        transition: background-color 0.5s, color 0.5s;
+        min-height: 100vh;
+      }
+
+      /* Sakura Theme */
+      body.theme-sakura {
+        background-color: #fff0f5;
+        --theme-primary: #ec4899;
+      }
+      .sakura-petal {
+        position: fixed;
+        top: -10%;
+        background-color: #ffc0cb;
+        width: 10px;
+        height: 10px;
+        border-radius: 10px 0;
+        z-index: 0;
+        animation: fall linear infinite;
+        opacity: 0.6;
+        pointer-events: none;
+      }
+      @keyframes fall {
+        0% { transform: translateY(-10vh) rotate(0deg) translateX(0px); opacity: 0; }
+        20% { opacity: 0.8; }
+        100% { transform: translateY(110vh) rotate(360deg) translateX(50px); opacity: 0; }
+      }
+
+      /* Snow Theme */
+      body.theme-snow {
+        background-color: #bae6fd;
+        background-image: linear-gradient(180deg, #7dd3fc 0%, #bfdbfe 100%);
+        --theme-primary: #0ea5e9;
+      }
+      .snowflake {
+        position: fixed;
+        top: -10%;
+        color: #fff;
+        text-shadow: 0 0 5px #bae6fd;
+        z-index: 0;
+        animation: snow-fall linear infinite;
+        pointer-events: none;
+        opacity: 0.8;
+      }
+      @keyframes snow-fall {
+        0% { transform: translateY(-10vh) translateX(0); opacity: 0; }
+        20% { opacity: 0.9; }
+        100% { transform: translateY(110vh) translateX(20px); opacity: 0.2; }
+      }
+
+      /* Matcha Theme */
+      body.theme-matcha {
+        background-color: #f0fdf4;
+        --theme-primary: #16a34a;
+      }
+
+      /* Geek Theme */
+      body.theme-geek {
+        background-color: #0d1117;
+        color: #3fb950;
+        font-family: 'JetBrains Mono', monospace;
+        --theme-primary: #2ea043;
+      }
+      body.theme-geek .bg-white {
+        background-color: #161b22 !important;
+        border-color: #30363d !important;
+        color: #c9d1d9 !important;
+      }
+      body.theme-geek .text-gray-900 { color: #f0f6fc !important; }
+      body.theme-geek .text-gray-800 { color: #c9d1d9 !important; }
+      body.theme-geek .text-gray-700 { color: #8b949e !important; }
+      body.theme-geek .text-gray-600 { color: #8b949e !important; }
+      body.theme-geek .text-gray-500 { color: #6e7681 !important; }
+      body.theme-geek .text-gray-400 { color: #484f58 !important; }
+      body.theme-geek .bg-gray-50 { background-color: #0d1117 !important; border-color: #30363d !important; }
+      body.theme-geek .bg-gray-100 { background-color: #21262d !important; }
+      body.theme-geek input, body.theme-geek select, body.theme-geek textarea {
+        background-color: #0d1117 !important;
+        color: #c9d1d9 !important;
+        border-color: #30363d !important;
+      }
+      body.theme-geek .border-gray-200 { border-color: #30363d !important; }
+      body.theme-geek .border-gray-100 { border-color: #21262d !important; }
+      body.theme-geek header {
+        background-color: #161b22e6 !important; /* backdrop blur compatible */
+        border-bottom-color: #30363d !important;
+      }
+
+      /* Simple SVG line animation */
+      .path-anim {
+        stroke-dasharray: 1000;
+        stroke-dashoffset: 1000;
+        animation: dash 2s linear forwards;
+      }
+      @keyframes dash {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      
+      /* 新增：震动动画 keyframes */
+  @keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
+  }
+
+  /* 新增：震动动画类 */
+  .animate-shake {
+    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+  }
+
+  /* 优化：配合 LockScreen 的淡入效果 */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "qrcode": "https://esm.sh/qrcode@1.5.3"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+    <!-- 引用 Manifest -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    
+    <!-- 注册 Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js');
+        });
+      }
+    </script>
+</body>
+</html>

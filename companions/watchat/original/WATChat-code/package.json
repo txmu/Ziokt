@@ -1,0 +1,17 @@
+{
+  "name": "watchat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny multi-user chat PWA for smartwatch browsers",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "check": "node --check backend/server.js && node --check frontend/app.js && node test/smoke.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

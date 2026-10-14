@@ -1,0 +1,10 @@
+{
+ "schema":"ziokt.verification-report.v1",
+ "local_native_compilation":false,
+ "regression":{"passed":true,"full_python_suite":{"tests":137,"skipped":3,"seconds":169.363,"result":"OK"},"subsequent_affected_suites":{"tc16":5,"etp_adapter":3,"corium_native_provider_and_reputation":8,"watchat_gateway":3}},
+ "privacy":{"owned_loopback_observer_tests":3,"adjacent_route_only":true,"relay_content_key_absent":true,"small_frame_padding_verified":true,"unauthenticated_product_banner_absent":true,"global_observer_anonymity_proven":false},
+ "extensions":{"native_core_families":["go","rust","gleam","ada","nim","idris"],"real_signed_isolated_plugin_tests_passed":true,"native_artifacts":"pre-existing compiled products"},
+ "browser":{"watchat_ecdh_chat":true,"mobile_viewport":true,"sim_locale":true,"sim_encrypted_persistence":true,"sim_script_capability_rejection_and_deadline":true,"offline_pwa_shells":true,"notification_permission_path":true,"physical_phone_notification_delivery":false,"headless_notification_limitation":"Headless Chromium did not allow OS notification delivery; denial was handled and reported."},
+ "etp":{"source_manifest_checked":true,"source_parser_checked":true,"pinned_worker_and_real_aead_adapter_tests_passed":true,"native_gateway_compiled_and_run":false,"native_ci_required":true},
+ "deployment":{"external_systems_scanned":false,"host_network_or_firewall_changed":false,"services_automatically_enabled":false}
+}

@@ -72,3 +72,7 @@ Ziokt 仅启动固定原生入口，验证配置中固定的源文件摘要，�
 社区可以在签名策略中启用材料登记。登记策略是一个 JSON 对象，字段为 `required`、`provider_id`、`issuer`、`admin_public`、`admin_mailbox`。其中 `admin_mailbox` 使用社区初始化时输出的信箱公钥；`issuer` 和 `provider_id` 必须对应已启用的 Corium provider。管理员用 `community policy --registration registration.json` 签发新策略后，启动门户时传入 `community ui --registration-config federation.json`。门户会要求成员上传 64 KiB 以内的 UTF-8 文本文件，并等待承诺交易获得区块确认后开放社区操作。文件以收件人信箱加密后保存在门户状态目录，链上登记文件承诺、成员、策略和签发者。
 
 启用 Corium 配置中的 `zkn_enabled = TRUE` 后，每个本节点打包的区块会生成签名快照并自动提交 ZKN 铸造交易。快照清单包含区块摘要、高度、打包者、打包时间、打包内容摘要与大小，以及打包者当时的 ZKT 积分；快照内容包括该区块内交易的文本和二进制负载。完整快照作为按摘要寻址的本地对象保存，NFT 清单上链。NFT 可由当前持有者通过 `zkn.transfer` 转赠，链上 nonce 防止旧持有者重复转让。
+
+## Unified companions / 十部件集成
+
+The new [ecosystem guide](docs/ECOSYSTEM.md) covers private ZKN/ZKC, six-core signed Extensions, joint native node profiles, SafeFS, typed Ano/ZDA, UFS/DCPM, TC-16/TCC, ETP and Android PWAs. [Verification record](docs/verification-current.json) separates checked behavior from deployment prerequisites. Use `python3 -m ziokt companion catalog` for the source inventory.

@@ -14,10 +14,28 @@ import threading
 import tempfile
 import re
 import time
+import secrets
 
 from .client import NativeClient
 from .protocol import MAX_REQUEST, MAX_RESPONSE, ProtocolError, encoded, strict_json
 from .security import ReplayAuthority
+
+def padded_json(value, maximum):
+    empty=encoded({**value,'padding':[]})
+    size=max(16384,1<<(len(empty)-1).bit_length())
+    if size>maximum:raise ProtocolError('RESPONSE_LIMIT','padded frame exceeds bounded transport budget')
+    count=max(1,(size-len(empty)+4095)//4096)
+    length=size-len(empty)-(3*count-1)
+    if length<0:raise ProtocolError('RESPONSE_LIMIT','padding shape exceeds frame budget')
+    chunks=[]
+    for index in range(count):
+        part=min(4096,length);chunks.append(secrets.token_hex((part+1)//2)[:part]);length-=part
+    return encoded({**value,'padding':chunks})
+
+
+def valid_padding(value):
+    return (isinstance(value,list) and len(value)<=64 and all(isinstance(v,str) and len(v)<=4096 and re.fullmatch('[a-f0-9]*',v) is not None for v in value))
+
 
 WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile", "community.checkpoint.create", "community.checkpoint.release", "community.event.put", "community.blob.put"}
 WRITE_METHODS |= {"relay.start", "relay.part.put", "relay.ack"}
@@ -71,6 +89,13 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 any(not isinstance(principal[k], list) or not 1 <= len(principal[k]) <= 64 or
                     not all(isinstance(v, str) for v in principal[k]) for k in ("methods", "providers"))):
             raise ProtocolError("INVALID_CONFIG", "exact pinned certificate principal required")
+    if context.verify_mode!=ssl.CERT_REQUIRED or context.minimum_version<ssl.TLSVersion.TLSv1_3:
+        raise ProtocolError('INVALID_CONFIG','mutual TLS 1.3 remote context required')
+    if community is not None and getattr(community,'policy',getattr(community.community,'policy',{})).get('privacy')=='restricted':
+        import ipaddress
+        try:private_listener=ipaddress.ip_address(host).is_loopback
+        except ValueError:private_listener=False
+        if not private_listener:raise ProtocolError('NO_POLICY_COMPLIANT_PATH','restricted community API must be private behind an admitted anonymous carrier')
     authority = ReplayAuthority(replay_path)
     providers = {p["provider_id"]: p for p in federation["providers"]}
     if community is not None and (community.community.community_id != federation["federation_id"] or community.community.community_id in providers):
@@ -116,7 +141,7 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
             self.end_headers()
 
         def do_POST(self):
-            status, result = 200, None
+            status, result, padded = 200, None, False
             try:
                 if (self.path != "/zfcp" or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Type") != "application/json" or
                         len(self.headers.get_all("Content-Length", [])) != 1 or len(self.headers.get_all("Content-Type", [])) != 1):
@@ -125,8 +150,12 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 if not 1 <= length <= MAX_REQUEST:
                     raise ProtocolError("INVALID_REQUEST", "request size budget exceeded")
                 envelope = strict_json(self.rfile.read(length))
-                if not isinstance(envelope, dict) or set(envelope) != {"request", "grant"}:
+                if (not isinstance(envelope, dict) or not {"request","grant"} <= set(envelope) or set(envelope)-{"request","grant","padding"} or
+                        "padding" in envelope and not valid_padding(envelope["padding"])):
                     raise ProtocolError("INVALID_REQUEST", "exact request and scoped grant required")
+                if "padding" in envelope and (length<16384 or length&(length-1)):
+                    raise ProtocolError("INVALID_REQUEST","padded request must use a bounded power-of-two frame")
+                padded="padding" in envelope
                 request = envelope["request"]
                 if (not isinstance(request, dict) or set(request) != {"provider_id", "method", "params"} or
                         not isinstance(request["params"], dict) or not isinstance(request["provider_id"], str) or not isinstance(request["method"], str)):
@@ -158,7 +187,10 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 status = 403 if isinstance(exc, ProtocolError) else 400
                 result = {"ok": False, "error": {"code": getattr(exc, "code", "INVALID_REQUEST"),
                     "message": str(exc) if isinstance(exc, ProtocolError) else "remote request rejected"}}
-            raw = encoded(result)
+            try:raw = padded_json(result,MAX_RESPONSE) if padded else encoded(result)
+            except ProtocolError:
+                status=413;result={"ok":False,"error":{"code":"RESPONSE_LIMIT","message":"response budget exceeded"}}
+                raw=padded_json(result,MAX_RESPONSE) if padded else encoded(result)
             if len(raw) > MAX_RESPONSE:
                 status, raw = 413, encoded({"ok": False, "error": {"code": "RESPONSE_LIMIT", "message": "response budget exceeded"}})
             self.send_response(status); self.send_header("Content-Type", "application/json")
@@ -187,8 +219,9 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     return server
 
 
-def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None):
+def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None, privacy_padding=False):
     from .carrier import open_carrier, validate_carrier
+    if type(privacy_padding) is not bool:raise ProtocolError("INVALID_CONFIG","explicit privacy padding flag required")
     if carrier is not None: validate_carrier(carrier, host)
     preferred = 30
     if carrier is not None:
@@ -231,17 +264,24 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
             except OSError: pass
         timer = threading.Timer(remaining, expire); timer.daemon = True; timer.start()
         connection.sock.do_handshake()
-        body = encoded({"request": request, "grant": signed_grant() if callable(signed_grant) else signed_grant})
+        envelope={"request":request,"grant":signed_grant() if callable(signed_grant) else signed_grant}
+        body = padded_json(envelope,MAX_REQUEST) if privacy_padding else encoded(envelope)
         if len(body) > MAX_REQUEST:
             raise ProtocolError("INVALID_REQUEST", "remote request exceeds budget")
         connection.request("POST", "/zfcp", body, {"Content-Type": "application/json"})
         response = connection.getresponse()
         raw = response.read(MAX_RESPONSE+1)
         result = strict_json(raw, MAX_RESPONSE)
-        if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+        if (not isinstance(result, dict) or type(result.get("ok")) is not bool or
+                "padding" in result and not valid_padding(result["padding"]) or
+                privacy_padding and "padding" not in result):
             raise ProtocolError("INVALID_RESPONSE", "typed remote response required")
+        fields={"ok","result"} if result["ok"] else {"ok","error"}
+        if set(result)-{"padding"} != fields:raise ProtocolError("INVALID_RESPONSE","exact typed remote response required")
         if result.get("ok") is not True:
-            raise ProtocolError(result["error"]["code"], result["error"]["message"])
+            error=result["error"]
+            if not isinstance(error,dict) or set(error)!={"code","message"} or not all(isinstance(v,str) for v in error.values()):raise ProtocolError("INVALID_RESPONSE","typed remote error required")
+            raise ProtocolError(error["code"],error["message"])
         return result["result"]
     finally:
         done.set()

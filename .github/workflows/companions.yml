@@ -1,0 +1,59 @@
+name: Ziokt companion sources and private PWA regression
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ziokt-companions-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  applications:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt
+      - name: Modern algebra, vault, package and TC-16 regression
+        run: |
+          python -m unittest discover -s tests -p test_companion_crypto.py -v
+          python -m unittest discover -s tests -p test_ufsdcpm.py -v
+          python -m unittest discover -s tests -p test_tc16.py -v
+          python -m unittest discover -s tests -p test_etp_adapter.py -v
+          python -m unittest discover -s tests -p test_privacy_observer.py -v
+      - name: WATChat encrypted gateway, privacy, notifications and retry
+        working-directory: companions/watchat/WATChat-code
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run check
+      - name: SIM Manager types and PWA build
+        working-directory: companions/sim-manager/src
+        run: npm ci --ignore-scripts --no-audit --no-fund && npx tsc --noEmit && npm run build
+      - name: Actual isolated browser ECDH chat and mobile PWA shell
+        run: |
+          npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
+          node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
+          node tools/browser_smoke.cjs
+          node tools/sim_browser_smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: ziokt-companion-pwas
+          path: |
+            companions/sim-manager/src/dist/
+            companions/watchat/WATChat-code/frontend/
+          if-no-files-found: error
+  native-etp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: ETP native core and gateway build (CI only)
+        working-directory: companions/etp/src
+        run: cargo test --no-default-features --lib && cargo check --no-default-features --example ziokt_gateway

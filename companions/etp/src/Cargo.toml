@@ -1,0 +1,236 @@
+[package]
+name = "etp-core"
+version = "2.1.1"
+edition = "2021"
+authors = ["ETP Core Team"]
+description = "Evolutionary Transport Protocol Core Library"
+
+[lib]
+crate-type = ["cdylib", "rlib"] # cdylib 用于生成 .so/.dll 给 FFI 使用
+
+[features]
+default = ["full"]
+full = ["ffi", "extensions", "countermeasures", "vpn", "anonymity", "persistence", "dht_anti_sybil"]
+
+# --- 核心模块 ---
+ffi = []
+extensions = ["dep:notify", "dep:reqwest", "dep:serde_yaml", "dep:toml", "dep:rust-ini", "dep:serde-xml-rs", "dep:url", "dep:regex", "dep:flate2"]
+countermeasures = []
+vpn = ["dep:tun"]
+anonymity = ["dep:tokio-util"]
+persistence = ["dep:sled"]
+dht_anti_sybil = []
+
+# --- 高级特性 ---
+xdp = ["dep:aya", "dep:aya-log", "dep:etherparse", "dep:nix"]
+ens-gateway = ["dep:ethers", "dep:warp"]
+quantum-encryption = ["dep:pqcrypto-kyber", "dep:pqcrypto-dilithium", "dep:pqcrypto-traits"]
+paranoid-security = ["dep:zeroize", "quantum-encryption"]
+ipfs-integration = ["dep:libp2p", "dep:multihash"]
+smart-contracts = ["dep:ethers"]
+solana = ["dep:solana-sdk"]
+ultrafileserver = []
+safefs = ["dep:argon2", "dep:memmap2", "dep:users", "dep:nix"]
+tc16-tcc = [] # 开启 TC-16 虚拟机与 TCC 编译器扩展
+dsl-runtime = ["dep:nom"]
+evolve-ui = ["tc16-tcc", "dsl-runtime"] # 便捷进化接口特性
+
+# --- 语言绑定支持 (Super Support Features) ---
+# 开启对应的 feature 会引入特定语言的胶水库
+binding-python = ["dep:pyo3", "dep:pyo3-asyncio"]
+binding-node = ["dep:napi", "dep:napi-derive"]
+binding-go = [] # Go 使用 C ABI，无需额外 crate
+binding-java = ["dep:jni", "dep:lazy_static"]     # Java/Kotlin JNI 支持
+binding-erlang = ["dep:rustler", "dep:lazy_static"] # Erlang/Elixir NIF 支持
+binding-scheme = ["dep:lazy_static"]    # Scheme C-FFI 支持
+# Lisp 家族支持
+# binding-lisp: 基础 C ABI 支持 (Common Lisp, Racket, Guile 等)
+binding-lisp = ["dep:lazy_static"]
+# binding-elisp: Emacs 专用模块支持 (开启后生成的 .so 可被 Emacs 直接 require)
+binding-elisp = ["binding-lisp", "dep:emacs"]
+binding-lua = ["dep:mlua", "dep:lazy_static"]
+binding-shell = ["dep:lazy_static"]
+binding-powershell = ["dep:lazy_static"]
+binding-ruby = ["dep:magnus", "dep:lazy_static"]
+binding-perl = ["dep:lazy_static"]
+binding-zig = ["dep:lazy_static"]
+
+# Vim 生态支持
+# 依赖 libc 进行指针操作，serde 处理 Vimscript 的 JSON 通信
+binding-vim = ["dep:lazy_static"]
+
+# 注意：对于 Neovim，我们建议同时开启 binding-lua 以获得 mlua 支持，
+# 但为了独立性，这里使用纯 C ABI (LuaJIT FFI) 方式，这是 Neovim 社区更推荐的高性能做法。
+
+# 主开关：开启实验性语言支持
+binding-experimental = []
+
+# 子开关：分别开启特定语言支持（依赖 binding-experimental）
+# Nushell 需要 serde 处理复杂的 JSON-RPC 协议
+binding-nushell = ["binding-experimental"]
+# Ring 需要 libc 处理 VM 指针
+binding-ring = ["binding-experimental"]
+# Haxe 需要 libc
+binding-haxe = ["binding-experimental"]
+# Fusion 需要 libc
+binding-fusion = ["binding-experimental"]
+# Carbon 需要 libc
+binding-carbon = ["binding-experimental"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+
+[dependencies]
+
+libc = { version = "0.2", optional = false }
+lazy_static = { version = "1.4", optional = true } # FFI 全局状态必需
+magnus = { version = "0.8", optional = true }
+nom = { version = "7.1", optional = true } # 强大的解析器组合库
+
+# Persistence
+sled = { version = "0.34", optional = true }
+
+# Async Runtime
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# 异步递归支持 (必需，用于 KNS 递归解析)
+async-recursion = "1.0"
+
+# Error Handling & Logging
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.10"
+colored = "2.0"
+
+# Data Structures & Utils
+bytes = "1.4"
+dashmap = "5.5"
+parking_lot = "0.12"
+lru = "0.11"
+dirs = "5.0" # Cross-platform path management
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Crypto
+rand = "0.8"
+base64 = "0.21"
+hex = "0.4"
+blake3 = "1.4"
+chacha20poly1305 = "0.10"
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+ed25519-dalek = "2.0"
+hmac = "0.12"
+sha2 = "0.10"
+constant_time_eq = "0.3"
+
+# System Info
+sysinfo = "0.29"
+chrono = "0.4"
+
+# Network
+snow = "0.9" # Noise Protocol
+igd-next = "0.14" # UPnP
+governor = "0.6" # Rate Limiting
+
+futures = "0.3"
+
+# Extension Dependencies (Optional)
+notify = { version = "6.0", optional = true }
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls-tls"], optional = true }
+serde_yaml = { version = "0.9", optional = true }
+toml = { version = "0.8", optional = true }
+rust-ini = { version = "0.20", optional = true }
+serde-xml-rs = { version = "0.6", optional = true }
+url = { version = "2.4", optional = true }
+regex = { version = "1.9", optional = true }
+flate2 = { version = "1.0", optional = true } # 用于 PoolMemory 的 zlib 压缩
+
+# --- Quantum Security (Optional) ---
+# 仅在开启 quantum-encryption 时引入
+pqcrypto-kyber = { version = "0.8", optional = true }
+pqcrypto-dilithium = { version = "0.5", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }
+
+# zeroize仅在开启“偏执安全”特性时引入。注意，paranoid-security特性与SecurityProfile中的Turbo或Paranoid等无关
+# 普通模式 (default): 无额外开销，保持极速 O(1) 操作。这利用 Rust 的所有权和边界检查机制，在逻辑层面上防止旧数据被读取，从而省去了物理擦除数据的开销。
+# 偏执模式 (paranoid-security): 彻底物理擦除数据，增加 O(N) 的内存写操作。对于 10Gbps+ 的高吞吐场景会有可见的 CPU 占用提升，但在密钥协商和钱包签名等低频高敏场景下完全可忽略。好处是即使发生 Panic 导致 Core Dump，或者利用 unsafe 代码越界读取 Pool 中的缓存，攻击者也只能读到全 0 数据。
+zeroize = { version = "1.7", optional = true }
+
+# --- Optional: Anonymity Module ---
+# 用于 Tor/I2P 的 SOCKS5 握手和 TCP 封包处理
+tokio-util = { version = "0.7", features = ["codec"], optional = true } 
+
+# --- Optional: ENS Gateway Dependencies---
+# ethers: 以太坊交互全家桶 (只启用必要特性以减小体积)
+ethers = { version = "2.0", features = ["rustls"], optional = true }
+# warp: 轻量级、基于 Filter 的 HTTP 服务器
+warp = { version = "0.3", optional = true }
+
+# --- Optional: IPFS Integration ---
+# 仅在开启 ipfs-integration 时引入
+libp2p = { version = "0.52", features = ["tcp", "dns", "noise", "yamux", "kad", "macros", "tokio"], optional = true }
+multihash = { version = "0.19", optional = true }
+
+# Solana (仅在开启 solana 特性时引入)
+solana-sdk = { version = "1.16", optional = true }
+
+# Bloom Filter (用于高效 Gossip 同步)
+# 生产级通常使用专门的库，这里为了减少依赖，我们将在 universal.rs 内部实现一个简单的，
+# 或者引入 bloomfilter crate。本库中我们手动实现了这个库，以减少依赖树。
+
+# --- 语言绑定专用依赖 ---
+# Python
+pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py37"], optional = true }
+pyo3-asyncio = { package = "pyo3-async-runtimes", version = "0.24", features = ["tokio-runtime"], optional = true }
+
+# Node.js
+napi = { version = "2.14", default-features = false, features = ["napi4", "tokio_rt", "async"], optional = true }
+napi-derive = { version = "2.14", optional = true }
+
+# Java (JNI)
+jni = { version = "0.21", optional = true }
+
+# Erlang (NIF)
+rustler = { version = "0.30", optional = true }
+
+# Emacs 动态模块绑定库 (Rust 生态的神器)
+emacs = { version = "0.18", optional = true }
+
+# Lua 绑定 (支持 Lua 5.x, LuaJIT)
+mlua = { version = "0.9", features = ["lua54", "vendored", "async"], optional = true }
+
+# Go 绑定通常不需要额外 crate，但在 FFI 边界处理 panic 是好习惯
+# 我们沿用已有的 libc 和 log
+
+# --- Platform Specific Dependencies ---
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# winbase/powerbase for battery status, winnt/securitybaseapi for admin check
+winapi = { version = "0.3", features = ["winnt", "shell32", "processthreadsapi", "handleapi", "securitybaseapi", "winbase", "powerbase"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))'.dependencies]
+tun = { version = "0.5", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 确保只在 Linux 编译
+# --- XDP / eBPF Dependencies ---
+aya = { version = "0.11", optional = true }
+aya-log = { version = "0.1", optional = true }
+etherparse = { version = "0.13", optional = true }
+# nix 提供了更安全的 ioctl 和 socket 封装，比纯 libc 更适合生产环境
+nix = { version = "0.27", features = ["net", "socket", "ioctl", "fs", "process", "mman", "signal", "user", "ptrace", "sched", "mount"], optional = true }
+# --- SafeFS 专属依赖 ---
+# 密码哈希 (复刻 Python 版双重 KDF)
+argon2 = { version = "0.5", optional = true }
+# 内存映射与保护 (Guard Pages)
+memmap2 = { version = "0.9", optional = true }
+# 用户与组信息
+users = { version = "0.11", optional = true }

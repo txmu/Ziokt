@@ -13,7 +13,8 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 source = Path(sys.argv[1]).absolute()
-lock = json.loads((root / "native-baseline.lock.json").read_text())
+lock_path = Path(sys.argv[2]) if len(sys.argv)>2 else root / "native-baseline.lock.json"
+lock = json.loads(lock_path.read_text())
 if hashlib.sha256(source.read_bytes()).hexdigest() != lock["sha256"]:
     raise ValueError("upstream native baseline digest mismatch")
 destination = root.parent / "Shadow6"

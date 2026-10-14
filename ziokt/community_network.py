@@ -128,7 +128,7 @@ def sync_remote(community, endpoint, context, private, *, publisher, cancellatio
         request = {'provider_id': community.community_id, 'method': method, 'params': params}
         token = lambda: grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation)
+        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation, privacy_padding=community.policy['privacy']!='standard')
     status = call('community.status', {})
     exact(status, {'community_id', 'policy', 'records', 'publisher', 'runtime_ready', 'inventory_digest', 'origin'})
     if status['community_id'] != community.community_id or status['policy'] != community.policy_id or status['publisher'] != publisher:
@@ -180,7 +180,7 @@ def push_remote(community, endpoint, context, private, *, cancellation=None):
         request = {'provider_id': community.community_id, 'method': method, 'params': params}
         token = lambda: grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation)
+        return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation, privacy_padding=community.policy['privacy']!='standard')
     order, visited = [], set()
     def visit(d):
         if d in visited: return

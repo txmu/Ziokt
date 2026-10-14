@@ -90,6 +90,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="action", required=True)
     from .community_cli import register
     register(sub)
+    from .collectibles_cli import register as register_collectibles
+    register_collectibles(sub)
+    from .companion_cli import register as register_companion
+    register_companion(sub)
     profiles = sub.add_parser('profiles', help='review every native Profile for an application purpose')
     profiles.add_argument('--shadow6', required=True, type=Path)
     profiles.add_argument('--purpose', choices=('proxy-stream','discovery','content'), required=True)
@@ -186,7 +190,13 @@ def main(argv=None):
     coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
-        if args.action == 'profiles':
+        if args.action=='companion':
+            from .companion_cli import execute as execute_companion
+            result=execute_companion(args)
+        elif args.action in {'extensions','zkn','zkc','node'}:
+            from .collectibles_cli import execute as execute_collectibles
+            result=execute_collectibles(args)
+        elif args.action == 'profiles':
             from .transport import plan_profiles
             result = {'schema':'ziokt.profile-plan.v1','profiles':plan_profiles(args.shadow6,args.purpose), 'runtime_verified':False}
         elif args.action == "community":

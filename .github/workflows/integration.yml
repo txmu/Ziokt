@@ -5,6 +5,11 @@ on:
   pull_request:
     paths-ignore: ['docs/**', 'README.md']
   workflow_dispatch:
+    inputs:
+      rebuild_native:
+        description: Rebuild changed native Core sources in CI
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -118,9 +123,11 @@ jobs:
           ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           persist-credentials: false
       - uses: actions/setup-go@v5
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         with:
           go-version-file: Shadow6/Core-Go/go.mod
       - uses: dtolnay/rust-toolchain@stable
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
       - name: Native test dependencies
         run: |
           sudo apt-get update
@@ -128,22 +135,39 @@ jobs:
           sudo ln -sf $(which chezscheme) /usr/local/bin/chez || true
           python -m pip install -r ../Shadow6/requirements.txt
       - name: Restore verified unchanged Core products for all Profile tests
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download native-baseline-14a75b57 --repo txmu/Ziokt --pattern Shadow6.tar.gz --dir baseline-download
           python ci/restore_native_baseline.py baseline-download/Shadow6.tar.gz
+      - name: Reuse pinned CI products without recompiling unchanged native families
+        if: github.event_name != 'workflow_dispatch' || !inputs.rebuild_native
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 38484382737 --repo txmu/Ziokt --name ziokt-enabled-native-artifacts --dir reuse-download
+          archive=$(find reuse-download -name shadow6-ziokt.tar.gz -type f -print -quit)
+          python ci/verify_native_reuse.py "$archive"
+          python ci/restore_native_baseline.py "$archive" ci/native-reuse.lock.json
+      - name: Verify interpreted Shadow6 support against reused native products
+        if: github.event_name != 'workflow_dispatch' || !inputs.rebuild_native
+        working-directory: Shadow6
+        run: make ziokt-test PYTHON=python
       - name: Build Shadow6 with native Ziokt support (runtime remains opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         working-directory: Shadow6
         run: |
           ./configure --disable-all --disable-cores --enable-core-go --enable-core-rust --enable-control --enable-ziokt
           make build PYTHON=python
           make ziokt-test PYTHON=python
       - uses: jiro4989/setup-nim-action@v2
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         with:
           nim-version: '2.2.10'
       - name: Compile pinned RTC and the updated Nim L5 and restored L0
         id: nim
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         working-directory: Shadow6
         run: |
           set -euo pipefail
@@ -188,7 +212,7 @@ jobs:
       - name: Full Ziokt contract and native integration suites
         run: |
           python tools/sync_providers.py --check
-          LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/Shadow6/Core-Nim:${GITHUB_WORKSPACE}/Shadow6/Core-Idris:${LD_LIBRARY_PATH:-}" ZIOKT_NATIVE_DATA_TEST=1 python -m unittest discover -s tests -v
+          LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/Shadow6/Core-Nim:${GITHUB_WORKSPACE}/Shadow6/Core-Idris:${LD_LIBRARY_PATH:-}" ZIOKT_NATIVE_DATA_TEST=1 ZIOKT_EXTENSION_ROOT="${GITHUB_WORKSPACE}/Shadow6" ZIOKT_REQUIRE_EXTENSION_MATRIX=1 python -m unittest discover -s tests -v
           python ci/build.py
       - name: Package tested native support artifacts
         run: python ci/package_native.py

@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding")
 
 
 class ProtocolError(ValueError):
@@ -335,7 +335,7 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
 
 
 def validate_config(value):
-    allowed = {"schema", "enabled", "federation_id", "provider_id", "allow_mutations",
+    allowed = {"schema", "enabled", "federation_id", "provider_id", "allow_mutations", "service_registry_file",
                "allowed_operations", "allowed_resources", "package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "coordinator_public_key", "zkn_enabled"}
     if (not isinstance(value, dict) or set(value) - allowed or
             value.get("schema") != "ziokt.provider.v1" or
@@ -359,12 +359,12 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
         fail("INVALID_CONFIG", "pinned Ed25519 coordinator authority required")
-    for name in ("package_root", "package_trust_file", "artifact_root", "transport_bindings_file"):
+    for name in ("package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "service_registry_file"):
         if name in result and (not isinstance(result[name], str) or not Path(result[name]).is_absolute() or ".." in Path(result[name]).parts):
             fail("INVALID_CONFIG", "native package settings require fixed absolute paths")
     if result["allow_mutations"] and (not result["enabled"] or not result["allowed_operations"] or not result["allowed_resources"]):
@@ -446,7 +446,10 @@ def validate_request(value, config):
         fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method == "governance.fact":
+    if method=='service.binding':
+        if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
+            fail('INVALID_PARAMS','fixed named Broker binding required')
+    elif method in {"governance.fact","zkn.fact","zkc.fact"}:
         if set(params) != {"transaction_hash"} or not isinstance(params["transaction_hash"], str) or not re.fullmatch("[a-f0-9]{64}", params["transaction_hash"]):
             fail("INVALID_PARAMS", "exact native signed transaction reference required")
     elif method == 'identity.fact':
@@ -646,7 +649,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
+                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -677,12 +680,15 @@ def rpc(provider, root, network, config, stream):
             result = capabilities(provider, config)
         elif method == "status.get":
             result = status(provider, config, network)
+        elif method=='service.binding':
+            if provider!='shadow6': fail('METHOD_UNSUPPORTED','native Broker bindings belong to Shadow6')
+            result=service_binding_fact(root,config,request['params']['service_name'])
         elif method.startswith("operation.") or method == "events.list":
             result = operation_dispatch(provider, root, network, config, method, request["params"])
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
-        elif method in {'identity.fact','zkn.list'}:
+        elif method in {'identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact'}:
             if provider!='corium': fail('METHOD_UNSUPPORTED','native chain assets belong to Corium')
             result=asset_query(root,network,method,request['params'])
         elif method == "content.get":

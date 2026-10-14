@@ -12,11 +12,13 @@ _imports = threading.Lock()
 
 def validate_native(value, host):
     required = {'kind', 'shadow6_root', 'registry_path', 'service_name', 'lock_digest', 'sdk_digest'}
-    if not isinstance(value, dict) or set(value) != required or value['kind'] != 'shadow6-stream':
+    if not isinstance(value, dict) or not required <= set(value) or set(value)-required-{'require_s6epe'} or value['kind'] != 'shadow6-stream':
         raise ProtocolError('INVALID_NATIVE_PATH', 'exact reviewed Shadow6 stream binding required')
     for field in ('shadow6_root', 'registry_path'):
         if not isinstance(value[field], str) or not Path(value[field]).is_absolute() or '..' in Path(value[field]).parts:
             raise ProtocolError('INVALID_NATIVE_PATH', 'absolute native path required')
+    if 'require_s6epe' in value and type(value['require_s6epe']) is not bool:
+        raise ProtocolError('INVALID_NATIVE_PATH','explicit S6EPE policy boolean required')
     if not isinstance(value['service_name'], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}', value['service_name']):
         raise ProtocolError('INVALID_NATIVE_PATH', 'fixed native service name required')
     if any(not isinstance(value[field], str) or not re.fullmatch('sha256:[a-f0-9]{64}', value[field]) for field in ('lock_digest', 'sdk_digest')):
@@ -59,6 +61,8 @@ def connect_native(host, port, value, timeout=30, cancellation=None):
     item = registry.services.get(value['service_name'], {})
     if (item.get('deploymentLock') or {}).get('digest') != value['lock_digest']:
         raise ProtocolError('STALE_PLAN', 'native service binding changed')
+    if value.get('require_s6epe') and item.get('privacy')!='envelope':
+        raise ProtocolError('NO_POLICY_COMPLIANT_PATH','locked S6EPE service required; native-only downgrade denied')
     sdk = Shadow6(control=RegistryControl(registry))
     try:
         handle = sdk.connect_handle(value['service_name'], timeout=timeout, cancellation=cancellation,

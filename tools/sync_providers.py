@@ -150,6 +150,7 @@ PY_ZIOKT_NATIVE_ASSETS
 }
 _ziokt_zkn_after_pack() {
     local mint_payload
+    _ziokt_asset_engine forward "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$CORIUM_ROOT" || return 1
     mint_payload=$(_ziokt_asset_engine snapshot "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$CORIUM_ROOT" "$1") || return 1
     [ -z "$mint_payload" ] && return 0
     blockchain_create_transaction zkn_mint "$mint_payload" >/dev/null
@@ -203,8 +204,10 @@ def main():
         updated = prefix + actions + suffix
     else:
         updated = updated.replace(END, END + '\n' + actions, 1)
+    updated=updated.replace('ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)', 'ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)')
+    updated=updated.replace('zkn_transfer|zkn_private_transfer)', 'zkn_transfer|zkn_private_transfer|zkc_issue)')
     validation_anchor='    # --- Step 3: State & Logic Verification by Type ---\n    case "$tx_type" in\n'
-    validation_hook='''        ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)
+    validation_hook='''        ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)
             _ziokt_asset_engine validate "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" || return 1
             ;;
 '''
@@ -212,7 +215,7 @@ def main():
         if updated.count(validation_anchor)!=1: raise SystemExit('native asset validation anchor ambiguous')
         updated=updated.replace(validation_anchor,validation_anchor+validation_hook,1)
     apply_anchor='            # case 语句现在只负责改变数据库状态。\n            case "$tx_type" in\n'
-    apply_hook='''                ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)
+    apply_hook='''                ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)
                     _ziokt_asset_engine apply "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" "$tx_hash" "$height" || return 1
                     ;;
 '''

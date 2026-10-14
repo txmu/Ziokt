@@ -203,15 +203,23 @@ class PeerDirectory:
                 return self.native_bindings.get(peer['public_key'])
         raise ProtocolError('PROXY_DENIED', 'next hop has no live signed discovery record')
 
-    def build_route(self, count, template, destination):
+    def build_route(self, count, template, destination, *, exclude=(), randomize=False):
         if type(count) is not int or not 2 <= count <= 4:
             raise ProtocolError('INVALID_DISCOVERY', 'two to four distinct discovered proxies required')
         exact(template, {'certificate', 'private_key', 'ca'}, 'INVALID_DISCOVERY')
         from .carrier import validate_carrier
+        if not isinstance(exclude,(list,tuple,set)) or len(exclude)>64 or type(randomize) is not bool:
+            raise ProtocolError('INVALID_DISCOVERY','bounded excluded peers and explicit random route selection required')
         selected, seen, prefixes = [], set(), set()
-        for peer in self.peers():
+        candidates=self.peers()
+        if randomize: secrets.SystemRandom().shuffle(candidates)
+        for peer in candidates:
             endpoint = peer['endpoint']; public = peer['public_key']
-            if public == self.local_public or public in seen or (endpoint['host'], endpoint['port']) == destination: continue
+            from .ano import defence
+            admitted=defence({'current_member':'discover' in self.policy['members'].get(public,[]),'distinct_member':public!=self.local_public and public not in seen,
+                'healthy_route':public not in exclude,'distinct_destination':(endpoint['host'],endpoint['port'])!=destination},
+                ('current_member','distinct_member','healthy_route','distinct_destination'))
+            if admitted['decision']!='allow':continue
             if endpoint['host'].endswith(('.onion', '.i2p')) and public not in self.native_bindings: continue
             try: prefix = str(ipaddress.ip_network(endpoint['host']+('/24' if ':' not in endpoint['host'] else '/48'), strict=False))
             except ValueError: prefix = endpoint['host']

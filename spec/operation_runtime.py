@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -127,6 +127,42 @@ def native_registry(root):
     return ServiceRegistry(catalog=CoreCatalog(root))
 
 
+def service_binding_fact(root,config,name):
+    """Verify locked native materials; return no credentials or unscoped files."""
+    sys.path.insert(0,str(root/'Deployment'))
+    from service_registry import ServiceRegistry
+    from core_catalog import CoreCatalog
+    import service_runtime
+    registry=ServiceRegistry(config.get('service_registry_file'),CoreCatalog(root))
+    item=registry.inspect(name)
+    if not item.get('deploymentLock'): fail('STALE_PLAN','locked named Broker required')
+    material=registry._material(name)
+    from service_registry import digest as native_digest,encoded as native_encoded
+    if native_digest(native_encoded(material))!=item['deploymentLock']['digest']:fail('STALE_PLAN','native Broker material changed')
+    role=item['protocolContext']['role']
+    if role not in {'broker','all'}:fail('INVALID_PARAMS','Broker role required for Virtual Broker route')
+    content=secure_read(item['coreBinding']['config']['config_path'])
+    native=strict_json(content)
+    endpoints=[]
+    def scan(value):
+        if isinstance(value,dict):
+            for key,child in value.items():
+                if key in {'listen_addr','listen_address','listen'} and isinstance(child,str): endpoints.append(child)
+                if key=='listen_host' and type(value.get('listen_port')) is int:
+                    endpoints.append(('['+child+']' if ':' in child else child)+':'+str(value['listen_port']))
+                scan(child)
+        elif isinstance(value,list):
+            for child in value:scan(child)
+    if item.get('privacy')=='envelope':
+        fields=service_runtime.parse_envelope(secure_read(item['spec']['envelope_config']))
+        endpoints=[fields['listen']]
+    else:scan(native.get('broker',native))
+    return {'schema':'ziokt.native-broker-binding.v1','service_name':name,'core':item['coreBinding']['core'],
+        'profile':item['profileBinding']['profile'],'privacy':item['privacy'],'lock_digest':item['deploymentLock']['digest'],
+        'entry_endpoints':endpoints,'runtime_ready':item.get('state') in {'running','degraded'} and service_runtime.alive(item.get('runtime',{})),
+        'assurance':'native-locked-material','wire_translation':False}
+
+
 def native_database(path):
     """Validate an owned native database without reading its whole history."""
     path = Path(path).absolute()
@@ -182,7 +218,7 @@ def operation_preflight(provider, root, network, params, config):
         return recovery_preflight(provider, root, network, params, config)
     if action == "compute.run":
         return compute_preflight(root, network, params, config)
-    if action in {'identity.register','content.publish','zkn.transfer'}:
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}:
         return asset_preflight(root,network,params,config)
     if action in {"service.stop", "service.run"}:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resource) or args:
@@ -277,6 +313,10 @@ def operation_preflight(provider, root, network, params, config):
 
 def operation_execute(provider, root, network, plan, config=None):
     resource = plan["resource"]
+    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue'}:
+        if asset_preflight(root,network,plan,config)!=plan['binding_evidence']:
+            fail('STALE_PLAN','private gift evidence changed')
+        return asset_submit_gift(root,network,plan['arguments']['transaction'],'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
     if provider == "shadow6" and plan["action"].startswith("recovery."):
         return recovery_execute(provider, root, network, plan, config)
     if plan["action"] in {"service.stop", "service.run"}:
@@ -304,7 +344,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -402,7 +442,7 @@ def operation_reconcile(provider, root, network, plan, config):
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
     if action == "compute.run": return compute_receipt(root, network, plan)
-    if action in {'identity.register','content.publish','zkn.transfer'}: return asset_receipt(root,network,plan)
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}: return asset_receipt(root,network,plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:
