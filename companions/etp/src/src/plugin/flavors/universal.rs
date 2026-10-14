@@ -43,7 +43,7 @@ use ethers::types::{Address as EthAddress, H256 as EthHash, U256};
 use std::str::FromStr;
 
 #[cfg(feature = "solana")]
-use solana_sdk::pubkey::Pubkey as SolPubkey;
+use solana_sdk::Pubkey as SolPubkey;
 
 // --- 协议常量 ---
 const UNIVERSAL_PROTO_VER: u8 = 0x02;

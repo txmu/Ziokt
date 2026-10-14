@@ -202,7 +202,7 @@ jobs:
           trap 'result=$?; kill "$turn_pid" 2>/dev/null || true; wait "$turn_pid" 2>/dev/null || true; tail -n 80 -- "$RUNNER_TEMP"/ziokt-turn*.log || true; exit "$result"' EXIT
           sleep 2
           kill -0 "$turn_pid"
-          SHADOW6_TEST_TURN=turn:ziokt:ci-only@127.0.0.1:34780 python Core-Nim/test_core.py CoreTests.test_actual_webrtc_loopback_relay
+          LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/Shadow6/Core-Nim:${LD_LIBRARY_PATH:-}" SHADOW6_TEST_TURN=turn:ziokt:ci-only@127.0.0.1:34780 python Core-Nim/test_core.py CoreTests.test_actual_webrtc_loopback_relay
       - name: Verify Corium single-file production artifact
         working-directory: Corium
         run: |

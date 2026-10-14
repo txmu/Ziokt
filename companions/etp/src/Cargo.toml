@@ -181,7 +181,7 @@ libp2p = { version = "0.52", features = ["tcp", "dns", "noise", "yamux", "kad", 
 multihash = { version = "0.19", optional = true }
 
 # Solana (仅在开启 solana 特性时引入)
-solana-sdk = { version = "1.16", optional = true }
+solana-sdk = { package = "solana-pubkey", version = "4.4", optional = true }
 
 # Bloom Filter (用于高效 Gossip 同步)
 # 生产级通常使用专门的库，这里为了减少依赖，我们将在 universal.rs 内部实现一个简单的，
@@ -215,7 +215,7 @@ mlua = { version = "0.9", features = ["lua54", "vendored", "async"], optional = 
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # winbase/powerbase for battery status, winnt/securitybaseapi for admin check
-winapi = { version = "0.3", features = ["winnt", "shell32", "processthreadsapi", "handleapi", "securitybaseapi", "winbase", "powerbase"] }
+winapi = { version = "0.3", features = ["winnt", "shellapi", "processthreadsapi", "handleapi", "securitybaseapi", "winbase", "powerbase"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))'.dependencies]
 tun = { version = "0.5", optional = true }

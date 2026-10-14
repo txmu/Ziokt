@@ -54,6 +54,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: companions/etp/src
       - name: ETP native core and gateway build (CI only)
         working-directory: companions/etp/src
-        run: cargo test --no-default-features --lib && cargo check --no-default-features --example ziokt_gateway
+        run: cargo test --locked --no-default-features --lib && cargo check --locked --no-default-features --example ziokt_gateway
