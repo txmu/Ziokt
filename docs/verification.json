@@ -1,24 +1,47 @@
 {
-  "status": "privacy-routing-local-validation-passed-new-network-work-in-progress",
-  "date": "2026-10-13",
+  "status": "privacy-multihop-native-ci-and-upstream-matrix-passed",
+  "date": "2026-10-14",
   "diagnosed_actions_run": "https://github.com/txmu/Ziokt/actions/runs/38427974586",
   "native_sources": {
     "shadow6": {
       "repository": "txmu/Shadow6",
-      "revision": "72a36d66f23de612b5dfdb9dab8dcad9c28b797b"
+      "revision": "ef310103ff1f450190f320cdc97f5b9eb9a290fb"
     },
     "corium": {
       "repository": "txmu/Corium",
-      "revision": "de47b69e06f93cc1b29f2fd8b36d6512d70d2c48"
+      "revision": "269273acf616e4842c611a8e545ab61f20c03964"
     }
   },
   "local": {
-    "full_suite": {"total": 99, "passed": 98, "skipped": 1, "native_data_gate_enabled": true},
-    "final_community_suite": {"total": 46, "passed": 46},
-    "capsule_site_suite": {"total": 5, "passed": 5},
-    "peer_proxy_suite": {"total": 9, "passed": 9, "resource_warning_check": "passed"},
-    "live_tor": {"passed": true, "tor_version": "0.4.9.14", "nested_onion_socks": true},
-    "nested_nat": {"passed": true, "peer_proxy_hops": 2, "address_change": true},
+    "full_suite": {
+      "total": 99,
+      "passed": 98,
+      "skipped": 1,
+      "native_data_gate_enabled": true
+    },
+    "final_community_suite": {
+      "total": 46,
+      "passed": 46
+    },
+    "capsule_site_suite": {
+      "total": 5,
+      "passed": 5
+    },
+    "peer_proxy_suite": {
+      "total": 9,
+      "passed": 9,
+      "resource_warning_check": "passed"
+    },
+    "live_tor": {
+      "passed": true,
+      "tor_version": "0.4.9.14",
+      "nested_onion_socks": true
+    },
+    "nested_nat": {
+      "passed": true,
+      "peer_proxy_hops": 2,
+      "address_change": true
+    },
     "ziokt_network_gate_separate": true,
     "cryptography": "50.0.1",
     "native_protocol_copy_check": "passed",
@@ -26,8 +49,91 @@
     "native_baseline_restored_in_isolated_source_tree": true,
     "native_families": 12,
     "native_profiles": 13,
-    "heavyweight_builds": 0
+    "heavyweight_builds": 0,
+    "phase2_full_suite": {
+      "total": 109,
+      "passed": 107,
+      "skipped": 2,
+      "scope": "before adding the dedicated live I2P gate"
+    },
+    "signed_gossip_and_rotation": {
+      "passed": true,
+      "actual_tls_nodes": 3,
+      "discovered_proxy_hops": 2,
+      "policy_file_drift_rejected": true
+    },
+    "all_profiles_discovery_content": {
+      "passed": true,
+      "families": 12,
+      "profiles": 13,
+      "uses_existing_verified_binaries": true
+    },
+    "locked_native_stream_adapters": {
+      "go": "passed",
+      "nim": "passed"
+    }
   },
-  "remote_validation": {"rerun": false, "windows": "pending", "macos": "pending"},
-  "zkt_definition": "configurable reputation/fame points; legacy asset design superseded"
+  "remote_validation": {
+    "rerun": true,
+    "revision": "2e29ae1a8feb3a284e11dc019d7c26541d409cb5",
+    "actions_run": "https://github.com/txmu/Ziokt/actions/runs/38484382737",
+    "all_jobs": "success",
+    "job_count": 7,
+    "windows": "success",
+    "macos": "success",
+    "linux": "success",
+    "tor_live_nested_socks": "success",
+    "i2p_live_sam_mtls": "success",
+    "nested_nat_keyless_multihop": "success",
+    "native": {
+      "total": 110,
+      "passed": 108,
+      "skipped": 2,
+      "network_gates_separate": true,
+      "families": 12,
+      "profiles": 13,
+      "nim_l0_l5_build": "success",
+      "nim_relay_only_turn": "success",
+      "locked_go_nim_adapter": "success"
+    },
+    "heavy_compilation": "CI only"
+  },
+  "zkt_definition": "configurable reputation/fame points; legacy asset design superseded",
+  "upstream_ci": {
+    "shadow6": {
+      "run": "https://github.com/txmu/Shadow6/actions/runs/38482076334",
+      "status": "success"
+    },
+    "corium_validation": {
+      "run": "https://github.com/txmu/Corium/actions/runs/38483724989",
+      "status": "success"
+    },
+    "corium_remaining_coverage": {
+      "run": "https://github.com/txmu/Corium/actions/runs/38483724965",
+      "status": "success"
+    },
+    "corium_formal": {
+      "run": "https://github.com/txmu/Corium/actions/runs/38483724977",
+      "status": "success"
+    }
+  },
+  "artifacts": {
+    "id": 11859540864,
+    "archive_sha256": "0eb9d74f3280e37adc49a3c349ddfc549f6101bcad23eae50b3be898dc83a78b",
+    "verified_locally": true,
+    "files": {
+      "ziokt.pyz": {
+        "bytes": 142382,
+        "sha256": "1b8cac4cbd3313340ad306adefc0a845230109ff9f2bb5a0a1df6330d376f98f"
+      },
+      "shadow6-ziokt.tar.gz": {
+        "bytes": 63112055,
+        "sha256": "7691c12f632d50dd35b1472745e60c4b14138dc090cb0773972bb16aac4b3dc7"
+      },
+      "corix-ziokt.sh": {
+        "bytes": 2546588,
+        "sha256": "8f83413088a68254202c15faa9f4238ab10fe03ad498af19a383a91f8d01ef8e"
+      }
+    }
+  }
 }

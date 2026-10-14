@@ -1,8 +1,14 @@
 # Working State
 
-## 2026-10-13 Actions 修复与隐私路由
+## 2026-10-14 多跳、发现与原生融合验证
 
-修复最新运行的源码锁漂移、Windows 测试路径及 NAT 地址更换后的默认路由丢失。新增显式洋葱 SOCKS 多跳、无 Tor／I2P 的用户轻量代理和两到四跳 mTLS、候选路径实际连接、v2 rendezvous 加密长度填充、禁用脚本的站点沙箱及匿名导出元数据脱敏。功能、配置、升级要求及隐私局限见 [隐私路由与多跳](privacy-routing.zh-CN.md)。以下历史条目不代表本次修改已通过远端 Actions。
+实现并提交了无内容密钥的 2～4 跳用户代理、I2P SAM、Tor 洋葱 SOCKS 多跳、签名私有发现、有界 DHT 缓存、防重放和故障退避。发现记录绑定成员与 TLS 证书，政策变更立即停止旧准入。Shadow6 的全部 12 个 Core／13 个 Profile 经 Corium 的签名内容和发现对象交换验证；可靠有序流可作为轻量多跳的原生接入。Nim 支持显式 STUN/TURN 和仅中继 ICE，Corium 打洞加强身份绑定、地址准入、并发与冷却限制。
+
+[Ziokt CI 38484382737](https://github.com/txmu/Ziokt/actions/runs/38484382737) 的 7 个任务全部通过：Windows、macOS、Linux、真实 Tor、真实 I2P SAM、双重 NAT、多跳和原生集成。原生套件 110 项，108 项通过，2 项外网测试由独立门禁实际执行；新 Nim L0/L5 编译、恢复 L0、真实 TURN 仅中继路径和 Go/Nim 连接适配器通过。重量级编译仅在 CI 运行。本地下载的 CI 产物已核验总包和各文件 SHA256。
+
+[Shadow6 完整矩阵](https://github.com/txmu/Shadow6/actions/runs/38482076334) 已全部通过，包括 OpenBSD arm64 原生测试和全 Core WAN/PCAP 测试。[Corium 验证](https://github.com/txmu/Corium/actions/runs/38483724989)、[剩余覆盖](https://github.com/txmu/Corium/actions/runs/38483724965)及 [Lean 形式验证](https://github.com/txmu/Corium/actions/runs/38483724977)也全部通过。
+
+修复迭代包括原生源码锁漂移、Windows 路径及关闭文件后重命名、NAT 地址更换默认路由、发现证书轮换、测试变量覆盖、TURN 认证和清理日志退出码、Corium 测试夹具显式启用打洞。配置、部署前提、每种 Profile 的边界及隐私局限见 [隐私路由与多跳](privacy-routing.zh-CN.md)；精确源码锁、上游状态和产物摘要见 [verification.json](verification.json)。以下条目为此前功能的历史记录。
 
 ## ZKT 信誉与贡献积分机制（Reputation & Credit Scoring）已就绪
 
