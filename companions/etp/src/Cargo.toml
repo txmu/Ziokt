@@ -31,7 +31,7 @@ smart-contracts = ["dep:ethers"]
 solana = ["dep:solana-sdk"]
 ultrafileserver = []
 safefs = ["dep:argon2", "dep:memmap2", "dep:users", "dep:nix"]
-tc16-tcc = [] # 开启 TC-16 虚拟机与 TCC 编译器扩展
+tc16-tcc = ["extensions", "dep:byteorder"] # 开启 TC-16 虚拟机与 TCC 编译器扩展
 dsl-runtime = ["dep:nom"]
 evolve-ui = ["tc16-tcc", "dsl-runtime"] # 便捷进化接口特性
 
@@ -87,6 +87,7 @@ opt-level = 3
 
 libc = { version = "0.2", optional = false }
 lazy_static = { version = "1.4", optional = true } # FFI 全局状态必需
+byteorder = { version = "1.5", optional = true }
 magnus = { version = "0.8", optional = true }
 nom = { version = "7.1", optional = true } # 强大的解析器组合库
 
