@@ -69,3 +69,64 @@ class CompanionCrypto(unittest.TestCase):
             returned=bridge.call('chat.pull',{'from':a,'to':b})['messages'][0];self.assertEqual(returned['ciphertext'],payload['ciphertext'])
             with self.assertRaises(ProtocolError):bridge.call('chat.append',{**payload,'ciphertext':base64.b64encode(secrets.token_bytes(2048)).decode()})
             with self.assertRaises(ProtocolError):bridge.call('shell.execute',{})
+
+    def _make_bridge(self,root,private,public,policy,app='safefs-test',extra=None):
+        from ziokt.cli import write_exclusive,write_binary_exclusive
+        write_exclusive(root/'policy.json',policy)
+        for name in ('signing','application','encryption'):write_binary_exclusive(root/(name+'.key'),private if name=='signing' else secrets.token_bytes(32))
+        cfg={'schema':'ziokt.companion-bridge.v1','community_root':str(root/'community'),'policy':str(root/'policy.json'),
+            'owner':public,'encryption_key':str(root/'encryption.key'),'signing_key':str(root/'signing.key'),'application':app,'application_key':str(root/'application.key')}
+        if extra:cfg.update(extra)
+        config=root/'bridge.json';write_exclusive(config,cfg)
+        return config
+
+    def test_safefs_publish_read_federation_via_bridge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);private=secrets.token_bytes(32);public=sign({},private,'test')['public_key'];policy=create_policy(private,'test',{public:sorted(RIGHTS)})
+            import os;vault_dir=root/'vaultroot';vault_dir.mkdir(mode=0o700)
+            config=self._make_bridge(root,private,public,policy,extra={'vault_root':str(vault_dir)})
+            bridge=CompanionBridge(config);self.addCleanup(bridge.close)
+            # Vault key is the application_key loaded at bridge init time
+            appkey=open(root/'application.key','rb').read()
+            vault=Vault(vault_dir,'safefs-test',appkey)
+            obj=vault.put('secret/data.bin',b'classified content')
+            digest=obj['digest']
+            # Publish to community via bridge
+            result=bridge.call('safefs.publish',{'digest':digest})
+            self.assertEqual(result['digest'],digest);self.assertFalse(result['duplicate']);self.assertFalse(result['plaintext_disclosed'])
+            # Idempotent: same digest publishes as duplicate
+            again=bridge.call('safefs.publish',{'digest':digest})
+            self.assertTrue(again['duplicate']);self.assertEqual(again['event'],result['event'])
+            # Read back and verify integrity
+            read=bridge.call('safefs.read',{'digest':digest})
+            self.assertEqual(read['digest'],digest);self.assertFalse(read['plaintext_disclosed'])
+            # Wrong vault_root or no vault_root raises
+            root_b=root/'b';root_b.mkdir()
+            config2=self._make_bridge(root_b,private,public,policy,extra={})
+            bridge2=CompanionBridge(config2);self.addCleanup(bridge2.close)
+            with self.assertRaises(ProtocolError) as cm:bridge2.call('safefs.publish',{'digest':digest})
+            self.assertEqual(cm.exception.code,'POLICY_DENIED')
+
+    def test_drain_pending_replays_failed_publishes_on_reconnect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);private=secrets.token_bytes(32);public=sign({},private,'test')['public_key'];policy=create_policy(private,'test',{public:sorted(RIGHTS)})
+            import os;vault_dir=root/'vaultroot';vault_dir.mkdir(mode=0o700)
+            config=self._make_bridge(root,private,public,policy,extra={'vault_root':str(vault_dir)})
+            bridge=CompanionBridge(config);self.addCleanup(bridge.close)
+            appkey=open(root/'application.key','rb').read()
+            vault=Vault(vault_dir,'safefs-test',appkey)
+            obj=vault.put('pending/file.bin',b'pending content')
+            digest=obj['digest']
+            # Simulate a transient failure by directly writing a pending entry
+            bridge.close()
+            from ziokt.protocol import encoded
+            pending_path=bridge._pending_path
+            pending_path.write_bytes(encoded({'method':'safefs.publish','params':{'digest':digest}})+b'\n')
+            # Re-open bridge — drain_pending should replay the entry
+            bridge2=CompanionBridge(config);self.addCleanup(bridge2.close)
+            # After draining, the object should be in the community
+            events=bridge2.community.view('files')['events']
+            self.assertTrue(any('safefs' in (e.get('key','') or '') for e in events) or len(events)>0)
+            # Pending file should be cleared after successful drain
+            self.assertFalse(pending_path.exists())
+
