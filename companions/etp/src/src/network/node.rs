@@ -208,7 +208,7 @@ pub trait PacketTransport: Send + Sync + std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub struct UdpTransport(Arc<UdpSocket>);
+pub struct UdpTransport(pub Arc<UdpSocket>);
 #[async_trait::async_trait]
 impl PacketTransport for UdpTransport {
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize> {

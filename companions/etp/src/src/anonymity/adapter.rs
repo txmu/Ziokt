@@ -1,19 +1,19 @@
 // etp-core/src/anonymity/adapter.rs
 
-use std::sync::Arc;
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use tokio::net::TcpStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::sync::{mpsc, Mutex, RwLock};
-use tokio::time::{timeout, interval};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use log::{info, warn, error, debug, trace};
-use anyhow::{Result, anyhow, Context};
 use dashmap::DashMap;
+use log::{debug, error, info, trace, warn};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::time::{interval, timeout};
 
 use crate::network::node::PacketTransport;
 
@@ -23,19 +23,25 @@ use crate::network::node::PacketTransport;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TUNNEL_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5分钟无流量自动断开
-const GC_INTERVAL: Duration = Duration::from_secs(60);          // 每分钟执行一次 GC
+const GC_INTERVAL: Duration = Duration::from_secs(60); // 每分钟执行一次 GC
 const MAX_FRAME_SIZE: usize = 65535;
 
 // ============================================================================
 //  1. SOCKS5 协议工具 (带 TCP 调优)
 // ============================================================================
 
-async fn socks5_handshake(proxy: SocketAddr, target_host: &str, target_port: u16) -> Result<TcpStream> {
+async fn socks5_handshake(
+    proxy: SocketAddr,
+    target_host: &str,
+    target_port: u16,
+) -> Result<TcpStream> {
     let stream = TcpStream::connect(proxy).await?;
-    
+
     // [Feature: TCP Optimization]
     // 禁用 Nagle 算法，因为我们在隧道中传输的是实时包，不需要 TCP 帮我们合并小包
-    stream.set_nodelay(true).context("Failed to set TCP_NODELAY")?;
+    stream
+        .set_nodelay(true)
+        .context("Failed to set TCP_NODELAY")?;
     // 设置缓冲区大小，优化吞吐量
     let _ = stream.set_recv_buffer_size(64 * 1024);
     let _ = stream.set_send_buffer_size(64 * 1024);
@@ -71,12 +77,16 @@ async fn socks5_handshake(proxy: SocketAddr, target_host: &str, target_port: u16
 
     // Consume BND.ADDR
     match head[3] {
-        0x01 => { let _ = stream.read_exact(&mut [0u8; 4+2]).await; },
+        0x01 => {
+            let _ = stream.read_exact(&mut [0u8; 4 + 2]).await;
+        }
         0x03 => {
             let len = stream.read_u8().await?;
             let _ = stream.read_exact(&mut vec![0u8; len as usize + 2]).await;
-        },
-        0x04 => { let _ = stream.read_exact(&mut [0u8; 16+2]).await; },
+        }
+        0x04 => {
+            let _ = stream.read_exact(&mut [0u8; 16 + 2]).await;
+        }
         _ => return Err(anyhow!("Unknown address type in response")),
     }
 
@@ -100,13 +110,13 @@ struct TunnelState {
 pub struct TorDynamicTransport {
     /// 本地代理地址
     proxy_addr: SocketAddr,
-    
+
     /// 活跃隧道映射表: TargetAddr (Virtual IP) -> TunnelState
     tunnels: Arc<DashMap<SocketAddr, TunnelState>>,
-    
+
     /// 接收数据汇聚通道 (所有 Tunnel 的 Reader Task 都把数据发到这里)
     rx_queue: Arc<Mutex<mpsc::Receiver<(Vec<u8>, SocketAddr)>>>,
-    
+
     /// 内部发送端 (克隆给 Reader Task)
     tx_internal: mpsc::Sender<(Vec<u8>, SocketAddr)>,
 
@@ -145,7 +155,7 @@ impl TorDynamicTransport {
     fn run_garbage_collection(&self) {
         let now = current_timestamp();
         let timeout = TUNNEL_IDLE_TIMEOUT.as_secs();
-        
+
         // DashMap retain 是安全的并发清理方式
         // 移除那些 (now - last_active) > timeout 的隧道
         self.tunnels.retain(|addr, state| {
@@ -172,37 +182,53 @@ impl TorDynamicTransport {
     /// 建立新隧道 (内部方法)
     async fn connect_tunnel(&self, target_virtual: SocketAddr) -> Result<TunnelState> {
         // 1. 解析目标
-        let (host, port) = self.resolve_ip(&target_virtual)
-            .ok_or_else(|| anyhow!("Target IP {} is not a mapped virtual address", target_virtual))?;
+        let (host, port) = self.resolve_ip(&target_virtual).ok_or_else(|| {
+            anyhow!(
+                "Target IP {} is not a mapped virtual address",
+                target_virtual
+            )
+        })?;
 
-        debug!("TorTransport: Dialing tunnel to {}:{} via {}...", host, port, self.proxy_addr);
+        debug!(
+            "TorTransport: Dialing tunnel to {}:{} via {}...",
+            host, port, self.proxy_addr
+        );
 
         // 2. 执行 SOCKS5 握手 (带超时)
-        let stream = timeout(CONNECT_TIMEOUT, socks5_handshake(self.proxy_addr, &host, port)).await??;
-        
+        let stream = timeout(
+            CONNECT_TIMEOUT,
+            socks5_handshake(self.proxy_addr, &host, port),
+        )
+        .await??;
+
         let (mut reader, mut writer) = tokio::io::split(stream);
         let (tx_frame, mut rx_frame) = mpsc::channel::<Vec<u8>>(1024); // 单个隧道的发送队列
-        
+
         let last_active = Arc::new(AtomicU64::new(current_timestamp()));
 
         // 3. 启动 Writer Task (App -> Tunnel)
         let target_clone = target_virtual;
         let tunnels_map = self.tunnels.clone();
         let active_writer = last_active.clone();
-        
+
         tokio::spawn(async move {
             while let Some(data) = rx_frame.recv().await {
                 if data.len() > MAX_FRAME_SIZE {
                     warn!("TorTransport: Frame too large, dropping.");
                     continue;
                 }
-                
+
                 // Update Activity
                 active_writer.store(current_timestamp(), Ordering::Relaxed);
 
                 // Protocol: Length-Prefixed Framing inside TCP
                 let len = (data.len() as u16).to_be_bytes();
-                if let Err(e) = writer.write_all(&len).await.and_then(|_| writer.write_all(&data).await) {
+                if let Err(e) = async {
+                    writer.write_all(&len).await?;
+                    writer.write_all(&data).await
+                }
+                .await
+                {
                     error!("TorTransport: Write error to {}: {}", target_clone, e);
                     break;
                 }
@@ -215,18 +241,22 @@ impl TorDynamicTransport {
         // 4. 启动 Reader Task (Tunnel -> App)
         let tx_main = self.tx_internal.clone();
         let active_reader = last_active.clone();
-        
+
         tokio::spawn(async move {
             let mut len_buf = [0u8; 2];
             loop {
                 // Read Length
-                if reader.read_exact(&mut len_buf).await.is_err() { break; }
+                if reader.read_exact(&mut len_buf).await.is_err() {
+                    break;
+                }
                 let len = u16::from_be_bytes(len_buf) as usize;
-                
+
                 // Read Payload
                 let mut buf = vec![0u8; len];
-                if reader.read_exact(&mut buf).await.is_err() { break; }
-                
+                if reader.read_exact(&mut buf).await.is_err() {
+                    break;
+                }
+
                 // Update Activity
                 active_reader.store(current_timestamp(), Ordering::Relaxed);
 
@@ -251,10 +281,12 @@ impl PacketTransport for TorDynamicTransport {
         // 1. 尝试获取现有隧道
         // 使用 DashMap 的 get 或 entry api
         // 由于 create_tunnel 是 async 的，不能直接在 entry closure 里调用
-        
+
         let tx = if let Some(state) = self.tunnels.get(&target) {
             // 更新活跃时间
-            state.last_active.store(current_timestamp(), Ordering::Relaxed);
+            state
+                .last_active
+                .store(current_timestamp(), Ordering::Relaxed);
             state.tx.clone()
         } else {
             // 需要新建连接
@@ -265,7 +297,10 @@ impl PacketTransport for TorDynamicTransport {
                     tx
                 }
                 Err(e) => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e.to_string()));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        e.to_string(),
+                    ));
                 }
             }
         };
@@ -275,12 +310,18 @@ impl PacketTransport for TorDynamicTransport {
             Ok(_) => Ok(buf.len()),
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 // Backpressure: Tunnel is congested
-                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "Tunnel buffer full"))
-            },
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "Tunnel buffer full",
+                ))
+            }
             Err(_) => {
                 // Channel closed, clean up map and retry next time
                 self.tunnels.remove(&target);
-                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Tunnel closed"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "Tunnel closed",
+                ))
             }
         }
     }
@@ -292,7 +333,10 @@ impl PacketTransport for TorDynamicTransport {
             buf[..len].copy_from_slice(&data[..len]);
             Ok((len, src))
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Transport shutdown"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionAborted,
+                "Transport shutdown",
+            ))
         }
     }
 
@@ -310,7 +354,7 @@ impl PacketTransport for TorDynamicTransport {
 pub struct HybridTransport {
     udp: Arc<dyn PacketTransport>,
     tunnel: Arc<TorDynamicTransport>, // 需要具体类型以访问 map_domain
-    
+
     // 接收聚合
     rx: Arc<Mutex<mpsc::Receiver<(Vec<u8>, SocketAddr)>>>,
 }
@@ -372,7 +416,7 @@ impl PacketTransport for HybridTransport {
             SocketAddr::V4(addr) => {
                 let octets = addr.ip().octets();
                 octets[0] >= 240 // Class E Check
-            },
+            }
             _ => false,
         };
 
@@ -392,7 +436,10 @@ impl PacketTransport for HybridTransport {
             buf[..len].copy_from_slice(&data[..len]);
             Ok((len, addr))
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Hybrid transport closed"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "Hybrid transport closed",
+            ))
         }
     }
 
@@ -409,7 +456,7 @@ impl PacketTransport for HybridTransport {
 mod internal_dns {
     use parking_lot::RwLock;
     use std::collections::HashMap;
-    use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // 黄金分割素数 (for 32-bit hash)
@@ -444,7 +491,7 @@ mod internal_dns {
 
             // 2. Allocate new ID and Hash it
             let id_raw = self.counter.fetch_add(1, Ordering::Relaxed);
-            
+
             // Knuth Multiplicative Hash: 将顺序 ID 映射到离散的 u32 空间
             // 这种双射保证了无碰撞且分布均匀
             let hash = id_raw.wrapping_mul(KNUTH_GOLDEN_PRIME);
@@ -461,11 +508,17 @@ mod internal_dns {
 
             // 规避 255.x.x.x (广播风暴/保留)
             if b0 == 255 {
-                b0 = 254; 
+                b0 = 254;
             }
 
             // 规避 .0 和 .255 结尾 (网络/广播地址)
-            let final_b3 = if b3 == 0 { 1 } else if b3 == 255 { 254 } else { b3 };
+            let final_b3 = if b3 == 0 {
+                1
+            } else if b3 == 255 {
+                254
+            } else {
+                b3
+            };
 
             let ip = Ipv4Addr::new(b0, b1, b2, final_b3);
 
@@ -473,17 +526,21 @@ mod internal_dns {
             let parts: Vec<&str> = domain_port.split(':').collect();
             let port = if parts.len() > 1 {
                 parts.last().unwrap().parse().unwrap_or(0)
-            } else { 0 };
-            
+            } else {
+                0
+            };
+
             let host = if parts.len() > 1 {
-                parts[..parts.len()-1].join(":")
-            } else { domain_port.to_string() };
+                parts[..parts.len() - 1].join(":")
+            } else {
+                domain_port.to_string()
+            };
 
             let addr = SocketAddr::new(IpAddr::V4(ip), port);
 
             f_lock.insert(domain_port.to_string(), addr);
             self.backward.write().insert(addr, (host, port));
-            
+
             addr
         }
 

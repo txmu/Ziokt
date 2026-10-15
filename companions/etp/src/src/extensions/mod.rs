@@ -47,7 +47,7 @@ pub use adapter::{ProtocolStream, StreamAdapter};
 pub use bus::{EventBus, SystemEvent};
 
 // --- State (共享状态) ---
-pub use state::{SharedState, StateTransaction};
+pub use state::SharedState;
 
 // --- Config (动态配置) ---
 pub use config::{ConfigManager, ConfigWatcher, DynamicConfig};

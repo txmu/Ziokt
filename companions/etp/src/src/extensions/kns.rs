@@ -1,40 +1,41 @@
 // etp-core/src/extensions/kns.rs
 
-use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use parking_lot::RwLock;
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use blake3;
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, AeadInPlace};
+use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
+use dashmap::DashMap;
+use log::{debug, info, warn};
+use parking_lot::RwLock;
 use rand::{Rng, RngCore};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::{atomic::AtomicU64, Arc};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use log::{debug, warn, info};
 
 use crate::extensions::identity::{EtpIdentity, IdentityType};
 use crate::NodeID;
 
-use futures::future::{select_ok, join_all};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::{Semaphore, Notify};
+use futures::future::{join_all, select_ok};
 use std::cmp::Ordering as CmpOrdering;
-
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::{Notify, Semaphore};
 
 // 引入必要的加密库用于验签
-use ed25519_dalek::{Verifier as EdVerifier, VerifyingKey as EdVerifyingKey, Signature as EdSignature};
+use ed25519_dalek::{
+    Signature as EdSignature, Verifier as EdVerifier, VerifyingKey as EdVerifyingKey,
+};
 // 如果开启了量子加密，引入 PQC 验证
 #[cfg(feature = "quantum-encryption")]
 use pqcrypto_dilithium::dilithium5;
 #[cfg(feature = "quantum-encryption")]
 use pqcrypto_traits::sign::DetachedSignature;
 
-
 // --- 引入必要的合约调用依赖 ---
 #[cfg(feature = "smart-contracts")]
-use ethers::providers::{Provider, Http, Middleware};
+use ethers::providers::{Http, Middleware, Provider};
 #[cfg(feature = "smart-contracts")]
-use ethers::types::{TransactionRequest, Address, Bytes as EthBytes};
+use ethers::types::{Address, Bytes as EthBytes, TransactionRequest};
 #[cfg(feature = "smart-contracts")]
 use std::str::FromStr;
 
@@ -72,7 +73,8 @@ impl KnsPath {
     }
 
     pub fn from_str(path: &str) -> Result<Self> {
-        let segments: Vec<String> = path.split('/')
+        let segments: Vec<String> = path
+            .split('/')
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
@@ -82,9 +84,7 @@ impl KnsPath {
     /// 生成盲化索引 (Blind Index)
     /// Hmac-like construction: Hash(Seed || Segment || Separator ...)
     pub fn blind_index(&self, domain_secret: &[u8]) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_keyed(
-            &blake3::hash(domain_secret).into()
-        );
+        let mut hasher = blake3::Hasher::new_keyed(&blake3::hash(domain_secret).into());
         for seg in &self.segments {
             hasher.update(seg.as_bytes());
             hasher.update(b"\0"); // 防止边界攻击
@@ -107,19 +107,24 @@ pub struct KnsRecord {
 
 impl KnsRecord {
     pub fn is_expired(&self) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         // 如果 version 是未来时间（允许5分钟偏差），或者已过期
-        if self.version > now + 300 { return true; }
+        if self.version > now + 300 {
+            return true;
+        }
         now > self.version + self.ttl as u64
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum RecordKind {
-    Static,     // 静态数据
-    Pointer,    // 软链接 (CNAME), payload 解密后是另一个 KnsPath
-    Delegate,   // 权限委托 (Sub-domain), payload 是新的 PubKey
-    Contract,   // 智能合约调用指令
+    Static,   // 静态数据
+    Pointer,  // 软链接 (CNAME), payload 解密后是另一个 KnsPath
+    Delegate, // 权限委托 (Sub-domain), payload 是新的 PubKey
+    Contract, // 智能合约调用指令
 }
 
 // ============================================================================
@@ -138,7 +143,7 @@ pub struct AccessControl {
     /// 写入白名单: NodeID -> (IdentityType, PublicKeyBytes)
     /// 只有在此名单中的节点签名的记录才会被接受
     authorized_writers: HashMap<NodeID, (IdentityType, Vec<u8>)>,
-    
+
     /// 是否允许任何人读取 (如果不加密 Payload)
     /// 注意：即便 public_read 为 true，写操作仍需签名验证
     public_read: bool,
@@ -148,10 +153,10 @@ pub struct SecurityDomain {
     pub id: String,
     secrets: Arc<RwLock<DomainSecrets>>,
     pub cache: Arc<RwLock<HashMap<KnsPath, KnsRecord>>>,
-    
+
     // 当前节点的身份 (用于自己发布记录)
     identity: Arc<dyn EtpIdentity>,
-    
+
     // ACL 与 密钥库
     acl: RwLock<AccessControl>,
 }
@@ -167,8 +172,8 @@ impl SecurityDomain {
         // 默认将自己加入信任列表
         let mut writers = HashMap::new();
         writers.insert(
-            identity.node_id(), 
-            (identity.identity_type(), identity.public_key())
+            identity.node_id(),
+            (identity.identity_type(), identity.public_key()),
         );
 
         Self {
@@ -189,7 +194,10 @@ impl SecurityDomain {
     /// 授权其他节点写入权限 (添加信任)
     /// public_key: 对方的原始公钥字节流
     pub fn grant_write_access(&self, node_id: NodeID, id_type: IdentityType, public_key: Vec<u8>) {
-        self.acl.write().authorized_writers.insert(node_id, (id_type, public_key));
+        self.acl
+            .write()
+            .authorized_writers
+            .insert(node_id, (id_type, public_key));
     }
 
     /// 撤销写入权限
@@ -198,9 +206,15 @@ impl SecurityDomain {
     }
 
     /// 发布记录 (加密 + 签名)
-    pub fn publish(&self, path: &KnsPath, value: &[u8], kind: RecordKind, ttl: u32) -> Result<KnsRecord> {
+    pub fn publish(
+        &self,
+        path: &KnsPath,
+        value: &[u8],
+        kind: RecordKind,
+        ttl: u32,
+    ) -> Result<KnsRecord> {
         let secrets = self.secrets.read();
-        
+
         // 1. 确定性加密 (Deterministic Encryption)
         // 使用 BlindIndex 的前 12 字节作为 Nonce。
         // 这确保了对于相同的 path 和 secrets，产生的密文也是稳定的 (对于无状态缓存很重要)。
@@ -209,23 +223,26 @@ impl SecurityDomain {
         let cipher = ChaCha20Poly1305::new(&secrets.master_key.into());
         let blind_idx = path.blind_index(&secrets.blind_seed);
         let nonce = &blind_idx[0..12].into();
-        
-        let encrypted_payload = cipher.encrypt(nonce, value)
+
+        let encrypted_payload = cipher
+            .encrypt(nonce, value)
             .map_err(|_| anyhow!("Payload encryption failed"))?;
 
         // 2. 结构化签名 (Structured Signing)
         // 签名内容 = BlindIndex(32) + EncryptedPayload(N) + KindTag(1) + TTL(4) + Version(8)
         // 包含 Version 和 TTL 是为了防止降级攻击和重放过期数据
         let version = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        
+
         let mut sign_data = Vec::new();
         sign_data.extend_from_slice(&blind_idx);
         sign_data.extend_from_slice(&encrypted_payload);
         sign_data.extend_from_slice(&kind.tag().to_be_bytes());
         sign_data.extend_from_slice(&ttl.to_be_bytes());
         sign_data.extend_from_slice(&version.to_be_bytes());
-        
-        let signature = self.identity.sign(&sign_data)
+
+        let signature = self
+            .identity
+            .sign(&sign_data)
             .context("Identity signing failed")?;
 
         let record = KnsRecord {
@@ -255,10 +272,18 @@ impl SecurityDomain {
 
     /// 核心：解密与完整性验证 (The Core Security Logic)
     /// 包含：TTL检查、ACL鉴权、多态验签、解密
-    pub fn decrypt_and_verify(&self, path: &KnsPath, record: &KnsRecord) -> Result<Option<Vec<u8>>> {
+    pub fn decrypt_and_verify(
+        &self,
+        path: &KnsPath,
+        record: &KnsRecord,
+    ) -> Result<Option<Vec<u8>>> {
         // 1. 基础时效性检查 (TTL)
         if record.is_expired() {
-            log::debug!("KNS: Record expired. Ver={}, TTL={}", record.version, record.ttl);
+            log::debug!(
+                "KNS: Record expired. Ver={}, TTL={}",
+                record.version,
+                record.ttl
+            );
             return Ok(None);
         }
 
@@ -270,23 +295,28 @@ impl SecurityDomain {
             match acl.authorized_writers.get(&record.signer_id) {
                 Some((t, k)) => (*t, k.clone()),
                 None => {
-                    return Err(anyhow!("Permission Denied: Signer {:?} is not an authorized writer", 
-                        hex::encode(&record.signer_id[0..4])));
+                    return Err(anyhow!(
+                        "Permission Denied: Signer {:?} is not an authorized writer",
+                        hex::encode(&record.signer_id[0..4])
+                    ));
                 }
             }
         };
 
         // 校验记录声称的类型与 ACL 注册的类型是否一致
         if id_type != record.signer_type {
-            return Err(anyhow!("Identity Type Mismatch: ACL expects {:?}, Record claims {:?}", 
-                id_type, record.signer_type));
+            return Err(anyhow!(
+                "Identity Type Mismatch: ACL expects {:?}, Record claims {:?}",
+                id_type,
+                record.signer_type
+            ));
         }
 
         // 3. 重构签名原始数据 (Reconstruct Signed Data)
         // 必须与 publish 中的序列化顺序严格一致
         let secrets = self.secrets.read();
         let blind_idx = path.blind_index(&secrets.blind_seed);
-        
+
         let mut sign_data = Vec::new();
         sign_data.extend_from_slice(&blind_idx);
         sign_data.extend_from_slice(&record.payload);
@@ -297,14 +327,24 @@ impl SecurityDomain {
         // 4. 多态签名验证 (Polymorphic Verification)
         let sig_valid = match record.signer_type {
             // Ed25519 族 (Anchor, Avatar, Citizen, Proxy, Hive...)
-            IdentityType::Anchor | IdentityType::Avatar | IdentityType::Citizen | 
-            IdentityType::Proxy | IdentityType::Hive | IdentityType::Token => {
-                if let Ok(verifying_key) = EdVerifyingKey::from_bytes(pub_key.as_slice().try_into().unwrap_or(&[0;32])) {
+            IdentityType::Anchor
+            | IdentityType::Avatar
+            | IdentityType::Citizen
+            | IdentityType::Proxy
+            | IdentityType::Hive
+            | IdentityType::Token => {
+                if let Ok(verifying_key) =
+                    EdVerifyingKey::from_bytes(pub_key.as_slice().try_into().unwrap_or(&[0; 32]))
+                {
                     if let Ok(signature) = EdSignature::from_slice(&record.signature) {
                         verifying_key.verify(&sign_data, &signature).is_ok()
-                    } else { false }
-                } else { false }
-            },
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
 
             // HMAC 族 (Whisper)
             IdentityType::Whisper => {
@@ -316,12 +356,14 @@ impl SecurityDomain {
                 use hmac::{Hmac, Mac};
                 use sha2::Sha256;
                 type HmacSha256 = Hmac<Sha256>;
-                
+
                 if let Ok(mut mac) = HmacSha256::new_from_slice(&pub_key) {
                     mac.update(&sign_data);
                     mac.verify_slice(&record.signature).is_ok()
-                } else { false }
-            },
+                } else {
+                    false
+                }
+            }
 
             // Post-Quantum 族 (Fortress)
             IdentityType::Fortress => {
@@ -332,27 +374,38 @@ impl SecurityDomain {
                         let len_bytes: [u8; 4] = pub_key[0..4].try_into().unwrap();
                         let sign_len = u32::from_be_bytes(len_bytes) as usize;
                         if pub_key.len() >= 4 + sign_len {
-                            let dilithium_pk_bytes = &pub_key[4..4+sign_len];
+                            let dilithium_pk_bytes = &pub_key[4..4 + sign_len];
                             if let Ok(pk) = dilithium5::PublicKey::from_bytes(dilithium_pk_bytes) {
-                                if let Ok(sig) = dilithium5::DetachedSignature::from_bytes(&record.signature) {
-                                    dilithium5::verify_detached_signature(&sig, &sign_data, &pk).is_ok()
-                                } else { false }
-                            } else { false }
-                        } else { false }
-                    } else { false }
+                                if let Ok(sig) =
+                                    dilithium5::DetachedSignature::from_bytes(&record.signature)
+                                {
+                                    dilithium5::verify_detached_signature(&sig, &sign_data, &pk)
+                                        .is_ok()
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 }
                 #[cfg(not(feature = "quantum-encryption"))]
                 {
                     log::error!("KNS: Received Fortress signature but quantum-encryption feature is disabled.");
                     false
                 }
-            },
+            }
 
             // 不支持签名的类型
             IdentityType::Ghost | IdentityType::Chameleon => {
                 // Ghost 身份通常用于临时加密，不用于 KNS 权威记录签名
                 // 如果出现，视为非法
-                false 
+                false
             }
         };
 
@@ -365,11 +418,12 @@ impl SecurityDomain {
         // 注意：这意味着虽然写入权限可以委托给不同的人（不同的私钥签名），
         // 但所有写入者必须共享同一个 Master Key 才能加密出有效的 Payload。
         // 这符合 "Security Domain" 作为共享保密空间的定义。
-        
+
         let cipher = ChaCha20Poly1305::new(&secrets.master_key.into());
         let nonce = &blind_idx[0..12].into(); // 复用盲索引做 Nonce
-        
-        let plaintext = cipher.decrypt(nonce, record.payload.as_ref())
+
+        let plaintext = cipher
+            .decrypt(nonce, record.payload.as_ref())
             .map_err(|_| anyhow!("Payload decryption failed (MasterKey mismatch?)"))?;
 
         Ok(Some(plaintext))
@@ -377,7 +431,9 @@ impl SecurityDomain {
 }
 
 // 辅助 trait 用于序列化枚举 tag
-trait Tagged { fn tag(&self) -> u8; }
+trait Tagged {
+    fn tag(&self) -> u8;
+}
 impl Tagged for RecordKind {
     fn tag(&self) -> u8 {
         match self {
@@ -441,16 +497,16 @@ impl HealthState {
 pub struct KnsKernel {
     domains: RwLock<HashMap<String, Arc<SecurityDomain>>>,
     resolvers: RwLock<Vec<Arc<dyn ExternalResolver>>>,
-    
+
     // 健康监控 & 熔断器
     health_monitor: DashMap<String, Arc<HealthState>>,
 
     // 全局并发控制 (防止 FD 耗尽)
     network_semaphore: Arc<Semaphore>,
-    
+
     // 防重放缓存: Signature -> InsertionTime
     replay_cache: Arc<DashMap<Vec<u8>, SystemTime>>,
-    
+
     // 后台任务控制 (用于优雅停机)
     shutdown_notify: Arc<Notify>,
 }
@@ -520,8 +576,8 @@ impl KnsKernel {
 
     pub fn register_resolver(&self, resolver: Arc<dyn ExternalResolver>) {
         self.health_monitor.insert(
-            resolver.provider_id().to_string(), 
-            Arc::new(HealthState::new())
+            resolver.provider_id().to_string(),
+            Arc::new(HealthState::new()),
         );
         self.resolvers.write().push(resolver);
     }
@@ -532,7 +588,7 @@ impl KnsKernel {
         &self,
         domain_id: &str,
         paths: Vec<KnsPath>,
-        priority: ResolutionPriority
+        priority: ResolutionPriority,
     ) -> Vec<Result<Vec<u8>>> {
         let mut futures = Vec::new();
         for path in paths {
@@ -542,7 +598,8 @@ impl KnsKernel {
     }
 
     pub fn invalidate_path(&self, domain_id: &str, path: &KnsPath) -> Result<()> {
-        let domain = self.get_domain(domain_id)
+        let domain = self
+            .get_domain(domain_id)
             .ok_or_else(|| anyhow!("Domain not found"))?;
         domain.cache.write().remove(path);
         Ok(())
@@ -551,10 +608,10 @@ impl KnsKernel {
     // --- 核心解析逻辑 ---
 
     pub async fn resolve(
-        &self, 
-        domain_id: &str, 
-        path: &KnsPath, 
-        priority: ResolutionPriority
+        &self,
+        domain_id: &str,
+        path: &KnsPath,
+        priority: ResolutionPriority,
     ) -> Result<Vec<u8>> {
         self.resolve_recursive(domain_id, path, priority, 0).await
     }
@@ -565,13 +622,14 @@ impl KnsKernel {
         domain_id: &str,
         path: &KnsPath,
         priority: ResolutionPriority,
-        depth: usize
+        depth: usize,
     ) -> Result<Vec<u8>> {
         if depth > MAX_RECURSION {
             return Err(anyhow!("KNS Recursion limit exceeded"));
         }
 
-        let domain = self.get_domain(domain_id)
+        let domain = self
+            .get_domain(domain_id)
             .ok_or_else(|| anyhow!("Domain '{}' not found", domain_id))?;
 
         // 1. 获取 Record (Local Logic)
@@ -584,7 +642,10 @@ impl KnsKernel {
                 if !rec.is_expired() {
                     record_opt = Some(rec.clone());
                     // Proactive Refresh Check: 剩余寿命 < 20%
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
                     let expiry = rec.version + rec.ttl as u64;
                     if expiry > now && (expiry - now) < (rec.ttl as u64 / 5) {
                         needs_refresh = true;
@@ -595,7 +656,7 @@ impl KnsKernel {
 
         // 如果需要刷新且允许联网，强制进入网络流程（为了数据一致性，这里选择阻塞刷新）
         if needs_refresh && !matches!(priority, ResolutionPriority::LocalOnly) {
-             record_opt = None; 
+            record_opt = None;
         }
 
         // 2. 网络解析 (Network Logic)
@@ -618,7 +679,7 @@ impl KnsKernel {
                 Ok(rec) => {
                     domain.cache.write().insert(path.clone(), rec.clone());
                     record_opt = Some(rec);
-                },
+                }
                 Err(e) => {
                     // 如果本地也没有，那就是彻底失败
                     if record_opt.is_none() {
@@ -639,27 +700,33 @@ impl KnsKernel {
             if self.replay_cache.contains_key(&record.signature) {
                 return Err(anyhow!("Security Alert: Signature Replay Detected"));
             }
-            self.replay_cache.insert(record.signature.clone(), SystemTime::now());
+            self.replay_cache
+                .insert(record.signature.clone(), SystemTime::now());
         }
 
         // 4. 解密与验证 (Decryption & Verification)
-        let plaintext = domain.decrypt_and_verify(path, &record)?
+        let plaintext = domain
+            .decrypt_and_verify(path, &record)?
             .ok_or_else(|| anyhow!("Record verification/decryption failed"))?;
 
         // 5. 业务分发 (Dispatch)
         match record.kind {
             RecordKind::Static => Ok(plaintext),
-            
+
             RecordKind::Pointer => {
                 let target_str = String::from_utf8(plaintext).context("Invalid Pointer")?;
                 let target_path = KnsPath::from_str(&target_str)?;
-                log::debug!("KNS: Dereferencing {} -> {}", path.segments.join("/"), target_str);
-                
+                log::debug!(
+                    "KNS: Dereferencing {} -> {}",
+                    path.segments.join("/"),
+                    target_str
+                );
+
                 // [新特性 2] Hot-Path Prefetching (预取)
                 // 如果我们解析了一个 Pointer，很有可能用户接下来会解析 target_path 的子路径
                 // 虽然我们无法预知子路径，但我们可以预先 "Warm Up" target_path 本身
                 // 在异步任务中执行，不阻塞当前返回
-                /* 
+                /*
                    注意：由于这是递归调用，resolve_recursive 会处理 target_path。
                    Prefetching 的意义在于，如果 Pointer 指向的是一个目录索引，
                    我们可以在这里并行去获取该目录下的常用元数据。
@@ -667,19 +734,21 @@ impl KnsKernel {
                    为了体现 Prefetching，我们假设 Pointer 指向的是跨域的引用，
                    我们可以预先加载目标域的 Public Keys。
                 */
-                
-                self.resolve_recursive(domain_id, &target_path, priority, depth + 1).await
-            },
-            
+
+                self.resolve_recursive(domain_id, &target_path, priority, depth + 1)
+                    .await
+            }
+
             RecordKind::Delegate => {
                 let target_domain_id = String::from_utf8(plaintext).context("Invalid Delegate")?;
                 log::debug!("KNS: Delegating to domain {}", target_domain_id);
-                self.resolve_recursive(&target_domain_id, path, priority, depth + 1).await
-            },
-            
+                self.resolve_recursive(&target_domain_id, path, priority, depth + 1)
+                    .await
+            }
+
             RecordKind::Contract => {
-                let action: ContractAction = serde_json::from_slice(&plaintext)
-                    .context("Invalid ContractAction")?;
+                let action: ContractAction =
+                    serde_json::from_slice(&plaintext).context("Invalid ContractAction")?;
                 self.execute_contract_call(action).await
             }
         }
@@ -691,7 +760,9 @@ impl KnsKernel {
     /// 同时向所有健康的 Resolver 发起请求，取最快返回的非空结果
     async fn fetch_race(&self, blind_idx: &[u8; 32]) -> Result<KnsRecord> {
         let resolvers = self.filter_healthy_resolvers();
-        if resolvers.is_empty() { return Err(anyhow!("No healthy resolvers available")); }
+        if resolvers.is_empty() {
+            return Err(anyhow!("No healthy resolvers available"));
+        }
 
         let mut futures = Vec::new();
         for r in resolvers {
@@ -703,9 +774,9 @@ impl KnsKernel {
             futures.push(Box::pin(async move {
                 let _permit = sem.acquire().await?;
                 let start = std::time::Instant::now();
-                
+
                 let res = r.resolve_blind(&idx).await;
-                
+
                 let duration = start.elapsed().as_millis() as u64;
                 if let Some(h) = health_map.get(&rid) {
                     h.update_metric(res.is_ok(), duration);
@@ -730,8 +801,10 @@ impl KnsKernel {
     async fn fetch_quorum(&self, blind_idx: &[u8; 32]) -> Result<KnsRecord> {
         let resolvers = self.filter_healthy_resolvers();
         let total = resolvers.len();
-        if total == 0 { return Err(anyhow!("No resolvers")); }
-        
+        if total == 0 {
+            return Err(anyhow!("No resolvers"));
+        }
+
         let threshold = (total / 2) + 1; // 多数派
 
         let mut futures = Vec::new();
@@ -746,7 +819,7 @@ impl KnsKernel {
         }
 
         let results = join_all(futures).await;
-        
+
         // 统计结果 (Hash(Record) -> Count)
         // 我们只比较 payload 和 signature，忽略 TTL 差异
         let mut counts: HashMap<Vec<u8>, usize> = HashMap::new();
@@ -758,7 +831,7 @@ impl KnsKernel {
                 let mut finger_print = Vec::new();
                 finger_print.extend_from_slice(&rec.payload);
                 finger_print.extend_from_slice(&rec.signature);
-                
+
                 *counts.entry(finger_print.clone()).or_default() += 1;
                 records.entry(finger_print).or_insert(rec);
             }
@@ -771,7 +844,11 @@ impl KnsKernel {
             }
         }
 
-        Err(anyhow!("Consensus failed: No record reached quorum {}/{}", threshold, total))
+        Err(anyhow!(
+            "Consensus failed: No record reached quorum {}/{}",
+            threshold,
+            total
+        ))
     }
 
     /// 辅助：筛选健康的解析器
@@ -813,26 +890,27 @@ impl KnsKernel {
                     let provider = Provider::<Http>::try_from(action.endpoint.as_str())?;
                     let address = Address::from_str(&action.target)?;
                     let data_bytes = hex::decode(action.data.trim_start_matches("0x"))?;
-                    
-                    let tx = TransactionRequest::new().to(address).data(EthBytes::from(data_bytes));
+
+                    let tx = TransactionRequest::new()
+                        .to(address)
+                        .data(EthBytes::from(data_bytes));
                     // 增加超时控制
-                    let result = tokio::time::timeout(
-                        Duration::from_secs(10), 
-                        provider.call(&tx, None)
-                    ).await??;
-                    
+                    let result =
+                        tokio::time::timeout(Duration::from_secs(10), provider.call(&tx, None))
+                            .await??;
+
                     Ok(result.to_vec())
-                },
+                }
                 "json_rpc" | "wasm" => {
                     let client = reqwest::Client::builder()
                         .timeout(Duration::from_secs(10))
                         .build()?;
-                        
+
                     let params: serde_json::Value = serde_json::from_str(&action.data)?;
                     let rpc_body = serde_json::json!({
                         "jsonrpc": "2.0", "method": action.target, "params": params, "id": 1
                     });
-                    
+
                     let resp = client.post(&action.endpoint).json(&rpc_body).send().await?;
                     if !resp.status().is_success() {
                         return Err(anyhow!("RPC Error: {}", resp.status()));
@@ -843,8 +921,8 @@ impl KnsKernel {
                     } else {
                         Err(anyhow!("RPC response missing 'result'"))
                     }
-                },
-                _ => Err(anyhow!("Unsupported scheme: {}", action.scheme))
+                }
+                _ => Err(anyhow!("Unsupported scheme: {}", action.scheme)),
             }
         }
     }

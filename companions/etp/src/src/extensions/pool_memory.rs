@@ -1,17 +1,17 @@
 // etp-core/src/extensions/pool_memory.rs
 
-use std::sync::Arc;
+use anyhow::{anyhow, Context, Result};
+use chacha20poly1305::aead::{Aead, Key, Nonce};
+use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use parking_lot::{Mutex, RwLock};
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use parking_lot::{Mutex, RwLock};
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow, Context};
-use rand::RngCore;
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, AeadInPlace};
-use chacha20poly1305::aead::{Aead, Key, Nonce};
-use flate2::write::ZlibEncoder;
-use flate2::read::ZlibDecoder;
-use flate2::Compression;
+use std::sync::Arc;
 
 // 引入 ETP 核心组件以实现紧密集成
 use crate::NodeID;
@@ -76,18 +76,19 @@ pub struct Segment {
     pub start_addr: usize,
     pub length: usize,
     pub memory_ref: Arc<VirtualMemory>, // 引用所属的虚拟内存
-    pub owner: Option<String>, // Owner ID (e.g. NodeID hex)
+    pub owner: Option<String>,          // Owner ID (e.g. NodeID hex)
     pub permissions: HashMap<String, Permissions>, // User -> Perms
     pub priority: u8,
 }
 
 /// 虚拟内存控制器
+#[derive(Debug)]
 pub struct VirtualMemory {
     // 物理存储：页索引 -> 页数据
     // 这里简化模拟，直接存 Vec
     pub pages: RwLock<Vec<Option<Page>>>,
     pub page_size: usize,
-    pub key: Key, // 加密密钥
+    pub key: chacha20poly1305::Key, // 加密密钥
 }
 
 impl VirtualMemory {
@@ -100,7 +101,7 @@ impl VirtualMemory {
         Self {
             pages: RwLock::new((0..num_pages).map(|_| None).collect()),
             page_size,
-            key: *Key::from_slice(&key_bytes),
+            key: *chacha20poly1305::Key::from_slice(&key_bytes),
         }
     }
 
@@ -108,10 +109,12 @@ impl VirtualMemory {
     pub fn read(&self, addr: usize, len: usize) -> Result<Vec<u8>> {
         let page_idx = addr / self.page_size;
         let offset = addr % self.page_size;
-        
+
         // 简单实现：跨页读取暂不支持或需循环
         if offset + len > self.page_size {
-            return Err(anyhow!("Cross-page read not implemented in this simulation"));
+            return Err(anyhow!(
+                "Cross-page read not implemented in this simulation"
+            ));
         }
 
         // 缺页处理 (Lazy Allocation)
@@ -121,7 +124,7 @@ impl VirtualMemory {
                 return Err(anyhow!("Segmentation fault: Address out of bounds"));
             }
             if let Some(page) = &read_lock[page_idx] {
-                return Ok(page.data[offset..offset+len].to_vec());
+                return Ok(page.data[offset..offset + len].to_vec());
             }
         } // Drop read lock
 
@@ -130,16 +133,16 @@ impl VirtualMemory {
         if write_lock[page_idx].is_none() {
             write_lock[page_idx] = Some(Page::new(page_idx, self.page_size));
         }
-        
+
         let page = write_lock[page_idx].as_ref().unwrap();
-        Ok(page.data[offset..offset+len].to_vec())
+        Ok(page.data[offset..offset + len].to_vec())
     }
 
     /// 写操作
     pub fn write(&self, addr: usize, data: &[u8]) -> Result<()> {
         let page_idx = addr / self.page_size;
         let offset = addr % self.page_size;
-        
+
         if offset + data.len() > self.page_size {
             return Err(anyhow!("Cross-page write not implemented"));
         }
@@ -154,7 +157,7 @@ impl VirtualMemory {
         }
 
         let page = write_lock[page_idx].as_mut().unwrap();
-        page.data[offset..offset+data.len()].copy_from_slice(data);
+        page.data[offset..offset + data.len()].copy_from_slice(data);
         Ok(())
     }
 
@@ -176,13 +179,17 @@ impl VirtualMemory {
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
         let cipher = ChaCha20Poly1305::new(&self.key);
         let nonce = Nonce::from_slice(&[0u8; 12]); // Fixed nonce for simulation only!
-        cipher.encrypt(nonce, data).map_err(|e| anyhow!("Encryption error: {}", e))
+        cipher
+            .encrypt(nonce, data)
+            .map_err(|e| anyhow!("Encryption error: {}", e))
     }
 
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
         let cipher = ChaCha20Poly1305::new(&self.key);
         let nonce = Nonce::from_slice(&[0u8; 12]);
-        cipher.decrypt(nonce, data).map_err(|e| anyhow!("Decryption error: {}", e))
+        cipher
+            .decrypt(nonce, data)
+            .map_err(|e| anyhow!("Decryption error: {}", e))
     }
 }
 
@@ -205,9 +212,14 @@ impl SharedMemoryPool {
         }
     }
 
-    pub fn allocate(&self, size: usize, owner: String, priority: u8) -> Result<Arc<RwLock<Segment>>> {
+    pub fn allocate(
+        &self,
+        size: usize,
+        owner: String,
+        priority: u8,
+    ) -> Result<Arc<RwLock<Segment>>> {
         let mut used = self.used_bytes.lock();
-        
+
         // 1. 尝试复用或合并 (简化：直接检查容量)
         if *used + size > self.capacity_bytes {
             // 简单的驱逐策略：找到优先级较低的
@@ -227,7 +239,10 @@ impl SharedMemoryPool {
         }));
 
         // 赋予 Owner 全部权限
-        segment.write().permissions.insert(owner, Permissions::from_str("rwxseup")?);
+        segment
+            .write()
+            .permissions
+            .insert(owner, Permissions::from_str("rwxseup")?);
 
         self.segments.write().push(segment.clone());
         *used += size;

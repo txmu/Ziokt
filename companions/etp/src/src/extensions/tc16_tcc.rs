@@ -2,19 +2,19 @@
 
 #![cfg(feature = "tc16-tcc")]
 
-use std::sync::Arc;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
-use std::time::{Instant, Duration};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use anyhow::{anyhow, Context, Result};
+use byteorder::{ByteOrder, LittleEndian};
+use log::{debug, error, info, trace, warn};
 use parking_lot::{Mutex, RwLock};
-use log::{info, debug, warn, error, trace};
-use anyhow::{Result, anyhow, Context};
-use byteorder::{LittleEndian, ByteOrder};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::plugin::{Flavor, FlavorContext, CapabilityProvider};
+use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
 use crate::NodeID;
 
 // ============================================================================
@@ -25,7 +25,7 @@ pub const MEM_SIZE: usize = 65536;
 pub const REG_COUNT: usize = 16;
 
 // 寄存器别名规范 (ABI)
-pub const REG_RA: usize = 0;  // Return Value / Accumulator
+pub const REG_RA: usize = 0; // Return Value / Accumulator
 pub const REG_SP: usize = 15; // Stack Pointer
 pub const REG_FP: usize = 14; // Frame Pointer
 pub const REG_LR: usize = 13; // Link Register (Return Address)
@@ -33,11 +33,11 @@ pub const REG_IM: usize = 12; // Interrupt Mask / Temp
 
 // 内存映射 IO (MMIO)
 pub const MMIO_BASE: u16 = 0xFF00;
-pub const MMIO_STDOUT: u16    = 0xFF00; // Write Only
-pub const MMIO_STDIN: u16     = 0xFF01; // Read Only
-pub const MMIO_INT_ACK: u16   = 0xFF02; // Interrupt Acknowledge
-pub const MMIO_BUDGET_LEFT: u16  = 0xFF03; // Remaining execution budget
-pub const MMIO_BLOCK_TS: u16  = 0xFF04; // Block Timestamp
+pub const MMIO_STDOUT: u16 = 0xFF00; // Write Only
+pub const MMIO_STDIN: u16 = 0xFF01; // Read Only
+pub const MMIO_INT_ACK: u16 = 0xFF02; // Interrupt Acknowledge
+pub const MMIO_BUDGET_LEFT: u16 = 0xFF03; // Remaining execution budget
+pub const MMIO_BLOCK_TS: u16 = 0xFF04; // Block Timestamp
 
 // 标志位
 pub const FLAG_Z: u8 = 0b0000_0001; // Zero
@@ -50,7 +50,9 @@ pub const FLAG_E: u8 = 0b0100_0000; // Execution Error (Fault)
 // ETP 协议头
 const TC16_PROTO_VER: u8 = 0x02;
 const CMD_DEPLOY: u8 = 0x01; // 部署合约
-const CMD_CALL: u8   = 0x02; // 调用合约
+const CMD_CALL: u8 = 0x02; // 调用合约
+const CMD_EXEC_CODE: u8 = 0x04;
+const CMD_COMPILE_RUN: u8 = 0x05;
 const CMD_SIGNAL: u8 = 0x03; // 发送中断信号
 
 // ============================================================================
@@ -91,37 +93,112 @@ pub struct Tc16Cpu {
     pub regs: [u16; REG_COUNT], // 升级为 16位 寄存器以支持 64KB 地址空间
     pub pc: u16,
     pub flags: u8,
-    
+
     // 内存
     pub memory: Vec<u8>,
-    
+
     // 中断控制器
     // interrupt_pending 每一位代表一个中断线 (0-7)
-    pub interrupt_pending: Arc<AtomicU8>, 
+    pub interrupt_pending: Arc<AtomicU8>,
     pub interrupt_vectors: [u16; 8],
-    
+
     // 运行状态
     pub running: bool,
     pub instruction_budget: u64,
     pub instructions_used: u64,
-    
+
     // IO & Storage
     pub output_buffer: Vec<u8>,
     pub storage: Arc<dyn ContractStorage>,
-    
+
+    pub decoding_table: [u8; 256],
     pub bus: Option<Arc<dyn SystemBus>>, // 注入系统总线
 }
 
 /// 虚拟机指令周期执行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmStatus {
-    Running,            // 正常运行
-    Halted,             // 遇到 HALT 指令或主动停机
+    Running,             // 正常运行
+    Halted,              // 遇到 HALT 指令或主动停机
     WaitingForInterrupt, // 挂起并等待外部信号（Yield 模式）
     ExecutionFault,      // 运行时致命错误（如非法指令或越界）
 }
 
 impl Tc16Cpu {
+    pub fn new(storage: Arc<dyn ContractStorage>) -> Self {
+        let mut regs = [0; REG_COUNT];
+        regs[REG_SP] = 0xFEFE;
+        Self {
+            regs,
+            pc: 0,
+            flags: 0,
+            memory: vec![0; MEM_SIZE],
+            interrupt_pending: Arc::new(AtomicU8::new(0)),
+            interrupt_vectors: [0; 8],
+            running: false,
+            instruction_budget: 0,
+            instructions_used: 0,
+            output_buffer: Vec::new(),
+            storage,
+            bus: None,
+            decoding_table: std::array::from_fn(|i| i as u8),
+        }
+    }
+    pub fn load_code(&mut self, code: &[u8], entry: u16) -> Result<()> {
+        anyhow::ensure!(
+            code.len() <= 32768 && (entry as usize) < code.len(),
+            "code size or entry point"
+        );
+        self.memory[..code.len()].copy_from_slice(code);
+        self.pc = entry;
+        Ok(())
+    }
+    pub fn get_output(&self) -> String {
+        String::from_utf8_lossy(&self.output_buffer).into_owned()
+    }
+    fn push_u16(&mut self, value: u16) -> Result<()> {
+        let sp = self.regs[REG_SP];
+        anyhow::ensure!(sp >= 2 && sp < 0xFF00, "stack overflow");
+        self.write_u16_safe(sp, value)?;
+        self.regs[REG_SP] = sp - 2;
+        Ok(())
+    }
+    fn pop_u16(&mut self) -> Result<u16> {
+        let sp = self.regs[REG_SP];
+        anyhow::ensure!(sp < 0xFEFE, "stack underflow");
+        self.regs[REG_SP] = sp + 2;
+        self.read_u16_safe(sp + 2)
+    }
+    fn read_blob_safe(&self, addr: u16) -> Result<Vec<u8>> {
+        let len = self.read_u16_safe(addr)? as usize;
+        let start = (addr as usize)
+            .checked_add(2)
+            .filter(|s| *s < MEM_SIZE)
+            .ok_or_else(|| anyhow!("blob address"))?;
+        self.read_bytes_safe(start as u16, len)
+    }
+    fn execute_alu_op(&mut self, opcode: u8) -> Result<()> {
+        match opcode {
+            0x40 => self.alu_op(u16::overflowing_add),
+            0x41 => self.alu_op(u16::overflowing_sub),
+            0x42 => self.alu_logic(|a, b| a & b),
+            0x43 => self.alu_logic(|a, b| a | b),
+            0x44 => self.alu_logic(|a, b| a ^ b),
+            0x45 => {
+                let b = self.fetch_u8();
+                let (r, carry) =
+                    self.regs[(b >> 4) as usize].overflowing_sub(self.regs[(b & 15) as usize]);
+                self.update_flags(r);
+                if carry {
+                    self.flags |= FLAG_C;
+                } else {
+                    self.flags &= !FLAG_C;
+                }
+            }
+            _ => anyhow::bail!("ALU opcode"),
+        };
+        Ok(())
+    }
 
     /// 生产级内存读取：安全地从内存获取一个 16 位小端序整数
     /// 边界检查失败时返回 ExecutionFault 错误，防止 Rust 进程 panic
@@ -169,7 +246,8 @@ impl Tc16Cpu {
         } else {
             Err(anyhow::anyhow!(
                 "VM Segmentation Fault: Read bytes out of bounds at 0x{:04X}, len {}",
-                addr, len
+                addr,
+                len
             ))
         }
     }
@@ -183,10 +261,12 @@ impl Tc16Cpu {
         for i in start..MEM_SIZE {
             let byte = self.memory[i];
             if byte == 0 {
-                return String::from_utf8(result).map_err(|e| anyhow::anyhow!("Invalid UTF-8 string in VM memory: {}", e));
+                return String::from_utf8(result)
+                    .map_err(|e| anyhow::anyhow!("Invalid UTF-8 string in VM memory: {}", e));
             }
             result.push(byte);
-            if result.len() > 255 { // 强制上限，防止恶意构造的超长字符串消耗内存
+            if result.len() > 255 {
+                // 强制上限，防止恶意构造的超长字符串消耗内存
                 return Err(anyhow::anyhow!("VM String exceeded max length of 255"));
             }
         }
@@ -205,7 +285,8 @@ impl Tc16Cpu {
         } else {
             Err(anyhow::anyhow!(
                 "VM Segmentation Fault: Write blob out of bounds at 0x{:04X}, len {}",
-                addr, data.len()
+                addr,
+                data.len()
             ))
         }
     }
@@ -231,7 +312,9 @@ impl Tc16Cpu {
             // 1. 严格 Gas 校验
             if self.instructions_used >= self.instruction_budget {
                 self.flags |= FLAG_E;
-                return Err(anyhow!("Gas limit exceeded (Execution resource exhaustion)"));
+                return Err(anyhow!(
+                    "Instruction budget exceeded (Execution resource exhaustion)"
+                ));
             }
 
             // 2. 硬件中断处理（原子性检查）
@@ -282,7 +365,9 @@ impl Tc16Cpu {
         match opcode {
             // --- 0x0X: 系统控制 ---
             0x00 => return Ok(VmStatus::Halted), // HALT
-            0x01 => { self.instructions_used += 1; },      // NOP
+            0x01 => {
+                self.instructions_used += 1;
+            } // NOP
 
             // --- 0x1R / 0x2R: 栈帧优化访问 (C 语言局部变量热路径) ---
             op if op >= 0x10 && op <= 0x2F => {
@@ -290,7 +375,7 @@ impl Tc16Cpu {
                 let reg_idx = (op & 0x0F) as usize;
                 let offset = self.fetch_i8() as i16;
                 let addr = self.regs[REG_FP].wrapping_add_signed(offset);
-                
+
                 if is_store {
                     self.write_u16_safe(addr, self.regs[reg_idx])?;
                     self.instructions_used += 3; // 内存写入权重更高
@@ -301,79 +386,93 @@ impl Tc16Cpu {
             }
 
             // --- 0x3X: 通用数据传输 ---
-            0x30 => { // MOVI Rd, Imm16
+            0x30 => {
+                // MOVI Rd, Imm16
                 let rd = self.fetch_reg_idx()?;
                 self.regs[rd] = self.fetch_u16();
                 self.instructions_used += 1;
-            },
-            0x31 => { // MOV Rd, Rs
+            }
+            0x31 => {
+                // MOV Rd, Rs
                 let byte = self.fetch_u8();
                 let rd = (byte >> 4) as usize;
                 let rs = (byte & 0x0F) as usize;
                 self.regs[rd] = self.regs[rs];
                 self.instructions_used += 1;
-            },
-            0x32 => { // LOAD Rd, [Rs]
+            }
+            0x32 => {
+                // LOAD Rd, [Rs]
                 let byte = self.fetch_u8();
                 let (rd, rs) = ((byte >> 4) as usize, (byte & 0x0F) as usize);
                 self.regs[rd] = self.read_u16_safe(self.regs[rs])?;
                 self.instructions_used += 2;
-            },
-            0x33 => { // STORE [Rd], Rs (支持自修改代码 SMC)
+            }
+            0x33 => {
+                // STORE [Rd], Rs (支持自修改代码 SMC)
                 let byte = self.fetch_u8();
                 let (rd, rs) = ((byte >> 4) as usize, (byte & 0x0F) as usize);
                 self.write_u16_safe(self.regs[rd], self.regs[rs])?;
                 self.instructions_used += 3;
-            },
+            }
 
             // --- 0x4X: ALU 算术逻辑单元 ---
             0x40..=0x45 => {
                 self.execute_alu_op(opcode)?;
                 self.instructions_used += 1;
-            },
+            }
 
             // --- 0x5X: 栈操作 ---
-            0x50 => { // PUSH Rs
+            0x50 => {
+                // PUSH Rs
                 let rs = self.fetch_reg_idx()?;
                 self.push_u16(self.regs[rs])?;
                 self.instructions_used += 2;
-            },
-            0x51 => { // POP Rd
+            }
+            0x51 => {
+                // POP Rd
                 let rd = self.fetch_reg_idx()?;
                 self.regs[rd] = self.pop_u16()?;
                 self.instructions_used += 2;
-            },
+            }
 
             // --- 0x6X: 流程控制 ---
-            0x60 => { // JMP Imm16
+            0x60 => {
+                // JMP Imm16
                 self.pc = self.fetch_u16();
                 self.instructions_used += 1;
-            },
-            0x61 | 0x62 => { // JZ / JNZ
+            }
+            0x61 | 0x62 => {
+                // JZ / JNZ
                 let target = self.fetch_u16();
                 let zero = (self.flags & FLAG_Z) != 0;
                 if (opcode == 0x61 && zero) || (opcode == 0x62 && !zero) {
                     self.pc = target;
                 }
                 self.instructions_used += 1;
-            },
-            0x63 => { // CALL Imm16
+            }
+            0x63 => {
+                // CALL Imm16
                 let target = self.fetch_u16();
                 let return_addr = self.pc;
                 self.push_u16(return_addr)?;
                 self.pc = target;
                 self.instructions_used += 2;
-            },
-            0x64 => { // RET
+            }
+            0x64 => {
+                // RET
                 self.pc = self.pop_u16()?;
                 self.instructions_used += 2;
-            },
+            }
 
             // --- 0xFF: 扩展指令前缀 ---
             0xFF => return self.step_extended(),
 
             _ => {
-                error!("VM: Illegal instruction 0x{:02X} at PC:0x{:04X}", opcode, self.pc.wrapping_sub(1));
+                error!(
+                    "VM: Illegal instruction 0x{:02X} at PC:0x{:04X}",
+                    opcode,
+                    self.pc.wrapping_sub(1)
+                );
                 return Ok(VmStatus::ExecutionFault);
             }
         }
@@ -390,8 +489,8 @@ impl Tc16Cpu {
                 let (rd, rs) = ((byte >> 4) as usize, (byte & 0x0F) as usize);
                 self.regs.swap(rd, rs);
                 self.instructions_used += 1;
-            },
-            
+            }
+
             // 0x02: CONTRACT_LOAD R_keyptr, R_dst
             0x02 => {
                 let byte = self.fetch_u8();
@@ -401,7 +500,7 @@ impl Tc16Cpu {
                     self.write_blob_safe(self.regs[rd], &val)?;
                 }
                 self.instructions_used += 50; // 存储操作极重
-            },
+            }
 
             // 0x03: CONTRACT_STORE R_keyptr, R_valptr
             0x03 => {
@@ -411,7 +510,7 @@ impl Tc16Cpu {
                 let val = self.read_blob_safe(self.regs[rv])?;
                 self.storage.store(&key, &val);
                 self.instructions_used += 100;
-            },
+            }
 
             // 0x04: RETI (中断返回)
             0x04 => {
@@ -419,7 +518,7 @@ impl Tc16Cpu {
                 self.pc = self.pop_u16()?;
                 self.flags |= FLAG_I; // 重新开启中断
                 self.instructions_used += 2;
-            },
+            }
 
             // 0x05: WAIT (生产级异步 Yield 实现)
             0x05 => {
@@ -429,7 +528,7 @@ impl Tc16Cpu {
                     return Ok(VmStatus::WaitingForInterrupt);
                 }
                 self.instructions_used += 1;
-            },
+            }
 
             // 0x06: EXT_REGISTER_PROVIDER R_id_ptr, R_entry_pc
             // 核心进化指令：将当前 VM 镜像注册为新的 DSL 提供者
@@ -441,10 +540,13 @@ impl Tc16Cpu {
                     let entry_pc = self.regs[rpc];
                     let image = self.memory.clone();
                     bus.register_dynamic_provider(&id_str, entry_pc, image)?;
-                    info!("VM: Evolutionary mutation complete. New provider '{}' registered.", id_str);
+                    info!(
+                        "VM: Evolutionary mutation complete. New provider '{}' registered.",
+                        id_str
+                    );
                 }
                 self.instructions_used += 500; // 进化操作最重
-            },
+            }
 
             _ => return Err(anyhow!("Unknown extended opcode 0xFF{:02X}", sub_op)),
         }
@@ -464,7 +566,7 @@ impl Tc16Cpu {
         let high = self.fetch_u8();
         u16::from_le_bytes([low, high])
     }
-    
+
     fn fetch_i8(&mut self) -> i8 {
         self.fetch_u8() as i8
     }
@@ -480,7 +582,11 @@ impl Tc16Cpu {
         }
         if addr == MMIO_BLOCK_TS {
             // Mock timestamp low byte
-            return (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() & 0xFF) as u8;
+            return (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                & 0xFF) as u8;
         }
         self.memory[addr as usize]
     }
@@ -520,8 +626,9 @@ impl Tc16Cpu {
         self.read_u16(self.regs[REG_SP])
     }
 
-    fn alu_op<F>(&mut self, op: F) 
-    where F: FnOnce(u16, u16) -> (u16, bool) 
+    fn alu_op<F>(&mut self, op: F)
+    where
+        F: FnOnce(u16, u16) -> (u16, bool),
     {
         let byte = self.fetch_u8();
         let rd = (byte >> 4) as usize;
@@ -529,11 +636,16 @@ impl Tc16Cpu {
         let (res, carry) = op(self.regs[rd], self.regs[rs]);
         self.regs[rd] = res;
         self.update_flags(res);
-        if carry { self.flags |= FLAG_C; } else { self.flags &= !FLAG_C; }
+        if carry {
+            self.flags |= FLAG_C;
+        } else {
+            self.flags &= !FLAG_C;
+        }
     }
 
     fn alu_logic<F>(&mut self, op: F)
-    where F: FnOnce(u16, u16) -> u16
+    where
+        F: FnOnce(u16, u16) -> u16,
     {
         let byte = self.fetch_u8();
         let rd = (byte >> 4) as usize;
@@ -544,18 +656,26 @@ impl Tc16Cpu {
     }
 
     fn update_flags(&mut self, res: u16) {
-        if res == 0 { self.flags |= FLAG_Z; } else { self.flags &= !FLAG_Z; }
-        if (res & 0x8000) != 0 { self.flags |= FLAG_S; } else { self.flags &= !FLAG_S; }
+        if res == 0 {
+            self.flags |= FLAG_Z;
+        } else {
+            self.flags &= !FLAG_Z;
+        }
+        if (res & 0x8000) != 0 {
+            self.flags |= FLAG_S;
+        } else {
+            self.flags &= !FLAG_S;
+        }
     }
 
     fn trigger_interrupt(&mut self, irq: u8) {
         // 1. Disable interrupts
         self.flags &= !FLAG_I;
-        
+
         // 2. Push Context (PC, Flags)
         self.push(self.pc);
         self.push(self.flags as u16);
-        
+
         // 3. Jump to vector
         // Vector table is at memory 0x0000 + irq*2 ? Or hardcoded?
         // Let's use fixed locations for simplicity: 0xFF00 + irq*2
@@ -574,23 +694,34 @@ impl Tc16Cpu {
 
 #[derive(Debug, Clone, PartialEq)]
 enum TokenType {
-    KwInt, KwVoid, KwIf, KwReturn, KwFor, KwContract,
+    KwInt,
+    KwVoid,
+    KwIf,
+    KwReturn,
+    KwFor,
+    KwContract,
     Id(String),
     Num(u16),
     Op(String),
-    LPar, RPar, LBrace, RBrace, Semi, Comma, Eq,
-    Eof
+    LPar,
+    RPar,
+    LBrace,
+    RBrace,
+    Semi,
+    Comma,
+    Eq,
+    Eof,
 }
 
 struct Compiler {
     tokens: Vec<TokenType>,
     pos: usize,
     bytecode: Vec<u8>,
-    
+
     // 符号表 (Name -> LocalOffset from FP)
     locals: HashMap<String, i16>,
     local_offset: i16,
-    
+
     // 函数表 (Name -> Address)
     functions: HashMap<String, u16>,
     // 待回填的调用 (AddressOfCall -> FunctionName)
@@ -612,12 +743,12 @@ impl Compiler {
 
     fn compile(&mut self, src: &str) -> Result<Vec<u8>> {
         self.tokenize(src)?;
-        
+
         // Entry point setup: CALL main; HALT
         self.emit(0x63); // CALL
         let main_call_patch = self.bytecode.len();
         self.emit_u16(0); // Placeholder
-        self.emit(0x00);  // HALT
+        self.emit(0x00); // HALT
 
         // Program body
         while self.peek() != TokenType::Eof {
@@ -628,7 +759,7 @@ impl Compiler {
         if let Some(&addr) = self.functions.get("main") {
             let bytes = addr.to_le_bytes();
             self.bytecode[main_call_patch] = bytes[0];
-            self.bytecode[main_call_patch+1] = bytes[1];
+            self.bytecode[main_call_patch + 1] = bytes[1];
         } else {
             return Err(anyhow!("Missing main function"));
         }
@@ -638,7 +769,7 @@ impl Compiler {
             if let Some(&addr) = self.functions.get(name) {
                 let bytes = addr.to_le_bytes();
                 self.bytecode[*patch_pos] = bytes[0];
-                self.bytecode[*patch_pos+1] = bytes[1];
+                self.bytecode[*patch_pos + 1] = bytes[1];
             } else {
                 return Err(anyhow!("Undefined function: {}", name));
             }
@@ -658,7 +789,9 @@ impl Compiler {
                 while let Some(&c) = chars.peek() {
                     if c.is_alphanumeric() || c == '_' {
                         s.push(chars.next().unwrap());
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 let token = match s.as_str() {
                     "int" => TokenType::KwInt,
@@ -674,7 +807,9 @@ impl Compiler {
                 while let Some(&c) = chars.peek() {
                     if c.is_numeric() {
                         s.push(chars.next().unwrap());
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 self.tokens.push(TokenType::Num(s.parse()?));
             } else {
@@ -694,7 +829,7 @@ impl Compiler {
                         }
                         self.tokens.push(TokenType::Eq);
                         continue;
-                    },
+                    }
                     '+' | '-' | '*' | '&' => self.tokens.push(TokenType::Op(c.to_string())),
                     _ => return Err(anyhow!("Unknown char: {}", c)),
                 }
@@ -711,19 +846,21 @@ impl Compiler {
         self.expect_type()?; // int/void
         let name = self.expect_id()?;
         self.functions.insert(name, self.bytecode.len() as u16);
-        
+
         self.consume(TokenType::LPar)?;
         // Args parsing simplified (omitted for brevity, assume void args for now)
         self.consume(TokenType::RPar)?;
-        
+
         self.consume(TokenType::LBrace)?;
-        
+
         // Function Prologue
         // PUSH FP
-        self.emit(0x50); self.emit(REG_FP as u8);
+        self.emit(0x50);
+        self.emit(REG_FP as u8);
         // MOV FP, SP
-        self.emit(0x31); self.emit((REG_FP as u8) << 4 | (REG_SP as u8));
-        
+        self.emit(0x31);
+        self.emit((REG_FP as u8) << 4 | (REG_SP as u8));
+
         self.locals.clear();
         self.local_offset = 0; // Stack grows down
 
@@ -731,15 +868,17 @@ impl Compiler {
             self.parse_statement()?;
         }
         self.consume(TokenType::RBrace)?;
-        
+
         // Epilogue (Implicit return if void)
         // MOV SP, FP
-        self.emit(0x31); self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
+        self.emit(0x31);
+        self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
         // POP FP
-        self.emit(0x51); self.emit(REG_FP as u8);
+        self.emit(0x51);
+        self.emit(REG_FP as u8);
         // RET
         self.emit(0x64);
-        
+
         Ok(())
     }
 
@@ -752,39 +891,45 @@ impl Compiler {
                 self.consume(TokenType::Eq)?;
                 self.parse_expression()?; // Result in R0
                 self.consume(TokenType::Semi)?;
-                
+
                 // Allocate local
                 self.local_offset -= 2; // u16
                 self.locals.insert(name, self.local_offset);
-                
+
                 // PUSH R0 (Save to stack)
-                self.emit(0x50); self.emit(0);
-            },
+                self.emit(0x50);
+                self.emit(0);
+            }
             TokenType::KwReturn => {
                 self.advance();
                 self.parse_expression()?; // Result in R0 (RA)
                 self.consume(TokenType::Semi)?;
-                
+
                 // Epilogue code
-                self.emit(0x31); self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
-                self.emit(0x51); self.emit(REG_FP as u8);
+                self.emit(0x31);
+                self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
+                self.emit(0x51);
+                self.emit(REG_FP as u8);
                 self.emit(0x64);
-            },
+            }
             TokenType::KwContract => {
                 // contract_store(key_ptr, val_ptr); (Intrinsic)
                 self.advance();
                 self.consume(TokenType::LPar)?;
                 self.parse_expression()?; // Arg1 -> R0
-                // MOV R1, R0 (Save key ptr)
-                self.emit(0x31); self.emit(1<<4 | 0);
+                                          // MOV R1, R0 (Save key ptr)
+                self.emit(0x31);
+                self.emit(1 << 4 | 0);
                 self.consume(TokenType::Comma)?;
                 self.parse_expression()?; // Arg2 -> R0 (Val ptr)
                 self.consume(TokenType::RPar)?;
                 self.consume(TokenType::Semi)?;
-                
+
                 // EXT: CONTRACT_KEY_STORE R1, R0
-                self.emit(0xFF); self.emit(0x03); self.emit(1<<4 | 0);
-            },
+                self.emit(0xFF);
+                self.emit(0x03);
+                self.emit(1 << 4 | 0);
+            }
             _ => {
                 // Expression statement (assignment or call)
                 // Simplified: Assign only
@@ -793,9 +938,11 @@ impl Compiler {
                     self.consume(TokenType::Eq)?;
                     self.parse_expression()?;
                     self.consume(TokenType::Semi)?;
-                    
+
                     // STORE [FP+Offset], R0
-                    self.emit(0x20); self.emit(0); self.emit(offset as u8);
+                    self.emit(0x20);
+                    self.emit(0);
+                    self.emit(offset as u8);
                 } else {
                     return Err(anyhow!("Unknown variable {}", name));
                 }
@@ -809,21 +956,26 @@ impl Compiler {
         while let TokenType::Op(op) = self.peek() {
             self.advance();
             // Push R0 (Left)
-            self.emit(0x50); self.emit(0);
+            self.emit(0x50);
+            self.emit(0);
             self.parse_term()?; // Right in R0
-            
+
             // Pop Left to R1
-            self.emit(0x51); self.emit(1);
-            
+            self.emit(0x51);
+            self.emit(1);
+
             if op == "+" {
                 // ADD R0, R1 (R0 += R1)
-                self.emit(0x40); self.emit(0<<4 | 1);
+                self.emit(0x40);
+                self.emit(0 << 4 | 1);
             } else if op == "-" {
                 // SUB R1, R0 (Need Left - Right). Current: R1=Left, R0=Right.
                 // SUB R1, R0 -> R1 = R1 - R0.
-                self.emit(0x41); self.emit(1<<4 | 0);
+                self.emit(0x41);
+                self.emit(1 << 4 | 0);
                 // Move result back to R0
-                self.emit(0x31); self.emit(0<<4 | 1);
+                self.emit(0x31);
+                self.emit(0 << 4 | 1);
             }
         }
         Ok(())
@@ -834,17 +986,21 @@ impl Compiler {
             TokenType::Num(n) => {
                 self.advance();
                 // MOVI R0, n
-                self.emit(0x30); self.emit(0); self.emit_u16(n);
-            },
+                self.emit(0x30);
+                self.emit(0);
+                self.emit_u16(n);
+            }
             TokenType::Id(name) => {
                 self.advance();
                 if let Some(&offset) = self.locals.get(&name) {
                     // LOAD R0, [FP+Offset]
-                    self.emit(0x10); self.emit(0); self.emit(offset as u8);
+                    self.emit(0x10);
+                    self.emit(0);
+                    self.emit(offset as u8);
                 } else {
                     return Err(anyhow!("Undefined var {}", name));
                 }
-            },
+            }
             _ => return Err(anyhow!("Unexpected token in expression")),
         }
         Ok(())
@@ -852,25 +1008,47 @@ impl Compiler {
 
     // --- Helpers ---
     fn peek(&self) -> TokenType {
-        if self.pos >= self.tokens.len() { TokenType::Eof } else { self.tokens[self.pos].clone() }
+        if self.pos >= self.tokens.len() {
+            TokenType::Eof
+        } else {
+            self.tokens[self.pos].clone()
+        }
     }
-    fn advance(&mut self) { self.pos += 1; }
+    fn advance(&mut self) {
+        self.pos += 1;
+    }
     fn consume(&mut self, ty: TokenType) -> Result<()> {
-        if self.peek() == ty { self.advance(); Ok(()) } else { Err(anyhow!("Expected {:?}", ty)) }
+        if self.peek() == ty {
+            self.advance();
+            Ok(())
+        } else {
+            Err(anyhow!("Expected {:?}", ty))
+        }
     }
     fn expect_id(&mut self) -> Result<String> {
-        if let TokenType::Id(s) = self.peek() { self.advance(); Ok(s) } else { Err(anyhow!("Expected ID")) }
+        if let TokenType::Id(s) = self.peek() {
+            self.advance();
+            Ok(s)
+        } else {
+            Err(anyhow!("Expected ID"))
+        }
     }
     fn expect_type(&mut self) -> Result<()> {
         match self.peek() {
-            TokenType::KwInt | TokenType::KwVoid => { self.advance(); Ok(()) },
-            _ => Err(anyhow!("Expected type"))
+            TokenType::KwInt | TokenType::KwVoid => {
+                self.advance();
+                Ok(())
+            }
+            _ => Err(anyhow!("Expected type")),
         }
     }
-    fn emit(&mut self, b: u8) { self.bytecode.push(b); }
+    fn emit(&mut self, b: u8) {
+        self.bytecode.push(b);
+    }
     fn emit_u16(&mut self, v: u16) {
         let b = v.to_le_bytes();
-        self.emit(b[0]); self.emit(b[1]);
+        self.emit(b[0]);
+        self.emit(b[1]);
     }
 }
 
@@ -881,7 +1059,6 @@ impl Compiler {
 pub struct Tc16Flavor {
     network_tx: tokio::sync::mpsc::Sender<(SocketAddr, Vec<u8>)>,
     storage: Arc<dyn ContractStorage>,
-    
     // 中断控制器引用 (用于 Flavor 线程注入信号)
     // 实际运行时，每个会话可能有一个 VM。为了简单，这里演示无状态执行。
     // 如果需要有状态的中断，需要 SessionContext 持有 CPU。
@@ -889,10 +1066,8 @@ pub struct Tc16Flavor {
 }
 
 impl Tc16Flavor {
-    pub fn new(
-        network_tx: tokio::sync::mpsc::Sender<(SocketAddr, Vec<u8>)>
-    ) -> Arc<Self> {
-        Arc::new(Self { 
+    pub fn new(network_tx: tokio::sync::mpsc::Sender<(SocketAddr, Vec<u8>)>) -> Arc<Self> {
+        Arc::new(Self {
             network_tx,
             storage: Arc::new(EphemeralStorage::default()),
         })
@@ -900,30 +1075,37 @@ impl Tc16Flavor {
 
     fn run_vm(&self, code: &[u8]) -> String {
         let mut cpu = Tc16Cpu::new(self.storage.clone());
-        cpu.load_code(code, 0);
-        
+        if let Err(error) = cpu.load_code(code, 0) {
+            return format!("Error: {error}");
+        }
+
         let start = Instant::now();
-        match cpu.execute(1_000_000) { // 1M Gas Limit
+        match cpu.execute(1_000_000) {
+            // 1M Gas Limit
             Ok(_) => format!("Success. Output: {}", cpu.get_output()),
-            Err(e) => format!("Error: {} (Gas: {})", e, cpu.instructions_used),
+            Err(e) => format!("Error: {} (Instructions: {})", e, cpu.instructions_used),
         }
     }
 }
 
 impl CapabilityProvider for Tc16Flavor {
-    fn capability_id(&self) -> String { "etp.flavor.tc16.v2".into() }
+    fn capability_id(&self) -> String {
+        "etp.flavor.tc16.v2".into()
+    }
 }
 
 impl Flavor for Tc16Flavor {
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
-        if data.len() < 2 || data[0] != TC16_PROTO_VER { return false; }
+        if data.len() < 2 || data[0] != TC16_PROTO_VER {
+            return false;
+        }
 
         match data[1] {
             CMD_DEPLOY | CMD_EXEC_CODE => {
                 let code = &data[2..];
                 info!("TC16: Executing contract (size {} bytes)", code.len());
                 let result = self.run_vm(code);
-                
+
                 let tx = self.network_tx.clone();
                 let addr = ctx.src_addr;
                 tokio::spawn(async move {
@@ -932,7 +1114,7 @@ impl Flavor for Tc16Flavor {
                     let _ = tx.send((addr, resp)).await;
                 });
                 true
-            },
+            }
             CMD_COMPILE_RUN => {
                 if let Ok(src) = String::from_utf8(data[2..].to_vec()) {
                     let mut compiler = Compiler::new();
@@ -946,15 +1128,15 @@ impl Flavor for Tc16Flavor {
                                 resp.extend(result.into_bytes());
                                 let _ = tx.send((addr, resp)).await;
                             });
-                        },
+                        }
                         Err(e) => {
                             warn!("TC16 Compile Error: {}", e);
                         }
                     }
                 }
                 true
-            },
-            _ => false
+            }
+            _ => false,
         }
     }
 

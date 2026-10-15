@@ -32,7 +32,7 @@ solana = ["dep:solana-sdk"]
 ultrafileserver = []
 safefs = ["dep:argon2", "dep:memmap2", "dep:users", "dep:nix"]
 tc16-tcc = ["extensions", "dep:byteorder"] # 开启 TC-16 虚拟机与 TCC 编译器扩展
-dsl-runtime = ["dep:nom"]
+dsl-runtime = ["dep:nom", "extensions"]
 evolve-ui = ["tc16-tcc", "dsl-runtime"] # 便捷进化接口特性
 
 # --- 语言绑定支持 (Super Support Features) ---
@@ -220,7 +220,7 @@ mlua = { version = "0.9", features = ["lua54", "vendored", "async"], optional = 
 winapi = { version = "0.3", features = ["winnt", "shellapi", "processthreadsapi", "handleapi", "securitybaseapi", "winbase", "powerbase"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))'.dependencies]
-tun = { version = "0.5", optional = true }
+tun = { version = "0.5", features = ["async"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # 确保只在 Linux 编译
