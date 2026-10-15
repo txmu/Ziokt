@@ -2,6 +2,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use blake3;
+use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use dashmap::DashMap;
 use log::{debug, info, warn};
@@ -100,6 +101,7 @@ pub struct KnsRecord {
     pub payload: Vec<u8>,   // Encrypted Data
     pub version: u64,       // Timestamp / Version
     pub signature: Vec<u8>, // Authoritative Signature
+    pub signer_type: IdentityType,
     pub signer_id: NodeID,  // Who signed this?
     pub meta_hint: Vec<u8>, // Plaintext routing hints
     pub ttl: u32,           // Time to live in seconds
@@ -357,7 +359,7 @@ impl SecurityDomain {
                 use sha2::Sha256;
                 type HmacSha256 = Hmac<Sha256>;
 
-                if let Ok(mut mac) = HmacSha256::new_from_slice(&pub_key) {
+                if let Ok(mut mac) = <HmacSha256 as hmac::Mac>::new_from_slice(&pub_key) {
                     mac.update(&sign_data);
                     mac.verify_slice(&record.signature).is_ok()
                 } else {
@@ -454,6 +456,7 @@ pub enum ResolutionPriority {
     LocalOnly,
     CachePreferred,
     NetworkOnly,
+    ConsensusStrict,
 }
 
 #[async_trait::async_trait]

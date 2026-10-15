@@ -100,10 +100,10 @@ impl IsolationManager {
         let (engine, handle, _) = EtpEngine::new(config, registry).await?;
 
         // Spawn engine in background
-        let name = name.to_owned();
+        let task_name = name.to_owned();
         tokio::spawn(async move {
             if let Err(e) = engine.run().await {
-                warn!("Domain '{}' crashed: {}", name, e);
+                warn!("Domain '{}' crashed: {}", task_name, e);
             }
         });
 

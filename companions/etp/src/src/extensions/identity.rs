@@ -355,7 +355,8 @@ impl CitizenIdentity {
     pub fn new(difficulty: u8) -> Self {
         // 挖矿逻辑 (简化)
         let key = SigningKey::generate(&mut rand::thread_rng());
-        let pub_bytes = key.verifying_key().as_bytes();
+        let verifying_key = key.verifying_key();
+        let pub_bytes = verifying_key.as_bytes();
         let mut nonce = 0u64;
 
         loop {
