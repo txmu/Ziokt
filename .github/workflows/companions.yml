@@ -77,8 +77,8 @@ jobs:
             cargo test --locked --no-default-features --lib
             cargo build --locked --no-default-features --example ziokt_gateway
           else
-            cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts --lib
-            cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts --example ziokt_gateway
+            cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --lib
+            cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway
           fi
           strip target/debug/examples/ziokt_gateway
           sha256sum target/debug/examples/ziokt_gateway

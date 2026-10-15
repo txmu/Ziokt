@@ -127,3 +127,6 @@ pub use pool_memory::{get_global_pool, SharedMemoryPool};
 pub use tc16_tcc::{Tc16Cpu, Tc16Flavor}; // TccCompiler is internal helper
 
 pub mod rpc;
+
+#[cfg(feature = "safefs")]
+pub mod safefs;
