@@ -133,18 +133,11 @@ impl EncryptedDnsResolver {
             (12..=4096).contains(&query.len()),
             "bounded DNS query required"
         );
-        let name = rustls::ServerName::try_from(domain)
+        let name = rustls::pki_types::ServerName::try_from(domain.to_owned())
             .map_err(|_| anyhow!("invalid TLS resolver name"))?;
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(roots)
             .with_no_client_auth();
         tokio::time::timeout(Duration::from_secs(10), async {

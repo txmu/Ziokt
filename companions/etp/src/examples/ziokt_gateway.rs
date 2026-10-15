@@ -46,20 +46,35 @@ async fn main() -> anyhow::Result<()> {
     let path = std::env::args()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("private node configuration required"))?;
-    let metadata = fs::symlink_metadata(&path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let config_file = options.open(&path)?;
+    let metadata = config_file.metadata()?;
     anyhow::ensure!(
         metadata.is_file() && metadata.len() <= 65536,
         "private regular config required"
     );
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::MetadataExt;
         anyhow::ensure!(
-            metadata.permissions().mode() & 0o077 == 0,
-            "private config permissions required"
+            metadata.mode() & 0o077 == 0
+                && metadata.uid() == unsafe { libc::geteuid() }
+                && metadata.nlink() == 1,
+            "private owner-controlled config required"
         );
     }
-    let settings: Config = serde_json::from_slice(&fs::read(path)?)?;
+    let mut raw = Vec::new();
+    config_file.take(65537).read_to_end(&mut raw)?;
+    anyhow::ensure!(raw.len() <= 65536, "configuration budget");
+    let settings: Config = serde_json::from_slice(&raw)?;
+    use zeroize::Zeroize;
+    raw.zeroize();
     anyhow::ensure!(settings.peers.len() <= 128, "peer budget");
     let private = hex_key(&settings.private_key)?;
     let secret = x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(private.as_slice())?);

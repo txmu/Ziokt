@@ -93,7 +93,7 @@ class CompanionCrypto(unittest.TestCase):
             config=self._make_bridge(root,private,public,policy,extra={'vault_root':str(vault_dir)})
             bridge=CompanionBridge(config);self.addCleanup(bridge.close)
             # Vault key is the application_key loaded at bridge init time
-            appkey=open(root/'application.key','rb').read()
+            appkey=(root/'application.key').read_bytes()
             vault=Vault(vault_dir,'safefs-test',appkey)
             obj=vault.put('secret/data.bin',b'classified content')
             digest=obj['digest']
@@ -119,7 +119,7 @@ class CompanionCrypto(unittest.TestCase):
             import os;vault_dir=root/'vaultroot';vault_dir.mkdir(mode=0o700)
             config=self._make_bridge(root,private,public,policy,extra={'vault_root':str(vault_dir)})
             bridge=CompanionBridge(config);self.addCleanup(bridge.close)
-            appkey=open(root/'application.key','rb').read()
+            appkey=(root/'application.key').read_bytes()
             vault=Vault(vault_dir,'safefs-test',appkey)
             obj=vault.put('pending/file.bin',b'pending content')
             digest=obj['digest']
@@ -127,7 +127,8 @@ class CompanionCrypto(unittest.TestCase):
             bridge.close()
             from ziokt.protocol import encoded
             pending_path=bridge._pending_path
-            pending_path.write_bytes(encoded({'method':'safefs.publish','params':{'digest':digest}})+b'\n')
+            from ziokt.cli import write_binary_exclusive
+            write_binary_exclusive(pending_path,encoded({'method':'safefs.publish','params':{'digest':digest}})+b'\n')
             # Re-open bridge — drain_pending should replay the entry
             bridge2=CompanionBridge(config);self.addCleanup(bridge2.close)
             # After draining, the object should be in the community
@@ -136,3 +137,21 @@ class CompanionCrypto(unittest.TestCase):
             # Pending file should be cleared after successful drain
             self.assertFalse(pending_path.exists())
 
+
+class DurableOutbox(unittest.TestCase):
+    _make_bridge=CompanionCrypto._make_bridge
+    def test_encrypted_idempotent_bounded_outbox_and_rejected_legacy_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);private=secrets.token_bytes(32);public=sign({},private,'test')['public_key'];policy=create_policy(private,'test',{public:sorted(RIGHTS)})
+            bridge=CompanionBridge(self._make_bridge(root,private,public,policy));self.addCleanup(bridge.close)
+            params={'digest':'sha256:'+'a'*64}
+            bridge._queue_pending('safefs.publish',params);bridge._queue_pending('safefs.publish',params)
+            rows=bridge.community.db.execute('SELECT sealed FROM companion_outbox').fetchall();self.assertEqual(len(rows),1);self.assertNotIn(b'safefs.publish',rows[0][0]);self.assertNotIn(b'aaaaaaaa',rows[0][0])
+            with self.assertRaises(ProtocolError):bridge._queue_pending('execute',{})
+            for i in range(127):bridge._queue_pending('file.publish',{'digest':'sha256:'+format(i,'064x')})
+            with self.assertRaises(ProtocolError):bridge._queue_pending('file.publish',{'digest':'sha256:'+'f'*64})
+            target=root/'legacy';target.write_bytes(b'[]');target.chmod(0o600)
+            try:bridge._pending_path.symlink_to(target)
+            except (OSError,NotImplementedError):return
+            with self.assertRaises(ProtocolError):bridge.drain_pending()
+            self.assertEqual(target.read_bytes(),b'[]')

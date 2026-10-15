@@ -79,6 +79,8 @@ jobs:
             cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver --lib
             cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver --example ziokt_gateway
           fi
+          strip target/debug/examples/ziokt_gateway
+          sha256sum target/debug/examples/ziokt_gateway
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'

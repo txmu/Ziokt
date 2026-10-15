@@ -3,6 +3,8 @@ import argparse
 import base64
 import hashlib
 import hmac
+import secrets
+import threading
 from pathlib import Path
 import re
 import sys
@@ -39,10 +41,11 @@ class CompanionBridge:
             self.vault_root=value
         for name in ('community_root','policy','encryption_key','signing_key','application_key'):
             if not isinstance(config[name],str) or not Path(config[name]).is_absolute() or '..' in Path(config[name]).parts:raise ProtocolError('INVALID_BRIDGE','fixed private application paths required')
-        self.private=secure_read(config['signing_key'],32);self.appkey=secure_read(config['application_key'],32);self.app=config['application']
+        self.private=secure_read(config['signing_key'],32);self.appkey=secure_read(config['application_key'],32);self.app=config['application'];self._outbox_lock=threading.RLock()
         self.community=Community(config['community_root'],strict_json(secure_read(config['policy'])),config['owner'],secure_read(config['encryption_key'],32))
         with self.community.db:
             self.community.db.execute('CREATE TABLE IF NOT EXISTS watchat_delivery_acks (channel TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(channel,event))')
+            self.community.db.execute('CREATE TABLE IF NOT EXISTS companion_outbox (application TEXT NOT NULL,id TEXT NOT NULL,sealed BLOB NOT NULL,PRIMARY KEY(application,id))')
         from .protocol import make_private
         community_root=Path(config['community_root']);community_root.mkdir(mode=0o700,parents=True,exist_ok=True);make_private(community_root)
         self._pending_path=community_root/('federation-pending-'+hmac.new(secure_read(config['application_key'],32),('Ziokt/pending/'+config['application']).encode(),hashlib.sha256).hexdigest()[:16]+'.jsonl')
@@ -56,34 +59,54 @@ class CompanionBridge:
     def _tag(self,value):return hmac.new(self.appkey,('Ziokt/companion/'+self.app+'/v1/'+value).encode(),hashlib.sha256).hexdigest()
     def _channel(self,a,b):return self._tag('/'.join(sorted((a,b))))
 
+    def _outbox_cipher(self):
+        from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+        return ChaCha20Poly1305(hmac.new(self.appkey,b'Ziokt/companion/outbox/v1',hashlib.sha256).digest())
+
     def _queue_pending(self,method,params):
-        line=encoded({'method':method,'params':params})+b'\n'
-        with open(self._pending_path,'ab') as f:f.write(line)
+        if method not in {'chat.append','file.publish','safefs.publish'} or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','publish outbox operation required')
+        body=encoded({'method':method,'params':params})
+        if len(body)>16384:raise ProtocolError('BRIDGE_LIMIT','outbox entry exceeds budget')
+        tag=self._tag('outbox');identity=hmac.new(self.appkey,body,hashlib.sha256).hexdigest()
+        nonce=secrets.token_bytes(12);sealed=nonce+self._outbox_cipher().encrypt(nonce,body,tag.encode())
+        with self._outbox_lock,self.community.db:
+            count=self.community.db.execute('SELECT COUNT(*) FROM companion_outbox WHERE application=?',(tag,)).fetchone()[0]
+            exists=self.community.db.execute('SELECT 1 FROM companion_outbox WHERE application=? AND id=?',(tag,identity)).fetchone()
+            if count>=128 and not exists:raise ProtocolError('BRIDGE_LIMIT','durable outbox is full')
+            self.community.db.execute('INSERT OR IGNORE INTO companion_outbox VALUES (?,?,?)',(tag,identity,sealed))
 
     def drain_pending(self):
-        """Replay queued publish operations that previously failed due to transient errors."""
-        if not self._pending_path.exists():return
-        remaining=[]
-        try:
-            lines=self._pending_path.read_bytes().splitlines(keepends=False)
-        except OSError:return
-        for line in lines:
-            if not line:continue
-            try:
-                entry=strict_json(line)
-                if not isinstance(entry,dict) or not isinstance(entry.get('method'),str) or not isinstance(entry.get('params'),dict):continue
-                self.call(entry['method'],entry['params'])
-            except ProtocolError as exc:
-                # Idempotent duplicates and digest conflicts are not re-queued.
-                if exc.code in {'IDEMPOTENCY_CONFLICT','ARTIFACT_DIGEST_MISMATCH','STALE_PLAN','POLICY_DENIED','INVALID_BRIDGE','METHOD_UNSUPPORTED'}:continue
-                remaining.append(line)
-            except OSError:remaining.append(line)
-        if remaining:self._pending_path.write_bytes(b'\n'.join(remaining)+b'\n')
-        else:
-            try:self._pending_path.unlink()
-            except OSError:pass
-
-
+        """Replay a bounded, encrypted SQLite outbox; duplicate publishes are idempotent."""
+        with self._outbox_lock:
+            # Migrate old private JSONL queues once. Never follow an attacker-controlled link.
+            if self._pending_path.exists() or self._pending_path.is_symlink():
+                raw=secure_read(self._pending_path,1024*1024)
+                lines=raw.splitlines()
+                if len(lines)>128:raise ProtocolError('BRIDGE_LIMIT','legacy outbox exceeds budget')
+                for line in lines:
+                    if not line:continue
+                    entry=strict_json(line,16384)
+                    if not isinstance(entry,dict) or set(entry)!={'method','params'}:raise ProtocolError('INVALID_BRIDGE','invalid legacy outbox entry')
+                    self._queue_pending(entry['method'],entry['params'])
+                self._pending_path.unlink()
+            tag=self._tag('outbox')
+            rows=self.community.db.execute('SELECT id,sealed FROM companion_outbox WHERE application=? ORDER BY id LIMIT 128',(tag,)).fetchall()
+            for identity,sealed in rows:
+                if not isinstance(sealed,bytes) or not 28<=len(sealed)<=16412:raise ProtocolError('INVALID_BRIDGE','invalid durable outbox frame')
+                from cryptography.exceptions import InvalidTag
+                try:body=self._outbox_cipher().decrypt(sealed[:12],sealed[12:],tag.encode())
+                except InvalidTag:raise ProtocolError('DATA_AUTH_REJECTED','outbox authentication rejected')
+                entry=strict_json(body,16384)
+                if (not isinstance(entry,dict) or set(entry)!={'method','params'} or entry['method'] not in {'chat.append','file.publish','safefs.publish'} or not isinstance(entry['params'],dict) or
+                        not hmac.compare_digest(identity,hmac.new(self.appkey,body,hashlib.sha256).hexdigest())):
+                    raise ProtocolError('INVALID_BRIDGE','authenticated publish outbox entry required')
+                remove=False
+                try:self.call(entry['method'],entry['params']);remove=True
+                except ProtocolError as exc:
+                    if exc.code in {'IDEMPOTENCY_CONFLICT','ARTIFACT_DIGEST_MISMATCH','POLICY_DENIED','INVALID_BRIDGE','METHOD_UNSUPPORTED'}:remove=True
+                except OSError:pass
+                if remove:
+                    with self.community.db:self.community.db.execute('DELETE FROM companion_outbox WHERE application=? AND id=?',(tag,identity))
 
     def call(self,method,params):
         if secure_read(self.path)!=self.config_bytes:raise ProtocolError('STALE_PLAN','application bridge configuration changed')
