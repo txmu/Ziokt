@@ -9,6 +9,7 @@ pub mod fileshare;
 pub mod bt_bridge;
 #[cfg(feature = "ipfs-integration")]
 pub mod ipfs_fusion;
+#[cfg(feature = "persistence")]
 pub mod mailbox;
 
 // --- 存储强依赖模块 ---

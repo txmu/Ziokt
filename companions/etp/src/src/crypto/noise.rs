@@ -1,98 +1,176 @@
-// etp-core/src/crypto/noise.rs
-
-use snow::{Builder, TransportState, HandshakeState};
-use anyhow::{Result, anyhow};
-
-static NOISE_PATTERN: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
+//! Noise IK sessions with explicit authenticated transport nonces for lossy P2P.
+use anyhow::{anyhow, ensure, Result};
+use snow::{Builder, HandshakeState, TransportState};
+use zeroize::Zeroize;
+const NOISE_PATTERN: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
 
 #[derive(Clone)]
 pub struct KeyPair {
     pub public: Vec<u8>,
     pub private: Vec<u8>,
 }
-
+impl Drop for KeyPair {
+    fn drop(&mut self) {
+        self.private.zeroize();
+    }
+}
 impl KeyPair {
     pub fn generate() -> Self {
-        let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
-        let keypair = builder.generate_keypair().unwrap();
-        Self { public: keypair.public, private: keypair.private }
+        let pair = Builder::new(NOISE_PATTERN.parse().expect("fixed Noise pattern"))
+            .generate_keypair()
+            .expect("OS entropy required");
+        Self {
+            public: pair.public,
+            private: pair.private,
+        }
     }
 }
-
 pub enum NoiseSession {
     Handshaking(HandshakeState),
-    Transport(TransportState),
+    Transport {
+        state: TransportState,
+        highest: Option<u64>,
+        seen: u128,
+    },
+    Failed,
 }
-
 impl NoiseSession {
-    pub fn new_initiator(local_key: &KeyPair, remote_pub: &[u8]) -> Result<Self> {
-        let builder = Builder::new(NOISE_PATTERN.parse()?);
-        let handshake = builder.local_private_key(&local_key.private).remote_public_key(remote_pub).build_initiator()?;
-        Ok(Self::Handshaking(handshake))
+    pub fn new_initiator(local: &KeyPair, remote: &[u8]) -> Result<Self> {
+        ensure!(
+            local.private.len() == 32 && remote.len() == 32 && remote.iter().any(|b| *b != 0),
+            "explicit Noise peer key required"
+        );
+        Ok(Self::Handshaking(
+            Builder::new(NOISE_PATTERN.parse()?)
+                .local_private_key(&local.private)
+                .remote_public_key(remote)
+                .build_initiator()?,
+        ))
     }
-
-    pub fn new_responder(local_key: &KeyPair) -> Result<Self> {
-        let builder = Builder::new(NOISE_PATTERN.parse()?);
-        let handshake = builder.local_private_key(&local_key.private).build_responder()?;
-        Ok(Self::Handshaking(handshake))
+    pub fn new_responder(local: &KeyPair) -> Result<Self> {
+        ensure!(local.private.len() == 32, "invalid Noise private key");
+        Ok(Self::Handshaking(
+            Builder::new(NOISE_PATTERN.parse()?)
+                .local_private_key(&local.private)
+                .build_responder()?,
+        ))
     }
-
-    pub fn write_handshake_message(&mut self, payload: &[u8], out_buf: &mut [u8]) -> Result<(usize, bool)> {
-        match self {
-            Self::Handshaking(state) => {
-                let len = state.write_message(payload, out_buf)?;
-                if state.is_handshake_finished() {
-                    let transport = state.clone().into_transport_mode()?;
-                    *self = Self::Transport(transport);
-                    Ok((len, true))
+    fn finish(&mut self) -> Result<()> {
+        let old = std::mem::replace(self, Self::Failed);
+        let Self::Handshaking(state) = old else {
+            return Err(anyhow!("handshake not active"));
+        };
+        *self = Self::Transport {
+            state: state.into_transport_mode()?,
+            highest: None,
+            seen: 0,
+        };
+        Ok(())
+    }
+    pub fn write_handshake_message(
+        &mut self,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<(usize, bool)> {
+        let Self::Handshaking(state) = self else {
+            return Err(anyhow!("handshake not active"));
+        };
+        let len = state.write_message(payload, out)?;
+        let done = state.is_handshake_finished();
+        if done {
+            self.finish()?;
+        }
+        Ok((len, done))
+    }
+    pub fn read_handshake_message(
+        &mut self,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<(usize, bool)> {
+        let Self::Handshaking(state) = self else {
+            return Err(anyhow!("handshake not active"));
+        };
+        let len = state.read_message(input, out)?;
+        let done = state.is_handshake_finished();
+        if done {
+            self.finish()?;
+        }
+        Ok((len, done))
+    }
+    pub fn encrypt(&mut self, plaintext: &[u8], out: &mut [u8]) -> Result<usize> {
+        let Self::Transport { state, .. } = self else {
+            return Err(anyhow!("handshake incomplete"));
+        };
+        ensure!(
+            out.len() >= plaintext.len().saturating_add(24),
+            "transport output too short"
+        );
+        let nonce = state.sending_nonce();
+        ensure!(
+            nonce < u64::MAX,
+            "session nonce exhausted; authenticated reconnect required"
+        );
+        out[..8].copy_from_slice(&nonce.to_be_bytes());
+        Ok(8 + state.write_message(plaintext, &mut out[8..])?)
+    }
+    pub fn decrypt(&mut self, input: &[u8], out: &mut [u8]) -> Result<usize> {
+        ensure!(input.len() >= 24, "truncated transport record");
+        let Self::Transport {
+            state,
+            highest,
+            seen,
+        } = self
+        else {
+            return Err(anyhow!("handshake incomplete"));
+        };
+        let nonce = u64::from_be_bytes(input[..8].try_into()?);
+        ensure!(nonce < u64::MAX, "invalid transport nonce");
+        if let Some(top) = *highest {
+            if nonce <= top {
+                let delta = top - nonce;
+                ensure!(
+                    delta < 128 && (*seen & (1u128 << delta)) == 0,
+                    "replayed or stale transport record"
+                );
+            }
+        }
+        state.set_receiving_nonce(nonce);
+        let len = state.read_message(&input[8..], out)?;
+        // Authentication succeeds before the replay window advances.
+        match *highest {
+            None => {
+                *highest = Some(nonce);
+                *seen = 1;
+            }
+            Some(top) if nonce > top => {
+                let delta = nonce - top;
+                *seen = if delta >= 128 {
+                    1
                 } else {
-                    Ok((len, false))
-                }
-            },
-            Self::Transport(_) => Err(anyhow!("Already in transport mode")),
+                    (*seen << delta) | 1
+                };
+                *highest = Some(nonce);
+            }
+            Some(top) => *seen |= 1u128 << (top - nonce),
         }
+        Ok(len)
     }
-
-    pub fn read_handshake_message(&mut self, in_msg: &[u8], out_payload: &mut [u8]) -> Result<(usize, bool)> {
+    pub fn get_remote_static(&self) -> Option<&[u8]> {
         match self {
-            Self::Handshaking(state) => {
-                let len = state.read_message(in_msg, out_payload)?;
-                if state.is_handshake_finished() {
-                    let transport = state.clone().into_transport_mode()?;
-                    *self = Self::Transport(transport);
-                    Ok((len, true))
-                } else {
-                    Ok((len, false))
-                }
-            },
-            Self::Transport(_) => Err(anyhow!("Already in transport mode")),
+            Self::Handshaking(s) => s.get_remote_static(),
+            Self::Transport { state, .. } => state.get_remote_static(),
+            Self::Failed => None,
         }
     }
-
-    pub fn encrypt(&mut self, plaintext: &[u8], out_ciphertext: &mut [u8]) -> Result<usize> {
-        match self {
-            Self::Transport(state) => Ok(state.write_message(plaintext, out_ciphertext)?),
-            Self::Handshaking(_) => Err(anyhow!("Handshake not completed")),
-        }
-    }
-
-    pub fn decrypt(&mut self, ciphertext: &[u8], out_plaintext: &mut [u8]) -> Result<usize> {
-        match self {
-            Self::Transport(state) => Ok(state.read_message(ciphertext, out_plaintext)?),
-            Self::Handshaking(_) => Err(anyhow!("Handshake not completed")),
-        }
-    }
-    
-    /// 执行密钥轮换 (Rekey)
-    /// 更新发送和接收的密钥，保证前向安全性
+    /// Only for explicitly coordinated peers. Engine rotation uses a fresh IK handshake.
     pub fn rekey(&mut self) -> Result<()> {
         match self {
-            Self::Transport(state) => {
-                // Snow 的 rekey 逻辑：基于当前密钥派生新密钥
-                state.rekey(None, None); 
+            Self::Transport { state, .. } => {
+                state.rekey_outgoing();
+                state.rekey_incoming();
                 Ok(())
-            },
-            _ => Ok(()),
+            }
+            _ => Err(anyhow!("handshake incomplete")),
         }
     }
 }

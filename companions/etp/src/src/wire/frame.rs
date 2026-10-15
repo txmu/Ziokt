@@ -1,14 +1,14 @@
 // etp-core/src/wire/frame.rs
 
-use serde::{Serialize, Deserialize};
-use crate::{NodeID, Signature};
 use crate::common::NodeInfo;
+use crate::{NodeID, Signature};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 /// 单个 Frame 的最大允许大小 (防炸弹)
 const MAX_FRAME_SIZE: usize = 1024 * 1024; // 1MB
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Frame {
     /// 填充帧 (0x00)
     Padding(Vec<u8>),
@@ -25,19 +25,14 @@ pub enum Frame {
     Ack {
         largest_acknowledged: u64,
         delay_time_micros: u64,
-        ranges: Vec<(u64, u64)>, 
+        ranges: Vec<(u64, u64)>,
     },
 
     /// 关闭连接 (0x03)
-    Close {
-        error_code: u16,
-        reason: String,
-    },
+    Close { error_code: u16, reason: String },
 
     /// 路由发现 (0x04)
-    Gossip {
-        nodes: Vec<NodeInfo>,
-    },
+    Gossip { nodes: Vec<NodeInfo> },
 
     /// 中继指令 (0x05)
     Relay {
@@ -57,17 +52,14 @@ pub enum Frame {
         target_session: u32,
         injector_id: NodeID,
         command: InjectionCommand,
+        #[serde(with = "signature_bytes")]
         signature: Signature,
     },
 
     // --- 新增帧类型 (Step 1) ---
-
     /// 侧信道数据 (0x08)
     /// 侧信道拥有独立的逻辑流，不阻塞主 Stream，适用于信令控制或低优传输
-    SideChannel {
-        channel_id: u32,
-        data: Vec<u8>,
-    },
+    SideChannel { channel_id: u32, data: Vec<u8> },
 
     /// NAT 穿透信令 (0x09)
     /// 用于交换 ICE 候选地址或 STUN 探测
@@ -80,28 +72,28 @@ pub enum Frame {
     /// Contains a keyed capability digest or encrypted capability bitmap; it is not a ZKP proof.
     Negotiate {
         protocol_version: u16,
-        zkp_proof: Vec<u8>, // 零知识证明数据
+        zkp_proof: Vec<u8>,     // 零知识证明数据
         flavor_bitmap: Vec<u8>, // 加密后的支持列表
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InjectionCommand {
-    RouteHint { 
-        target_node: NodeID, 
-        suggested_next_hop: NodeInfo 
+    RouteHint {
+        target_node: NodeID,
+        suggested_next_hop: NodeInfo,
     },
-    Throttle { 
-        limit_kbps: u32, 
-        duration_sec: u32 
+    Throttle {
+        limit_kbps: u32,
+        duration_sec: u32,
     },
     ServiceAdvertisement {
         service_hash: [u8; 32],
         metadata: Vec<u8>,
-    }
+    },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NatSignalType {
     CandidateOffer, // 我发现了我的公网地址
     Ping,           // 打洞探测
@@ -111,7 +103,7 @@ pub enum NatSignalType {
 impl Frame {
     pub fn new_padding(size: usize) -> Self {
         // 限制最大 Padding 防止滥用
-        let safe_size = size.min(1400); 
+        let safe_size = size.min(1400);
         Frame::Padding(vec![0u8; safe_size])
     }
 
@@ -124,13 +116,45 @@ impl Frame {
             Frame::SideChannel { data, .. } => data.len() <= MAX_FRAME_SIZE,
             Frame::NatSignal { payload, .. } => payload.len() <= 1024, // 信令通常很小
             Frame::Negotiate { zkp_proof, .. } => zkp_proof.len() <= 4096,
-            Frame::Injection { command, .. } => {
-                match command {
-                    InjectionCommand::ServiceAdvertisement { metadata, .. } => metadata.len() <= 2048,
-                    _ => true,
-                }
+            Frame::Injection { command, .. } => match command {
+                InjectionCommand::ServiceAdvertisement { metadata, .. } => metadata.len() <= 2048,
+                _ => true,
             },
             _ => true,
         }
+    }
+}
+
+mod signature_bytes {
+    use serde::{
+        de::{Error, SeqAccess, Visitor},
+        ser::SerializeTuple,
+        Deserializer, Serializer,
+    };
+    pub fn serialize<S: Serializer>(value: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error> {
+        let mut tuple = serializer.serialize_tuple(64)?;
+        for byte in value {
+            tuple.serialize_element(byte)?;
+        }
+        tuple.end()
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 64], D::Error> {
+        struct SignatureVisitor;
+        impl<'de> Visitor<'de> for SignatureVisitor {
+            type Value = [u8; 64];
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("64 signature bytes")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut bytes = [0; 64];
+                for (i, byte) in bytes.iter_mut().enumerate() {
+                    *byte = seq
+                        .next_element()?
+                        .ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                }
+                Ok(bytes)
+            }
+        }
+        deserializer.deserialize_tuple(64, SignatureVisitor)
     }
 }

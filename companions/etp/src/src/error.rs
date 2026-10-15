@@ -9,6 +9,9 @@ pub enum EtpError {
     #[error("Cryptographic handshake failed: {0}")]
     CryptoHandshake(String),
 
+    #[error("Payload size {0} exceeds limit {1}")]
+    PayloadTooLarge(usize, usize),
+
     #[error("Connection timed out")]
     Timeout,
 

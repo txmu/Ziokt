@@ -1,17 +1,17 @@
 // etp-core/src/network/socks5.rs
 
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{mpsc, Semaphore};
+use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;
-use std::net::{SocketAddr, Ipv4Addr, Ipv6Addr, IpAddr};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use log::{debug, error, info, trace, warn};
 use parking_lot::RwLock;
-use anyhow::{Result, anyhow, Context};
-use log::{info, warn, debug, error, trace};
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::sync::{mpsc, Semaphore};
 
 // --- ETP 类型别名 ---
 /// (TargetNodeAddr, StreamID, Data, Fin)
@@ -118,7 +118,9 @@ impl EncryptedDnsResolver {
     /// 执行 DNS 查询 (支持 DoT 优先，DoH 其次)
     pub async fn resolve(&self, query_packet: &[u8]) -> Result<Vec<u8>> {
         if let Some(ref addr) = self.dot_upstream {
-            return self.resolve_dot(addr, &self.domain_name, query_packet).await;
+            return self
+                .resolve_dot(addr, &self.domain_name, query_packet)
+                .await;
         }
         if let Some(ref url) = self.doh_upstream {
             return self.resolve_doh(url, query_packet).await;
@@ -131,39 +133,41 @@ impl EncryptedDnsResolver {
         // 生产环境应在此处使用 rustls 进行 TLS 握手
         // 为了保持代码独立性，这里演示逻辑流，假设 socket 是建立在安全隧道上的，或直接透传
         // 实际使用请取消 TLS 注释并添加依赖
-        
-        let mut stream = TcpStream::connect(addr).await.context("DoT connect failed")?;
-        
+
+        let mut stream = TcpStream::connect(addr)
+            .await
+            .context("DoT connect failed")?;
+
         // --- TLS Handshake Stub ---
         // let connector = TlsConnector::from(...);
         // let mut stream = connector.connect(domain, stream).await?;
-        
+
         let len = query.len() as u16;
         let mut frame = Vec::with_capacity(2 + query.len());
         frame.extend_from_slice(&len.to_be_bytes());
         frame.extend_from_slice(query);
-        
+
         stream.write_all(&frame).await?;
-        
+
         let mut len_buf = [0u8; 2];
         stream.read_exact(&mut len_buf).await?;
         let resp_len = u16::from_be_bytes(len_buf) as usize;
-        
+
         let mut resp_buf = vec![0u8; resp_len];
         stream.read_exact(&mut resp_buf).await?;
-        
+
         Ok(resp_buf)
     }
 
     async fn resolve_doh(&self, _url: &str, query: &[u8]) -> Result<Vec<u8>> {
         // 简易 DoH: HTTP/1.1 POST
         // 避免引入 reqwest 巨型依赖，手动构造 HTTP
-        let host = "dns.google"; 
+        let host = "dns.google";
         let path = "/dns-query";
-        
-        let mut stream = TcpStream::connect("8.8.4.4:443").await?; 
+
+        let mut stream = TcpStream::connect("8.8.4.4:443").await?;
         // Need TLS wrapper here in production
-        
+
         let body_len = query.len();
         let request = format!(
             "POST {} HTTP/1.1\r\n\
@@ -176,14 +180,14 @@ impl EncryptedDnsResolver {
 
         stream.write_all(request.as_bytes()).await?;
         stream.write_all(query).await?;
-        
+
         let mut buf = Vec::new();
         stream.read_to_end(&mut buf).await?;
-        
+
         if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            return Ok(buf[idx+4..].to_vec());
+            return Ok(buf[idx + 4..].to_vec());
         }
-        
+
         Err(anyhow!("Invalid DoH response"))
     }
 }
@@ -199,20 +203,24 @@ pub struct Authenticator {
 
 impl Authenticator {
     pub fn new() -> Self {
-        Self { users: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            users: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
-    
+
     pub fn add_user(&self, user: &str, pass: &str) {
-        self.users.write().insert(user.to_string(), pass.to_string());
+        self.users
+            .write()
+            .insert(user.to_string(), pass.to_string());
     }
-    
+
     pub fn validate(&self, user: &str, pass: &str) -> bool {
         if let Some(real_pass) = self.users.read().get(user) {
             return real_pass == pass;
         }
         false
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.users.read().is_empty()
     }
@@ -231,15 +239,23 @@ impl AccessControl {
             blacklist_ips: Arc::new(RwLock::new(HashSet::new())),
         }
     }
-    
-    pub fn allow_ip(&self, ip: IpAddr) { self.whitelist_ips.write().insert(ip); }
-    pub fn block_ip(&self, ip: IpAddr) { self.blacklist_ips.write().insert(ip); }
-    
+
+    pub fn allow_ip(&self, ip: IpAddr) {
+        self.whitelist_ips.write().insert(ip);
+    }
+    pub fn block_ip(&self, ip: IpAddr) {
+        self.blacklist_ips.write().insert(ip);
+    }
+
     pub fn check(&self, addr: &SocketAddr) -> bool {
         let ip = addr.ip();
-        if self.blacklist_ips.read().contains(&ip) { return false; }
+        if self.blacklist_ips.read().contains(&ip) {
+            return false;
+        }
         let wl = self.whitelist_ips.read();
-        if !wl.is_empty() && !wl.contains(&ip) { return false; }
+        if !wl.is_empty() && !wl.contains(&ip) {
+            return false;
+        }
         true
     }
 }
@@ -299,7 +315,7 @@ impl ExitRouter for RuleBasedRouter {
         use std::hash::{Hash, Hasher};
         target.hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         let idx = (hash as usize) % defaults.len();
         Ok(defaults[idx])
     }
@@ -311,23 +327,23 @@ impl ExitRouter for RuleBasedRouter {
 
 pub struct Socks5Server {
     listen_addr: String,
-    
+
     // 依赖注入
     etp_tx: mpsc::Sender<AppSignal>,
     router: Arc<dyn ExitRouter>,
-    tns_service: Option<Arc<dyn NameService>>,   // TNS 集成
+    tns_service: Option<Arc<dyn NameService>>, // TNS 集成
     node_registry: Option<Arc<dyn NodeRegistry>>, // DHT 集成
-    
+
     // 状态管理
     streams: Arc<DashMap<(SocketAddr, u32), mpsc::Sender<Vec<u8>>>>,
     next_stream_id: AtomicU32,
-    
+
     // 安全与控制
     auth: Authenticator,
     acl: AccessControl,
     stats: Arc<TrafficStats>,
     conn_limiter: Arc<Semaphore>,
-    
+
     // DNS 服务
     dns_resolver: Option<EncryptedDnsResolver>,
     dns_port: Option<u16>,
@@ -335,10 +351,10 @@ pub struct Socks5Server {
 
 impl Socks5Server {
     pub fn new(
-        listen_addr: String, 
-        etp_tx: mpsc::Sender<AppSignal>, 
+        listen_addr: String,
+        etp_tx: mpsc::Sender<AppSignal>,
         router: Arc<dyn ExitRouter>,
-        max_connections: usize
+        max_connections: usize,
     ) -> Self {
         Self {
             listen_addr,
@@ -359,9 +375,9 @@ impl Socks5Server {
 
     /// 注入 TNS 和 DHT 服务以支持 .etp 域名解析
     pub fn with_tns_integration(
-        mut self, 
-        tns: Arc<dyn NameService>, 
-        registry: Arc<dyn NodeRegistry>
+        mut self,
+        tns: Arc<dyn NameService>,
+        registry: Arc<dyn NodeRegistry>,
     ) -> Self {
         self.tns_service = Some(tns);
         self.node_registry = Some(registry);
@@ -386,15 +402,24 @@ impl Socks5Server {
         self.dns_resolver = Some(resolver);
         self
     }
-    
+
     pub fn get_stats(&self) -> Arc<TrafficStats> {
         self.stats.clone()
     }
 
     pub async fn run(self, mut etp_rx: mpsc::Receiver<(SocketAddr, u32, Vec<u8>)>) -> Result<()> {
-        let listener = TcpListener::bind(&self.listen_addr).await
+        let listener = TcpListener::bind(&self.listen_addr)
+            .await
             .context(format!("Failed to bind SOCKS5 on {}", self.listen_addr))?;
-        
+
+        self.run_with_listener(listener, etp_rx).await
+    }
+
+    pub async fn run_with_listener(
+        self,
+        listener: TcpListener,
+        mut etp_rx: mpsc::Receiver<(SocketAddr, u32, Vec<u8>)>,
+    ) -> Result<()> {
         info!("SOCKS5 Server running on {}", self.listen_addr);
 
         // 1. 启动本地 DNS (如果启用)
@@ -407,7 +432,9 @@ impl Socks5Server {
         let stats_ref = self.stats.clone();
         tokio::spawn(async move {
             while let Some((src_node, stream_id, data)) = etp_rx.recv().await {
-                stats_ref.bytes_rx.fetch_add(data.len() as u64, Ordering::Relaxed);
+                stats_ref
+                    .bytes_rx
+                    .fetch_add(data.len() as u64, Ordering::Relaxed);
                 if let Some(sender) = streams_map.get(&(src_node, stream_id)) {
                     if sender.send(data).await.is_err() {
                         // Stream closed
@@ -421,7 +448,7 @@ impl Socks5Server {
         loop {
             // 连接限流
             let permit = server.conn_limiter.clone().acquire_owned().await.unwrap();
-            
+
             match listener.accept().await {
                 Ok((socket, peer_addr)) => {
                     // ACL 检查
@@ -451,7 +478,10 @@ impl Socks5Server {
         tokio::spawn(async move {
             let socket = match UdpSocket::bind(format!("127.0.0.1:{}", port)).await {
                 Ok(s) => Arc::new(s),
-                Err(e) => { error!("DNS bind failed: {}", e); return; }
+                Err(e) => {
+                    error!("DNS bind failed: {}", e);
+                    return;
+                }
             };
 
             let mut buf = [0u8; 1024];
@@ -463,11 +493,13 @@ impl Socks5Server {
                         let sock = socket.clone();
                         tokio::spawn(async move {
                             match res.resolve(&query).await {
-                                Ok(ans) => { let _ = sock.send_to(&ans, src).await; },
+                                Ok(ans) => {
+                                    let _ = sock.send_to(&ans, src).await;
+                                }
                                 Err(e) => debug!("DNS resolve error: {}", e),
                             }
                         });
-                    },
+                    }
                     Err(_) => break,
                 }
             }
@@ -478,7 +510,9 @@ impl Socks5Server {
         // --- 1. Negotiation Phase ---
         let mut head = [0u8; 2];
         socket.read_exact(&mut head).await?;
-        if head[0] != SOCKS_VER { return Err(anyhow!("Ver mismatch")); }
+        if head[0] != SOCKS_VER {
+            return Err(anyhow!("Ver mismatch"));
+        }
 
         let nmethods = head[1] as usize;
         let mut methods = vec![0u8; nmethods];
@@ -501,12 +535,12 @@ impl Socks5Server {
         if method == AUTH_USER_PASS {
             let mut auth_ver = [0u8; 1];
             socket.read_exact(&mut auth_ver).await?; // Sub-negotiation ver usually 1
-            
+
             let mut ulen = [0u8; 1];
             socket.read_exact(&mut ulen).await?;
             let mut user_bytes = vec![0u8; ulen[0] as usize];
             socket.read_exact(&mut user_bytes).await?;
-            
+
             let mut plen = [0u8; 1];
             socket.read_exact(&mut plen).await?;
             let mut pass_bytes = vec![0u8; plen[0] as usize];
@@ -527,7 +561,7 @@ impl Socks5Server {
         let mut head = [0u8; 4];
         socket.read_exact(&mut head).await?; // VER, CMD, RSV, ATYP
         let cmd = head[1];
-        
+
         let target = match Self::read_target(&mut socket, head[3]).await {
             Ok(t) => t,
             Err(e) => {
@@ -540,9 +574,7 @@ impl Socks5Server {
         let exit_node = self.resolve_route(&target).await?;
 
         match cmd {
-            CMD_CONNECT => {
-                self.handle_connect(socket, target, exit_node).await
-            }
+            CMD_CONNECT => self.handle_connect(socket, target, exit_node).await,
             CMD_UDP => {
                 let client_addr = socket.peer_addr()?; // Simple assumption
                 self.handle_udp(socket, client_addr, exit_node).await
@@ -566,12 +598,19 @@ impl Socks5Server {
                 if let (Some(tns), Some(registry)) = (&self.tns_service, &self.node_registry) {
                     debug!("SOCKS5: Intercepting TNS request for {}", domain);
                     // 1. Resolve Name -> NodeID
-                    let node_id = tns.resolve(domain).await
+                    let node_id = tns
+                        .resolve(domain)
+                        .await
                         .map_err(|e| anyhow!("TNS resolve failed: {}", e))?;
-                    
+
                     // 2. Lookup NodeID -> IP
                     if let Some(ip) = registry.lookup_ip(&node_id).await {
-                        info!("SOCKS5: Resolved {} -> NodeID[{:?}] -> {}", domain, &node_id[0..4], ip);
+                        info!(
+                            "SOCKS5: Resolved {} -> NodeID[{:?}] -> {}",
+                            domain,
+                            &node_id[0..4],
+                            ip
+                        );
                         return Ok(ip);
                     } else {
                         // 如果找不到 IP，可能是因为 DHT 还没收敛。
@@ -583,7 +622,8 @@ impl Socks5Server {
         }
 
         // B. 常规路由
-        self.router.select_exit(target)
+        self.router
+            .select_exit(target)
             .map_err(|e| anyhow!("Routing failed: {}", e))
     }
 
@@ -598,10 +638,15 @@ impl Socks5Server {
         self.streams.insert((exit_node, stream_id), tx);
 
         // Send Metadata (Connect)
-        let mut meta = vec![0x01]; 
+        let mut meta = vec![0x01];
         meta.extend(Self::encode_target(&target));
 
-        if self.etp_tx.send((exit_node, stream_id, meta, false)).await.is_err() {
+        if self
+            .etp_tx
+            .send((exit_node, stream_id, meta, false))
+            .await
+            .is_err()
+        {
             self.streams.remove(&(exit_node, stream_id));
             Self::write_reply(&mut socket, REP_NET_UNREACHABLE).await?;
             return Err(anyhow!("ETP Uplink failed"));
@@ -609,7 +654,7 @@ impl Socks5Server {
 
         Self::write_reply(&mut socket, REP_SUCCESS).await?;
 
-        let (mut ri, mut wi) = socket.split();
+        let (mut ri, mut wi) = socket.into_split();
         let etp_tx = self.etp_tx.clone();
         let stats = self.stats.clone();
 
@@ -624,13 +669,17 @@ impl Socks5Server {
                     }
                     Ok(n) => {
                         stats.bytes_tx.fetch_add(n as u64, Ordering::Relaxed);
-                        if etp_tx.send((exit_node, stream_id, buf[..n].to_vec(), false)).await.is_err() {
+                        if etp_tx
+                            .send((exit_node, stream_id, buf[..n].to_vec(), false))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
                     Err(_) => {
-                         let _ = etp_tx.send((exit_node, stream_id, vec![], true)).await;
-                         break;
+                        let _ = etp_tx.send((exit_node, stream_id, vec![], true)).await;
+                        break;
                     }
                 }
             }
@@ -639,8 +688,12 @@ impl Socks5Server {
         // Downlink
         let down = tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
-                if data.is_empty() { break; }
-                if wi.write_all(&data).await.is_err() { break; }
+                if data.is_empty() {
+                    break;
+                }
+                if wi.write_all(&data).await.is_err() {
+                    break;
+                }
             }
             let _ = wi.shutdown().await;
         });
@@ -659,9 +712,9 @@ impl Socks5Server {
         // Bind UDP
         let udp = UdpSocket::bind("0.0.0.0:0").await?;
         let local_port = udp.local_addr()?.port();
-        
+
         // Reply with bind address
-        let mut resp = vec![SOCKS_VER, REP_SUCCESS, 0x00, ATYP_IPV4, 0,0,0,0];
+        let mut resp = vec![SOCKS_VER, REP_SUCCESS, 0x00, ATYP_IPV4, 0, 0, 0, 0];
         resp.extend(local_port.to_be_bytes());
         socket.write_all(&resp).await?;
 
@@ -671,7 +724,9 @@ impl Socks5Server {
 
         // Send Metadata (UDP Assoc)
         let meta = vec![0x03];
-        self.etp_tx.send((exit_node, stream_id, meta, false)).await?;
+        self.etp_tx
+            .send((exit_node, stream_id, meta, false))
+            .await?;
 
         let udp = Arc::new(udp);
         let udp_rx = udp.clone();
@@ -685,9 +740,15 @@ impl Socks5Server {
             loop {
                 match udp_rx.recv_from(&mut buf).await {
                     Ok((n, src)) => {
-                        if src.ip() != client_addr.ip() { continue; } // Access Check
+                        if src.ip() != client_addr.ip() {
+                            continue;
+                        } // Access Check
                         stats.bytes_tx.fetch_add(n as u64, Ordering::Relaxed);
-                        if etp_tx.send((exit_node, stream_id, buf[..n].to_vec(), false)).await.is_err() {
+                        if etp_tx
+                            .send((exit_node, stream_id, buf[..n].to_vec(), false))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -699,7 +760,9 @@ impl Socks5Server {
         // Downlink: ETP -> UDP
         let down = tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
-                if data.is_empty() { break; }
+                if data.is_empty() {
+                    break;
+                }
                 // Data includes SOCKS5 header, client expects this
                 let _ = udp_tx.send_to(&data, client_addr).await;
             }
@@ -717,7 +780,9 @@ impl Socks5Server {
     // --- Helpers ---
 
     async fn write_reply(socket: &mut TcpStream, rep: u8) -> Result<()> {
-        socket.write_all(&[SOCKS_VER, rep, 0x00, ATYP_IPV4, 0,0,0,0, 0,0]).await?;
+        socket
+            .write_all(&[SOCKS_VER, rep, 0x00, ATYP_IPV4, 0, 0, 0, 0, 0, 0])
+            .await?;
         Ok(())
     }
 

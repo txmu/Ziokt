@@ -280,3 +280,6 @@ impl Flavor for FileShareFlavor {
     fn on_connection_open(&self, _peer: SocketAddr) {}
     fn on_connection_close(&self, _peer: SocketAddr) {}
 }
+impl std::fmt::Debug for FileShareFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("FileShareFlavor").finish_non_exhaustive() }
+}

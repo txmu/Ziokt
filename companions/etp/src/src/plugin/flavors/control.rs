@@ -68,16 +68,19 @@ impl ControlCategory {
                 mode: ChannelMode::ReliableMessage, 
                 priority: 255, // 顶格优先级，抢占所有带宽
                 timeout: Duration::from_secs(10),
+                ..SideChannelPolicy::default()
             },
             Self::Heartbeat => SideChannelPolicy {
                 mode: ChannelMode::Datagram,        
                 priority: 200, // 高于普通视频流
                 timeout: Duration::from_secs(5),
+                ..SideChannelPolicy::default()
             },
             Self::Metadata => SideChannelPolicy {
                 mode: ChannelMode::ReliableMessage,
                 priority: 50,  // 低于普通交互流，作为背景传输
                 timeout: Duration::from_secs(60),
+                ..SideChannelPolicy::default()
             },
             Self::Custom(_) => SideChannelPolicy::default(), // 默认策略
         }
@@ -182,4 +185,7 @@ impl Flavor for ControlNexusFlavor {
         // 连接断开时，不需要特殊清理，因为 SideChannelManager 会负责清理底层信道
         debug!("ControlNexus: Control link severed for {}", peer);
     }
+}
+impl std::fmt::Debug for ControlNexusFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("ControlNexusFlavor").finish_non_exhaustive() }
 }

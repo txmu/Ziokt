@@ -291,3 +291,6 @@ impl Flavor for MailboxFlavor {
 
     fn on_connection_close(&self, _peer: SocketAddr) {}
 }
+impl std::fmt::Debug for MailboxFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("MailboxFlavor").finish_non_exhaustive() }
+}

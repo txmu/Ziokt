@@ -1,15 +1,15 @@
 // etp-core/src/network/nat.rs
 
-use std::net::{SocketAddr, IpAddr};
-use std::time::Duration;
-use std::sync::Arc;
-use anyhow::{Result, anyhow};
-use log::{info, warn, debug, error};
-use igd_next::{search_gateway, SearchOptions};
-use governor::{Quota, RateLimiter};
-use governor::state::{InMemoryState, NotKeyed};
+use anyhow::{anyhow, Result};
 use governor::clock::DefaultClock;
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter};
+use igd_next::{search_gateway, SearchOptions};
+use log::{debug, error, info, warn};
+use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// NAT 穿透管理器
 pub struct NatManager {
@@ -47,19 +47,26 @@ impl NatManager {
 
         match search_gateway(opts) {
             Ok(gateway) => {
-                let local_ip = std::net::Ipv4Addr::new(0, 0, 0, 0); // 绑定所有
+                let route = std::net::UdpSocket::bind("0.0.0.0:0")?;
+                route.connect(gateway.addr)?;
+                let local_ip = route.local_addr()?.ip();
+                let lease =
+                    u32::try_from(lease_duration).map_err(|_| anyhow!("UPnP lease overflow"))?;
+                if local_port == 0 || lease == 0 {
+                    return Err(anyhow!("explicit bounded UPnP mapping required"));
+                }
                 // 外部端口建议与内部一致，如果不一致网关会分配
-                let external_port = gateway.add_port(
+                gateway.add_port(
                     igd_next::PortMappingProtocol::UDP,
                     local_port,
-                    local_ip.into(), // 这里的 local_ip 实际上应该是本机在局域网的 IP，igd 库通常能自动推断
-                    lease_duration as u32,
+                    SocketAddr::new(local_ip, local_port),
+                    lease,
                     "ETP Node",
                 )?;
 
                 let external_ip = gateway.get_external_ip()?;
-                let public_socket = SocketAddr::new(IpAddr::V4(external_ip), external_port);
-                
+                let public_socket = SocketAddr::new(external_ip, local_port);
+
                 info!("UPnP Success: External address is {}", public_socket);
                 self.public_addr = Some(public_socket);
                 Ok(public_socket)
@@ -84,8 +91,12 @@ impl NatManager {
 
     /// 验证接收到的探测包是否合法 (Anti-Spam: Drop garbage)
     pub fn validate_stun_probe(data: &[u8]) -> bool {
-        if data.len() < 16 { return false; }
-        if &data[0..4] != &[0xDE, 0xAD, 0xBE, 0xEF] { return false; }
+        if data.len() < 16 {
+            return false;
+        }
+        if &data[0..4] != &[0xDE, 0xAD, 0xBE, 0xEF] {
+            return false;
+        }
         true
     }
 }

@@ -51,7 +51,7 @@ fn test_relay_frame_structure() {
     // 反序列化
     let restored = DecryptedPacket::from_bytes(&bytes).unwrap();
     
-    if let Frame::Relay { next_hop, payload } = &restored.frames[0] {
+    if let Frame::Relay { next_hop, payload } = &restored.frames()[0] {
         assert_eq!(next_hop, &next_hop_id);
         assert_eq!(payload, &inner_encrypted_data);
     } else {

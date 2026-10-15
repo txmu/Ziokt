@@ -179,3 +179,6 @@ impl Flavor for BtBridgeFlavor {
         }
     }
 }
+impl std::fmt::Debug for BtBridgeFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("BtBridgeFlavor").finish_non_exhaustive() }
+}

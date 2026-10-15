@@ -6,4 +6,5 @@ pub mod nat;
 
 #[cfg(test)]
 mod tests_routing;
+#[cfg(test)]
 mod tests_socks5;

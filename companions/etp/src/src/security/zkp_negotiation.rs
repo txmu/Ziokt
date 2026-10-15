@@ -124,7 +124,7 @@ impl KeyedCapabilityNegotiator {
     fn compute_hash(secret: &[u8], salt: &[u8], cap_id: &str) -> [u8; 32] {
         // 使用 Keyed Hash 确保只有拥有会话密钥的人才能验证
         // Input = Salt + CapabilityString
-        let mut hasher = blake3::Hasher::new_keyed(Self::derive_blake3_key(secret));
+        let mut hasher = blake3::Hasher::new_keyed(&Self::derive_blake3_key(secret));
         hasher.update(salt);
         hasher.update(cap_id.as_bytes());
         hasher.finalize().into()
