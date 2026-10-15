@@ -62,7 +62,15 @@ def run_bounded(command, *, cwd=None, timeout=15, limit=65536, library_dir=None)
             else: process.kill()
             process.wait();raise ProtocolError('EXTENSION_TIMEOUT','native extension exceeded deadline')
         output.seek(0);data=output.read(limit+1)
-        if process.returncode or len(data)>limit: raise ProtocolError('EXTENSION_DENIED','native extension or installed feature probe denied')
+        if process.returncode or len(data)>limit:
+            detail=''
+            if os.environ.get('ZIOKT_EXTENSION_DIAGNOSTICS')=='1':
+                errors.seek(0)
+                detail=errors.read(2048).decode('utf-8','replace')
+                detail=''.join(char for char in detail if char in '\n\t' or ord(char)>=32)[:1600].strip()
+            message='native extension or installed feature probe denied'
+            if detail:message+='; bounded child diagnostic: '+detail
+            raise ProtocolError('EXTENSION_DENIED',message)
     return strict_json(data,limit)
 
 
