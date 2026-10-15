@@ -21,7 +21,7 @@ class CompanionBridge:
         self.path=Path(path);self.config_bytes=secure_read(path)
         config=strict_json(self.config_bytes)
         required={'schema','community_root','policy','owner','encryption_key','signing_key','application','application_key'}
-        if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'inbox','vault_root'} or config['schema']!='ziokt.companion-bridge.v1':raise ProtocolError('INVALID_BRIDGE','exact explicitly configured community application bridge required')
+        if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'inbox','vault_root','exchange_key','component_peers'} or config['schema']!='ziokt.companion-bridge.v1':raise ProtocolError('INVALID_BRIDGE','exact explicitly configured community application bridge required')
         identifier(config['application'],'application')
         self.inbox=None
         if 'inbox' in config:
@@ -53,6 +53,13 @@ class CompanionBridge:
         public=sign({},self.private,'test')['public_key']
         try:self.community._member(public,'chat' if self.app=='watchat' else 'files')
         except BaseException:self.community.close();raise
+        self.links=None
+        if 'exchange_key' in config or 'component_peers' in config:
+            if not {'exchange_key','component_peers'}<=set(config) or self.vault_root is None:raise ProtocolError('INVALID_LINK','private exchange key, pinned peers and vault root required')
+            key_path=Path(config['exchange_key'])
+            if not key_path.is_absolute() or '..' in key_path.parts:raise ProtocolError('INVALID_LINK','absolute private exchange key path required')
+            from .component_links import ComponentLinks
+            self.links=ComponentLinks(self.community,self.app,self.private,secure_read(key_path,32),config['component_peers'],self.vault_root)
         self.drain_pending()
 
     def close(self):self.community.close()
@@ -112,6 +119,32 @@ class CompanionBridge:
     def call(self,method,params):
         if secure_read(self.path)!=self.config_bytes:raise ProtocolError('STALE_PLAN','application bridge configuration changed')
         if not isinstance(params,dict):raise ProtocolError('INVALID_BRIDGE','typed local parameters required')
+        if method in {'component.send','component.receive'}:
+            if self.links is None:raise ProtocolError('POLICY_DENIED','component exchange is not configured')
+            from .safefs import Vault
+            vault=Vault(self.vault_root,self.app,self.appkey)
+            if method=='component.send':
+                if set(params)!={'target','kind','digest','operation'}:raise ProtocolError('INVALID_LINK','exact scoped send request required')
+                name,data=vault.get(params['digest'])
+                return self.links.send(params['target'],params['kind'],name,data,params['operation'])
+            if set(params)!={'event','source'}:raise ProtocolError('INVALID_LINK','exact scoped receive request required')
+            delivery=self.links.receive(params['event'],expected_source=params['source'])
+            # Keep the received payload scoped to this application. Never evaluate it.
+            namespace='links/'+delivery['source']+'/'+delivery['operation']+'/'+delivery['name']
+            cache_key='link-'+hashlib.sha256(namespace.encode()).hexdigest()[:48]
+            events=self.community.view('files',cache_key)['events']
+            if events:
+                event=events[-1];blob=self.community.get_file(event['body']);name,data=vault.open(blob)
+                if name!=namespace or data!=delivery['data']:raise ProtocolError('IDEMPOTENCY_CONFLICT','local component receipt changed')
+                digest='sha256:'+hashlib.sha256(blob).hexdigest()
+                if not (vault.objects/digest[7:]).exists():
+                    from .cli import write_binary_exclusive
+                    write_binary_exclusive(vault.objects/digest[7:],blob)
+                item={'digest':digest,'sealed_size':len(blob)}
+            else:
+                item=vault.put(namespace,delivery['data']);vault.publish(self.community,self.private,item['digest'])
+                manifest=self.community.put_file(vault.blob(item['digest']));self.community.publish(self.private,'files',cache_key,{'name':'Scoped component receipt',**manifest})
+            return {**{k:v for k,v in delivery.items() if k not in {'name','data'}},**item,'plaintext_disclosed':False}
         if method in {'file.publish','file.read'}:
             if self.inbox is None:raise ProtocolError('POLICY_DENIED','application file inbox not enabled')
             if set(params)!={'digest'} or not isinstance(params['digest'],str) or not re.fullmatch('sha256:[a-f0-9]{64}',params['digest']):raise ProtocolError('INVALID_BRIDGE','exact immutable sealed file reference required')

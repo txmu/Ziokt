@@ -5,7 +5,7 @@
  "components":[
   {"id":"shadow6","source":"../Shadow6","integration":"native Profiles, S6EPE, Virtual Broker, six-core signed Extensions","runtime":"explicit native deployment"},
   {"id":"corium","source":"../Corium","integration":"P2P, DHT, signed ledger facts, ZKN/ZKC","runtime":"interpreted native provider"},
-  {"id":"watchat","source":"watchat/WATChat-code","integration":"browser sealed chat, PWA, scoped companion bridge","runtime":"Node 22+, explicit private federation config"},
+  {"id":"watchat","source":"watchat/WATChat-code","integration":"browser sealed chat, PWA, scoped companion bridge","runtime":"Node 24 preferred (22 compatible), explicit private federation config"},
   {"id":"safefs","source":"safefs","integration":"scoped AEAD file vault and signed community files","runtime":"ziokt companion safefs"},
   {"id":"zda","source":"zda","integration":"typed Ano evidence gates, exact ZDA arithmetic","runtime":"ziokt companion ano"},
   {"id":"ufs","source":"ufsdcpm","integration":"encrypted native UFS/DCPM storage coupling","runtime":"ziokt companion ufsdcpm"},

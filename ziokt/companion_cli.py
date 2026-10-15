@@ -9,6 +9,13 @@ from .i18n import translate,LOCALES
 def register(sub):
     cmd=sub.add_parser('companion',help='integrated SafeFS, Ano/ZDA, UFS/DCPM, TC-16 and ecosystem tools')
     families=cmd.add_subparsers(dest='companion',required=True)
+    from .component_links import COMPONENTS,KINDS
+    links=families.add_parser('link');actions=links.add_subparsers(dest='companion_action',required=True)
+    for action in ('send','receive'):
+        item=actions.add_parser(action);item.add_argument('--bridge-config',type=Path,required=True);item.add_argument('--lang',choices=LOCALES,default='en')
+        if action=='send':
+            item.add_argument('--target',choices=sorted(COMPONENTS),required=True);item.add_argument('--kind',choices=sorted(KINDS),required=True);item.add_argument('--digest',required=True);item.add_argument('--operation',required=True)
+        else:item.add_argument('--event',required=True);item.add_argument('--source',choices=sorted(COMPONENTS),required=True)
     catalog=families.add_parser('catalog');catalog.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1]);catalog.add_argument('--lang',choices=LOCALES,default='en')
     vault=families.add_parser('safefs');actions=vault.add_subparsers(dest='companion_action',required=True)
     for action in ('put','get','publish','doctor'):
@@ -86,6 +93,14 @@ def execute(args):
         try:
             if bridge.app!='tri':raise ProtocolError('POLICY_DENIED','Tri scoped bridge required')
             return {**vault.publish(bridge.community,bridge.private,args.digest),'message':translate('tri.published',args.lang)}
+        finally:bridge.close()
+    if args.companion=='link':
+        from .companion_bridge import CompanionBridge
+        bridge=CompanionBridge(args.bridge_config)
+        try:
+            params={k:getattr(args,k) for k in (('target','kind','digest','operation') if args.companion_action=='send' else ('event','source'))}
+            result=bridge.call('component.'+args.companion_action,params)
+            return {**result,'message':translate('link.sent' if args.companion_action=='send' else 'link.received',args.lang)}
         finally:bridge.close()
     if args.companion=='ufsdcpm':
         from .ufsdcpm import IntegratedStorage,MAX_PACKAGE
