@@ -36,6 +36,15 @@ class FakeChain:
 
 
 class EffortWebTests(unittest.TestCase):
+    def test_packaged_inventory_and_assets_remain_available(self):
+        from ziokt.ecosystem import inventory
+        from importlib.resources import files
+        with tempfile.TemporaryDirectory() as temporary:
+            result=inventory(Path(temporary))
+        self.assertEqual(len(result['components']),11)
+        self.assertIn('一键开始奋斗',files('ziokt').joinpath('effort/index.html').read_text())
+        self.assertEqual(files('ziokt').joinpath('ecosystem.json').read_bytes(),(Path(__file__).resolve().parents[1]/'companions/ecosystem.json').read_bytes())
+
     def test_proofs_ranges_replay_and_restart_reconciliation(self):
         with tempfile.TemporaryDirectory() as temporary:
             chain=FakeChain();pool=EffortPool(chain,'a'*64,Path(temporary));self.addCleanup(pool.close)

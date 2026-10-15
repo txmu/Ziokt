@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import http.server
 import ipaddress
+from importlib.resources import files
 import os
 from pathlib import Path
 import secrets
@@ -94,7 +95,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0):
     parsed=urlsplit(origin)
     if parsed.scheme not in {'http','https'} or not parsed.netloc or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:raise ProtocolError('INVALID_CONFIG','exact public origin required')
     if parsed.scheme=='http' and parsed.hostname not in {'127.0.0.1','localhost','::1'}:raise ProtocolError('INVALID_CONFIG','public workers require HTTPS')
-    assets=Path(__file__).parent/'effort';workers=threading.BoundedSemaphore(16);rates={};rate_lock=threading.Lock()
+    assets=files('ziokt').joinpath('effort');workers=threading.BoundedSemaphore(16);rates={};rate_lock=threading.Lock()
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self):super().setup();self.connection.settimeout(35)
         def log_message(self,*_):pass
@@ -110,7 +111,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0):
                 self.valid_origin()
                 files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/style.css':('style.css','text/css')}
                 if self.path not in files:return self.send_value(404,{'error':'NOT_FOUND'})
-                name,kind=files[self.path];self.send_value(200,(assets/name).read_bytes(),kind)
+                name,kind=files[self.path];self.send_value(200,assets.joinpath(name).read_bytes(),kind)
             except ProtocolError as exc:self.send_value(403,{'error':exc.code})
         def do_POST(self):
             try:

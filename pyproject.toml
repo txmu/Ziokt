@@ -18,4 +18,4 @@ ziokt = "ziokt.cli:main"
 packages = ["ziokt"]
 
 [tool.setuptools.package-data]
-ziokt = ["web/*.html", "web/*.css", "web/*.js", "effort/*"]
+ziokt = ["web/*.html", "web/*.css", "web/*.js", "effort/*", "ecosystem.json"]
