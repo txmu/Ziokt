@@ -2,20 +2,20 @@
 
 #![cfg(feature = "extensions")]
 
-use std::sync::Arc;
-use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow, Context};
-use log::{info, debug, warn, trace};
+use anyhow::{anyhow, Context, Result};
 use blake3;
-use x25519_dalek::{StaticSecret, PublicKey as XPublicKey};
+use log::{debug, info, trace, warn};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use x25519_dalek::{PublicKey as XPublicKey, StaticSecret};
 
 // 引入核心模块
-use crate::plugin::{Flavor, FlavorContext, CapabilityProvider};
-use crate::extensions::kns::{KnsKernel, KnsPath, RecordKind, ResolutionPriority};
+use crate::crypto::onion::{NonceMode, OnionConfig, OnionCrypto, PaddingStrategy};
 use crate::extensions::identity::{EtpIdentity, GhostIdentity, IdentityType};
-use crate::crypto::onion::{OnionCrypto, OnionConfig, NonceMode, PaddingStrategy};
+use crate::extensions::kns::{KnsKernel, KnsPath, RecordKind, ResolutionPriority};
+use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
 use crate::NodeID;
 
 // --- 配置常量 ---
@@ -43,10 +43,7 @@ struct DropPayload {
 }
 
 impl SignalDropFlavor {
-    pub fn new(
-        kns: Arc<KnsKernel>,
-        static_secret_bytes: [u8; 32],
-    ) -> Arc<Self> {
+    pub fn new(kns: Arc<KnsKernel>, static_secret_bytes: [u8; 32]) -> Arc<Self> {
         let secret = StaticSecret::from(static_secret_bytes);
         let public = XPublicKey::from(&secret);
 
@@ -58,7 +55,7 @@ impl SignalDropFlavor {
     }
 
     /// 发送信号 (投递)
-    /// 
+    ///
     /// 流程：
     /// 1. ECDH 计算当天接头暗号 (DomainID)。
     /// 2. 生成一次性幽灵身份 (GhostIdentity)。
@@ -66,7 +63,7 @@ impl SignalDropFlavor {
     /// 4. 加密 Payload 并发布到 DHT。
     pub async fn drop_signal(&self, target_pub_bytes: [u8; 32], content: Vec<u8>) -> Result<()> {
         let target_pub = XPublicKey::from(target_pub_bytes);
-        
+
         // 1. 密钥协商与路径派生
         let shared_secret = self.my_static_secret.diffie_hellman(&target_pub);
         let domain_id = self.derive_daily_domain_id(shared_secret.as_bytes());
@@ -85,9 +82,9 @@ impl SignalDropFlavor {
         // 配置高安全性的加密参数
         let onion_config = OnionConfig {
             // 使用随机 Nonce，防止相同内容的 Hash 在 DHT 上碰撞，增加流量分析难度
-            nonce_mode: NonceMode::Random, 
+            nonce_mode: NonceMode::Random,
             // 填充至 256 字节块对齐，隐藏消息真实长度
-            padding: PaddingStrategy::BlockAligned(256), 
+            padding: PaddingStrategy::BlockAligned(256),
         };
 
         // 使用接收者的公钥进行非对称加密 (Sealing)
@@ -101,28 +98,37 @@ impl SignalDropFlavor {
         // 对于 DHT 节点来说，这是一条合法的、有签名的记录。
         let ghost_identity = Arc::new(GhostIdentity::new());
         let ghost_pub = ghost_identity.public_key();
-        
+
         // 在本地 KNS 内核中注册这个“临时域”
         // 注意：这不会向全网广播“我拥有这个域”，而是告诉本地 KNS Kernel：
         // "对于这个 ID，请使用这个 Ghost Identity 进行操作"
         let domain = self.kns.create_domain(&domain_id, ghost_identity.clone());
-        
+
         // 显式授权 Ghost Identity 写入 (虽然 create_domain 默认会加，但显式更安全)
         // KNS 的 ACL 机制要求写入者必须在白名单内
         domain.grant_write_access(ghost_identity.node_id(), IdentityType::Ghost, ghost_pub);
 
         // 4. 发布记录
         // RecordKind::Static: 这是一段静态数据，不是转发指针
-        domain.publish(&record_path, &encrypted_data, RecordKind::Static, RECORD_TTL)?;
-        
-        info!("SignalDrop: Dropped {} bytes to hidden domain '{}'", encrypted_data.len(), domain_id);
-        
+        domain.publish(
+            &record_path,
+            &encrypted_data,
+            RecordKind::Static,
+            RECORD_TTL,
+        )?;
+
+        info!(
+            "SignalDrop: Dropped {} bytes to hidden domain '{}'",
+            encrypted_data.len(),
+            domain_id
+        );
+
         // 5. 清理
         // create_domain 会将 domain 放入 KnsKernel 的 map 中。
         // 这是一个一次性操作，理论上我们应该在发布后清理它，避免内存泄漏。
         // 但目前的 KnsKernel 接口可能需要扩展 remove_domain，或者依赖 TTL 自动过期。
         // 在此示例中，我们假设 Engine 会定期清理未使用的 Domain 句柄。
-        
+
         Ok(())
     }
 
@@ -135,7 +141,7 @@ impl SignalDropFlavor {
     /// 4. 验证 Payload 内部签名。
     pub async fn check_inbox(&self, sender_pub_bytes: [u8; 32]) -> Result<Option<Vec<u8>>> {
         let sender_pub = XPublicKey::from(sender_pub_bytes);
-        
+
         // 1. 密钥协商与路径派生 (必须与发送方完全一致)
         let shared_secret = self.my_static_secret.diffie_hellman(&sender_pub);
         let domain_id = self.derive_daily_domain_id(shared_secret.as_bytes());
@@ -149,11 +155,11 @@ impl SignalDropFlavor {
         //   a. 查找 domain_id (在 DHT 中查找对应 Key)
         //   b. 在该 Domain 下查找 path (Blind Index)
         // 在这里，domain_id 就是 DHT Key 的一部分逻辑映射
-        let encrypted_data = match self.kns.resolve(
-            &domain_id, 
-            &record_path, 
-            ResolutionPriority::NetworkOnly
-        ).await {
+        let encrypted_data = match self
+            .kns
+            .resolve(&domain_id, &record_path, ResolutionPriority::NetworkOnly)
+            .await
+        {
             Ok(data) => data,
             Err(e) => {
                 // DHT 返回 Not Found 是正常情况 (没信)
@@ -164,7 +170,7 @@ impl SignalDropFlavor {
 
         // 3. 解密 (Onion Open)
         let my_secret_bytes = self.my_static_secret.to_bytes();
-        
+
         // OnionCrypto::open 会：
         //   a. 解析 Ephemeral Public Key
         //   b. 进行 ECDH
@@ -172,14 +178,17 @@ impl SignalDropFlavor {
         let plaintext = match OnionCrypto::open(&encrypted_data, &my_secret_bytes) {
             Ok(pt) => pt,
             Err(e) => {
-                warn!("SignalDrop: Decryption failed. Message meant for someone else? Error: {}", e);
+                warn!(
+                    "SignalDrop: Decryption failed. Message meant for someone else? Error: {}",
+                    e
+                );
                 return Ok(None);
             }
         };
 
         // 4. 反序列化与业务验证
-        let payload: DropPayload = bincode::deserialize(&plaintext)
-            .context("Invalid payload format")?;
+        let payload: DropPayload =
+            bincode::deserialize(&plaintext).context("Invalid payload format")?;
 
         // 验证发送者身份
         // 这一步至关重要：防止中间人虽然无法解密，但重放了其他人的包
@@ -192,7 +201,9 @@ impl SignalDropFlavor {
 
         // 验证时间戳 (防止重放旧消息)
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        if payload.timestamp > now + 300 || now.saturating_sub(payload.timestamp) > RECORD_TTL as u64 {
+        if payload.timestamp > now + 300
+            || now.saturating_sub(payload.timestamp) > RECORD_TTL as u64
+        {
             warn!("SignalDrop: Message expired or timestamp invalid.");
             return Ok(None);
         }
@@ -202,22 +213,23 @@ impl SignalDropFlavor {
     }
 
     /// 核心算法：基于时间周期的确定性域名派生
-    /// 
+    ///
     /// 算法：`Hex( Blake3_Keyed( Key=SharedSecret, Data="DROP_V1" + DayIndex ) )`
     /// 结果是一个 64 字符的 Hex 字符串，作为 KNS 的 SecurityDomain ID。
     fn derive_daily_domain_id(&self, shared_secret: &[u8]) -> String {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let day_index = now / 86400; // 每天轮换一次地址
-        
+
         // 使用 Keyed Hash 确保只有持有 SharedSecret 的人能推导出 ID
-        let mut hasher = blake3::Hasher::new_keyed(
-            &blake3::hash(shared_secret).into()
-        );
-        
+        let mut hasher = blake3::Hasher::new_keyed(&blake3::hash(shared_secret).into());
+
         hasher.update(DROP_PROTOCOL_PREFIX.as_bytes());
         hasher.update(b"_");
         hasher.update(&day_index.to_be_bytes());
-        
+
         let hash = hasher.finalize();
         hex::encode(hash.as_bytes())
     }
@@ -239,4 +251,9 @@ impl Flavor for SignalDropFlavor {
 
     fn on_connection_open(&self, _peer: SocketAddr) {}
     fn on_connection_close(&self, _peer: SocketAddr) {}
+}
+impl std::fmt::Debug for SignalDropFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignalDropFlavor").finish_non_exhaustive()
+    }
 }

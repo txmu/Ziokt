@@ -140,3 +140,9 @@ impl AclManager {
         }
     }
 }
+
+impl std::fmt::Debug for AclManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AclManager").finish_non_exhaustive()
+    }
+}

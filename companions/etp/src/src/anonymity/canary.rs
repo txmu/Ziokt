@@ -1,16 +1,16 @@
 // etp-core/src/anonymity/canary.rs
 
-use std::sync::Arc;
-use std::collections::{HashSet, HashMap};
-use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use parking_lot::RwLock;
-use log::{warn, error, info, debug, trace};
-use anyhow::{Result, anyhow, Context};
-use rand::{Rng, RngCore, thread_rng};
+use anyhow::{anyhow, Context, Result};
 use blake3;
+use log::{debug, error, info, trace, warn};
+use parking_lot::RwLock;
+use rand::{thread_rng, Rng, RngCore};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use crate::plugin::{Interceptor, InterceptorContext, CapabilityProvider};
+use crate::plugin::{CapabilityProvider, Interceptor, InterceptorContext};
 use crate::transport::injection::AclManager;
 use crate::NodeID;
 
@@ -47,6 +47,7 @@ pub enum CanaryMode {
 }
 
 /// 违规记录追踪
+#[derive(Debug)]
 struct ViolationTracker {
     count: usize,
     last_violation: Instant,
@@ -59,11 +60,11 @@ struct ViolationTracker {
 pub struct CanaryInterceptor {
     /// 运行模式
     mode: CanaryMode,
-    
+
     /// 陷阱 Stream ID 列表
     /// 任何尝试向这些 ID 发送数据的行为都视为敌对探测
     trap_streams: RwLock<HashSet<u32>>,
-    
+
     /// 蜜罐 Token (Honeytoken)
     /// 预埋在内存中的敏感数据标记。如果在流量中发现此序列，意味着内存发生了泄漏 (Heartbleed-like)。
     honey_token: Vec<u8>,
@@ -74,14 +75,14 @@ pub struct CanaryInterceptor {
 
     /// 全局 ACL 管理器引用 (用于执行封禁)
     acl: Arc<AclManager>,
-    
+
     /// 统计指标
     stats_intercepted: AtomicUsize,
 }
 
 impl CanaryInterceptor {
     /// 创建新的金丝雀拦截器
-    /// 
+    ///
     /// # Arguments
     /// * `acl` - 全局 ACL 管理器
     /// * `identity_seed` - 可选的身份种子。
@@ -90,14 +91,14 @@ impl CanaryInterceptor {
     pub fn new(acl: Arc<AclManager>, identity_seed: Option<&[u8]>) -> Self {
         let mut traps = HashSet::new();
         // 注册常见漏洞端口作为陷阱 Stream ID，诱捕习惯性扫描
-        traps.insert(0);    // Reserved
-        traps.insert(21);   // FTP
-        traps.insert(22);   // SSH
-        traps.insert(23);   // Telnet
-        traps.insert(25);   // SMTP
-        traps.insert(53);   // DNS (TCP)
-        traps.insert(80);   // HTTP
-        traps.insert(443);  // HTTPS
+        traps.insert(0); // Reserved
+        traps.insert(21); // FTP
+        traps.insert(22); // SSH
+        traps.insert(23); // Telnet
+        traps.insert(25); // SMTP
+        traps.insert(53); // DNS (TCP)
+        traps.insert(80); // HTTP
+        traps.insert(443); // HTTPS
         traps.insert(3306); // MySQL
         traps.insert(3389); // RDP
         traps.insert(8080); // Alt HTTP
@@ -110,9 +111,11 @@ impl CanaryInterceptor {
                 hasher.update(seed);
                 let mut token = vec![0u8; TOKEN_LEN];
                 token.copy_from_slice(hasher.finalize().as_bytes());
-                info!("Canary: Initialized in IDENTITY-BOUND mode. Token is persistent for this key.");
+                info!(
+                    "Canary: Initialized in IDENTITY-BOUND mode. Token is persistent for this key."
+                );
                 (CanaryMode::IdentityBound, token)
-            },
+            }
             None => {
                 // Ephemeral: 完全随机
                 let mut rng = thread_rng();
@@ -144,14 +147,14 @@ impl CanaryInterceptor {
     }
 
     /// 执行熔断与反击操作
-    /// 
+    ///
     /// 策略：
     /// 1. 记录违规。
     /// 2. 实施时间陷阱 (Tarpit)，拖慢攻击者节奏。
     /// 3. 如果达到阈值，通过 ACL 永久封禁。
     async fn engage_countermeasures(&self, reason: &str, severity: u8) {
         self.stats_intercepted.fetch_add(1, Ordering::Relaxed);
-        
+
         // 1. 计算延迟 (Tarpit)
         // 随机化延迟以防止攻击者通过时间侧信道分析防御逻辑
         let mut rng = thread_rng();
@@ -159,7 +162,10 @@ impl CanaryInterceptor {
         let jitter = rng.gen_range(0..500);
         let delay = (base_delay + jitter).min(TARPIT_MAX_MS);
 
-        warn!("🚨 SECURITY ALERT: {}. Engaging Tarpit for {}ms.", reason, delay);
+        warn!(
+            "🚨 SECURITY ALERT: {}. Engaging Tarpit for {}ms.",
+            reason, delay
+        );
 
         // 2. 执行延迟 (阻塞当前 Task，但不阻塞整个 Runtime)
         // 这会消耗攻击者的连接槽位和超时时间
@@ -170,7 +176,7 @@ impl CanaryInterceptor {
         // 调用者或上层 Session 会处理连接断开。
         // 如果能获取到 NodeID (通过上下文扩展)，应立即调用:
         // self.acl.block_node(node_id);
-        
+
         // 模拟反击效果：返回错误，切断连接
         error!("Canary: Countermeasures executed. Terminating connection flow.");
     }
@@ -179,7 +185,10 @@ impl CanaryInterceptor {
     fn scan_for_anomalies(&self, data: &[u8]) -> Option<&'static str> {
         // 1. 检查 Honeytoken (O(N) 搜索)
         // 这是最高优先级的致命错误，意味着内存泄露
-        if data.windows(self.honey_token.len()).any(|w| w == self.honey_token) {
+        if data
+            .windows(self.honey_token.len())
+            .any(|w| w == self.honey_token)
+        {
             return Some("HONEYTOKEN LEAK DETECTED");
         }
 
@@ -197,7 +206,9 @@ impl CanaryInterceptor {
 }
 
 impl CapabilityProvider for CanaryInterceptor {
-    fn capability_id(&self) -> String { "etp.security.canary.v2".into() }
+    fn capability_id(&self) -> String {
+        "etp.security.canary.v2".into()
+    }
 }
 
 impl Interceptor for CanaryInterceptor {
@@ -212,14 +223,16 @@ impl Interceptor for CanaryInterceptor {
                 // 因为 Interceptor trait 是同步的。为了不阻塞线程，我们 spawn。
                 // 但为了实施 Tarpit，我们需要当前线程等待。
                 // 折中方案：同步 sleep 一小段时间，然后返回 Error。
-                
+
                 let reason = format!("Intrusion detected on Trap Stream {}", ctx.stream_id);
                 warn!("{}", reason);
-                
+
                 // 同步 Tarpit (轻量级，防止阻塞 reactor 太久)
                 std::thread::sleep(Duration::from_millis(1000));
-                
-                return Err(anyhow!("Connection Refused by Security Policy (Code: Canary-Trap)"));
+
+                return Err(anyhow!(
+                    "Connection Refused by Security Policy (Code: Canary-Trap)"
+                ));
             }
         }
 
@@ -227,14 +240,14 @@ impl Interceptor for CanaryInterceptor {
         if let Some(violation) = self.scan_for_anomalies(&data) {
             let reason = format!("Ingress Integrity Violation: {}", violation);
             error!("{}", reason);
-            
+
             // 严重违规：Honeytoken 泄露意味着对方在重放我们泄露的内存，或者这就是泄露源
             if violation.contains("HONEYTOKEN") {
                 // 极度危险，强制延迟并报错
                 std::thread::sleep(Duration::from_millis(2000));
                 return Err(anyhow!("CRITICAL SECURITY FAULT: MEMORY LEAK REPLAY"));
             }
-            
+
             return Err(anyhow!("Security Violation: Malicious Payload"));
         }
 
@@ -244,11 +257,16 @@ impl Interceptor for CanaryInterceptor {
     fn on_egress(&self, _ctx: &InterceptorContext, data: Vec<u8>) -> Result<Option<Vec<u8>>> {
         // 出站 DLP (Data Loss Prevention)
         // 防止我们自己因为 Bug (如 Heartbleed 类漏洞) 意外将内存中的 Token 发送出去
-        
+
         // 1. Honeytoken 检查
-        if data.windows(self.honey_token.len()).any(|window| window == self.honey_token) {
-            error!("🚨 DLP ALERT: Prevented outbound leak of HONEYTOKEN! Local memory compromised.");
-            
+        if data
+            .windows(self.honey_token.len())
+            .any(|window| window == self.honey_token)
+        {
+            error!(
+                "🚨 DLP ALERT: Prevented outbound leak of HONEYTOKEN! Local memory compromised."
+            );
+
             // 这是一个 "Panic-worthy" 的事件。说明本进程内存已失控。
             // 为了安全，我们拦截该包，并建议上层重启服务。
             return Err(anyhow!("Outbound Security Block: DLP Triggered"));
@@ -256,7 +274,7 @@ impl Interceptor for CanaryInterceptor {
 
         // 2. 敏感词过滤 (可选)
         // 可以在此添加私钥格式头部的检测 (e.g. "-----BEGIN PRIVATE KEY-----")
-        
+
         Ok(Some(data))
     }
 }
@@ -268,7 +286,7 @@ impl Interceptor for CanaryInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     // Mock ACL for testing
     fn mock_acl() -> Arc<AclManager> {
         Arc::new(AclManager::new(false))
@@ -279,8 +297,11 @@ mod tests {
         let acl = mock_acl();
         let c1 = CanaryInterceptor::new(acl.clone(), None);
         let c2 = CanaryInterceptor::new(acl.clone(), None);
-        
-        assert_ne!(c1.honey_token, c2.honey_token, "Ephemeral tokens must be unique");
+
+        assert_ne!(
+            c1.honey_token, c2.honey_token,
+            "Ephemeral tokens must be unique"
+        );
         assert_eq!(c1.mode, CanaryMode::Ephemeral);
     }
 
@@ -290,16 +311,22 @@ mod tests {
         let seed = b"my_secret_node_key";
         let c1 = CanaryInterceptor::new(acl.clone(), Some(seed));
         let c2 = CanaryInterceptor::new(acl.clone(), Some(seed));
-        
-        assert_eq!(c1.honey_token, c2.honey_token, "Identity bound tokens must be deterministic");
+
+        assert_eq!(
+            c1.honey_token, c2.honey_token,
+            "Identity bound tokens must be deterministic"
+        );
         assert_eq!(c1.mode, CanaryMode::IdentityBound);
     }
 
     #[test]
     fn test_trap_stream_detection() {
         let canary = CanaryInterceptor::new(mock_acl(), None);
-        let ctx = InterceptorContext { stream_id: 22, is_handshake: false }; // SSH port
-        
+        let ctx = InterceptorContext {
+            stream_id: 22,
+            is_handshake: false,
+        }; // SSH port
+
         let res = canary.on_ingress(&ctx, vec![0x00]);
         assert!(res.is_err(), "Should block trap stream 22");
     }
@@ -308,23 +335,29 @@ mod tests {
     fn test_dlp_protection() {
         let canary = CanaryInterceptor::new(mock_acl(), None);
         let token = canary.get_token_for_seeding();
-        
+
         // Construct leaking packet
         let mut leak_packet = b"header_data_".to_vec();
         leak_packet.extend_from_slice(&token);
         leak_packet.extend_from_slice(b"_footer");
 
-        let ctx = InterceptorContext { stream_id: 1, is_handshake: false };
+        let ctx = InterceptorContext {
+            stream_id: 1,
+            is_handshake: false,
+        };
         let res = canary.on_egress(&ctx, leak_packet);
-        
+
         assert!(res.is_err(), "Should block outbound honeytoken leak");
     }
 
     #[test]
     fn test_anomaly_detection() {
         let canary = CanaryInterceptor::new(mock_acl(), None);
-        let ctx = InterceptorContext { stream_id: 1, is_handshake: false };
-        
+        let ctx = InterceptorContext {
+            stream_id: 1,
+            is_handshake: false,
+        };
+
         // Test NOP Sled
         let malicious = b"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90_shellcode".to_vec();
         let res = canary.on_ingress(&ctx, malicious);

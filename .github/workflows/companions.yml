@@ -75,6 +75,6 @@ jobs:
             cargo test --locked --no-default-features --lib
             cargo check --locked --no-default-features --example ziokt_gateway
           else
-            cargo test --locked --features tc16-tcc,dsl-runtime --lib
-            cargo check --locked --features tc16-tcc,dsl-runtime --example ziokt_gateway
+            cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver --lib
+            cargo check --locked --features tc16-tcc,dsl-runtime,ultrafileserver --example ziokt_gateway
           fi

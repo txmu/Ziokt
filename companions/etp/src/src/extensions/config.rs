@@ -147,12 +147,9 @@ impl ConfigProvider for EnsProvider {
                         thread::sleep(Duration::from_millis(500 * attempts));
                         continue;
                     } else {
+                        let status = r.status();
                         let err_msg = r.text().unwrap_or_default();
-                        return Err(anyhow!(
-                            "ENS Resolution Failed ({}): {}",
-                            r.status(),
-                            err_msg
-                        ));
+                        return Err(anyhow!("ENS Resolution Failed ({}): {}", status, err_msg));
                     }
                 }
                 Err(e) => {

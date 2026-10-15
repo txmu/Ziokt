@@ -1,17 +1,18 @@
+use anyhow::Result;
 // etp-core/src/plugin/flavors/dsl_executor.rs
 
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
-use log::{info, warn, error, debug};
-use serde::{Serialize, Deserialize};
+use log::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::time::timeout;
-use serde_json::Value;
 
-use crate::plugin::{Flavor, FlavorContext, CapabilityProvider};
 use crate::extensions::dsl::DslRegistry;
+use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
 
 // --- 协议定义 ---
 const DSL_PROTO_VER: u8 = 0x01;
@@ -21,7 +22,7 @@ const CMD_ERROR: u8 = 0xFF;
 
 // --- 生产配置 ---
 const MAX_CONCURRENT_SCRIPTS: usize = 16; // 限制同时执行的脚本数量，防止耗尽线程池
-const SCRIPT_TIMEOUT_MS: u64 = 5000;      // 5秒超时
+const SCRIPT_TIMEOUT_MS: u64 = 5000; // 5秒超时
 const DEFAULT_GAS_LIMIT: u64 = 1_000_000; // 1M Gas
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,8 +43,8 @@ pub struct DslExecutorFlavor {
 
 impl DslExecutorFlavor {
     pub fn new(registry: Arc<DslRegistry>, tx: mpsc::Sender<(SocketAddr, Vec<u8>)>) -> Arc<Self> {
-        Arc::new(Self { 
-            registry, 
+        Arc::new(Self {
+            registry,
             network_tx: tx,
             concurrency_limiter: Arc::new(Semaphore::new(MAX_CONCURRENT_SCRIPTS)),
         })
@@ -55,13 +56,13 @@ impl DslExecutorFlavor {
             Ok(output) => {
                 packet.push(CMD_RESULT);
                 packet.extend(output.into_bytes());
-            },
+            }
             Err(e) => {
                 packet.push(CMD_ERROR);
                 packet.extend(e.to_string().into_bytes());
             }
         }
-        
+
         if let Err(_) = self.network_tx.send((target, packet)).await {
             debug!("DSL: Failed to send response to {}", target);
         }
@@ -69,16 +70,24 @@ impl DslExecutorFlavor {
 }
 
 impl CapabilityProvider for DslExecutorFlavor {
-    fn capability_id(&self) -> String { "etp.flavor.dsl_exec.v2".into() }
+    fn capability_id(&self) -> String {
+        "etp.flavor.dsl_exec.v2".into()
+    }
 }
 
 impl Flavor for DslExecutorFlavor {
-    fn priority(&self) -> u8 { 120 }
+    fn priority(&self) -> u8 {
+        120
+    }
 
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
         // 1. 基础协议检查
-        if data.len() < 2 || data[0] != DSL_PROTO_VER { return false; }
-        if data[1] != CMD_EXEC { return false; }
+        if data.len() < 2 || data[0] != DSL_PROTO_VER {
+            return false;
+        }
+        if data[1] != CMD_EXEC {
+            return false;
+        }
 
         // 2. 反序列化请求
         let req: ExecRequest = match bincode::deserialize(&data[2..]) {
@@ -86,7 +95,7 @@ impl Flavor for DslExecutorFlavor {
             Err(e) => {
                 warn!("DSL: Malformed request from {}: {}", ctx.src_addr, e);
                 // 格式错误不回包，防止反射攻击
-                return true; 
+                return true;
             }
         };
 
@@ -98,7 +107,7 @@ impl Flavor for DslExecutorFlavor {
                 // 构造错误包
                 let msg = format!("Unknown DSL: {}", req.dsl_id);
                 let resp = vec![DSL_PROTO_VER, CMD_ERROR, msg.len() as u8]; // Simplified error frame
-                // ... 发送逻辑 ...
+                                                                            // ... 发送逻辑 ...
             });
             return true;
         }
@@ -108,8 +117,8 @@ impl Flavor for DslExecutorFlavor {
         let registry = self.registry.clone();
         let limiter = self.concurrency_limiter.clone();
         let myself = self.clone_ref(); // 需要实现 Helper 或手动 Arc Clone
-        // 由于 Flavor trait 是 &self，我们假设 Flavor 自身在外部被 Arc 包裹，
-        // 但在这里我们只能 clone 内部字段来构造闭包
+                                       // 由于 Flavor trait 是 &self，我们假设 Flavor 自身在外部被 Arc 包裹，
+                                       // 但在这里我们只能 clone 内部字段来构造闭包
         let network_tx = self.network_tx.clone();
         let src_addr = ctx.src_addr;
 
@@ -122,22 +131,29 @@ impl Flavor for DslExecutorFlavor {
                 _ => {
                     warn!("DSL: Server busy, dropping request from {}", src_addr);
                     // Server Busy Error Response
-                    let resp = vec![DSL_PROTO_VER, CMD_ERROR]; 
+                    let resp = vec![DSL_PROTO_VER, CMD_ERROR];
                     let _ = network_tx.send((src_addr, resp)).await;
                     return;
                 }
             };
 
-            info!("DSL: Scheduling execution for {} from {}", req.dsl_id, src_addr);
+            info!(
+                "DSL: Scheduling execution for {} from {}",
+                req.dsl_id, src_addr
+            );
 
             // B. 卸载到 Blocking Thread (核心生产级要求)
             // 无论是声明式还是图灵完备，DSL 解析和执行都是 CPU 密集型的。
             // 绝对不能在 Tokio Reactor 线程中运行。
-            let gas = req.gas_limit.unwrap_or(DEFAULT_GAS_LIMIT).min(DEFAULT_GAS_LIMIT);
-            
+            let gas = req
+                .gas_limit
+                .unwrap_or(DEFAULT_GAS_LIMIT)
+                .min(DEFAULT_GAS_LIMIT);
+
             let exec_result = tokio::task::spawn_blocking(move || {
                 registry.run_blocking(&req.dsl_id, &req.script, &req.context, gas)
-            }).await;
+            })
+            .await;
 
             // C. 处理结果 (JoinError vs ExecutionError)
             let final_result = match exec_result {
@@ -155,14 +171,14 @@ impl Flavor for DslExecutorFlavor {
                 Ok(output) => {
                     packet.push(CMD_RESULT);
                     packet.extend(output.into_bytes());
-                },
+                }
                 Err(e) => {
                     packet.push(CMD_ERROR);
                     packet.extend(e.to_string().into_bytes());
                 }
             }
             let _ = network_tx.send((src_addr, packet)).await;
-            
+
             // _permit Drop 这里会自动释放信号量
         });
 
@@ -182,5 +198,10 @@ impl DslExecutorFlavor {
             network_tx: self.network_tx.clone(),
             concurrency_limiter: self.concurrency_limiter.clone(),
         }
+    }
+}
+impl std::fmt::Debug for DslExecutorFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DslExecutorFlavor").finish_non_exhaustive()
     }
 }

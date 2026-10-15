@@ -1,15 +1,15 @@
 // etp-core/src/anonymity/isolation.rs
 
+use anyhow::{anyhow, Result};
+use log::{info, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::{Result, anyhow};
-use log::{info, warn};
 
+use crate::crypto::noise::KeyPair;
 use crate::network::node::{EtpEngine, EtpHandle, NodeConfig};
 use crate::plugin::PluginRegistry;
-use crate::crypto::noise::KeyPair;
 
 /// 安全等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,12 +51,15 @@ impl IsolationManager {
     /// 2. 数据库路径 (Storage)
     /// 3. 网络配置 (Config)
     pub async fn spawn_domain(
-        &self, 
-        name: &str, 
-        level: SecurityLevel, 
-        mut config: NodeConfig
+        &self,
+        name: &str,
+        level: SecurityLevel,
+        mut config: NodeConfig,
     ) -> Result<EtpHandle> {
-        info!("Isolation: Spawning Security Domain '{}' [{:?}]", name, level);
+        info!(
+            "Isolation: Spawning Security Domain '{}' [{:?}]",
+            name, level
+        );
 
         // 1. 路径隔离
         let domain_path = self.base_path.join(name);
@@ -66,7 +69,7 @@ impl IsolationManager {
         let identity_path = domain_path.join("identity.json");
         let keys = if identity_path.exists() {
             // Load existing (implementation omitted for brevity)
-            KeyPair::generate() 
+            KeyPair::generate()
         } else {
             let k = KeyPair::generate();
             // Save k...
@@ -81,11 +84,11 @@ impl IsolationManager {
                 config.anonymity.enable_cover_traffic = true;
                 config.security.handshake_zero_tolerance = true;
                 config.security.strict_rekey_interval_secs = 60; // 1分钟换一次密钥
-            },
+            }
             SecurityLevel::Untrusted => {
                 // 不受信任模式：可能使用一次性身份
                 config.security.allow_dynamic_side_channels = false;
-            },
+            }
             _ => {}
         }
 
@@ -93,10 +96,11 @@ impl IsolationManager {
         let registry = Arc::new(PluginRegistry::new());
         // 这里应根据 level 注册不同的 Flavor
         // e.g. Vault 只有 Chat，没有 FileShare
-        
+
         let (engine, handle, _) = EtpEngine::new(config, registry).await?;
-        
+
         // Spawn engine in background
+        let name = name.to_owned();
         tokio::spawn(async move {
             if let Err(e) = engine.run().await {
                 warn!("Domain '{}' crashed: {}", name, e);
@@ -110,21 +114,26 @@ impl IsolationManager {
             handle: handle.clone(),
             storage_root: domain_path,
         };
-        
+
         self.domains.write().await.insert(name.to_string(), domain);
-        
+
         Ok(handle)
     }
 
     /// 获取特定域的句柄
     pub async fn get_handle(&self, name: &str) -> Option<EtpHandle> {
-        self.domains.read().await.get(name).map(|d| d.handle.clone())
+        self.domains
+            .read()
+            .await
+            .get(name)
+            .map(|d| d.handle.clone())
     }
 
     /// 紧急自毁：清除指定等级的所有域
     pub async fn panic_nuke(&self, target_level: SecurityLevel) {
         let mut map = self.domains.write().await;
-        let keys: Vec<String> = map.iter()
+        let keys: Vec<String> = map
+            .iter()
             .filter(|(_, d)| d.level == target_level)
             .map(|(k, _)| k.clone())
             .collect();

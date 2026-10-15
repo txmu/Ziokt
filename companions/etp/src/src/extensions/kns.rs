@@ -592,7 +592,7 @@ impl KnsKernel {
     ) -> Vec<Result<Vec<u8>>> {
         let mut futures = Vec::new();
         for path in paths {
-            futures.push(self.resolve(domain_id, &path, priority));
+            futures.push(async move { self.resolve(domain_id, &path, priority).await });
         }
         join_all(futures).await
     }

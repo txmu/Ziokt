@@ -43,8 +43,6 @@ async fn socks5_handshake(
         .set_nodelay(true)
         .context("Failed to set TCP_NODELAY")?;
     // 设置缓冲区大小，优化吞吐量
-    let _ = stream.set_recv_buffer_size(64 * 1024);
-    let _ = stream.set_send_buffer_size(64 * 1024);
 
     let mut stream = stream; // pin
 

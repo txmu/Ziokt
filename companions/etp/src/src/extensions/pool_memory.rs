@@ -88,7 +88,7 @@ pub struct VirtualMemory {
     // 这里简化模拟，直接存 Vec
     pub pages: RwLock<Vec<Option<Page>>>,
     pub page_size: usize,
-    pub key: chacha20poly1305::Key, // 加密密钥
+    key: chacha20poly1305::Key, // 加密密钥
 }
 
 impl VirtualMemory {
@@ -172,24 +172,37 @@ impl VirtualMemory {
     pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
         let mut decoder = ZlibDecoder::new(data);
         let mut decoded = Vec::new();
-        decoder.read_to_end(&mut decoded)?;
+        decoder
+            .take(16 * 1024 * 1024 + 1)
+            .read_to_end(&mut decoded)?;
+        anyhow::ensure!(decoded.len() <= 16 * 1024 * 1024, "decompression budget");
         Ok(decoded)
     }
 
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
+        anyhow::ensure!(data.len() <= 16 * 1024 * 1024, "memory encryption budget");
         let cipher = ChaCha20Poly1305::new(&self.key);
-        let nonce = Nonce::from_slice(&[0u8; 12]); // Fixed nonce for simulation only!
-        cipher
-            .encrypt(nonce, data)
-            .map_err(|e| anyhow!("Encryption error: {}", e))
+        let mut nonce = [0; 12];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        let mut out = nonce.to_vec();
+        out.extend(
+            cipher
+                .encrypt((&nonce).into(), data)
+                .map_err(|_| anyhow!("memory encryption rejected"))?,
+        );
+        Ok(out)
     }
-
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let cipher = ChaCha20Poly1305::new(&self.key);
-        let nonce = Nonce::from_slice(&[0u8; 12]);
-        cipher
-            .decrypt(nonce, data)
-            .map_err(|e| anyhow!("Decryption error: {}", e))
+        anyhow::ensure!(
+            (28..=16 * 1024 * 1024 + 28).contains(&data.len()),
+            "memory ciphertext budget"
+        );
+        ChaCha20Poly1305::new(&self.key)
+            .decrypt(
+                chacha20poly1305::Nonce::from_slice(&data[..12]),
+                &data[12..],
+            )
+            .map_err(|_| anyhow!("memory authentication rejected"))
     }
 }
 

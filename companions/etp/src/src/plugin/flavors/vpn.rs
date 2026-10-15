@@ -1,23 +1,23 @@
 // etp-core/src/plugin/flavors/vpn.rs
 
-use std::sync::Arc;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use tokio::sync::mpsc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use anyhow::{anyhow, Result};
+use log::{debug, error, info, trace, warn};
 use parking_lot::RwLock; // 使用高性能读写锁
-use anyhow::{Result, anyhow};
-use log::{info, warn, error, debug, trace};
 use rand::Rng;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 
 // 引入依赖
 #[cfg(feature = "vpn")]
-use tun::platform::Device as TunDevice;
+use tun::AsyncDevice as TunDevice;
 #[cfg(feature = "vpn")]
 use tun::Configuration;
 
-use crate::plugin::{Flavor, FlavorContext, CapabilityProvider};
 use crate::platform::PlatformCapabilities;
+use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
 
 /// VPN 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,10 +52,10 @@ impl TrafficMorpher {
         // 策略：模拟 I-Frame (大包) 和 P-Frame (小包) 的混合
         // 如果包接近 MTU，填满它 (像 I-Frame 分片)
         // 如果包很小 (如 TCP ACK)，随机填充一点，掩盖它是 ACK 的事实
-        
+
         let target_len = if current_len > 1000 {
             // 可能是大数据传输，填充至 MTU 附近
-            mtu - rng.gen_range(0..20) 
+            mtu - rng.gen_range(0..20)
         } else if current_len < 100 {
             // 小包，填充到 300-500 字节范围，模拟音频或控制帧
             rng.gen_range(300..500)
@@ -82,21 +82,29 @@ impl TrafficMorpher {
         // 解析 IP 头获取真实长度
         // IPv4: Version (4 bits)
         let version = data[0] >> 4;
-        
+
         let actual_len = match version {
             4 => {
                 // IPv4 Total Length is at bytes 2-3
                 let len = u16::from_be_bytes([data[2], data[3]]) as usize;
-                if len <= data.len() && len > 0 { len } else { data.len() }
-            },
+                if len <= data.len() && len > 0 {
+                    len
+                } else {
+                    data.len()
+                }
+            }
             6 => {
                 // IPv6 Payload Length is at bytes 4-5
                 // Total length = 40 (Header) + Payload Length
                 let payload_len = u16::from_be_bytes([data[4], data[5]]) as usize;
                 let total = payload_len + 40;
-                if total <= data.len() { total } else { data.len() }
-            },
-            _ => data.len() // 非 IP 包，无法判断，假设全部有效
+                if total <= data.len() {
+                    total
+                } else {
+                    data.len()
+                }
+            }
+            _ => data.len(), // 非 IP 包，无法判断，假设全部有效
         };
 
         &data[..actual_len]
@@ -167,9 +175,9 @@ impl VpnFlavor {
 
     #[cfg(feature = "vpn")]
     fn init_tun_device(
-        config: &VpnConfig, 
+        config: &VpnConfig,
         net_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
-        gateway_store: Arc<RwLock<Option<SocketAddr>>>
+        gateway_store: Arc<RwLock<Option<SocketAddr>>>,
     ) -> VpnState {
         let mut tun_conf = Configuration::default();
         tun_conf
@@ -180,23 +188,27 @@ impl VpnFlavor {
             .up();
 
         #[cfg(target_os = "linux")]
-        tun_conf.platform(|cfg| { cfg.packet_information(false); });
+        tun_conf.platform(|cfg| {
+            cfg.packet_information(false);
+        });
 
         match tun::create_as_async(&tun_conf) {
             Ok(dev) => {
                 info!("VPN Flavor: TUN device created (IP: {})", config.virtual_ip);
                 let (mut reader, writer) = tokio::io::split(dev);
                 let mtu = config.mtu as usize;
-                
+
                 // 启动 TUN 读取循环 (TUN -> ETP)
                 tokio::spawn(async move {
                     let mut buf = vec![0u8; 4096]; // 足够大以容纳 MTU + Padding
-                    
+
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(n) => {
-                                if n == 0 { break; }
-                                
+                                if n == 0 {
+                                    break;
+                                }
+
                                 // 1. 检查是否有有效的网关
                                 let target_peer = {
                                     let gw = gateway_store.read();
@@ -205,16 +217,16 @@ impl VpnFlavor {
 
                                 if let Some(peer) = target_peer {
                                     let mut packet = buf[..n].to_vec();
-                                    
+
                                     // 2. 应用 Traffic Morphing (混淆流量特征)
                                     TrafficMorpher::morph(&mut packet, mtu);
-                                    
+
                                     // 3. 发送给 ETP 引擎
                                     // VPN 流量封装为 Stream 数据。接收端 Flavor 会解析。
                                     // 这里的 data 就是原始 IP 包 (经过 Morph)。
                                     if let Err(_) = net_tx.send((peer, packet)).await {
                                         warn!("VPN Flavor: Engine channel closed, stopping TUN reader");
-                                        break; 
+                                        break;
                                     }
                                 } else {
                                     // 如果没有网关，丢弃包（或暂存，但UDP丢弃更安全）
@@ -243,9 +255,9 @@ impl VpnFlavor {
 
     #[cfg(not(feature = "vpn"))]
     fn init_tun_device(
-        _config: &VpnConfig, 
+        _config: &VpnConfig,
         _net_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
-        _gw: Arc<RwLock<Option<SocketAddr>>>
+        _gw: Arc<RwLock<Option<SocketAddr>>>,
     ) -> VpnState {
         warn!("VPN feature not compiled in.");
         VpnState::Disabled
@@ -253,29 +265,35 @@ impl VpnFlavor {
 }
 
 impl CapabilityProvider for VpnFlavor {
-    fn capability_id(&self) -> String { "etp.flavor.vpn.v1".into() }
+    fn capability_id(&self) -> String {
+        "etp.flavor.vpn.v1".into()
+    }
 }
 
 impl Flavor for VpnFlavor {
-    fn priority(&self) -> u8 { 200 } // 高优先级，处理实时 IP 包
+    fn priority(&self) -> u8 {
+        200
+    } // 高优先级，处理实时 IP 包
 
     fn on_stream_data(&self, _ctx: FlavorContext, data: &[u8]) -> bool {
         match &self.state {
-            VpnState::Disabled => false, 
+            VpnState::Disabled => false,
             #[cfg(not(feature = "vpn"))]
             VpnState::ActiveStub => false,
             #[cfg(feature = "vpn")]
             VpnState::Active { tun_writer } => {
                 // 将接收到的 ETP 数据包写入 TUN 设备
-                
+
                 // 1. 去除混淆填充
                 let valid_data = TrafficMorpher::unmorph(data);
-                
-                if valid_data.is_empty() { return true; }
+
+                if valid_data.is_empty() {
+                    return true;
+                }
 
                 let writer = tun_writer.clone();
                 let packet = valid_data.to_vec();
-                
+
                 // 异步写入，避免阻塞协议栈
                 tokio::spawn(async move {
                     let mut lock = writer.lock().await;
@@ -283,7 +301,7 @@ impl Flavor for VpnFlavor {
                         error!("TUN write failed: {}", e);
                     }
                 });
-                
+
                 true // 已处理，拦截
             }
         }
@@ -307,5 +325,10 @@ impl Flavor for VpnFlavor {
             *gw = None;
             warn!("VPN Flavor: Default gateway lost!");
         }
+    }
+}
+impl std::fmt::Debug for VpnFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VpnFlavor").finish_non_exhaustive()
     }
 }

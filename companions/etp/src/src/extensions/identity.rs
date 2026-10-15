@@ -1,20 +1,21 @@
+use chacha20poly1305::aead::Aead;
 // etp-core/src/extensions/identity.rs
 
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use std::fmt::Debug;
-use anyhow::{Result, anyhow, Context};
-use serde::{Serialize, Deserialize};
-use zeroize::{Zeroize, ZeroizeOnDrop};
-use rand::{Rng, RngCore};
+use anyhow::{anyhow, Context, Result};
 use parking_lot::RwLock;
+use rand::{Rng, RngCore};
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // Crypto Primitives
-use ed25519_dalek::{SigningKey, VerifyingKey, Signer, Verifier, Signature};
-use x25519_dalek::{StaticSecret, PublicKey as XPublicKey};
+use blake3;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use blake3;
+use x25519_dalek::{PublicKey as XPublicKey, StaticSecret};
 
 use crate::NodeID;
 
@@ -25,46 +26,55 @@ use crate::NodeID;
 /// 匿名等级定义
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize)]
 pub enum AnonymityLevel {
-    None,           // 实名/基石
-    Pseudonymous,   // 假名 (长期 ID)
-    Group,          // 群体 (无法区分个体)
-    Deniable,       // 可否认 (无法证明是你说的)
-    Unlinkable,     // 不可关联 (每次都不一样)
-    Ghost,          // 幽灵 (内存级一次性)
+    None,         // 实名/基石
+    Pseudonymous, // 假名 (长期 ID)
+    Group,        // 群体 (无法区分个体)
+    Deniable,     // 可否认 (无法证明是你说的)
+    Unlinkable,   // 不可关联 (每次都不一样)
+    Ghost,        // 幽灵 (内存级一次性)
 }
 
 /// 身份类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdentityType {
-    Anchor, Avatar, Ghost, Hive, Citizen, Token, Proxy, Chameleon, Whisper, Fortress
+    Anchor,
+    Avatar,
+    Ghost,
+    Hive,
+    Citizen,
+    Token,
+    Proxy,
+    Chameleon,
+    Whisper,
+    Fortress,
 }
 
 /// ETP 身份核心特征
 pub trait EtpIdentity: Send + Sync + Debug {
     /// 获取身份类型
     fn identity_type(&self) -> IdentityType;
-    
+
     /// 获取匿名等级
     fn anonymity_level(&self) -> AnonymityLevel;
 
     /// 获取用于网络寻址的 ID (NodeID)
     fn node_id(&self) -> NodeID;
-    
+
     /// 获取公钥 (序列化字节流)
     fn public_key(&self) -> Vec<u8>;
-    
+
     /// 对数据签名 (用于 KNS 发布或握手)
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>>;
-    
+
     /// 验证签名
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool;
-    
+
     /// 身份是否过期
     fn expiration(&self) -> Option<SystemTime>;
-    
+
     /// 安全擦除私钥
     fn zeroize_secrets(&mut self);
-    
+
     /// 获取用于加密通信的 X25519 私钥 (可选)
     /// Ghost 等身份可能只支持加密不支持签名
     fn encryption_secret(&self) -> Option<StaticSecret>;
@@ -89,7 +99,7 @@ impl AnchorIdentity {
             created_at: SystemTime::now(),
         }
     }
-    
+
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
         Self {
             key: SigningKey::from_bytes(bytes),
@@ -99,40 +109,46 @@ impl AnchorIdentity {
 }
 
 impl EtpIdentity for AnchorIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Anchor }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::None }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Anchor
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::None
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(self.key.verifying_key().as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         self.key.verifying_key().to_bytes().to_vec()
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         Ok(self.key.sign(data).to_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         if let Ok(signature) = Signature::from_slice(sig) {
             return self.key.verifying_key().verify(data, &signature).is_ok();
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { None }
-    
+
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
+
     fn zeroize_secrets(&mut self) {
         // SigningKey 内部通常已经实现了 Zeroize，但我们这里无法直接调用内部字段的 zeroize
         // 实际上 ed25519-dalek 的 Keypair 处理较好。
         // 这里只是示意接口调用
     }
-    
+
     fn encryption_secret(&self) -> Option<StaticSecret> {
         // 将 Ed25519 转换为 X25519 (仅用于兼容，通常 Anchor 不直接用于 ECDH)
         // 为安全起见，Anchor 应该只用于签名
-        None 
+        None
     }
 }
 
@@ -152,7 +168,7 @@ impl AvatarIdentity {
             version: 1,
         }
     }
-    
+
     pub fn rotate(&self) {
         let mut guard = self.current_key.write();
         *guard = SigningKey::generate(&mut rand::thread_rng());
@@ -161,31 +177,45 @@ impl AvatarIdentity {
 }
 
 impl EtpIdentity for AvatarIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Avatar }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Pseudonymous }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Avatar
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Pseudonymous
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(self.current_key.read().verifying_key().as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         self.current_key.read().verifying_key().to_bytes().to_vec()
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         Ok(self.current_key.read().sign(data).to_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         if let Ok(signature) = Signature::from_slice(sig) {
-            return self.current_key.read().verifying_key().verify(data, &signature).is_ok();
+            return self
+                .current_key
+                .read()
+                .verifying_key()
+                .verify(data, &signature)
+                .is_ok();
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { None }
-    fn zeroize_secrets(&mut self) { /* handled by RwLock drop mostly */ }
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
+    fn zeroize_secrets(&mut self) { /* handled by RwLock drop mostly */
+    }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 3. Ghost Identity (幽灵) ---
@@ -205,38 +235,42 @@ impl GhostIdentity {
 }
 
 impl EtpIdentity for GhostIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Ghost }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Ghost }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Ghost
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Ghost
+    }
+
     fn node_id(&self) -> NodeID {
         // Ghost ID 是 Ephemeral Pubkey 的哈希
         let static_secret = StaticSecret::from(self.secret);
         let pubkey = XPublicKey::from(&static_secret);
         blake3::hash(pubkey.as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         let static_secret = StaticSecret::from(self.secret);
         let pubkey = XPublicKey::from(&static_secret);
         pubkey.as_bytes().to_vec()
     }
-    
+
     fn sign(&self, _data: &[u8]) -> Result<Vec<u8>> {
         Err(anyhow!("Ghost identity cannot sign messages"))
     }
-    
+
     fn verify(&self, _data: &[u8], _sig: &[u8]) -> bool {
         false // Ghost 无法提供签名验证
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { 
+
+    fn expiration(&self) -> Option<SystemTime> {
         Some(SystemTime::now()) // 立即过期
     }
-    
+
     fn zeroize_secrets(&mut self) {
         self.secret.zeroize();
     }
-    
+
     fn encryption_secret(&self) -> Option<StaticSecret> {
         Some(StaticSecret::from(self.secret))
     }
@@ -247,7 +281,7 @@ impl EtpIdentity for GhostIdentity {
 // 实际上这里存储的是部分私钥，verify 验证的是聚合签名
 #[derive(Debug)]
 pub struct HiveIdentity {
-    shard_key: SigningKey, // 当前节点的私钥分片
+    shard_key: SigningKey,      // 当前节点的私钥分片
     group_pubkey: VerifyingKey, // 群体公钥
     members: usize,
 }
@@ -255,8 +289,8 @@ pub struct HiveIdentity {
 impl HiveIdentity {
     pub fn new(group_pub_bytes: [u8; 32]) -> Result<Self> {
         let key = SigningKey::generate(&mut rand::thread_rng());
-        let group_pubkey = VerifyingKey::from_bytes(&group_pub_bytes)
-            .map_err(|_| anyhow!("Invalid group key"))?;
+        let group_pubkey =
+            VerifyingKey::from_bytes(&group_pub_bytes).map_err(|_| anyhow!("Invalid group key"))?;
         Ok(Self {
             shard_key: key,
             group_pubkey,
@@ -266,17 +300,21 @@ impl HiveIdentity {
 }
 
 impl EtpIdentity for HiveIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Hive }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Group }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Hive
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Group
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(self.group_pubkey.as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         self.group_pubkey.as_bytes().to_vec()
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         // 实际上这应该是一个多轮 MPC 交互过程
         // 这里我们返回部分签名 (Partial Signature)
@@ -286,7 +324,7 @@ impl EtpIdentity for HiveIdentity {
         out.extend_from_slice(&sig.to_bytes());
         Ok(out)
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         // 验证完整的群体签名
         if let Ok(signature) = Signature::from_slice(sig) {
@@ -294,10 +332,14 @@ impl EtpIdentity for HiveIdentity {
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { None }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
     fn zeroize_secrets(&mut self) {}
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 5. Citizen Identity (公民) ---
@@ -315,7 +357,7 @@ impl CitizenIdentity {
         let key = SigningKey::generate(&mut rand::thread_rng());
         let pub_bytes = key.verifying_key().as_bytes();
         let mut nonce = 0u64;
-        
+
         loop {
             let mut hasher = blake3::Hasher::new();
             hasher.update(pub_bytes);
@@ -325,30 +367,44 @@ impl CitizenIdentity {
                 break;
             }
             nonce += 1;
-            if nonce > 1_000_000 { break; } // Timeout for demo
+            if nonce > 1_000_000 {
+                break;
+            } // Timeout for demo
         }
-        
-        Self { key, nonce, difficulty }
+
+        Self {
+            key,
+            nonce,
+            difficulty,
+        }
     }
-    
+
     fn check_difficulty(hash: &[u8], diff: u8) -> bool {
         let mut zeros = 0;
         for &b in hash {
-            if b == 0 { zeros += 8; }
-            else { zeros += b.leading_zeros() as usize; break; }
+            if b == 0 {
+                zeros += 8;
+            } else {
+                zeros += b.leading_zeros() as usize;
+                break;
+            }
         }
         zeros >= diff as usize
     }
 }
 
 impl EtpIdentity for CitizenIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Citizen }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Pseudonymous }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Citizen
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Pseudonymous
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(self.key.verifying_key().as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         // 返回 PubKey + Nonce + Diff
         let mut buf = self.key.verifying_key().to_bytes().to_vec();
@@ -356,21 +412,25 @@ impl EtpIdentity for CitizenIdentity {
         buf.push(self.difficulty);
         buf
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         Ok(self.key.sign(data).to_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         if let Ok(s) = Signature::from_slice(sig) {
             return self.key.verifying_key().verify(data, &s).is_ok();
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { None }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
     fn zeroize_secrets(&mut self) {}
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 6. Token Identity (盲视) ---
@@ -378,7 +438,7 @@ impl EtpIdentity for CitizenIdentity {
 #[derive(Debug)]
 pub struct TokenIdentity {
     token_data: Vec<u8>,
-    issuer_sig: Vec<u8>, // 盲签名结果
+    issuer_sig: Vec<u8>,       // 盲签名结果
     ephemeral_key: SigningKey, // 用于本次会话的临时密钥
 }
 
@@ -393,13 +453,17 @@ impl TokenIdentity {
 }
 
 impl EtpIdentity for TokenIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Token }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Unlinkable }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Token
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Unlinkable
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(&self.token_data).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         // 展示 Token + IssuerSig 以证明合法性
         let mut buf = Vec::new();
@@ -408,12 +472,12 @@ impl EtpIdentity for TokenIdentity {
         buf.extend_from_slice(&self.issuer_sig);
         buf
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         // 使用临时密钥签名，证明持有该 Token
         Ok(self.ephemeral_key.sign(data).to_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         // 验证者需要先验证 Token 对 Issuer 的有效性，再验证 Sig 对 EphemeralKey 的有效性
         // 这里简化为验证 EphemeralKey
@@ -422,10 +486,14 @@ impl EtpIdentity for TokenIdentity {
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { Some(SystemTime::now() + Duration::from_secs(3600)) }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        Some(SystemTime::now() + Duration::from_secs(3600))
+    }
     fn zeroize_secrets(&mut self) {}
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 7. Proxy Identity (代理) ---
@@ -443,17 +511,17 @@ impl ProxyIdentity {
     pub fn new(master: &AnchorIdentity, scope: &str, ttl_sec: u64) -> Self {
         let sub = SigningKey::generate(&mut rand::thread_rng());
         let expire = SystemTime::now() + Duration::from_secs(ttl_sec);
-        
+
         // 构造委托书
         let mut doc = Vec::new();
         doc.extend_from_slice(sub.verifying_key().as_bytes());
         doc.extend_from_slice(scope.as_bytes());
         let exp_ts = expire.duration_since(UNIX_EPOCH).unwrap().as_secs();
         doc.extend_from_slice(&exp_ts.to_be_bytes());
-        
+
         let sig_bytes = master.sign(&doc).unwrap();
         let sig = Signature::from_slice(&sig_bytes).unwrap();
-        
+
         Self {
             sub_key: sub,
             master_pub: master.key.verifying_key(),
@@ -465,35 +533,43 @@ impl ProxyIdentity {
 }
 
 impl EtpIdentity for ProxyIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Proxy }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Pseudonymous }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Proxy
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Pseudonymous
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(self.sub_key.verifying_key().as_bytes()).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         // 返回 Proxy Bundle
         self.sub_key.verifying_key().as_bytes().to_vec()
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         if SystemTime::now() > self.expire {
             return Err(anyhow!("Proxy identity expired"));
         }
         Ok(self.sub_key.sign(data).to_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         if let Ok(s) = Signature::from_slice(sig) {
             return self.sub_key.verifying_key().verify(data, &s).is_ok();
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { Some(self.expire) }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        Some(self.expire)
+    }
     fn zeroize_secrets(&mut self) {}
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 8. Chameleon Identity (拟态) ---
@@ -512,33 +588,51 @@ impl ChameleonIdentity {
 }
 
 impl EtpIdentity for ChameleonIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Chameleon }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Unlinkable }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Chameleon
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Unlinkable
+    }
+
     fn node_id(&self) -> NodeID {
         // ID 是动态变化的
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.seed);
-        hasher.update(&SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().to_be_bytes());
+        hasher.update(
+            &SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_be_bytes(),
+        );
         hasher.finalize().into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         // 拟态身份不公开公钥，而是返回随机噪声
         let mut noise = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut noise);
         noise
     }
-    
+
     fn sign(&self, _data: &[u8]) -> Result<Vec<u8>> {
         // 拟态签名通常是隐写的，这里返回空
         Ok(vec![])
     }
-    
-    fn verify(&self, _data: &[u8], _sig: &[u8]) -> bool { false }
-    fn expiration(&self) -> Option<SystemTime> { None }
-    fn zeroize_secrets(&mut self) { self.seed.zeroize(); }
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+
+    fn verify(&self, _data: &[u8], _sig: &[u8]) -> bool {
+        false
+    }
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
+    fn zeroize_secrets(&mut self) {
+        self.seed.zeroize();
+    }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 9. Whisper Identity (否认) ---
@@ -549,31 +643,39 @@ pub struct WhisperIdentity {
 }
 
 impl WhisperIdentity {
-    pub fn new(secret: [u8; 32]) -> Self { Self { shared_secret: secret } }
+    pub fn new(secret: [u8; 32]) -> Self {
+        Self {
+            shared_secret: secret,
+        }
+    }
 }
 
 impl EtpIdentity for WhisperIdentity {
-    fn identity_type(&self) -> IdentityType { IdentityType::Whisper }
-    fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::Deniable }
-    
+    fn identity_type(&self) -> IdentityType {
+        IdentityType::Whisper
+    }
+    fn anonymity_level(&self) -> AnonymityLevel {
+        AnonymityLevel::Deniable
+    }
+
     fn node_id(&self) -> NodeID {
         blake3::hash(&self.shared_secret).into()
     }
-    
+
     fn public_key(&self) -> Vec<u8> {
         // 公钥就是共享密钥的哈希 (为了协商)
         blake3::hash(&self.shared_secret).as_bytes().to_vec()
     }
-    
+
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         // 使用 HMAC 签名。任何知道 Secret 的人都能签，所以可否认
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(&self.shared_secret)
-            .map_err(|_| anyhow!("HMAC error"))?;
+        let mut mac =
+            HmacSha256::new_from_slice(&self.shared_secret).map_err(|_| anyhow!("HMAC error"))?;
         mac.update(data);
         Ok(mac.finalize().into_bytes().to_vec())
     }
-    
+
     fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
         type HmacSha256 = Hmac<Sha256>;
         if let Ok(mut mac) = HmacSha256::new_from_slice(&self.shared_secret) {
@@ -582,15 +684,20 @@ impl EtpIdentity for WhisperIdentity {
         }
         false
     }
-    
-    fn expiration(&self) -> Option<SystemTime> { None }
-    fn zeroize_secrets(&mut self) { self.shared_secret.zeroize(); }
-    fn encryption_secret(&self) -> Option<StaticSecret> { None }
+
+    fn expiration(&self) -> Option<SystemTime> {
+        None
+    }
+    fn zeroize_secrets(&mut self) {
+        self.shared_secret.zeroize();
+    }
+    fn encryption_secret(&self) -> Option<StaticSecret> {
+        None
+    }
 }
 
 // --- 10. Fortress Identity (堡垒)（条件编译实现） ---
 // 用途：后量子安全
-
 
 // ----------------------------------------------------------------------------
 // 场景 A: 开启了 quantum-encryption 特性 -> 真实实现
@@ -598,10 +705,12 @@ impl EtpIdentity for WhisperIdentity {
 #[cfg(feature = "quantum-encryption")]
 mod fortress_impl {
     use super::*;
-    use pqcrypto_kyber::kyber1024; 
-    use pqcrypto_dilithium::dilithium5; 
-    use pqcrypto_traits::sign::{SecretKey as SignSecret, PublicKey as SignPublic, DetachedSignature};
-    use pqcrypto_traits::kem::{SecretKey as KemSecret, PublicKey as KemPublic, Ciphertext};
+    use pqcrypto_dilithium::dilithium5;
+    use pqcrypto_kyber::kyber1024;
+    use pqcrypto_traits::kem::{Ciphertext, PublicKey as KemPublic, SecretKey as KemSecret};
+    use pqcrypto_traits::sign::{
+        DetachedSignature, PublicKey as SignPublic, SecretKey as SignSecret,
+    };
 
     #[derive(Debug)]
     pub struct FortressIdentity {
@@ -615,9 +724,14 @@ mod fortress_impl {
         pub fn new() -> Self {
             let (sign_pk, sign_sk) = dilithium5::keypair();
             let (kem_pk, kem_sk) = kyber1024::keypair();
-            Self { sign_pk, sign_sk, kem_pk, kem_sk }
+            Self {
+                sign_pk,
+                sign_sk,
+                kem_pk,
+                kem_sk,
+            }
         }
-        
+
         pub fn decapsulate(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
             let ct = kyber1024::Ciphertext::from_bytes(ciphertext)
                 .map_err(|_| anyhow!("Invalid Kyber ciphertext"))?;
@@ -627,16 +741,20 @@ mod fortress_impl {
     }
 
     impl EtpIdentity for FortressIdentity {
-        fn identity_type(&self) -> IdentityType { IdentityType::Fortress }
-        fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::None }
-        
+        fn identity_type(&self) -> IdentityType {
+            IdentityType::Fortress
+        }
+        fn anonymity_level(&self) -> AnonymityLevel {
+            AnonymityLevel::None
+        }
+
         fn node_id(&self) -> NodeID {
             let mut hasher = blake3::Hasher::new();
             hasher.update(self.sign_pk.as_bytes());
             hasher.update(self.kem_pk.as_bytes());
             hasher.finalize().into()
         }
-        
+
         fn public_key(&self) -> Vec<u8> {
             let sign_bytes = self.sign_pk.as_bytes();
             let kem_bytes = self.kem_pk.as_bytes();
@@ -646,22 +764,28 @@ mod fortress_impl {
             buf.extend_from_slice(kem_bytes);
             buf
         }
-        
+
         fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
             let signature = dilithium5::detached_sign(data, &self.sign_sk);
             Ok(signature.as_bytes().to_vec())
         }
-        
+
         fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
             if let Ok(signature) = dilithium5::DetachedSignature::from_bytes(sig) {
-                return dilithium5::verify_detached_signature(&signature, data, &self.sign_pk).is_ok();
+                return dilithium5::verify_detached_signature(&signature, data, &self.sign_pk)
+                    .is_ok();
             }
             false
         }
-        
-        fn expiration(&self) -> Option<SystemTime> { None }
-        fn zeroize_secrets(&mut self) { /* PQ libs handle drop */ }
-        fn encryption_secret(&self) -> Option<StaticSecret> { None }
+
+        fn expiration(&self) -> Option<SystemTime> {
+            None
+        }
+        fn zeroize_secrets(&mut self) { /* PQ libs handle drop */
+        }
+        fn encryption_secret(&self) -> Option<StaticSecret> {
+            None
+        }
     }
 }
 
@@ -684,22 +808,36 @@ mod fortress_impl {
     }
 
     impl EtpIdentity for FortressIdentity {
-        fn identity_type(&self) -> IdentityType { IdentityType::Fortress }
-        fn anonymity_level(&self) -> AnonymityLevel { AnonymityLevel::None }
-        
-        fn node_id(&self) -> NodeID { [0u8; 32] } // Dummy ID
-        
-        fn public_key(&self) -> Vec<u8> { vec![] }
-        
+        fn identity_type(&self) -> IdentityType {
+            IdentityType::Fortress
+        }
+        fn anonymity_level(&self) -> AnonymityLevel {
+            AnonymityLevel::None
+        }
+
+        fn node_id(&self) -> NodeID {
+            [0u8; 32]
+        } // Dummy ID
+
+        fn public_key(&self) -> Vec<u8> {
+            vec![]
+        }
+
         fn sign(&self, _data: &[u8]) -> Result<Vec<u8>> {
             Err(anyhow!("Quantum encryption feature is disabled"))
         }
-        
-        fn verify(&self, _data: &[u8], _sig: &[u8]) -> bool { false }
-        
-        fn expiration(&self) -> Option<SystemTime> { None }
+
+        fn verify(&self, _data: &[u8], _sig: &[u8]) -> bool {
+            false
+        }
+
+        fn expiration(&self) -> Option<SystemTime> {
+            None
+        }
         fn zeroize_secrets(&mut self) {}
-        fn encryption_secret(&self) -> Option<StaticSecret> { None }
+        fn encryption_secret(&self) -> Option<StaticSecret> {
+            None
+        }
     }
 }
 
@@ -716,10 +854,10 @@ impl IdentityManager {
     pub fn create_anchor() -> Arc<dyn EtpIdentity> {
         Arc::new(AnchorIdentity::new())
     }
-    
+
     pub fn create_ghost() -> Arc<dyn EtpIdentity> {
         Arc::new(GhostIdentity::new())
     }
-    
+
     // ... helper for others
 }

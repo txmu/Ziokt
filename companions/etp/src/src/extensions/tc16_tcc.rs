@@ -1143,3 +1143,9 @@ impl Flavor for Tc16Flavor {
     fn on_connection_open(&self, _peer: SocketAddr) {}
     fn on_connection_close(&self, _peer: SocketAddr) {}
 }
+
+impl std::fmt::Debug for Tc16Flavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tc16Flavor").finish_non_exhaustive()
+    }
+}

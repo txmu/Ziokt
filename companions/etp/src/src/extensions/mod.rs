@@ -26,6 +26,7 @@ pub mod transport_kit;
 pub mod huoban;
 pub mod pool_memory;
 
+#[cfg(feature = "ultrafileserver")]
 pub mod ufs_adapter;
 
 // [New] TC-16 Virtual Machine & Smart Contract Engine
@@ -99,6 +100,7 @@ pub use kns::{
 pub use kns_adapter::TnsBackedKnsResolver;
 
 // --- UFS Adapter ---
+#[cfg(feature = "ultrafileserver")]
 pub use ufs_adapter::{DirectoryListing, FileMetadata, UltraFileServerFlavor};
 
 // --- Transport Kit (自定义传输层构建器) ---
