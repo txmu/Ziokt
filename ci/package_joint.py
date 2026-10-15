@@ -3,10 +3,10 @@ import argparse,hashlib,json,subprocess,zipfile
 from pathlib import Path
 
 root=Path(__file__).resolve().parents[1]
-parser=argparse.ArgumentParser();parser.add_argument('--native',type=Path,required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--etp',type=Path);parser.add_argument('--pwas',type=Path);args=parser.parse_args()
-lock=json.loads((root/'ci/native-reuse.lock.json').read_text())
-if hashlib.sha256(args.native.read_bytes()).hexdigest()!=lock['sha256']:raise ValueError('joint bundle native artifact digest mismatch')
+parser=argparse.ArgumentParser();parser.add_argument('--native',type=Path,required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--etp',type=Path);parser.add_argument('--pwas',type=Path);parser.add_argument('--coordinator',type=Path);args=parser.parse_args()
 report=json.loads(args.report.read_text())
+lock=report.get('native_products') or json.loads((root/'ci/native-reuse.lock.json').read_text())
+if hashlib.sha256(args.native.read_bytes()).hexdigest()!=lock['sha256']:raise ValueError('joint bundle native artifact digest mismatch')
 if report.get('regression',{}).get('passed') is not True:raise ValueError('successful recorded regression required before joint packaging')
 revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip();dist=root/'dist';dist.mkdir(exist_ok=True);output=dist/('ziokt-ecosystem-'+revision[:12]+'.zip')
 files={};revisions={}
@@ -25,7 +25,13 @@ if report.get('etp',{}).get('native_gateway_compiled_and_run'):
  files['native-etp/ziokt_gateway']=args.etp
  # Bind the binary to the verified functional source even if a later commit only records results.
  verified=report['etp']['gateway_source_revision']
- if subprocess.call(['git','diff','--quiet',verified,'HEAD','--','ziokt','spec','companions','tools','.github','ci'],cwd=root):raise ValueError('functional source changed after ETP verification')
+ if subprocess.call(['git','diff','--quiet',verified,'HEAD','--','ziokt','spec','companions','tools','.github','pyproject.toml','requirements.txt','native-sources.lock.json'],cwd=root):raise ValueError('functional source changed after ETP verification')
+if report.get('native_products'):
+ for project,field in [('Shadow6','shadow6_revision'),('Corium','corium_revision')]:
+  if revisions[project]!=lock[field]:raise ValueError('native source differs from the tested artifact: '+project)
+if args.coordinator is not None:
+ if hashlib.sha256(args.coordinator.read_bytes()).hexdigest()!=report.get('coordinator',{}).get('sha256'):raise ValueError('verified coordinator zipapp digest required')
+ files['apps/ziokt/ziokt.pyz']=args.coordinator
 pwas=args.pwas or root/'companions'
 for app, pwa in [('sim-manager',pwas/'sim-manager/src/dist'),('tri',pwas/'tri/app/dist')]:
  if not (pwa/'manifest.webmanifest').is_file() or not (pwa/'sw.js').is_file():raise ValueError('verified built '+app+' PWA required')
