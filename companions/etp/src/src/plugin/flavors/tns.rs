@@ -459,3 +459,4 @@ impl Flavor for TnsFlavor {
         // 可以在这里做一些逻辑上的短路处理。但在 Gossip 协议中，通常不需要显式处理断开，
         // 超时机制 (Timeout) 会自动处理未完成的交互。
     }
+}

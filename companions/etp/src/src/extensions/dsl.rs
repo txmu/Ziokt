@@ -10,9 +10,9 @@ use serde_json::Value;
 use anyhow::{Result, anyhow, Context};
 use log::{info, warn, debug, error};
 
-// 引入 TC-15 (如果启用)
-#[cfg(feature = "tc15-tcc")]
-use crate::extensions::tc15_tcc::{Tc15Cpu, ContractStorage, MEM_SIZE, REG_COUNT};
+// 引入 TC-16 (如果启用)
+#[cfg(feature = "tc16-tcc")]
+use crate::extensions::tc16_tcc::{Tc16Cpu, ContractStorage, MEM_SIZE, REG_COUNT};
 
 // ============================================================================
 //  1. DSL 抽象定义
@@ -26,12 +26,12 @@ pub enum DslKind {
     Declarative,
 
     /// 图灵完备 (Turing Complete)
-    /// 必须在 TC-15 沙箱中执行，受 Gas 和 Memory 限制。
+    /// 必须在 TC-16 沙箱中执行，受 Gas 和 Memory 限制。
     /// 编译和执行过程可能较慢。
     TuringComplete,
 }
 
-/// 这是一个特殊的 Provider，它不跑 Rust 代码，而是启动一个新的 TC-15 VM
+/// 这是一个特殊的 Provider，它不跑 Rust 代码，而是启动一个新的 TC-16 VM
 struct VirtualDslProvider {
     id: String,
     entry_pc: u16,
@@ -49,7 +49,7 @@ impl DslProvider for VirtualDslProvider {
         Err(anyhow!("Virtual providers are Turing Complete only"))
     }
 
-    #[cfg(feature = "tc15-tcc")]
+    #[cfg(feature = "tc16-tcc")]
     fn compile_to_vm(&self, _: &str) -> Result<Vec<u8>> {
         // 它已经是机器码了，直接返回镜像
         Ok(self.firmware.clone())
@@ -80,17 +80,17 @@ pub struct DslRegistry {
     providers: RwLock<HashMap<String, Arc<dyn DslProvider>>>,
     
     // 全局 VM 存储接口 (用于 EXT 指令访问持久化数据)
-    #[cfg(feature = "tc15-tcc")]
+    #[cfg(feature = "tc16-tcc")]
     vm_storage: Arc<dyn ContractStorage>,
 }
 
 impl DslRegistry {
-    #[cfg(not(feature = "tc15-tcc"))]
+    #[cfg(not(feature = "tc16-tcc"))]
     pub fn new() -> Self {
         Self { providers: RwLock::new(HashMap::new()) }
     }
 
-    #[cfg(feature = "tc15-tcc")]
+    #[cfg(feature = "tc16-tcc")]
     pub fn new(storage: Arc<dyn ContractStorage>) -> Self {
         Self { 
             providers: RwLock::new(HashMap::new()),
@@ -130,7 +130,7 @@ impl DslRegistry {
         }
     }
 
-    #[cfg(feature = "tc15-tcc")]
+    #[cfg(feature = "tc16-tcc")]
     fn run_vm_logic(&self, provider: &dyn DslProvider, script: &str, context: &Value, gas_limit: u64) -> Result<String> {
         // 1. 编译 (CPU Intensive)
         let bytecode = provider.compile_to_vm(script)
@@ -141,7 +141,7 @@ impl DslRegistry {
         }
 
         // 2. 初始化 VM (Sandbox)
-        let mut cpu = Tc15Cpu::new(self.vm_storage.clone());
+        let mut cpu = Tc16Cpu::new(self.vm_storage.clone());
         
         // 3. 内存布局与上下文注入
         // Layout: [Bytecode ... ] [Padding] [Context Data]
@@ -162,7 +162,7 @@ impl DslRegistry {
         
         // 检查栈溢出风险 (SP 初始在末尾)
         // 在此简化模型中，我们假设数据区是只读的输入，放在堆区上方，
-        // 实际 TC-15 的 SP 初始化在 MEM_SIZE - 2。
+        // 实际 TC-16 的 SP 初始化在 MEM_SIZE - 2。
         // 为了安全，我们将数据放在代码段之后，并留出足够的栈空间。
         let code_end = bytecode.len() as u16;
         let data_start = if code_end < 0x8000 { 0x8000 } else { code_end + 256 }; // 0x8000 (32KB) 处作为数据区
@@ -187,8 +187,8 @@ impl DslRegistry {
         Ok(cpu.get_output())
     }
 
-    #[cfg(not(feature = "tc15-tcc"))]
+    #[cfg(not(feature = "tc16-tcc"))]
     fn run_vm_logic(&self, _p: &dyn DslProvider, _s: &str, _c: &Value, _g: u64) -> Result<String> {
-        Err(anyhow!("Feature 'tc15-tcc' is disabled"))
+        Err(anyhow!("Feature 'tc16-tcc' is disabled"))
     }
 }
