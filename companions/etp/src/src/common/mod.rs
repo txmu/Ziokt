@@ -29,3 +29,9 @@ pub struct DhtStoreRequest {
     pub value: Vec<u8>,
     pub ttl_seconds: u32,
 }
+/// Bounded native deserialization; retain the wire codec's legacy little-endian fixint encoding.
+pub fn safe_deserialize<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, bincode::Error> {
+    use bincode::Options;
+    if bytes.len() > 1024 * 1024 { return Err(Box::new(bincode::ErrorKind::SizeLimit)); }
+    bincode::DefaultOptions::new().with_fixint_encoding().with_limit(1024 * 1024).allow_trailing_bytes().deserialize(bytes)
+}

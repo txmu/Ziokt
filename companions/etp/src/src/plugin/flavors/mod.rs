@@ -1,11 +1,13 @@
 // etp-core/src/plugin/flavors/mod.rs
 
+#[cfg(feature = "vpn")]
 pub mod vpn;
 pub mod router;
 pub mod composite;
 pub mod control;
 pub mod fileshare;
 pub mod bt_bridge;
+#[cfg(feature = "ipfs-integration")]
 pub mod ipfs_fusion;
 pub mod mailbox;
 
@@ -27,7 +29,7 @@ pub mod dsl_executor;
 
 // 2. 导出进化枢纽 (商业级控制台)
 // 仅当开启了便捷界面特性和虚拟机支持时才导出
-#[cfg(all(feature = "tc15-tcc", feature = "evolve-ui"))]
+#[cfg(all(feature = "tc16-tcc", feature = "evolve-ui"))]
 pub mod evolution_nexus;
 
 // --- 其它扩展 ---
@@ -38,7 +40,7 @@ pub mod signal_drop;
 //  统一重新导出关键结构 (方便外部使用)
 // ============================================================================
 
-#[cfg(all(feature = "tc15-tcc", feature = "evolve-ui"))]
+#[cfg(all(feature = "tc16-tcc", feature = "evolve-ui"))]
 pub use evolution_nexus::EvolutionNexus;
 
 #[cfg(feature = "dsl-runtime")]

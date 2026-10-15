@@ -1,0 +1,4 @@
+@import "tailwindcss";
+@config "./tailwind.config.cjs";
+:focus-visible{outline:3px solid #67e8f9;outline-offset:3px}
+button,input,select{min-height:44px}

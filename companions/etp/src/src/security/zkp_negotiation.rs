@@ -21,13 +21,15 @@ pub struct NegotiationPayload {
     pub capability_hashes: Vec<[u8; 32]>,
 }
 
-/// 零知识能力协商器
-pub struct ZkpNegotiator {
+/// Session-keyed capability intersection. This is not a zero-knowledge proof:
+/// both peers learn the common capability IDs and the transcript can reveal
+/// list size and timing to the authenticated peer.
+pub struct KeyedCapabilityNegotiator {
     /// 本地支持的所有能力 ID 注册表
     local_capabilities: RwLock<HashSet<CapabilityId>>,
 }
 
-impl ZkpNegotiator {
+impl KeyedCapabilityNegotiator {
     pub fn new() -> Self {
         Self {
             local_capabilities: RwLock::new(HashSet::new()),
@@ -81,6 +83,10 @@ impl ZkpNegotiator {
     /// 处理对方的协商包，计算交集
     /// 返回: 双方共同支持的能力 ID 列表
     pub fn process_offer(&self, shared_secret: &[u8], payload: &NegotiationPayload) -> Vec<CapabilityId> {
+        if payload.capability_hashes.len() > 1024 {
+            warn!("Keyed capability offer exceeded the bounded entry count");
+            return Vec::new();
+        }
         let caps = self.local_capabilities.read();
         let mut common_capabilities = Vec::new();
 
@@ -105,12 +111,12 @@ impl ZkpNegotiator {
             }
 
             if found {
-                debug!("ZKP: Discovered common capability '{}'", cap);
+                debug!("A shared keyed capability was matched");
                 common_capabilities.push(cap.clone());
             }
         }
 
-        info!("ZKP Negotiation finished. Common capabilities: {:?}", common_capabilities);
+        info!("Keyed capability negotiation finished with {} shared entries", common_capabilities.len());
         common_capabilities
     }
 
@@ -133,6 +139,11 @@ impl ZkpNegotiator {
     }
 }
 
+/// Source-compatibility alias for the historical name. The implementation is
+/// keyed hashing with decoys, not a zero-knowledge proof system.
+#[deprecated(note = "use KeyedCapabilityNegotiator; this is keyed hashing, not a ZKP")]
+pub type ZkpNegotiator = KeyedCapabilityNegotiator;
+
 // --- 单元测试 ---
 #[cfg(test)]
 mod tests {
@@ -140,11 +151,11 @@ mod tests {
 
     #[test]
     fn test_zkp_negotiation_flow() {
-        let alice_negotiator = ZkpNegotiator::new();
+        let alice_negotiator = KeyedCapabilityNegotiator::new();
         alice_negotiator.register_capability("etp.vpn.v1".to_string());
         alice_negotiator.register_capability("etp.chat.v2".to_string());
 
-        let bob_negotiator = ZkpNegotiator::new();
+        let bob_negotiator = KeyedCapabilityNegotiator::new();
         bob_negotiator.register_capability("etp.vpn.v1".to_string());
         bob_negotiator.register_capability("etp.forum.v1".to_string()); // Alice doesn't have this
 
@@ -171,10 +182,10 @@ mod tests {
 
     #[test]
     fn test_zkp_security_wrong_key() {
-        let alice = ZkpNegotiator::new();
+        let alice = KeyedCapabilityNegotiator::new();
         alice.register_capability("secret.feature".to_string());
         
-        let bob = ZkpNegotiator::new();
+        let bob = KeyedCapabilityNegotiator::new();
         bob.register_capability("secret.feature".to_string());
 
         let key_alice = [0xAA; 32];

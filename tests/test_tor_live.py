@@ -35,10 +35,11 @@ class TorLiveTests(unittest.TestCase):
                 available.bind(('127.0.0.1', 0)); service_port = available.getsockname()[1]
             with socket.socket() as available:
                 available.bind(('127.0.0.1', 0)); socks_port = available.getsockname()[1]
-            process = subprocess.Popen(['tor', '--DataDirectory', str(root/'tor'), '--SocksPort', '127.0.0.1:'+str(socks_port),
-                '--HiddenServiceDir', str(hidden), '--HiddenServicePort', '443 127.0.0.1:'+str(service_port),
-                '--HiddenServiceDir', str(intermediary), '--HiddenServicePort', '1080 127.0.0.1:'+str(socks_port),
-                '--Log', 'notice stdout', '--ClientOnly', '0'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            torrc = root/'torrc'
+            torrc.write_text('\n'.join((f'DataDirectory {root/"tor"}', f'SocksPort 127.0.0.1:{socks_port} IsolateSOCKSAuth',
+                f'HiddenServiceDir {hidden}', f'HiddenServicePort 443 127.0.0.1:{service_port}',
+                f'HiddenServiceDir {intermediary}', f'HiddenServicePort 1080 127.0.0.1:{socks_port}', 'Log notice stdout', 'ClientOnly 0'))+'\n')
+            process = subprocess.Popen(['tor', '-f', str(torrc)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             messages = queue.Queue()
             reader = threading.Thread(target=lambda: [messages.put(line) for line in process.stdout], daemon=True); reader.start()
             source = target = server = thread = None
@@ -69,16 +70,17 @@ class TorLiveTests(unittest.TestCase):
                 source.publish(private, 'files', 'archive', {'name': 'archive', **manifest})
                 endpoint = {'host': host, 'port': 443, 'carrier': {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': socks_port}}
                 # Fresh service descriptor publication can need a short delay.
-                success = False; deadline = time.monotonic()+180
+                success = False; last_error = None; deadline = time.monotonic()+180
                 while time.monotonic() < deadline:
                     try:
                         sync_remote(target, endpoint, tls_context(*pairs['client'][:2], ca), private, publisher=public)
                         success = True; break
-                    except OSError: time.sleep(2)
+                    except OSError as exc: last_error = type(exc).__name__; time.sleep(2)
                     except ProtocolError as exc:
                         if exc.code != 'CARRIER_UNAVAILABLE': raise
+                        last_error = exc.code
                         time.sleep(2)
-                self.assertTrue(success, 'genuine onion endpoint did not complete mTLS sync')
+                self.assertTrue(success, f'genuine onion endpoint did not complete mTLS sync; last carrier error={last_error}')
                 self.assertEqual(target.get_file(manifest), b'encrypted community archive')
                 self.assertEqual(target.view('wiki'), source.view('wiki'))
                 # Traverse another actual onion service exposing Tor SOCKS,
@@ -86,16 +88,17 @@ class TorLiveTests(unittest.TestCase):
                 intermediate_host = (intermediary/'hostname').read_text().strip()
                 source.publish(private, 'wiki', 'multihop', {'title': 'Onion chain', 'text': 'real nested onion SOCKS and mTLS'})
                 endpoint['carrier']['hops'] = [{'host': intermediate_host, 'port': 1080}]
-                success = False; deadline = time.monotonic()+180
+                success = False; last_error = None; deadline = time.monotonic()+180
                 while time.monotonic() < deadline:
                     try:
                         sync_remote(target, endpoint, tls_context(*pairs['client'][:2], ca), private, publisher=public)
                         success = True; break
-                    except OSError: time.sleep(2)
+                    except OSError as exc: last_error = type(exc).__name__; time.sleep(2)
                     except ProtocolError as exc:
                         if exc.code != 'CARRIER_UNAVAILABLE': raise
+                        last_error = exc.code
                         time.sleep(2)
-                self.assertTrue(success, 'actual intermediate onion SOCKS path did not complete mTLS sync')
+                self.assertTrue(success, f'actual intermediate onion SOCKS path did not complete mTLS sync; last carrier error={last_error}')
                 self.assertEqual(target.view('wiki'), source.view('wiki'))
             finally:
                 if server: server.shutdown(); server.server_close()

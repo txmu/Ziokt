@@ -41,3 +41,12 @@ test('durable reminders retry failed delivery and reject private payload fields'
  assert.throws(()=>scheduler.replace('owner',[{id:'b'.repeat(64),due:now,webhook:false,phoneNumber:'secret'}],now));
  const {publicAddress}=require('../backend/webhook');for(const address of ['127.0.0.1','10.0.0.1','169.254.169.254','::1','::ffff:127.0.0.1','fc00::1','2001:db8::1'])assert.equal(publicAddress(address),false);assert.equal(publicAddress('8.8.8.8'),true);
 });
+test('fixed Ziokt bridge worker opens the scoped Python companion and correlates replies',async t=>{
+ const {BridgeWorker}=require('../backend/bridge'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'watchat-bridge-')),root=path.resolve(__dirname,'../../../..');
+ const setup=`import secrets,sys\nfrom pathlib import Path\nfrom ziokt.community import create_policy,RIGHTS\nfrom ziokt.security import sign\nfrom ziokt.cli import write_exclusive,write_binary_exclusive\nr=Path(sys.argv[1]);k=secrets.token_bytes(32);p=sign({},k,'test')['public_key'];write_exclusive(r/'policy.json',create_policy(k,'bridge-test',{p:sorted(RIGHTS)}))\nfor n,v in [('signing',k),('encryption',secrets.token_bytes(32)),('application',secrets.token_bytes(32))]:write_binary_exclusive(r/(n+'.key'),v)\nwrite_exclusive(r/'bridge.json',{'schema':'ziokt.companion-bridge.v1','community_root':str(r/'community'),'policy':str(r/'policy.json'),'owner':p,'encryption_key':str(r/'encryption.key'),'signing_key':str(r/'signing.key'),'application':'watchat','application_key':str(r/'application.key')})`;
+ const prepared=spawnSyncPython(setup,dir,root);assert.equal(prepared,0,'private bridge fixture creation failed');
+ const worker=new BridgeWorker(path.join(dir,'bridge.json'),'python3',root);t.after(()=>{worker.close();fs.rmSync(dir,{recursive:true,force:true})});
+ const result=await worker.call('ano.evaluate',{circuit:{op:'and',args:['正','正']}});
+ assert.equal(result.schema,'ziokt.ano-result.v1');assert.equal(result.result,'positive');
+});
+function spawnSyncPython(source,directory,root){return require('node:child_process').spawnSync('python3',['-c',source,directory],{env:{PATH:process.env.PATH||'',PYTHONPATH:root,PYTHONDONTWRITEBYTECODE:'1'},stdio:'ignore'}).status}

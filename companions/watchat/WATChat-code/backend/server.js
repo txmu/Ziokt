@@ -22,6 +22,12 @@ let notifier=null;
 if(process.env.WATCHAT_PUSH_CONFIG){const config=JSON.parse(privateRead(path.resolve(process.env.WATCHAT_PUSH_CONFIG)));if(!publicOrigin)throw Error('HTTPS_ORIGIN_REQUIRED');notifier=new(require('./push').PushDispatcher)(config,store,()=>save())}
 let webhook=null;if(process.env.WATCHAT_WEBHOOK_CONFIG)webhook=new(require('./webhook').Webhook)(JSON.parse(privateRead(path.resolve(process.env.WATCHAT_WEBHOOK_CONFIG))));
 const reminderScheduler=new(require('./reminders').ReminderScheduler)(store,()=>save(),async(user,item)=>{if(item.webhook){if(!webhook)throw Error('WEBHOOK_NOT_CONFIGURED');await webhook.send(item.id)}else{if(!notifier)throw Error('PUSH_NOT_CONFIGURED');await notifier.deliver(user)}});
+let bridgeInbox=null;
+if(process.env.ZIOKT_BRIDGE_CONFIG){
+ const cfg=JSON.parse(privateRead(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG)));
+ if(cfg.inbox){bridgeInbox=path.resolve(cfg.inbox);if(bridgeInbox!==path.join(DATA,'inbox'))throw Error('BRIDGE_INBOX_SCOPE');fs.mkdirSync(bridgeInbox,{recursive:true,mode:0o700});if(fs.lstatSync(bridgeInbox).isSymbolicLink())throw Error('UNSAFE_INBOX');fs.chmodSync(bridgeInbox,0o700)}
+}
+store.filePending??=[];
 const sessions=new Map(),attempts=new Map();let hashing=0;
 async function passwordHash(password,salt){if(typeof password!=='string'||password.length<12||password.length>128)throw Error('PASSWORD_POLICY');if(hashing>=4)throw Error('BUSY');hashing++;try{return(await scrypt(password,salt,32)).toString('hex')}finally{hashing--}}
 async function makeUser(username,name,password,admin=false){if(!/^[a-zA-Z0-9_.-]{1,32}$/.test(username)||typeof name!=='string'||!name||name.length>64)throw Error('INVALID_USER');const salt=crypto.randomBytes(16).toString('hex');return{id:crypto.randomUUID(),username,name,salt,hash:await passwordHash(password,salt),admin,contacts:[],key:null}}
@@ -31,7 +37,9 @@ function byId(id){return store.users.find(u=>u.id===id)}
 function auth(req){const bearer=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1],cookie=req.headers.cookie?.match(/(?:^|;\s*)ziokt_session=([a-f0-9]{64})(?:;|$)/)?.[1];const s=sessions.get(bearer||cookie);return s&&s.expires>Date.now()?byId(s.id):null}
 function originOK(req){return (publicOrigin&&req.headers.origin===publicOrigin)||req.headers.origin===`http://127.0.0.1:${PORT}`||req.headers.origin===`http://localhost:${PORT}`}
 function json(res,status,data,headers={}){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(JSON.stringify(data))}
-function body(req,limit=65536){return new Promise((resolve,reject)=>{let size=0,chunks=[];req.on('data',chunk=>{size+=chunk.length;if(size>limit){reject(Error('LIMIT'));req.destroy()}else chunks.push(chunk)});req.on('end',()=>resolve(Buffer.concat(chunks)));req.on('error',reject)})}
+let activeBodies=0;
+const STORAGE_BUDGET=256*1024*1024;
+function body(req,limit=65536){if(activeBodies>=8)return Promise.reject(Error('BUSY'));activeBodies++;return new Promise((resolve,reject)=>{let size=0,chunks=[];req.on('data',chunk=>{size+=chunk.length;if(size>limit){reject(Error('LIMIT'));req.destroy()}else chunks.push(chunk)});req.on('end',()=>resolve(Buffer.concat(chunks)));req.on('error',reject)}).finally(()=>activeBodies--)}
 function send(ws,value){if(ws.readyState!==WebSocket.OPEN)return;if(ws.bufferedAmount>262144)return ws.close(1013);ws.send(JSON.stringify(value))}
 function push(ids,value){for(const ws of wss.clients)if(ids.includes(ws.userId))send(ws,value)}
 function can(me,to){return me&&to!==me.id&&me.contacts.includes(to)&&!!byId(to)}
@@ -63,7 +71,7 @@ const server=http.createServer(async(req,res)=>{try{
   if(url.pathname==='/api/contacts'&&req.method==='POST'){const x=JSON.parse(await body(req));const target=byId(x.id);if(!target||target.id===me.id)return json(res,400,{error:'INVALID_CONTACT'});if(!me.contacts.includes(target.id))me.contacts.push(target.id);if(!target.contacts.includes(me.id))target.contacts.push(me.id);save();return json(res,200,{ok:true})}
   const um=url.pathname.match(/^\/api\/users\/([a-f0-9-]{36})$/);
   if(um&&['PATCH','DELETE'].includes(req.method)){const u=byId(um[1]);if(!u||(!me.admin&&u.id!==me.id))return json(res,403,{error:'FORBIDDEN'});if(req.method==='DELETE'){if(!me.admin||u.admin)return json(res,403,{error:'FORBIDDEN'});store.users=store.users.filter(v=>v.id!==u.id);for(const v of store.users)v.contacts=v.contacts.filter(id=>id!==u.id);store.messages=store.messages.filter(m=>m.from!==u.id&&m.to!==u.id);revoke(u.id)}else{const x=JSON.parse(await body(req));if(x.name){if(typeof x.name!=='string'||x.name.length>64)throw Error('INVALID_USER');u.name=x.name}if(x.password){u.salt=crypto.randomBytes(16).toString('hex');u.hash=await passwordHash(x.password,u.salt);revoke(u.id)}}save();return json(res,200,{ok:true})}
-  if(url.pathname==='/api/upload'&&req.method==='POST'){if(Object.keys(store.uploads).length>=1024)return json(res,413,{error:'LIMIT'});const data=await body(req,MAX_UPLOAD);if(data.length<28)return json(res,400,{error:'SEALED_MEDIA_REQUIRED'});const id=crypto.randomBytes(16).toString('hex')+'.bin';exclusive(path.join(DATA,id),seal(data,'upload/'+id));store.uploads[id]={owner:me.id,size:data.length};save();return json(res,201,{url:'/uploads/'+id})}
+  if(url.pathname==='/api/upload'&&req.method==='POST'){if(Object.keys(store.uploads).length>=1024||Object.values(store.uploads).reduce((n,item)=>n+item.size,0)>=STORAGE_BUDGET-MAX_UPLOAD)return json(res,413,{error:'LIMIT'});const data=await body(req,MAX_UPLOAD);if(data.length<28)return json(res,400,{error:'SEALED_MEDIA_REQUIRED'});if(bridgeInbox&&data.length>8*1024*1024)return json(res,413,{error:'FEDERATION_FILE_LIMIT'});const id=crypto.randomBytes(16).toString('hex')+'.bin';exclusive(path.join(DATA,id),seal(data,'upload/'+id));const digest='sha256:'+crypto.createHash('sha256').update(data).digest('hex');store.uploads[id]={owner:me.id,size:data.length,digest};if(bridgeInbox){const target=path.join(bridgeInbox,digest.slice(7)+'.bin');if(!fs.existsSync(target))exclusive(target,data);if(!store.filePending.includes(digest))store.filePending.push(digest)}save();flushBridge();return json(res,201,{url:'/uploads/'+id,digest})}
   if(url.pathname.startsWith('/uploads/')&&req.method==='GET'){const id=url.pathname.slice(9),upload=store.uploads[id];if(!/^[a-f0-9]{32}\.bin$/.test(id)||!upload||!(upload.owner===me.id||store.messages.some(m=>(m.from===me.id||m.to===me.id)&&m.attachments.includes('/uploads/'+id))))return json(res,404,{error:'NOT_FOUND'});const data=open(privateRead(path.join(DATA,id)),'upload/'+id);res.writeHead(200,{'Content-Type':'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(data)}
   return json(res,404,{error:'NOT_FOUND'});
  }
@@ -81,8 +89,22 @@ wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws
  if(store.messages.length>=10000||store.pending.length>=1000)return send(ws,{type:'error',error:'LIMIT'});
  const m={id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,time:Date.now()};store.messages.push(m);if(process.env.ZIOKT_BRIDGE_CONFIG)store.pending.push(m.id);save();notifier?.enqueue(m.to);push([m.from,m.to],{type:'message',message:m});send(ws,{type:'ack',id:m.id});flushBridge();
  }catch(_){send(ws,{type:'error',error:'INVALID_FRAME'})}})});
-let bridge=null,bridgeBusy=false,sequence=0;
-function flushBridge(){if(!process.env.ZIOKT_BRIDGE_CONFIG||bridgeBusy||!store.pending.length)return;if(!bridge){bridge=spawn(process.env.ZIOKT_PYTHON||'python3',['-m','ziokt.companion_bridge','--config',path.resolve(process.env.ZIOKT_BRIDGE_CONFIG)],{stdio:['pipe','pipe','pipe'],shell:false});let buffer='';bridge.stdout.on('data',chunk=>{buffer+=chunk;if(buffer.length>65536){bridge.kill();return}const pos=buffer.indexOf('\n');if(pos<0)return;try{const result=JSON.parse(buffer.slice(0,pos));if(result.ok&&result.id===sequence){store.pending.shift();save()}}catch(_){}buffer=buffer.slice(pos+1);bridgeBusy=false;setTimeout(flushBridge,1000)});bridge.stderr.resume();bridge.on('error',()=>{bridge=null;bridgeBusy=false});bridge.on('exit',()=>{bridge=null;bridgeBusy=false})}const m=store.messages.find(m=>m.id===store.pending[0]);if(!m)return;bridgeBusy=true;sequence++;bridge.stdin.write(JSON.stringify({id:sequence,method:'chat.append',params:{id:m.id,from:m.from,to:m.to,ciphertext:m.ciphertext,attachments:m.attachments}})+'\n')}
+const bridge=process.env.ZIOKT_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(__dirname,'../../../..')):null;
+let bridgeBusy=false;store.fileBackoff??={};
+async function flushBridge(){
+ if(!bridge||bridgeBusy)return;
+ const file=store.filePending.find(digest=>(store.fileBackoff[digest]||0)<=Date.now());
+ store.pending=store.pending.filter(id=>store.messages.some(message=>message.id===id));
+ const message=store.pending.length?store.messages.find(m=>m.id===store.pending[0]):null;
+ if(!file&&!message)return;bridgeBusy=true;
+ try{
+  if(file){await bridge.call('file.publish',{digest:file});const index=store.filePending.indexOf(file);if(index>=0)store.filePending.splice(index,1);delete store.fileBackoff[file]}
+  else{await bridge.call('chat.append',{id:message.id,from:message.from,to:message.to,ciphertext:message.ciphertext,attachments:message.attachments});const index=store.pending.indexOf(message.id);if(index>=0)store.pending.splice(index,1)}
+  save();
+ }catch(_){if(file){store.fileBackoff[file]=Date.now()+30000;save()}}
+ finally{bridgeBusy=false;if(store.pending.length||store.filePending.some(digest=>(store.fileBackoff[digest]||0)<=Date.now()))setTimeout(flushBridge,1000)}
+}
+
 const heartbeat=setInterval(()=>{const now=Date.now();for(const [token,s]of sessions)if(s.expires<now){sessions.delete(token);revoke(s.id)}for(const ws of wss.clients){if(!ws.alive)ws.terminate();else{ws.alive=false;ws.ping()}}flushBridge();reminderScheduler.tick()},30000);
-server.on('close',()=>{clearInterval(heartbeat);notifier?.close();if(bridge)bridge.kill()});
+server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close()});
 (async()=>{if(!store.users.length){const password=process.env.ADMIN_PASSWORD;if(!password||password.length<12)throw Error('ADMIN_PASSWORD_REQUIRED');store.users.push(await makeUser('admin','Administrator',password,true));save()}if(!process.env.ZIOKT_BRIDGE_CONFIG&&process.env.ZIOKT_STANDALONE!=='1')throw Error('FEDERATION_CONFIG_REQUIRED');server.listen(PORT,'127.0.0.1',()=>console.log('WATChat ready on loopback'))})().catch(e=>{clearInterval(heartbeat);console.error(e.message);process.exit(1)});

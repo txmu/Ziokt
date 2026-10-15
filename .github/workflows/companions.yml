@@ -28,11 +28,15 @@ jobs:
           python -m unittest discover -s tests -p test_tc16.py -v
           python -m unittest discover -s tests -p test_etp_adapter.py -v
           python -m unittest discover -s tests -p test_privacy_observer.py -v
+          python -m unittest discover -s tests -p test_tri_integration.py -v
       - name: WATChat encrypted gateway, privacy, notifications and retry
         working-directory: companions/watchat/WATChat-code
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run check
       - name: SIM Manager types and PWA build
         working-directory: companions/sim-manager/src
+        run: npm ci --ignore-scripts --no-audit --no-fund && npx tsc --noEmit && npm run build
+      - name: Tri offline PWA and secure Ziokt federation adapter
+        working-directory: companions/tri/app
         run: npm ci --ignore-scripts --no-audit --no-fund && npx tsc --noEmit && npm run build
       - name: Actual isolated browser ECDH chat and mobile PWA shell
         run: |
@@ -40,6 +44,7 @@ jobs:
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
           node tools/browser_smoke.cjs
           node tools/sim_browser_smoke.cjs
+          node tools/tri_browser_smoke.cjs
       - uses: actions/upload-artifact@v4
         if: success()
         with:

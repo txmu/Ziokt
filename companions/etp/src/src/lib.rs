@@ -1,6 +1,7 @@
 // etp-core/src/lib.rs
 
 pub mod common;
+pub mod security;
 pub mod wire;
 pub mod crypto;
 pub mod transport;

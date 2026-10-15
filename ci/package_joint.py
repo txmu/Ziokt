@@ -12,7 +12,7 @@ revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).
 files={};revisions={}
 for project,base in [('Ziokt',root),('Shadow6',root.parent/'Shadow6'),('Corium',root.parent/'Corium')]:
  revisions[project]=subprocess.check_output(['git','rev-parse','HEAD'],cwd=base,text=True).strip()
- if subprocess.check_output(['git','diff','--name-only','HEAD'],cwd=base).strip():raise ValueError('commit source changes before packaging: '+project)
+ if subprocess.check_output(['git','status','--porcelain','--untracked-files=all'],cwd=base).strip():raise ValueError('commit source changes before packaging: '+project)
  names=subprocess.check_output(['git','ls-files','-z'],cwd=base).decode().split('\0')
  for name in filter(None,names):
   file=base/name
@@ -20,10 +20,10 @@ for project,base in [('Ziokt',root),('Shadow6',root.parent/'Shadow6'),('Corium',
   if any(part in {'node_modules','__pycache__','.git','.runtime','.venv','data','uploads','target'} for part in Path(name).parts):raise ValueError('private/generated path unexpectedly tracked: '+name)
   if file.suffix in {'.key','.sqlite','.db'} or file.name.startswith('.env'):raise ValueError('credential/state filename unexpectedly tracked: '+name)
   files[project+'/'+name]=file
-pwa=root/'companions/sim-manager/src/dist'
-if not (pwa/'manifest.webmanifest').is_file() or not (pwa/'sw.js').is_file():raise ValueError('verified built SIM PWA required')
-for file in sorted(pwa.rglob('*')):
- if file.is_file() and not file.is_symlink():files['apps/sim-manager/'+str(file.relative_to(pwa))]=file
+for app, pwa in [('sim-manager',root/'companions/sim-manager/src/dist'),('tri',root/'companions/tri/app/dist')]:
+ if not (pwa/'manifest.webmanifest').is_file() or not (pwa/'sw.js').is_file():raise ValueError('verified built '+app+' PWA required')
+ for file in sorted(pwa.rglob('*')):
+  if file.is_file() and not file.is_symlink():files['apps/'+app+'/'+str(file.relative_to(pwa))]=file
 files['native-baseline/'+args.native.name]=args.native;files['verification/REPORT.json']=args.report
 manifest={'schema':'ziokt.joint-package.v1','revisions':revisions,'native_baseline':lock,'verification':report,'files':{}}
 with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
@@ -35,4 +35,6 @@ with zipfile.ZipFile(output) as archive:
  if archive.testzip() is not None:raise ValueError('compressed joint package integrity failure')
  for name,item in manifest['files'].items():
   if hashlib.sha256(archive.read(name)).hexdigest()!=item['sha256']:raise ValueError('joint member integrity failure: '+name)
+for project,base in [('Ziokt',root),('Shadow6',root.parent/'Shadow6'),('Corium',root.parent/'Corium')]:
+ if subprocess.check_output(['git','rev-parse','HEAD'],cwd=base,text=True).strip()!=revisions[project] or subprocess.check_output(['git','status','--porcelain','--untracked-files=all'],cwd=base).strip():raise ValueError('source changed while the joint package was being created: '+project)
 sha=hashlib.sha256(output.read_bytes()).hexdigest();output.with_suffix('.zip.sha256').write_text(sha+'  '+output.name+'\n');print(json.dumps({'package':str(output),'bytes':output.stat().st_size,'sha256':sha,'source_revisions':revisions},indent=2))

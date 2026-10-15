@@ -1,0 +1,14 @@
+'use strict';
+const {spawn}=require('node:child_process');
+// Fixed child command, correlated bounded frames, one request at a time.
+class BridgeWorker{
+ constructor(config,python='python3',projectRoot){this.config=config;this.python=python;this.projectRoot=projectRoot;this.child=null;this.pending=[];this.current=null;this.sequence=0;this.timer=null;this.closed=false;}
+ call(method,params){if(this.closed||this.pending.length>=128)return Promise.reject(Error('BRIDGE_BACKPRESSURE'));return new Promise((resolve,reject)=>{this.pending.push({method,params,resolve,reject});this.pump()})}
+ fail(error){if(this.timer)clearTimeout(this.timer);this.timer=null;const request=this.current;this.current=null;if(request)request.reject(error);const child=this.child;this.child=null;if(child)child.kill();setTimeout(()=>this.pump(),100)}
+ start(){if(typeof this.projectRoot!=='string'||!require('node:path').isAbsolute(this.projectRoot))throw Error('BRIDGE_PROJECT_ROOT');const env={PATH:process.env.PATH||'',HOME:process.env.HOME||'',LANG:process.env.LANG||'C.UTF-8',PYTHONPATH:this.projectRoot,PYTHONUNBUFFERED:'1',PYTHONDONTWRITEBYTECODE:'1'};if(process.env.SYSTEMROOT)env.SYSTEMROOT=process.env.SYSTEMROOT;const child=spawn(this.python,['-m','ziokt.companion_bridge','--config',this.config],{stdio:['pipe','pipe','pipe'],shell:false,env});this.child=child;let buffer='';
+ child.stdout.on('data',chunk=>{if(this.child!==child)return;buffer+=chunk;if(Buffer.byteLength(buffer)>65536)return this.fail(Error('BRIDGE_LIMIT'));const end=buffer.indexOf('\n');if(end<0)return;try{const value=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(!this.current||value.id!==this.current.id||typeof value.ok!=='boolean'||buffer.length)return this.fail(Error('BRIDGE_CORRELATION'));clearTimeout(this.timer);this.timer=null;const request=this.current;this.current=null;if(value.ok)request.resolve(value.result);else request.reject(Error(value.error?.code||'BRIDGE_REJECTED'));this.pump()}catch(_){this.fail(Error('BRIDGE_RESPONSE'))}});
+ child.stderr.resume();child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('BRIDGE_WRITE'))});child.on('error',()=>{if(this.child===child)this.fail(Error('BRIDGE_UNAVAILABLE'))});child.on('exit',()=>{if(this.child===child)this.fail(Error('BRIDGE_CLOSED'))});}
+ pump(){if(this.closed||this.current||!this.pending.length)return;if(!this.child)this.start();const request=this.pending.shift();request.id=++this.sequence;const bytes=JSON.stringify({id:request.id,method:request.method,params:request.params})+'\n';if(Buffer.byteLength(bytes)>65536){request.reject(Error('BRIDGE_LIMIT'));return this.pump()}this.current=request;this.timer=setTimeout(()=>this.fail(Error('BRIDGE_TIMEOUT')),15000);this.child.stdin.write(bytes);}
+ close(){this.closed=true;this.fail(Error('BRIDGE_CLOSED'));for(const request of this.pending.splice(0))request.reject(Error('BRIDGE_CLOSED'));}
+}
+module.exports={BridgeWorker};

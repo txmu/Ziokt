@@ -77,7 +77,7 @@ pub enum Frame {
     },
 
     /// 安全协商 (0x0A)
-    /// 包含 ZKP 证明或加密的能力位图
+    /// Contains a keyed capability digest or encrypted capability bitmap; it is not a ZKP proof.
     Negotiate {
         protocol_version: u16,
         zkp_proof: Vec<u8>, // 零知识证明数据

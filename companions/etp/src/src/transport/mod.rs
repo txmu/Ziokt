@@ -1,5 +1,6 @@
 // etp-core/src/transport/mod.rs
 pub mod shaper;
+pub mod padding;
 pub mod injection;
 pub mod reliability;
 pub mod congestion;

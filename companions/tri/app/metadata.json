@@ -1,0 +1,5 @@
+{
+  "name": "Ternary Computer Simulator",
+  "description": "An advanced simulator for a fictional ternary computer architecture, featuring a full instruction set, registers, memory, pipelining, interrupts, and an assembly editor. Explore computer architecture concepts in a hands-on, interactive environment.",
+  "requestFramePermissions": []
+}

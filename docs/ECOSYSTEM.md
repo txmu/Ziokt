@@ -17,9 +17,9 @@ The source catalogue is `companions/ecosystem.json`; inspect it using `python3 -
 | TC-16 / TCC | `ziokt companion tc16`, real 16-bit registers and arithmetic, 16 registers, byte/word memory, stack/calls, BCD, interrupts, bounded capability calls; TCC functions, recursion, conditions and loops |
 | ENEO ETP Core | Source in `companions/etp/src`, pinned local native `ziokt_gateway` adapter; explicit approved onion paths, no direct fallback. Native compilation is a CI gate, not a local test claim |
 | SIM Manager | `companions/sim-manager/src`, encrypted IndexedDB state, migration of old plaintext after successful save, 304 bilingual static labels, PWA, private durable reminder gateway |
-| Tri | Original bilingual ternary simulators preserved under `companions/tri`; no host execution or privilege changes |
+| Tri | `companions/tri/app` is a loopback development build and `/tri/` offline PWA, without third-party asset hosts or API-key injection; `ziokt companion tri put/get/publish` validates bounded snapshots and carries signed project files through SafeFS ciphertext |
 
-Original archives remain unchanged in the home directory; SOURCE.json files record their SHA-256. Historical Python files containing root/BCC hooks, pickle/eval or incomplete server implementations are preserved as original reference and are not the modern runtime entry points. Some optional ETP bindings were absent from the supplied archive and fail explicitly when selected; they are not advertised as working implementations.
+Original archives remain unchanged in the home directory; SOURCE.json files record their SHA-256. Tri project interchange validates JSON data and stores signed community events with the machine snapshot encrypted by the app-scoped SafeFS key. The simulator runs only when a user explicitly starts its local/browser UI; publishing a project never runs imported code. Historical Python files containing root/BCC hooks, pickle/eval or incomplete server implementations are preserved as original reference and are not the modern runtime entry points. Some optional ETP bindings were absent from the supplied archive and fail explicitly when selected; they are not advertised as working implementations.
 
 原始压缩包保持不变；历史实现保留用于兼容参考，不作为现代运行入口。导入包里缺失的 ETP Lua/Shell/PowerShell 绑定会明确拒绝启用。
 

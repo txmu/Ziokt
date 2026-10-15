@@ -1,5 +1,6 @@
 """Modern SafeFS and typed Ano/ZDA command entry points."""
 import argparse
+import hashlib
 from pathlib import Path
 from .protocol import encoded,secure_read,strict_json,ProtocolError
 from .i18n import translate,LOCALES
@@ -36,6 +37,14 @@ def register(sub):
     for action in ('evaluate','truth-table','defence'):
         item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en')
         if action in ('evaluate','defence'):item.add_argument('--input',type=Path,required=True)
+    tri=families.add_parser('tri');actions=tri.add_subparsers(dest='companion_action',required=True)
+    for action in ('put','get','publish'):
+        item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en')
+        item.add_argument('--root',type=Path,required=True);item.add_argument('--scope',default='tri');item.add_argument('--key',type=Path,required=True)
+        if action=='put':item.add_argument('--input',type=Path,required=True);item.add_argument('--state',type=Path)
+        else:item.add_argument('--digest',required=True)
+        if action=='get':item.add_argument('--output',type=Path,required=True)
+        if action=='publish':item.add_argument('--bridge-config',type=Path,required=True)
 
 
 def execute(args):
@@ -52,6 +61,28 @@ def execute(args):
             write_binary_exclusive(args.output,program);return {'schema':'ziokt.tc16-program.v1','word_bits':16,'isa':'tc16.v1','bytes':len(program),'output':str(args.output),'message':translate('tc16.compiled',args.lang)}
         cpu=TC16_CPU(debug=args.debug);cpu.load_program(program)
         return {**cpu.run(max_cycles=args.cycles),'message':translate('tc16.executed',args.lang)}
+    if args.companion=='tri':
+        from .safefs import Vault,MAX_FILE
+        from .cli import write_binary_exclusive
+        from .tri import project_bundle,read_project
+        if args.scope!='tri':raise ProtocolError('INVALID_SAFEFS','Tri requires its own fixed SafeFS scope')
+        vault=Vault(args.root,args.scope,secure_read(args.key,32))
+        if args.companion_action=='put':
+            program=secure_read(args.input,MAX_FILE,private=None).decode('utf-8')
+            state=strict_json(secure_read(args.state,MAX_FILE,private=None)) if args.state else None
+            bundle=project_bundle(program,state);item=vault.put('tri/projects/'+hashlib.sha256(bundle).hexdigest(),bundle)
+            return {**item,'message':translate('tri.saved',args.lang),'plaintext_disclosed':False}
+        if args.companion_action=='get':
+            name,data=vault.get(args.digest)
+            if not name.startswith('tri/projects/'):raise ProtocolError('POLICY_DENIED','Tri project object required')
+            project=read_project(data);write_binary_exclusive(args.output,encoded(project))
+            return {'output':str(args.output),'message':translate('tri.opened',args.lang)}
+        from .companion_bridge import CompanionBridge
+        bridge=CompanionBridge(args.bridge_config)
+        try:
+            if bridge.app!='tri':raise ProtocolError('POLICY_DENIED','Tri scoped bridge required')
+            return {**vault.publish(bridge.community,bridge.private,args.digest),'message':translate('tri.published',args.lang)}
+        finally:bridge.close()
     if args.companion=='ufsdcpm':
         from .ufsdcpm import IntegratedStorage,MAX_PACKAGE
         from .safefs import Vault

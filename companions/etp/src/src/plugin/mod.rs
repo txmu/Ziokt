@@ -1,5 +1,7 @@
 // etp-core/src/plugin/mod.rs
 
+pub mod flavors;
+
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -8,7 +10,7 @@ use anyhow::{Result, anyhow};
 use parking_lot::RwLock;
 use rand::{Rng, RngCore};
 
-use crate::security::zkp_negotiation::{ZkpNegotiator, CapabilityId};
+use crate::security::zkp_negotiation::{KeyedCapabilityNegotiator, CapabilityId};
 use crate::NodeID;
 
 // 引入传输层策略接口 (Mods)
@@ -59,7 +61,7 @@ pub struct AgentContext {
 
 /// 基础能力接口 (所有插件的基类)
 pub trait CapabilityProvider: Send + Sync + Debug {
-    /// 返回能力的唯一 ID (用于 ZKP 协商和日志)
+    /// 返回能力 ID (用于会话密钥派生的交集协商和日志)
     /// 格式建议: "vendor.category.name.version"
     fn capability_id(&self) -> CapabilityId;
 }
@@ -151,7 +153,7 @@ pub struct PluginRegistry {
     agents: Arc<RwLock<Vec<Arc<dyn Agent>>>>,
 
     // 安全协商器
-    pub negotiator: Arc<ZkpNegotiator>,
+    pub negotiator: Arc<KeyedCapabilityNegotiator>,
 }
 
 impl PluginRegistry {
@@ -163,14 +165,14 @@ impl PluginRegistry {
             congestion_mods: Arc::new(RwLock::new(HashMap::new())),
             padding_mods: Arc::new(RwLock::new(HashMap::new())),
             agents: Arc::new(RwLock::new(Vec::new())),
-            negotiator: Arc::new(ZkpNegotiator::new()),
+            negotiator: Arc::new(KeyedCapabilityNegotiator::new()),
         }
     }
 
     // --- Dialect Management ---
     pub fn register_dialect(&self, dialect: Arc<dyn Dialect>) {
         let id = dialect.capability_id();
-        // Dialect 需要参与 ZKP 协商，因为双方必须说同样的语言
+        // Dialect participates in the keyed intersection because peers need matching formats.
         self.negotiator.register_capability(id.clone());
         self.dialects.write().insert(id, dialect);
     }
@@ -186,7 +188,7 @@ impl PluginRegistry {
     // --- Flavor Management ---
     pub fn register_flavor(&self, flavor: Arc<dyn Flavor>) {
         let id = flavor.capability_id();
-        // Flavor 需要参与 ZKP 协商，确认对方支持该业务
+        // Flavor participates in the keyed intersection so peers can confirm shared support.
         self.negotiator.register_capability(id.clone());
         self.flavors.write().insert(id, flavor);
     }
@@ -209,7 +211,7 @@ impl PluginRegistry {
 
     // --- Interceptor Management (Add-ons) ---
     pub fn register_default_interceptor(&self, interceptor: Arc<dyn Interceptor>) {
-        // 拦截器通常是本地策略，不需要 ZKP 协商
+        // Interceptors are usually local policy and stay out of remote capability discovery.
         self.default_interceptors.write().push(interceptor);
     }
 
