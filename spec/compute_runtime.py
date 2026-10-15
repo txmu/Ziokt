@@ -99,3 +99,37 @@ def compute_receipt(root, network, plan):
         if len(data) > 6144 or proof['digest'] != 'sha256:'+hashlib.sha256(data).hexdigest():
             fail('ARTIFACT_DIGEST_MISMATCH', 'native computation proof bytes changed')
     return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
+
+
+def compute_challenge(root, network):
+    """The accepted native head and configured signer define an Engine Zero job."""
+    with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+        cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+        if not cached or not isinstance(cached[0],str):fail('NATIVE_STATE_UNAVAILABLE','accepted native chain head required')
+        fields=cached[0].split('|')
+        if len(fields)!=2 or not fields[1].isdigit() or not re.fullmatch('[a-f0-9]{64}',fields[0]):fail('NATIVE_STATE_CONFLICT','invalid accepted native head')
+        if not db.execute('SELECT 1 FROM blocks WHERE hash=? AND height=?',(fields[0],int(fields[1]))).fetchone():fail('NATIVE_STATE_CONFLICT','accepted head not present')
+        done=db.execute("SELECT 1 FROM completed_compute_tasks WHERE engine_id=? AND problem_id=?",('corium/internal-engine-zero-v1',fields[0])).fetchone()
+        pending=db.execute('SELECT 1 FROM pending_proofs WHERE problem_id=?',(fields[0],)).fetchone()
+        queued=False
+        for (raw,) in db.execute("SELECT data FROM transactions WHERE type='submit_math_proof' AND block_height IS NULL LIMIT 4096"):
+            data=strict_json(raw.encode())
+            if data.get('engine_id')=='corium/internal-engine-zero-v1' and data.get('problem_id')==fields[0]:queued=True;break
+    return {'schema':'ziokt.engine-zero-challenge.v1','engine_id':'corium/internal-engine-zero-v1','network_id':network,
+            'submitter_id':corium_identity(root,network),'problem_id':fields[0],'height':int(fields[1]),'difficulty':3,'available':not (done or pending or queued)}
+
+
+def compute_submit_preflight(root,network,params,config):
+    args=params['arguments']
+    if params['resource']!='compute:corium/internal-engine-zero-v1' or params['expected_revision'] is not None or set(args)!={'problem_id','nonce'} or not isinstance(args['problem_id'],str) or not re.fullmatch('[a-f0-9]{64}',args['problem_id']) or not isinstance(args['nonce'],str) or not re.fullmatch('0|[1-9][0-9]{0,19}',args['nonce']):fail('INVALID_PARAMS','bounded native Engine Zero proof required')
+    job=compute_challenge(root,network)
+    if args['problem_id']!=job['problem_id']:fail('STALE_PLAN','native Engine Zero head changed')
+    proof={'nonce':args['nonce'],'submitter_id':job['submitter_id'],'network_id':network}
+    if not hashlib.sha256((network+job['submitter_id']+args['nonce']+args['problem_id']).encode()).hexdigest().startswith('000'):fail('INVALID_PROOF','Engine Zero nonce failed verification')
+    payload={'engine_id':job['engine_id'],'problem_id':args['problem_id'],'engine_hash':'BUILT_IN','verifier_hash':'BUILT_IN','proof_data':proof}
+    # Do not submit an alternate proof after another worker already claimed this head.
+    if not job['available']:
+        with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            same=any(strict_json(raw.encode())==payload for (raw,) in db.execute("SELECT data FROM transactions WHERE type='submit_math_proof' LIMIT 4096"))
+        if not same:fail('TASK_UNAVAILABLE','native challenge is already claimed')
+    return {'transaction_type':'submit_math_proof','payload':payload,'issuer':job['submitter_id']}

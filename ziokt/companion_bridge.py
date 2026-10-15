@@ -119,6 +119,9 @@ class CompanionBridge:
     def call(self,method,params):
         if secure_read(self.path)!=self.config_bytes:raise ProtocolError('STALE_PLAN','application bridge configuration changed')
         if not isinstance(params,dict):raise ProtocolError('INVALID_BRIDGE','typed local parameters required')
+        if method in {'component.status','ano.laws','tc16.run','vault.put','vault.get','tri.put','package.build','sim.reminders.replace','sim.reminders.pull'}:
+            from .companion_operations import execute
+            return execute(self,method,params)
         if method in {'component.send','component.receive'}:
             if self.links is None:raise ProtocolError('POLICY_DENIED','component exchange is not configured')
             from .safefs import Vault
@@ -131,20 +134,19 @@ class CompanionBridge:
             delivery=self.links.receive(params['event'],expected_source=params['source'])
             # Keep the received payload scoped to this application. Never evaluate it.
             namespace='links/'+delivery['source']+'/'+delivery['operation']+'/'+delivery['name']
-            cache_key='link-'+hashlib.sha256(namespace.encode()).hexdigest()[:48]
-            events=self.community.view('files',cache_key)['events']
-            if events:
-                event=events[-1];blob=self.community.get_file(event['body']);name,data=vault.open(blob)
-                if name!=namespace or data!=delivery['data']:raise ProtocolError('IDEMPOTENCY_CONFLICT','local component receipt changed')
-                digest='sha256:'+hashlib.sha256(blob).hexdigest()
-                if not (vault.objects/digest[7:]).exists():
-                    from .cli import write_binary_exclusive
-                    write_binary_exclusive(vault.objects/digest[7:],blob)
-                item={'digest':digest,'sealed_size':len(blob)}
-            else:
-                item=vault.put(namespace,delivery['data']);vault.publish(self.community,self.private,item['digest'])
-                manifest=self.community.put_file(vault.blob(item['digest']));self.community.publish(self.private,'files',cache_key,{'name':'Scoped component receipt',**manifest})
-            return {**{k:v for k,v in delivery.items() if k not in {'name','data'}},**item,'plaintext_disclosed':False}
+            # Recipient receipts stay local: do not federate extra receipt events.
+            scope=self._tag('component-receipt')
+            with self.community.lock,self.community.db:
+                self.community.db.execute('CREATE TABLE IF NOT EXISTS component_receipts (scope TEXT,event TEXT,digest TEXT,PRIMARY KEY(scope,event))')
+                row=self.community.db.execute('SELECT digest FROM component_receipts WHERE scope=? AND event=?',(scope,params['event'])).fetchone()
+                if row and (vault.objects/row[0][7:]).exists():
+                    name,data=vault.get(row[0])
+                    if name!=namespace or data!=delivery['data']:raise ProtocolError('IDEMPOTENCY_CONFLICT','local component receipt changed')
+                    item={'digest':row[0],'sealed_size':len(vault.blob(row[0]))}
+                else:
+                    item=vault.put(namespace,delivery['data'])
+                    self.community.db.execute('INSERT OR REPLACE INTO component_receipts VALUES (?,?,?)',(scope,params['event'],item['digest']))
+            return {**{k:v for k,v in delivery.items() if k not in {'name','data'}},**item,'schema':'ziokt.component-delivery.v1','plaintext_disclosed':False}
         if method in {'file.publish','file.read'}:
             if self.inbox is None:raise ProtocolError('POLICY_DENIED','application file inbox not enabled')
             if set(params)!={'digest'} or not isinstance(params['digest'],str) or not re.fullmatch('sha256:[a-f0-9]{64}',params['digest']):raise ProtocolError('INVALID_BRIDGE','exact immutable sealed file reference required')

@@ -1,0 +1,133 @@
+{
+  "schema": "ziokt.application-router.v1",
+  "components": {
+    "shadow6": {
+      "federation_config": "/srv/ziokt/federation.json",
+      "provider": "shadow6-local",
+      "methods": [
+        "status.get",
+        "capabilities.get",
+        "objects.list",
+        "service.binding"
+      ]
+    },
+    "corium": {
+      "federation_config": "/srv/ziokt/federation.json",
+      "provider": "corium-local",
+      "methods": [
+        "status.get",
+        "capabilities.get",
+        "objects.list",
+        "compute.challenge"
+      ]
+    },
+    "watchat": {
+      "config": "/srv/ziokt/watchat/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "chat.append",
+        "chat.pull",
+        "chat.ack",
+        "file.publish",
+        "file.read"
+      ]
+    },
+    "safefs": {
+      "config": "/srv/ziokt/safefs/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "safefs.publish",
+        "safefs.read"
+      ]
+    },
+    "zda": {
+      "config": "/srv/ziokt/zda/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "ano.evaluate",
+        "ano.laws"
+      ]
+    },
+    "ufs": {
+      "config": "/srv/ziokt/ufs/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "package.build",
+        "safefs.publish"
+      ]
+    },
+    "dcpm": {
+      "config": "/srv/ziokt/dcpm/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "package.build",
+        "safefs.publish"
+      ]
+    },
+    "tc16": {
+      "config": "/srv/ziokt/tc16/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "tc16.run"
+      ]
+    },
+    "sim-manager": {
+      "config": "/srv/ziokt/sim-manager/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "sim.reminders.replace",
+        "sim.reminders.pull"
+      ]
+    },
+    "tri": {
+      "config": "/srv/ziokt/tri/bridge.json",
+      "methods": [
+        "component.status",
+        "component.send",
+        "component.receive",
+        "vault.put",
+        "vault.get",
+        "tri.put",
+        "safefs.publish"
+      ]
+    },
+    "etp": {
+      "binary": "/srv/ziokt/bin/ziokt_gateway",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "config": "/srv/ziokt/etp/node.json",
+      "methods": [
+        "etp.stats",
+        "etp.onion.send",
+        "etp.receive"
+      ]
+    }
+  }
+}

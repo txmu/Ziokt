@@ -3,7 +3,7 @@ import argparse,hashlib,json,subprocess,zipfile
 from pathlib import Path
 
 root=Path(__file__).resolve().parents[1]
-parser=argparse.ArgumentParser();parser.add_argument('--native',type=Path,required=True);parser.add_argument('--report',type=Path,required=True);args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--native',type=Path,required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--etp',type=Path);parser.add_argument('--pwas',type=Path);args=parser.parse_args()
 lock=json.loads((root/'ci/native-reuse.lock.json').read_text())
 if hashlib.sha256(args.native.read_bytes()).hexdigest()!=lock['sha256']:raise ValueError('joint bundle native artifact digest mismatch')
 report=json.loads(args.report.read_text())
@@ -20,7 +20,14 @@ for project,base in [('Ziokt',root),('Shadow6',root.parent/'Shadow6'),('Corium',
   if any(part in {'node_modules','__pycache__','.git','.runtime','.venv','data','uploads','target'} for part in Path(name).parts):raise ValueError('private/generated path unexpectedly tracked: '+name)
   if file.suffix in {'.key','.sqlite','.db'} or file.name.startswith('.env'):raise ValueError('credential/state filename unexpectedly tracked: '+name)
   files[project+'/'+name]=file
-for app, pwa in [('sim-manager',root/'companions/sim-manager/src/dist'),('tri',root/'companions/tri/app/dist')]:
+if report.get('etp',{}).get('native_gateway_compiled_and_run'):
+ if args.etp is None or hashlib.sha256(args.etp.read_bytes()).hexdigest()!=report['etp'].get('gateway_sha256'):raise ValueError('CI-proven native ETP gateway required')
+ files['native-etp/ziokt_gateway']=args.etp
+ # Bind the binary to the verified functional source even if a later commit only records results.
+ verified=report['etp']['gateway_source_revision']
+ if subprocess.call(['git','diff','--quiet',verified,'HEAD','--','ziokt','spec','companions','tools','.github','ci'],cwd=root):raise ValueError('functional source changed after ETP verification')
+pwas=args.pwas or root/'companions'
+for app, pwa in [('sim-manager',pwas/'sim-manager/src/dist'),('tri',pwas/'tri/app/dist')]:
  if not (pwa/'manifest.webmanifest').is_file() or not (pwa/'sw.js').is_file():raise ValueError('verified built '+app+' PWA required')
  for file in sorted(pwa.rglob('*')):
   if file.is_file() and not file.is_symlink():files['apps/'+app+'/'+str(file.relative_to(pwa))]=file

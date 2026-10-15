@@ -82,7 +82,7 @@ _ziokt_native_dispatch() {
             corix_strata_create "$resource" "$package_manager"
             ;;
         chain.mine) blockchain_mine_block ;;
-        identity.register|content.publish|zkn.transfer)
+        identity.register|content.publish|zkn.transfer|compute.submit)
             local transaction_type transaction_payload
             transaction_type=$(jq -er '.binding_evidence.transaction_type' <<< "$descriptor") || return 2
             transaction_payload=$(jq -ec '.binding_evidence.payload' <<< "$descriptor") || return 2

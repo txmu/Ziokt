@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge")
 
 
 class ProtocolError(ValueError):
@@ -359,7 +359,7 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
@@ -446,7 +446,9 @@ def validate_request(value, config):
         fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method=='service.binding':
+    if method=='compute.challenge':
+        if params:fail('INVALID_PARAMS','Engine Zero challenge takes no client configuration')
+    elif method=='service.binding':
         if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
             fail('INVALID_PARAMS','fixed named Broker binding required')
     elif method in {"governance.fact","zkn.fact","zkc.fact"}:
@@ -649,7 +651,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
+                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -685,6 +687,9 @@ def rpc(provider, root, network, config, stream):
             result=service_binding_fact(root,config,request['params']['service_name'])
         elif method.startswith("operation.") or method == "events.list":
             result = operation_dispatch(provider, root, network, config, method, request["params"])
+        elif method == "compute.challenge":
+            if provider != "corium":fail("METHOD_UNSUPPORTED","Engine Zero belongs to Corium")
+            result=compute_challenge(root,network)
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
@@ -723,16 +728,33 @@ def rpc(provider, root, network, config, stream):
 
 
 def main(provider, root=None, argv=None, rpc_stream=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    companion_args = None
+    if 'companion' in arguments:
+        boundary = arguments.index('companion')
+        companion_args = arguments[boundary + 1:]
+        arguments = arguments[:boundary + 1]
     parser = argparse.ArgumentParser(prog=provider + " ziokt")
     parser.add_argument("--config", type=Path, help="private native provider configuration")
     if provider == "corium":
         parser.add_argument("--network", default=os.environ.get("CORIUM_NETWORK_ID_OVERRIDE", "default"))
-    parser.add_argument("action", choices=("capabilities", "status", "rpc", "serve-data"))
+    parser.add_argument("action", choices=("capabilities", "status", "rpc", "serve-data", "companion"))
     parser.add_argument("--stdio", action="store_true")
     parser.add_argument("--key-file", type=Path)
     parser.add_argument("--port", type=int, default=0)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
+        if args.action == 'companion':
+            if args.stdio or args.key_file is not None or args.port:
+                fail('INVALID_REQUEST', 'companion does not accept native server options')
+            # Fixed installed Python API: no shell, callback, arbitrary module or plugin.
+            # Installation is explicit; native providers remain independently usable.
+            try:
+                from ziokt.companion_cli import main as companion_main
+            except ImportError:
+                fail('COMPANION_UNAVAILABLE', 'install the Ziokt Python package to enable companion calls')
+            return companion_main(companion_args)
+
         if args.stdio != (args.action == "rpc"):
             fail("INVALID_REQUEST", "rpc requires --stdio; other actions do not accept it")
         network = args.network if provider == "corium" else None

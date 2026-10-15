@@ -181,6 +181,8 @@ class TLSStream:
 
 
 def connect_peer(host, port, carrier, timeout=30, cancellation=None):
+    from .runtime_policy import require_network
+    require_network()
     validate_peer_carrier(carrier, host)
     destination = target_address(host, port)
     if type(timeout) not in {int, float} or not 0 < timeout <= 120:
@@ -232,6 +234,8 @@ def connect_peer(host, port, carrier, timeout=30, cancellation=None):
 
 
 def proxy_server(config, context):
+    from .runtime_policy import require_network
+    require_network()
     required = {'schema', 'enabled', 'host', 'port', 'trusted_clients', 'targets', 'max_connections', 'max_bytes', 'max_seconds'}
     if not isinstance(config, dict) or set(config)-required-{'certificate', 'private_key', 'ca', 'discovery'} or not required <= set(config) or config['schema'] != 'ziokt.peer-proxy.v1' or type(config['enabled']) is not bool:
         raise ProtocolError('INVALID_PROXY', 'exact opt-in proxy configuration required')

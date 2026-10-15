@@ -43,6 +43,11 @@ fn hex_key(value: &str) -> anyhow::Result<Vec<u8>> {
 }
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !std::env::var("ZIOKT_AIRGAP")
+            .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes")),
+        "AIRGAP_DENIED: native network gateway disabled"
+    );
     let path = std::env::args()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("private node configuration required"))?;

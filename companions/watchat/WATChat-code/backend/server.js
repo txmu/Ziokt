@@ -1,3 +1,4 @@
+if(['1','true','yes'].includes((process.env.ZIOKT_AIRGAP||'').toLowerCase())){console.error('AIRGAP_DENIED: WATChat network service disabled');process.exit(1)}
 'use strict';
 // Loopback application gateway. Browser ciphertext is never decrypted here.
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
@@ -28,6 +29,8 @@ if(process.env.ZIOKT_BRIDGE_CONFIG){
  if(cfg.inbox){bridgeInbox=path.resolve(cfg.inbox);if(bridgeInbox!==path.join(DATA,'inbox'))throw Error('BRIDGE_INBOX_SCOPE');fs.mkdirSync(bridgeInbox,{recursive:true,mode:0o700});if(fs.lstatSync(bridgeInbox).isSymbolicLink())throw Error('UNSAFE_INBOX');fs.chmodSync(bridgeInbox,0o700)}
 }
 store.filePending??=[];
+const simBridge=process.env.SIM_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.SIM_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(process.env.ZIOKT_PROJECT_ROOT||path.join(ROOT,'../../..'))):null;
+const simFederation=simBridge?new(require('./sim_bridge').SimFederation)(simBridge,store,()=>save(),reminderScheduler):null;
 const sessions=new Map(),attempts=new Map();let hashing=0;
 async function passwordHash(password,salt){if(typeof password!=='string'||password.length<12||password.length>128)throw Error('PASSWORD_POLICY');if(hashing>=4)throw Error('BUSY');hashing++;try{return(await scrypt(password,salt,32)).toString('hex')}finally{hashing--}}
 async function makeUser(username,name,password,admin=false){if(!/^[a-zA-Z0-9_.-]{1,32}$/.test(username)||typeof name!=='string'||!name||name.length>64)throw Error('INVALID_USER');const salt=crypto.randomBytes(16).toString('hex');return{id:crypto.randomUUID(),username,name,salt,hash:await passwordHash(password,salt),admin,contacts:[],key:null}}
@@ -59,7 +62,7 @@ const server=http.createServer(async(req,res)=>{try{
  if(url.pathname.startsWith('/api/')||url.pathname.startsWith('/uploads/')){
   if(!me)return json(res,401,{error:'AUTH_REQUIRED'});
   if(req.method!=='GET'&&!originOK(req)&&!req.headers.authorization)return json(res,403,{error:'ORIGIN_REJECTED'});
-  if(url.pathname==='/api/reminders'&&req.method==='POST'){const x=JSON.parse(await body(req));try{reminderScheduler.replace(me.id,x.items);return json(res,200,{accepted:x.items.length,background:!!notifier,webhook:!!webhook})}catch(e){return json(res,400,{error:e.message})}}
+  if(url.pathname==='/api/reminders'&&req.method==='POST'){const x=JSON.parse(await body(req));try{reminderScheduler.replace(me.id,x.items);if(simBridge){simFederation.queue(me.id,x.items);simFederation.flush()}return json(res,200,{accepted:x.items.length,background:!!notifier,webhook:!!webhook,federation_pending:!!simBridge})}catch(e){return json(res,400,{error:e.message})}}
   if(url.pathname==='/api/push-key'&&req.method==='GET')return json(res,200,{enabled:!!notifier,publicKey:notifier?.publicKey||null});
   if(url.pathname==='/api/push-subscription'&&req.method==='POST'){if(!notifier)return json(res,503,{error:'PUSH_NOT_CONFIGURED'});const x=JSON.parse(await body(req));try{return json(res,200,{id:notifier.register(me.id,x)})}catch(e){return json(res,400,{error:e.message})}}
   if(url.pathname==='/api/push-subscription'&&req.method==='DELETE'){notifier?.unregister(me.id);return json(res,200,{ok:true})}
@@ -114,6 +117,6 @@ async function flushBridge(){
  finally{bridgeBusy=false;if(store.pending.length||store.filePending.some(digest=>(store.fileBackoff[digest]||0)<=Date.now()))setTimeout(flushBridge,1000)}
 }
 
-const heartbeat=setInterval(()=>{const now=Date.now();for(const [token,s]of sessions)if(s.expires<now){sessions.delete(token);revoke(s.id)}for(const ws of wss.clients){if(!ws.alive)ws.terminate();else{ws.alive=false;ws.ping()}}flushBridge();reminderScheduler.tick()},30000);
-server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close()});
+const heartbeat=setInterval(()=>{const now=Date.now();for(const [token,s]of sessions)if(s.expires<now){sessions.delete(token);revoke(s.id)}for(const ws of wss.clients){if(!ws.alive)ws.terminate();else{ws.alive=false;ws.ping()}}flushBridge();simFederation?.flush();reminderScheduler.tick()},30000);
+server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close();simBridge?.close()});
 (async()=>{if(!store.users.length){const password=process.env.ADMIN_PASSWORD;if(!password||password.length<12)throw Error('ADMIN_PASSWORD_REQUIRED');store.users.push(await makeUser('admin','Administrator',password,true));save()}if(!process.env.ZIOKT_BRIDGE_CONFIG&&process.env.ZIOKT_STANDALONE!=='1')throw Error('FEDERATION_CONFIG_REQUIRED');server.listen(PORT,'127.0.0.1',()=>console.log('WATChat ready on loopback'))})().catch(e=>{clearInterval(heartbeat);console.error(e.message);process.exit(1)});

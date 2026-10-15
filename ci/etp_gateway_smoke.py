@@ -4,6 +4,8 @@ No public endpoints, root privileges or local native compilation.
 import base64
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 import secrets
 import socket
@@ -21,6 +23,10 @@ from ziokt.protocol import ProtocolError
 
 def main(binary):
     binary = Path(binary).resolve()
+    offline = subprocess.run([str(binary), '/nonexistent-airgap-config'],
+        env={**os.environ, 'ZIOKT_AIRGAP': '1'}, capture_output=True, timeout=5)
+    assert offline.returncode != 0 and b'AIRGAP_DENIED' in offline.stderr
+
     keys = [X25519PrivateKey.generate() for _ in range(4)]
     # Hold all port reservations until distinct addresses have been chosen.
     reservations = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in keys]

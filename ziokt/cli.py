@@ -47,6 +47,8 @@ def initialize(args):
                           "state_root": str(args.corium_state_root.absolute()) if project == "corium" else None})
     value = {"schema": "ziokt.federation.v1", "enabled": False,
              "federation_id": args.federation, "providers": providers}
+    if getattr(args, "network_mode", "online") == "airgap":
+        value["network_mode"] = "airgap"
     write_exclusive(args.output, value)
     return {"schema": "ziokt.init.v1", "config": str(args.output.absolute()), "enabled": False}
 
@@ -87,6 +89,7 @@ def inspect(config, action, kind):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ziokt")
+    parser.add_argument("--airgap", action="store_true", help="block network and external workers for this process")
     sub = parser.add_subparsers(dest="action", required=True)
     from .community_cli import register
     register(sub)
@@ -94,6 +97,9 @@ def main(argv=None):
     register_collectibles(sub)
     from .companion_cli import register as register_companion
     register_companion(sub)
+    sub.add_parser("airgap", help="activate and report local offline policy")
+    effort=sub.add_parser("effort-web", help="serve opt-in public Engine Zero browser workers")
+    effort.add_argument("--config", type=Path, required=True)
     profiles = sub.add_parser('profiles', help='review every native Profile for an application purpose')
     profiles.add_argument('--shadow6', required=True, type=Path)
     profiles.add_argument('--purpose', choices=('proxy-stream','discovery','content'), required=True)
@@ -104,6 +110,7 @@ def main(argv=None):
     init.add_argument("--shadow6-config", required=True, type=Path)
     init.add_argument("--federation", default="home")
     init.add_argument("--network", default="default")
+    init.add_argument("--network-mode", choices=("online", "airgap"), default="online")
     init.add_argument("--output", required=True, type=Path)
     for action in ("doctor", "capabilities", "inventory"):
         cmd = sub.add_parser(action)
@@ -190,7 +197,16 @@ def main(argv=None):
     coin.add_argument("--address")
     args = parser.parse_args(argv)
     try:
-        if args.action=='companion':
+        from .runtime_policy import activate_airgap, status as network_status
+        if args.airgap or args.action == 'airgap':
+            activate_airgap()
+        if args.action == 'airgap':
+            result = network_status()
+        elif args.action=='effort-web':
+            from .effort_web import main as effort_main
+            effort_main(['--config',str(args.config)])
+            return 0
+        elif args.action=='companion':
             from .companion_cli import execute as execute_companion
             result=execute_companion(args)
         elif args.action in {'extensions','zkn','zkc','node'}:

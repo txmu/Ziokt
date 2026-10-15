@@ -688,6 +688,11 @@ impl EtpEngine {
         mut config: NodeConfig,
         plugins: Arc<PluginRegistry>,
     ) -> Result<(Self, EtpHandle, mpsc::Receiver<(SocketAddr, Vec<u8>)>)> {
+        anyhow::ensure!(
+            !std::env::var("ZIOKT_AIRGAP")
+                .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes")),
+            "AIRGAP_DENIED: ETP networking disabled"
+        );
         // Defaults
         if config.recv_buffer_size == 0 {
             config.recv_buffer_size = DEFAULT_RECV_BUF;
@@ -724,6 +729,11 @@ impl EtpEngine {
         plugins: Arc<PluginRegistry>,
         transport: Arc<dyn PacketTransport>, // <--- 关键：依赖注入
     ) -> Result<(Self, EtpHandle, mpsc::Receiver<(SocketAddr, Vec<u8>)>)> {
+        anyhow::ensure!(
+            !std::env::var("ZIOKT_AIRGAP")
+                .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes")),
+            "AIRGAP_DENIED: ETP networking disabled"
+        );
         anyhow::ensure!(
             config.keypair.private.len() == 32
                 && config.keypair.public.len() == 32

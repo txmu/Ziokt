@@ -1,11 +1,143 @@
 {
- "schema":"ziokt.verification-report.v1",
- "local_native_compilation":false,
- "regression":{"passed":true,"full_python_suite":{"tests":142,"skipped":3,"seconds":143.927,"result":"OK"},"latest_ci_full_suite":{"run_id":38719594424,"tests":142,"skipped":4,"seconds":222.368,"result":"OK"},"subsequent_affected_suites":{"tri_safefs_federation":2,"etp_adapter":3,"companion_crypto":6,"watchat_gateway":4}},
- "ci":{"integration_workflow":{"run_id":38719594424,"result":"success","url":"https://github.com/txmu/Ziokt/actions/runs/38719594424","i2p_sam_and_mtls":true,"tor_nested_socks_and_mtls":true,"nested_nat":true,"linux_macos_windows":true,"six_core_isolated_extensions":true,"native_package_artifact":true},"companion_workflow":{"run_id":38719594495,"applications":"success","url":"https://github.com/txmu/Ziokt/actions/runs/38719594495","etp_native_compile":"failed: 83 compiler errors in bundled legacy ETP modules"}},
- "privacy":{"owned_loopback_observer_tests":3,"adjacent_route_only":true,"relay_content_key_absent":true,"small_frame_padding_verified":true,"unauthenticated_product_banner_absent":true,"global_observer_anonymity_proven":false},
- "extensions":{"native_core_families":["go","rust","gleam","ada","nim","idris"],"real_signed_isolated_plugin_tests_passed":true,"native_artifacts":"pre-existing compiled products; tested in CI under temporary user-namespace policy and restored afterward"},
- "browser":{"watchat_ecdh_chat":true,"mobile_viewport":true,"sim_locale":true,"sim_encrypted_persistence":true,"sim_script_capability_rejection_and_deadline":true,"tri_offline_pwa_manifest_and_no_external_asset_requests":true,"offline_pwa_shells":true,"notification_permission_path":true,"physical_phone_notification_delivery":false,"headless_notification_limitation":"Headless Chromium did not allow OS notification delivery; denial was handled and reported."},
- "etp":{"source_manifest_checked":true,"source_parser_checked":true,"pinned_worker_and_real_aead_adapter_tests_passed":true,"native_gateway_compiled_and_run":false,"native_ci_required":true,"latest_native_ci_errors":83},
- "deployment":{"external_systems_scanned":false,"host_network_or_firewall_changed":false,"services_automatically_enabled":false}
+  "schema": "ziokt.verification-report.v1",
+  "local_native_compilation": false,
+  "regression": {
+    "passed": true,
+    "full_python_suite": {
+      "tests": 156,
+      "skipped": 3,
+      "seconds": 182.264,
+      "result": "OK"
+    },
+    "native_provider_python": {
+      "shadow6": 5,
+      "corium": 8,
+      "result": "OK"
+    },
+    "watchat_sim_node_tests": 6,
+    "real_effort_browser": "explicit start, SHA-256 proof, stop, hidden page stop, no external requests"
+  },
+  "ci": {
+    "current_submission": "pending; local results apply to the final working tree",
+    "integration_workflow": {
+      "run_id": 38747367628,
+      "result": "success",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/38747367628",
+      "source_revision": "fef64532432ecefca5b3ecf1bc46ed355e79972d",
+      "i2p_sam_and_mtls": true,
+      "tor_nested_socks_and_mtls": true,
+      "nested_nat": true,
+      "linux_macos_windows": true,
+      "six_core_isolated_extensions": true
+    },
+    "companion_workflow": {
+      "run_id": 38747367637,
+      "result": "success",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/38747367637",
+      "source_revision": "fef64532432ecefca5b3ecf1bc46ed355e79972d",
+      "applications": "success",
+      "etp_native_minimal": "success",
+      "etp_native_integrated": "success"
+    }
+  },
+  "privacy": {
+    "owned_loopback_observer_tests": 3,
+    "adjacent_route_only": true,
+    "relay_content_key_absent": true,
+    "small_frame_padding_verified": true,
+    "unauthenticated_product_banner_absent": true,
+    "global_observer_anonymity_proven": false
+  },
+  "extensions": {
+    "native_core_families": [
+      "go",
+      "rust",
+      "gleam",
+      "ada",
+      "nim",
+      "idris"
+    ],
+    "real_signed_isolated_plugin_tests_passed": true,
+    "native_artifacts": "pre-existing compiled products; tested in CI under temporary user-namespace policy and restored afterward"
+  },
+  "browser": {
+    "watchat_ecdh_chat": true,
+    "mobile_viewport": true,
+    "sim_locale": true,
+    "sim_encrypted_persistence": true,
+    "sim_script_capability_rejection_and_deadline": true,
+    "tri_offline_pwa_manifest_and_no_external_asset_requests": true,
+    "offline_pwa_shells": true,
+    "notification_permission_path": true,
+    "physical_phone_notification_delivery": false,
+    "headless_notification_limitation": "Headless Chromium did not allow OS notification delivery; denial was handled and reported."
+  },
+  "etp": {
+    "source_manifest_checked": true,
+    "native_gateway_compiled_and_run": true,
+    "verified_ci_run": 38747367637,
+    "current_airgap_guard_ci": "pending",
+    "four_process_onion_records_and_fragmentation": true,
+    "integrated_features": [
+      "tc16-tcc",
+      "dsl-runtime",
+      "ultrafileserver",
+      "ens-gateway",
+      "smart-contracts",
+      "safefs"
+    ],
+    "optional_bindings_not_present_in_archive": [
+      "lua",
+      "shell",
+      "powershell"
+    ],
+    "global_observer_anonymity_proven": false
+  },
+  "deployment": {
+    "external_systems_scanned": false,
+    "host_network_or_firewall_changed": false,
+    "services_automatically_enabled": false
+  },
+  "native_application_router": {
+    "component_count": 11,
+    "includes_tri": true,
+    "native_cli_entrypoints": [
+      "shadow6 ziokt companion app call",
+      "corix ziokt companion app call"
+    ],
+    "real_native_cli_target_dispatches": 22,
+    "all_targets_tested": true,
+    "etp_router_test_backend": "pinned protocol fixture; real native ETP forwarding separately verified in CI",
+    "sim_reminders_encrypted_and_gateway_scheduled": true,
+    "method_grants_enforced": true,
+    "imports_auto_executed": false
+  },
+  "airgap": {
+    "tests": 3,
+    "dns_socket_subprocess_rejected": true,
+    "native_etp_and_watchat_startup_guard": true,
+    "local_compute_and_110_direction_exchange": "passed",
+    "os_sandbox": false,
+    "physical_isolation_verified": false
+  },
+  "effort_web": {
+    "opt_in_only": true,
+    "real_browser_hashing": true,
+    "stops_when_hidden": true,
+    "real_native_engine_zero_transaction": true,
+    "duplicate_and_interrupted_ack_reconciled": true,
+    "server_configured_native_signer": true,
+    "consensus_confirmation_claimed": false,
+    "live_public_deployment": false
+  },
+  "dependency_audit": {
+    "npm_active_app_trees": {
+      "watchat": 0,
+      "sim-manager": 0,
+      "tri": 0,
+      "browser-ci": 0
+    },
+    "active_etp_cargo_lock_open_dependabot_alerts": 0,
+    "original_reference_trees_included_in_zero_claim": false
+  }
 }

@@ -132,6 +132,8 @@ atexit.register(close_sessions)
 
 
 def connect_i2p(host, port, value, timeout=90, cancellation=None):
+    from .runtime_policy import require_network
+    require_network()
     validate_i2p(value, host)
     if type(port) is not int or not 1 <= port <= 65535 or type(timeout) not in {int, float} or not 0 < timeout <= 120:
         raise ProtocolError('INVALID_I2P', 'bounded I2P service and deadline required')

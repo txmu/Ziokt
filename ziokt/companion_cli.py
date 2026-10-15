@@ -10,6 +10,10 @@ def register(sub):
     cmd=sub.add_parser('companion',help='integrated SafeFS, Ano/ZDA, UFS/DCPM, TC-16 and ecosystem tools')
     families=cmd.add_subparsers(dest='companion',required=True)
     from .component_links import COMPONENTS,KINDS
+    app=families.add_parser('app');actions=app.add_subparsers(dest='companion_action',required=True)
+    call=actions.add_parser('call');call.add_argument('--bridge-config',type=Path,required=True);call.add_argument('--request',type=Path,required=True);call.add_argument('--lang',choices=LOCALES,default='en')
+    etp=families.add_parser('etp');actions=etp.add_subparsers(dest='companion_action',required=True)
+    call=actions.add_parser('call');call.add_argument('--binary',type=Path,required=True);call.add_argument('--digest',required=True);call.add_argument('--config',type=Path,required=True);call.add_argument('--request',type=Path,required=True);call.add_argument('--lang',choices=LOCALES,default='en')
     links=families.add_parser('link');actions=links.add_subparsers(dest='companion_action',required=True)
     for action in ('send','receive'):
         item=actions.add_parser(action);item.add_argument('--bridge-config',type=Path,required=True);item.add_argument('--lang',choices=LOCALES,default='en')
@@ -59,6 +63,20 @@ def register(sub):
 
 
 def execute(args):
+    if args.companion in {'app','etp'}:
+        request=strict_json(secure_read(args.request,131072),131072)
+        if args.companion=='app' and isinstance(request,dict) and set(request)=={'target','method','params'}:
+            from .application_router import ApplicationRouter
+            return ApplicationRouter(args.bridge_config).call(request['target'],request['method'],request['params'])
+        if not isinstance(request,dict) or set(request)!={'method','params'} or not isinstance(request['method'],str) or not isinstance(request['params'],dict):raise ProtocolError('INVALID_REQUEST','exact typed local companion operation required')
+        if args.companion=='etp':
+            from .etp import EtpGateway
+            bridge=EtpGateway(args.binary,args.digest,args.config)
+        else:
+            from .companion_bridge import CompanionBridge
+            bridge=CompanionBridge(args.bridge_config)
+        try:return bridge.call(request['method'],request['params'])
+        finally:bridge.close()
     if args.companion=='catalog':
         from .ecosystem import inventory
         return inventory(args.root)
@@ -153,4 +171,4 @@ def main(argv=None):
     args=parser.parse_args(['companion',*(argv or [])])
     try:print(encoded(execute(args)).decode());return 0
     except (ProtocolError,OSError,ValueError) as exc:
-        code=getattr(exc,'code','COMPANION_FAILED');print(encoded({'ok':False,'error':code,'message':translate(code,args.lang)}).decode());return 2
+        code=getattr(exc,'code','COMPANION_FAILED');print(encoded({'ok':False,'error':code,'message':translate(code,getattr(args,'lang','en'))}).decode());return 2

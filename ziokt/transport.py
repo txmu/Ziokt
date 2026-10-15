@@ -10,6 +10,8 @@ class NativeTransport:
 
     def open(self, service, *, kind=None, reliable=None, ordered=None,
              timeout=10, cancellation=None):
+        from .runtime_policy import require_network
+        require_network()
         requirements = {}
         if kind is not None:
             if kind not in {"stream", "message"}:

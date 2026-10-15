@@ -15,7 +15,7 @@ The source catalogue is `companions/ecosystem.json`; inspect it using `python3 -
 | ZDA / Ano | `ziokt companion ano`, exact bounded rational arithmetic, typed unknown evidence, all-required-claims authorization gates |
 | UFS + DCPM | `ziokt companion ufsdcpm`, signed packages inside an encrypted UFS vault; coupled storage and package integrity remain native functions |
 | TC-16 / TCC | `ziokt companion tc16`, real 16-bit registers and arithmetic, 16 registers, byte/word memory, stack/calls, BCD, interrupts, bounded capability calls; TCC functions, recursion, conditions and loops |
-| ENEO ETP Core | Source in `companions/etp/src`, pinned local native `ziokt_gateway` adapter; explicit approved onion paths, no direct fallback. Adapter tests pass; the latest native Rust CI build is still blocked by 83 compile errors across the supplied crate's module APIs |
+| ENEO ETP Core | Source in `companions/etp/src`, pinned local native `ziokt_gateway` adapter; explicit approved onion paths, no direct fallback. Minimal and integrated native builds, library tests and four-process onion forwarding pass in CI (run 38747367637); selected integrated features include TC-16/TCC, DSL, UFS, SafeFS, ENS and read-only contract RPC |
 | SIM Manager | `companions/sim-manager/src`, encrypted IndexedDB state, migration of old plaintext after successful save, 304 bilingual static labels, PWA, private durable reminder gateway |
 | Tri | `companions/tri/app` is a loopback development build and `/tri/` offline PWA, without third-party asset hosts or API-key injection; `ziokt companion tri put/get/publish` validates bounded snapshots and carries signed project files through SafeFS ciphertext |
 
@@ -52,3 +52,19 @@ ZKN contains an immutable signed 0–F lucky digit. Private transfers are the de
 中继不持有内容解密密钥，但网络地址、时间、流量长度桶与公开收藏件链仍有可观察信息。不能保证全局观察者无法关联、恶意节点无法丢包，或全网离线时仍即时送达。默认转赠、ZKC 签发与转发没有收费概念；资源预算仅用于限流和防滥用。
 
 The imported ETP Noise pattern requested a hash outside the declared Snow 0.9 resolver contract. The active source uses the supported IK/25519/ChaChaPoly/BLAKE2s pattern; there is no algorithm fallback. See [Snow 0.9 documentation](https://docs.rs/crate/snow/0.9.6) and [hash choices](https://docs.rs/snow/0.9.6/snow/params/enum.HashChoice.html).
+
+## AirGap / 隔离运行
+
+Start a **fresh process** with `python3 -m ziokt --airgap companion catalog`, or set `ZIOKT_AIRGAP=1` before launching Ziokt. `python3 -m ziokt airgap` reports the enforced policy. Federation configurations may include `"network_mode":"airgap"`; `ziokt init --network-mode airgap ...` writes this setting. Loading such a configuration activates AirGap for the remainder of that process. Restart explicitly without the setting to return online; changing an environment variable in a running process cannot disable the guard.
+
+AirGap denies Python socket operations (including loopback listeners, proxies and DNS) and external process execution. Native providers, Shadow6 transport handles, Tor/I2P connectors and ETP workers fail with `AIRGAP_DENIED` before starting. The native ETP engine/gateway and WATChat service also reject the AirGap environment independently. Existing services must be stopped before switching modes: activation does not terminate unrelated or already running processes. This application policy is not an OS sandbox for hostile native code, nor a substitute for physically disconnecting the device.
+
+本地 Ano、TC-16/TCC、SafeFS、UFS/DCPM、Tri 数据包、签名检查点与组件密文交换可继续使用。通过人工介质搬运签名检查点，接收端先验证再导入；不会自动执行导入内容。网络发现、多跳、P2P 同步和服务器通知需要恢复联网进程。浏览器离线 PWA 缓存与此进程策略不同；隔离设备应事先安装所需 PWA，关闭在线服务并断开网络。
+
+## Scoped component exchange / 组件互操作
+
+`ziokt companion link send/receive` uses explicitly pinned signing keys, recipient mailbox keys and artifact kind grants. All 110 directed pairs of the ten catalogue components plus Tri share this encrypted artifact contract. Recipient receipts remain in local SQLite; they do not create extra federated receipt events. Repeated delivery returns the same local sealed object and schema. A combined regression runs TCC/TC-16 output through UFS/DCPM and SafeFS, replicates a signed community checkpoint, and validates Tri state and the Ano decision audit. This verifies artifact interoperability; feature-specific native readiness checks remain required.
+
+Node.js CI and project version files select 24; package engines permit 22 as the fallback. The original archives and reference implementations are preserved. The modern active runtime is the maintained entry point; absent optional native bindings are not advertised as implemented.
+
+原生统一调用、全部组件路由、SIM Manager 调度与公开 Engine Zero 奋斗页见 [部署说明](NATIVE-APPLICATIONS.md)。

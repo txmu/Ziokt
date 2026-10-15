@@ -26,6 +26,8 @@ class EtpGateway:
             if self.process.stdout is not None:self.process.stdout.close()
             self.process=None
     def call(self,method,params):
+        from .runtime_policy import require_network
+        require_network()
         if method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown'} or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
         if method=='etp.onion.send':
             if set(params)!={'hops','ciphertext'} or not isinstance(params['hops'],list) or not 2<=len(params['hops'])<=4:raise ProtocolError('INVALID_ETP','private 2..4-hop path required')

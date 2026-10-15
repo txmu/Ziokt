@@ -77,6 +77,8 @@ def tls_context(cert, key, ca, server=False):
 
 
 def remote_server(federation, context, replay_path, trusted_clients, *, host="127.0.0.1", port=0, allow_mutations=False, community=None):
+    from .runtime_policy import require_network
+    require_network()
     if not federation["enabled"]:
         raise ProtocolError("ZIOKT_DISABLED", "remote federation must be explicitly enabled")
     if (type(allow_mutations) is not bool or not isinstance(trusted_clients, dict) or not 1 <= len(trusted_clients) <= 64 or
@@ -220,6 +222,8 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 
 
 def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None, privacy_padding=False):
+    from .runtime_policy import require_network
+    require_network()
     from .carrier import open_carrier, validate_carrier
     if type(privacy_padding) is not bool:raise ProtocolError("INVALID_CONFIG","explicit privacy padding flag required")
     if carrier is not None: validate_carrier(carrier, host)

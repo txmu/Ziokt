@@ -1,0 +1,10 @@
+{
+  "schema": "ziokt.effort-web.v1",
+  "origin": "https://effort.example.org",
+  "listen": "127.0.0.1",
+  "port": 8081,
+  "federation_config": "/srv/ziokt/federation.json",
+  "provider": "corium-local",
+  "submitter": "0000000000000000000000000000000000000000000000000000000000000000",
+  "state_root": "/srv/ziokt/effort-state"
+}

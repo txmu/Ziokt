@@ -15,5 +15,5 @@
   {"id":"sim-manager","source":"sim-manager/src","integration":"encrypted browser state, PWA, durable privacy-preserving reminder gateway","runtime":"built PWA and authenticated HTTPS notification gateway"}
  ],
  "additional_components":[{"id":"tri","source":"tri","integration":"offline /tri/ PWA; bounded machine snapshots sealed in SafeFS and signed into Ziokt community file events; no imported-code execution"}],
- "limits":{"anonymous_against_global_observer":false,"absolute_noninterception":false,"physical_phone_notification_verified":false,"etp_native_runtime_verified":false}
+ "limits":{"anonymous_against_global_observer":false,"absolute_noninterception":false,"physical_phone_notification_verified":false,"etp_native_runtime_verified":true}
 }

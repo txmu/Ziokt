@@ -62,6 +62,8 @@ def validate_carrier(value, host):
 
 
 def open_carrier(host, port, value=None, timeout=30, cancellation=None):
+    from .runtime_policy import require_network
+    require_network()
     if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'carrier request cancelled')
     if value is None:
         if isinstance(host, str) and host.endswith(('.onion', '.i2p')):
@@ -82,6 +84,8 @@ def open_carrier(host, port, value=None, timeout=30, cancellation=None):
 
 
 def connect_onion(host, port, carrier, timeout=30):
+    from .runtime_policy import require_network
+    require_network()
     if not isinstance(carrier, dict) or carrier.get('kind') != 'tor-socks5':
         raise ProtocolError('INVALID_CARRIER', 'Tor onion connector requires its Tor carrier')
     validate_carrier(carrier, host)

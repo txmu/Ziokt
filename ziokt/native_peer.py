@@ -40,6 +40,8 @@ class NativeStream:
 
 
 def connect_native(host, port, value, timeout=30, cancellation=None):
+    from .runtime_policy import require_network
+    require_network()
     validate_native(value, host)
     if type(timeout) not in {int, float} or not 0 < timeout <= 120:
         raise ProtocolError('INVALID_NATIVE_PATH', 'bounded native connection deadline required')

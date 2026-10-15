@@ -24,6 +24,7 @@ jobs:
       - name: Modern algebra, vault, package and TC-16 regression
         run: |
           python -m unittest discover -s tests -p test_companion_crypto.py -v
+          python -m unittest discover -s tests -p test_airgap.py -v
           python -m unittest discover -s tests -p test_ano_laws.py -v
           python -m unittest discover -s tests -p test_component_links.py -v
           python -m unittest discover -s tests -p test_ufsdcpm.py -v
@@ -47,11 +48,13 @@ jobs:
           node tools/browser_smoke.cjs
           node tools/sim_browser_smoke.cjs
           node tools/tri_browser_smoke.cjs
+          node tools/effort_browser_smoke.cjs
       - uses: actions/upload-artifact@v7.0.2
         if: success()
         with:
           name: ziokt-companion-pwas
           path: |
+            companions/tri/app/dist/
             companions/sim-manager/src/dist/
             companions/watchat/WATChat-code/frontend/
           if-no-files-found: error

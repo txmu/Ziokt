@@ -30,13 +30,15 @@ def fingerprint(path):
 
 def load(path):
     value = strict_json(secure_read(path))
-    if (not isinstance(value, dict) or set(value) != {
+    if (not isinstance(value, dict) or set(value) - {"network_mode"} != {
             "schema", "enabled", "federation_id", "providers"} or
             value["schema"] != "ziokt.federation.v1" or
             type(value["enabled"]) is not bool or
             not isinstance(value["providers"], list) or
             not 1 <= len(value["providers"]) <= 8):
         raise ProtocolError("INVALID_CONFIG", "invalid federation configuration")
+    if not isinstance(value.get("network_mode", "online"), str) or value.get("network_mode", "online") not in {"online", "airgap"}:
+        raise ProtocolError("INVALID_CONFIG", "network_mode must be online or airgap")
     identifier(value["federation_id"], "federation_id")
     ids = set()
     for provider in value["providers"]:
@@ -64,4 +66,7 @@ def load(path):
         if (not isinstance(provider["entrypoint_digest"], str) or
                 not re.fullmatch(r"sha256:[0-9a-f]{64}", provider["entrypoint_digest"])):
             raise ProtocolError("INVALID_CONFIG", "native entrypoint digest required")
+    if value.get("network_mode") == "airgap":
+        from .runtime_policy import activate_airgap
+        activate_airgap()
     return value

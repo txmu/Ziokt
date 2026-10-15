@@ -23,6 +23,8 @@ exec(compile(code,path,'exec'),{'__name__':'__main__','__file__':path,'__builtin
 
 
 def exchange(provider, request, timeout=30, cancellation=None):
+    from .runtime_policy import require_network
+    require_network()
     path = entrypoint(provider)
     code = source_bytes(path)
     if "sha256:" + hashlib.sha256(code).hexdigest() != provider["entrypoint_digest"]:
