@@ -72,6 +72,8 @@ fn test_reliability_recv_dedup_and_ack() {
     // 1. 收到新包 100
     let (is_dup, _) = layer.on_packet_received(100, vec![]);
     assert!(!is_dup);
+    assert!(!layer.should_send_ack()); // ACK coalescing deadline has not elapsed.
+    thread::sleep(Duration::from_millis(30));
     assert!(layer.should_send_ack());
 
     // 2. 收到重复包 100

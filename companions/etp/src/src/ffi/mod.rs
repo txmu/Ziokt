@@ -1,24 +1,24 @@
 // etp-core/src/ffi/mod.rs
 
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void, c_ulonglong, c_uint};
-use std::sync::{Arc, OnceLock};
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::time::Duration;
 use std::net::SocketAddr;
+use std::os::raw::{c_char, c_int, c_uint, c_ulonglong, c_void};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 use std::slice;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
-use tokio::runtime::Runtime;
 use log::{Level, Metadata, Record, SetLoggerError};
 use serde_json::json;
+use tokio::runtime::Runtime;
 
 // 引入 ETP Core 内部模块
+use crate::network::node::{EtpEngine, EtpHandle, NodeConfig, PacketHandler, PacketTransport};
 use crate::plugin::{
-    Flavor, Dialect, FlavorContext, CapabilityProvider, PluginRegistry,
-    Interceptor, InterceptorContext
+    CapabilityProvider, Dialect, Flavor, FlavorContext, Interceptor, InterceptorContext,
+    PluginRegistry,
 };
-use crate::network::node::{EtpEngine, NodeConfig, PacketHandler, PacketTransport, EtpHandle};
 use crate::transport::congestion::CongestionControlAlgo;
 use crate::transport::reliability::MultiplexingMode;
 use crate::transport::shaper::SecurityProfile;
@@ -116,7 +116,13 @@ pub struct EtpCallbacks {
 
     // --- 业务层 (Flavor) ---
     /// 收到流数据: return 1=Handled, 0=Pass
-    pub on_stream_data: extern "C" fn(ctx: *mut c_void, stream_id: u32, src_ip: *const c_char, data: *const u8, len: usize) -> c_int,
+    pub on_stream_data: extern "C" fn(
+        ctx: *mut c_void,
+        stream_id: u32,
+        src_ip: *const c_char,
+        data: *const u8,
+        len: usize,
+    ) -> c_int,
     /// 连接建立
     pub on_peer_connected: extern "C" fn(ctx: *mut c_void, peer_ip: *const c_char),
     /// 连接断开
@@ -124,13 +130,25 @@ pub struct EtpCallbacks {
 
     // --- 协议层 (Dialect) ---
     /// 加密/混淆: 原地修改 data，返回新长度。cap 是 buffer 容量。
-    pub dialect_seal: extern "C" fn(ctx: *mut c_void, data: *mut u8, len: usize, cap: usize) -> usize,
+    pub dialect_seal:
+        extern "C" fn(ctx: *mut c_void, data: *mut u8, len: usize, cap: usize) -> usize,
     /// 解密/去混淆: 从 data 读，写入 out。返回写入长度。
-    pub dialect_open: extern "C" fn(ctx: *mut c_void, data: *const u8, len: usize, out: *mut u8, out_cap: usize) -> usize,
+    pub dialect_open: extern "C" fn(
+        ctx: *mut c_void,
+        data: *const u8,
+        len: usize,
+        out: *mut u8,
+        out_cap: usize,
+    ) -> usize,
 
     // --- 传输层 (Packet Handler) ---
     /// 原始包拦截: return 1=Drop/Handled, 0=Continue
-    pub handler_raw_packet: extern "C" fn(ctx: *mut c_void, src_ip: *const c_char, data: *const u8, len: usize) -> c_int,
+    pub handler_raw_packet: extern "C" fn(
+        ctx: *mut c_void,
+        src_ip: *const c_char,
+        data: *const u8,
+        len: usize,
+    ) -> c_int,
 
     // --- 拥塞控制 (Congestion Control Strategy) ---
     // 宿主语言实现 CC 算法的状态机
@@ -154,6 +172,11 @@ pub struct EtpCallbacks {
     pub cc_get_mss: extern "C" fn(instance: *mut c_void) -> c_ulonglong,
 }
 
+// SAFETY: registration requires the host to keep user_data valid for the entire
+// process and synchronize all callbacks; callbacks may run on any worker thread.
+unsafe impl Send for EtpCallbacks {}
+unsafe impl Sync for EtpCallbacks {}
+
 // ============================================================================
 //  4. 通用 C ABI - 导出函数 (Exported Functions)
 // ============================================================================
@@ -161,7 +184,9 @@ pub struct EtpCallbacks {
 /// 1. 初始化 ETP 库并注册回调
 /// 返回: 0=Success, -1=Already Init
 #[no_mangle]
-pub extern "C" fn etp_init(cbs: EtpCallbacks) -> c_int {
+/// # Safety
+/// Callbacks and user_data must remain valid and be thread safe for process lifetime.
+pub unsafe extern "C" fn etp_init(cbs: EtpCallbacks) -> c_int {
     if GLOBAL_CBS.set(cbs).is_err() {
         return -1;
     }
@@ -178,10 +203,12 @@ pub extern "C" fn etp_init_logger(cb: extern "C" fn(c_int, *const c_char)) -> c_
     if GLOBAL_LOG_CB.set(cb).is_err() {
         return -1;
     }
-    
+
     struct FfiLogger;
     impl log::Log for FfiLogger {
-        fn enabled(&self, _metadata: &Metadata) -> bool { true }
+        fn enabled(&self, _metadata: &Metadata) -> bool {
+            true
+        }
         fn log(&self, record: &Record) {
             if let Some(cb) = GLOBAL_LOG_CB.get() {
                 let lvl = match record.level() {
@@ -200,7 +227,10 @@ pub extern "C" fn etp_init_logger(cb: extern "C" fn(c_int, *const c_char)) -> c_
 
     // 设置全局 Logger
     static LOGGER: FfiLogger = FfiLogger;
-    if log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Trace)).is_err() {
+    if log::set_logger(&LOGGER)
+        .map(|()| log::set_max_level(log::LevelFilter::Trace))
+        .is_err()
+    {
         return -2;
     }
     0
@@ -213,7 +243,7 @@ pub extern "C" fn etp_init_logger(cb: extern "C" fn(c_int, *const c_char)) -> c_
 pub extern "C" fn etp_start_node(bind_addr: *const c_char) -> c_int {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let rt = get_runtime();
-        
+
         let c_str = unsafe { CStr::from_ptr(bind_addr) };
         let bind_str = c_str.to_string_lossy().to_string();
 
@@ -221,7 +251,7 @@ pub extern "C" fn etp_start_node(bind_addr: *const c_char) -> c_int {
             // 构建配置
             let mut config = NodeConfig::default();
             config.bind_addr = bind_str;
-            
+
             // 默认配置为 FFI 模式
             config.default_flavor = "etp.flavor.ffi.v1".to_string();
             config.default_dialect = "etp.dialect.ffi.v1".to_string();
@@ -229,15 +259,13 @@ pub extern "C" fn etp_start_node(bind_addr: *const c_char) -> c_int {
 
             // 构建插件
             let registry = Arc::new(PluginRegistry::new());
-            
+
             // 注册 FFI 代理插件
             registry.register_flavor(Arc::new(FfiFlavor));
             registry.register_dialect(Arc::new(FfiDialect));
-            
+
             // 注册 FFI 拥塞控制构造器
-            registry.register_congestion_mod("etp.cc.ffi.v1", || {
-                Box::new(FfiCongestion::new())
-            });
+            registry.register_congestion_mod("etp.cc.ffi.v1", || Box::new(FfiCongestion::new()));
 
             // 启动引擎
             let (mut engine, handle, _) = match EtpEngine::new(config, registry).await {
@@ -257,7 +285,7 @@ pub extern "C" fn etp_start_node(bind_addr: *const c_char) -> c_int {
             engine.set_default_handler(Arc::new(FfiHandler));
 
             log::info!("ETP Node Started via FFI.");
-            
+
             // 运行主循环
             if let Err(e) = engine.run().await {
                 log::error!("ETP Engine Crashed: {}", e);
@@ -292,14 +320,22 @@ pub extern "C" fn etp_send(target_ip: *const c_char, data: *const u8, len: usize
 
 /// 6. 发送多路复用数据 (指定 Stream ID)
 #[no_mangle]
-pub extern "C" fn etp_send_stream(target_ip: *const c_char, stream_id: u32, data: *const u8, len: usize) -> c_int {
-    let handle = match GLOBAL_HANDLE.get() { Some(h) => h, None => return -1 };
-    
+pub extern "C" fn etp_send_stream(
+    target_ip: *const c_char,
+    stream_id: u32,
+    data: *const u8,
+    len: usize,
+) -> c_int {
+    let handle = match GLOBAL_HANDLE.get() {
+        Some(h) => h,
+        None => return -1,
+    };
+
     // Copy data to Rust heap
     let c_str = unsafe { CStr::from_ptr(target_ip) };
     let addr_str = c_str.to_string_lossy().to_string();
     let data_vec = unsafe { slice::from_raw_parts(data, len).to_vec() };
-    
+
     let h = handle.clone();
     get_runtime().spawn(async move {
         if let Ok(addr) = addr_str.parse::<SocketAddr>() {
@@ -314,14 +350,24 @@ pub extern "C" fn etp_send_stream(target_ip: *const c_char, stream_id: u32, data
 /// 7. 发送控制指令 (Side Channel)
 /// category: 1=Critical, 2=Heartbeat, 3=Metadata
 #[no_mangle]
-pub extern "C" fn etp_send_control(target_ip: *const c_char, category: u32, data: *const u8, len: usize) -> c_int {
-    let handle = match GLOBAL_HANDLE.get() { Some(h) => h, None => return -1 };
-    
+pub extern "C" fn etp_send_control(
+    target_ip: *const c_char,
+    category: u32,
+    data: *const u8,
+    len: usize,
+) -> c_int {
+    let handle = match GLOBAL_HANDLE.get() {
+        Some(h) => h,
+        None => return -1,
+    };
+
     let c_str = unsafe { CStr::from_ptr(target_ip) };
     let addr_str = c_str.to_string_lossy().to_string();
     let data_vec = unsafe { slice::from_raw_parts(data, len).to_vec() };
-    
-    use crate::plugin::flavors::control::{ControlCategory, CHANNEL_CRITICAL, CHANNEL_HEARTBEAT, CHANNEL_METADATA};
+
+    use crate::plugin::flavors::control::{
+        ControlCategory, CHANNEL_CRITICAL, CHANNEL_HEARTBEAT, CHANNEL_METADATA,
+    };
     let cat = match category {
         1 => ControlCategory::Critical,
         2 => ControlCategory::Heartbeat,
@@ -341,11 +387,14 @@ pub extern "C" fn etp_send_control(target_ip: *const c_char, category: u32, data
 /// 8. 主动连接对等点 (Manual Connect)
 #[no_mangle]
 pub extern "C" fn etp_connect(target_ip: *const c_char, pub_key_hex: *const c_char) -> c_int {
-    let handle = match GLOBAL_HANDLE.get() { Some(h) => h, None => return -1 };
-    
+    let handle = match GLOBAL_HANDLE.get() {
+        Some(h) => h,
+        None => return -1,
+    };
+
     let ip_str = unsafe { CStr::from_ptr(target_ip).to_string_lossy().to_string() };
     let key_str = unsafe { CStr::from_ptr(pub_key_hex).to_string_lossy().to_string() };
-    
+
     let h = handle.clone();
     get_runtime().spawn(async move {
         if let (Ok(addr), Ok(key)) = (ip_str.parse::<SocketAddr>(), hex::decode(&key_str)) {
@@ -359,16 +408,17 @@ pub extern "C" fn etp_connect(target_ip: *const c_char, pub_key_hex: *const c_ch
 /// 返回的字符串需要调用 etp_free_string 释放
 #[no_mangle]
 pub extern "C" fn etp_get_metrics_json() -> *mut c_char {
-    let handle = match GLOBAL_HANDLE.get() { Some(h) => h, None => return ptr::null_mut() };
-    
+    let handle = match GLOBAL_HANDLE.get() {
+        Some(h) => h,
+        None => return ptr::null_mut(),
+    };
+
     // 同步等待结果
-    let res = get_runtime().block_on(async {
-        handle.get_stats().await.unwrap_or("{}".into())
-    });
-    
+    let res = get_runtime().block_on(async { handle.get_stats().await.unwrap_or("{}".into()) });
+
     // 转换为 JSON 对象 (假设 get_stats 返回的是 raw string，这里包装一下)
     let json_obj = json!({ "raw": res }).to_string();
-    
+
     CString::new(json_obj).unwrap().into_raw()
 }
 
@@ -376,7 +426,9 @@ pub extern "C" fn etp_get_metrics_json() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn etp_free_string(s: *mut c_char) {
     if !s.is_null() {
-        unsafe { let _ = CString::from_raw(s); }
+        unsafe {
+            let _ = CString::from_raw(s);
+        }
     }
 }
 
@@ -388,7 +440,11 @@ pub extern "C" fn etp_free_string(s: *mut c_char) {
 // --- Flavor Proxy ---
 #[derive(Debug)]
 struct FfiFlavor;
-impl CapabilityProvider for FfiFlavor { fn capability_id(&self) -> String { "etp.flavor.ffi.v1".into() } }
+impl CapabilityProvider for FfiFlavor {
+    fn capability_id(&self) -> String {
+        "etp.flavor.ffi.v1".into()
+    }
+}
 impl Flavor for FfiFlavor {
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
         if let Some(cbs) = GLOBAL_CBS.get() {
@@ -398,7 +454,7 @@ impl Flavor for FfiFlavor {
                 ctx.stream_id,
                 c_src.as_ptr(),
                 data.as_ptr(),
-                data.len()
+                data.len(),
             );
             return res != 0;
         }
@@ -421,47 +477,61 @@ impl Flavor for FfiFlavor {
 // --- Dialect Proxy ---
 #[derive(Debug)]
 struct FfiDialect;
-impl CapabilityProvider for FfiDialect { fn capability_id(&self) -> String { "etp.dialect.ffi.v1".into() } }
+impl CapabilityProvider for FfiDialect {
+    fn capability_id(&self) -> String {
+        "etp.dialect.ffi.v1".into()
+    }
+}
 impl Dialect for FfiDialect {
     fn seal(&self, payload: &mut Vec<u8>) {
         if let Some(cbs) = GLOBAL_CBS.get() {
-            // Reserve extra space for C modification
-            payload.reserve(1024);
+            let original_len = payload.len();
+            // Initialize writable space, including bytes a buggy host might not fill.
+            payload.resize(original_len.saturating_add(1024), 0);
             let new_len = (cbs.dialect_seal)(
                 cbs.user_data,
                 payload.as_mut_ptr(),
+                original_len,
                 payload.len(),
-                payload.capacity()
             );
-            unsafe { payload.set_len(new_len); }
+            if new_len <= payload.len() {
+                payload.truncate(new_len);
+            } else {
+                payload.clear();
+            }
         }
     }
     fn open(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
         if let Some(cbs) = GLOBAL_CBS.get() {
-            let mut out = Vec::with_capacity(data.len());
+            let mut out = vec![0; data.len()];
             let new_len = (cbs.dialect_open)(
                 cbs.user_data,
                 data.as_ptr(),
                 data.len(),
                 out.as_mut_ptr(),
-                out.capacity()
+                out.capacity(),
             );
-            if new_len > 0 {
-                unsafe { out.set_len(new_len); }
+            if new_len > 0 && new_len <= out.len() {
+                out.truncate(new_len);
                 return Ok(out);
             }
         }
         Err(anyhow::anyhow!("FFI Dialect Error"))
     }
-    fn probe(&self, _data: &[u8]) -> bool { true } // Accept all for FFI
+    fn probe(&self, _data: &[u8]) -> bool {
+        true
+    } // Accept all for FFI
 }
 
 // --- Handler Proxy ---
 struct FfiHandler;
 impl PacketHandler for FfiHandler {
-    fn handle<'a>(&'a self, data: &'a [u8], src: SocketAddr, _t: &'a Arc<dyn PacketTransport>) 
-        -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> 
-    {
+    fn handle<'a>(
+        &'a self,
+        data: &'a [u8],
+        src: SocketAddr,
+        _t: &'a Arc<dyn PacketTransport>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             if let Some(cbs) = GLOBAL_CBS.get() {
                 let c_src = CString::new(src.to_string()).unwrap_or_default();
@@ -469,7 +539,7 @@ impl PacketHandler for FfiHandler {
                     cbs.user_data,
                     c_src.as_ptr(),
                     data.as_ptr(),
-                    data.len()
+                    data.len(),
                 );
                 return res != 0;
             }
@@ -520,7 +590,9 @@ impl CongestionControlAlgo for FfiCongestion {
         }
     }
     fn on_packet_lost(&mut self) {
-        if let Some(cbs) = GLOBAL_CBS.get() { (cbs.cc_on_loss)(self.instance); }
+        if let Some(cbs) = GLOBAL_CBS.get() {
+            (cbs.cc_on_loss)(self.instance);
+        }
     }
     fn can_send(&self, inflight: u64) -> bool {
         if let Some(cbs) = GLOBAL_CBS.get() {
