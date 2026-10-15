@@ -9,14 +9,15 @@ from pathlib import Path
 import select
 import subprocess
 import threading
+import tempfile
 import time
 from .protocol import ProtocolError,encoded,secure_read,strict_json
 
 class EtpGateway:
     def __init__(self,binary,digest,config):
         self.binary=Path(binary).absolute();self.config=Path(config).absolute();self.digest=digest;self.config_bytes=secure_read(self.config)
-        if 'sha256:'+hashlib.sha256(secure_read(self.binary,128*1024*1024,private=None)).hexdigest()!=digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
-        secure_read(self.config);self.process=None;self.lock=threading.RLock();self.sequence=0
+        if 'sha256:'+hashlib.sha256(secure_read(self.binary,128*1024*1024,private=False)).hexdigest()!=digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
+        secure_read(self.config);self.process=None;self._snapshot=None;self.lock=threading.RLock();self.sequence=0
     def close(self):
         if self.process is not None:
             self.process.terminate()
@@ -25,6 +26,8 @@ class EtpGateway:
             if self.process.stdin is not None:self.process.stdin.close()
             if self.process.stdout is not None:self.process.stdout.close()
             self.process=None
+        if self._snapshot is not None:
+            self._snapshot.cleanup();self._snapshot=None
     def call(self,method,params):
         from .runtime_policy import require_network
         require_network()
@@ -38,9 +41,18 @@ class EtpGateway:
         with self.lock:
             if secure_read(self.config)!=self.config_bytes:raise ProtocolError('STALE_PLAN','ETP node configuration changed')
             if self.process is None:
-                if 'sha256:'+hashlib.sha256(secure_read(self.binary,128*1024*1024,private=None)).hexdigest()!=self.digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
-                env={k:v for k,v in os.environ.items() if k in {'PATH','LANG','LC_ALL'}}
-                self.process=subprocess.Popen([str(self.binary),str(self.config)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env,start_new_session=True)
+                binary=secure_read(self.binary,128*1024*1024,private=False)
+                if 'sha256:'+hashlib.sha256(binary).hexdigest()!=self.digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
+                # Execute exactly the reviewed bytes in an owner-private directory.
+                # A rename of the original path after hashing cannot change this child.
+                self._snapshot=tempfile.TemporaryDirectory(prefix='ziokt-etp-')
+                executable=Path(self._snapshot.name)/'gateway'
+                try:
+                    with executable.open('xb') as target:target.write(binary)
+                    executable.chmod(0o700)
+                    env={k:v for k,v in os.environ.items() if k in {'PATH','LANG','LC_ALL'}}
+                    self.process=subprocess.Popen([str(executable),str(self.config)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env,start_new_session=True)
+                except BaseException:self.close();raise
             self.sequence+=1;request=encoded({'id':self.sequence,'method':method,'params':params})+b'\n'
             if len(request)>131072:raise ProtocolError('REQUEST_LIMIT','native ETP request exceeds budget')
             try:

@@ -16,7 +16,9 @@
     },
     "watchat_sim_node_tests": 6,
     "real_effort_browser": "explicit start, SHA-256 proof, stop, hidden page stop, no external requests",
-    "subsequent_packaged_resource_and_effort_tests": 4
+    "subsequent_packaged_resource_and_effort_tests": 4,
+    "subsequent_etp_snapshot_tests": 4,
+    "real_downloaded_etp_four_process_smoke": "passed, no local native compilation"
   },
   "ci": {
     "current_submission": "pending; local results apply to the final working tree",
@@ -92,7 +94,8 @@
       "shell",
       "powershell"
     ],
-    "global_observer_anonymity_proven": false
+    "global_observer_anonymity_proven": false,
+    "execution_snapshot_race_test": true
   },
   "deployment": {
     "external_systems_scanned": false,

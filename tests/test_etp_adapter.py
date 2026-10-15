@@ -22,6 +22,24 @@ class EtpAdapterTests(unittest.TestCase):
                 with self.assertRaises(ProtocolError):worker.call(method,params)
             config.write_text('{"changed":true}')
             with self.assertRaises(ProtocolError):worker.call('etp.stats',{})
+    def test_execution_uses_private_reviewed_snapshot_even_if_original_is_replaced(self):
+        from unittest.mock import patch
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);binary=root/'worker';config=root/'config.json';write_binary_exclusive(config,b'{}')
+            binary.write_text('#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line);print(json.dumps({"id":r["id"],"ok":True,"result":{"reviewed":True}}),flush=True)\n');binary.chmod(0o700)
+            gateway=EtpGateway(binary,'sha256:'+hashlib.sha256(binary.read_bytes()).hexdigest(),config);self.addCleanup(gateway.close)
+            original=subprocess.Popen
+            def replace_then_launch(command,**kwargs):
+                self.assertNotEqual(command[0],str(binary))
+                self.assertEqual(Path(command[0]).stat().st_mode&0o777,0o700)
+                binary.write_text('#!/usr/bin/env python3\nraise RuntimeError("unreviewed replacement must never execute")\n')
+                return original(command,**kwargs)
+            with patch('ziokt.etp.subprocess.Popen',side_effect=replace_then_launch):
+                self.assertTrue(gateway.call('etp.stats',{})['reviewed'])
+            snapshot=gateway._snapshot.name;gateway.close();self.assertFalse(Path(snapshot).exists())
+            with self.assertRaises(ProtocolError):gateway.call('etp.stats',{})
+
     def test_source_manifest_renamed_vm_and_feature_dependencies(self):
         root=Path(__file__).resolve().parents[1]/'companions/etp/src'
         value=tomllib.loads((root/'Cargo.toml').read_text());self.assertIn('tc16-tcc',value['features'])
