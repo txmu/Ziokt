@@ -28,7 +28,6 @@ use crate::crypto::noise::{KeyPair, NoiseSession};
 use crate::wire::frame::{Frame, InjectionCommand, NatSignalType};
 use crate::wire::packet::{
     acquire_buffer, release_buffer, DecryptedPacket, RawPacket, StatefulPacket, StatelessPacket,
-    TokenManager,
 };
 
 // Plugin System Interfaces
@@ -647,7 +646,6 @@ struct ProcessingContext {
             ),
         >,
     >,
-    token_manager: Arc<TokenManager>,
     dht_store: Arc<DashMap<NodeID, (Vec<u8>, std::time::SystemTime)>>,
     metrics: Arc<NodeMetrics>,
     incoming_slots: Arc<tokio::sync::Semaphore>,
@@ -776,7 +774,6 @@ impl EtpEngine {
         }
 
         // 3. 构建共享状态
-        let token_manager = Arc::new(TokenManager::new(config.stateless_secret));
         let routing_table = Arc::new(RoutingTable::new());
         for (address, key) in &config.trusted_peers {
             routing_table.add_node(NodeInfo::new(*blake3::hash(key).as_bytes(), *address));
@@ -815,7 +812,6 @@ impl EtpEngine {
             plugins,
             data_tx: data_tx, // 注意：这是给 Session 用的，将解密数据发给 App
             dht_pending_queries: dht_pending,
-            token_manager,
             dht_store,
             metrics,
             incoming_slots: Arc::new(tokio::sync::Semaphore::new(128)),
@@ -2032,30 +2028,6 @@ impl EtpEngine {
         data: Vec<u8>,
     ) -> Result<()> {
         self.ctx.onion.send(path, data).await
-    }
-
-    fn encrypt_stateless_payload(data: &[u8], nonce: u64, secret: &[u8]) -> Result<Vec<u8>> {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(secret);
-        hasher.update(&nonce.to_le_bytes());
-        let key = hasher.finalize();
-        let cipher = ChaCha20Poly1305::new(key.as_bytes().into());
-        let n = [0u8; 12];
-        cipher
-            .encrypt(&n.into(), data)
-            .map_err(|_| anyhow!("Enc fail"))
-    }
-
-    fn decrypt_stateless_payload(data: &[u8], nonce: u64, secret: &[u8]) -> Result<Vec<u8>> {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(secret);
-        hasher.update(&nonce.to_le_bytes());
-        let key = hasher.finalize();
-        let cipher = ChaCha20Poly1305::new(key.as_bytes().into());
-        let n = [0u8; 12];
-        cipher
-            .decrypt(&n.into(), data)
-            .map_err(|_| anyhow!("Dec fail"))
     }
 
     async fn handle_tick(&self) {

@@ -122,7 +122,7 @@ jobs:
           path: Corium
           ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7.0.0
         if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         with:
           go-version-file: Shadow6/Core-Go/go.mod

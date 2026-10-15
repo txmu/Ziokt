@@ -32,14 +32,6 @@ use pqcrypto_dilithium::dilithium5;
 #[cfg(feature = "quantum-encryption")]
 use pqcrypto_traits::sign::DetachedSignature;
 
-// --- 引入必要的合约调用依赖 ---
-#[cfg(feature = "smart-contracts")]
-use ethers::providers::{Http, Middleware, Provider};
-#[cfg(feature = "smart-contracts")]
-use ethers::types::{Address, Bytes as EthBytes, TransactionRequest};
-#[cfg(feature = "smart-contracts")]
-use std::str::FromStr;
-
 // ============================================================================
 //  1. 基础结构与路径系统
 // ============================================================================
@@ -523,6 +515,7 @@ pub struct KnsKernel {
 
     // 全局并发控制 (防止 FD 耗尽)
     network_semaphore: Arc<Semaphore>,
+    rpc_endpoints: RwLock<HashSet<String>>,
 
     // 防重放缓存: Signature -> InsertionTime
     replay_cache: Arc<DashMap<Vec<u8>, SystemTime>>,
@@ -544,6 +537,7 @@ impl KnsKernel {
             domains: RwLock::new(HashMap::new()),
             resolvers: RwLock::new(Vec::new()),
             health_monitor: DashMap::new(),
+            rpc_endpoints: RwLock::new(HashSet::new()),
             network_semaphore: Arc::new(Semaphore::new(256)), // 提高并发上限至 256
             replay_cache: Arc::new(DashMap::new()),
             shutdown_notify: Arc::new(Notify::new()),
@@ -552,6 +546,14 @@ impl KnsKernel {
         // 启动后台维护线程 (Garbage Collection)
         kernel.spawn_maintenance_task();
         kernel
+    }
+
+    pub fn authorize_rpc_endpoint(&self, endpoint: &str) -> Result<()> {
+        crate::extensions::rpc::ReadOnlyRpc::validate_endpoint(endpoint)?;
+        let mut endpoints = self.rpc_endpoints.write();
+        anyhow::ensure!(endpoints.len() < 32, "RPC endpoint budget");
+        endpoints.insert(endpoint.to_owned());
+        Ok(())
     }
 
     /// 启动后台维护任务：清理过期的重放缓存和健康状态
@@ -907,40 +909,30 @@ impl KnsKernel {
         {
             match action.scheme.as_str() {
                 "evm" => {
-                    let provider = Provider::<Http>::try_from(action.endpoint.as_str())?;
-                    let address = Address::from_str(&action.target)?;
-                    let data_bytes = hex::decode(action.data.trim_start_matches("0x"))?;
-
-                    let tx = TransactionRequest::new()
-                        .to(address)
-                        .data(EthBytes::from(data_bytes));
-                    // 增加超时控制
-                    let result =
-                        tokio::time::timeout(Duration::from_secs(10), provider.call(&tx, None))
-                            .await??;
-
-                    Ok(result.to_vec())
+                    anyhow::ensure!(
+                        self.rpc_endpoints.read().contains(&action.endpoint),
+                        "RPC endpoint is not authorized"
+                    );
+                    let rpc = crate::extensions::rpc::ReadOnlyRpc::new(
+                        &action.endpoint,
+                        Duration::from_secs(10),
+                    )?;
+                    let data = hex::decode(action.data.trim_start_matches("0x"))?;
+                    rpc.eth_call(&action.target, &data).await
                 }
                 "json_rpc" | "wasm" => {
-                    let client = reqwest::Client::builder()
-                        .timeout(Duration::from_secs(10))
-                        .build()?;
-
-                    let params: serde_json::Value = serde_json::from_str(&action.data)?;
-                    let rpc_body = serde_json::json!({
-                        "jsonrpc": "2.0", "method": action.target, "params": params, "id": 1
-                    });
-
-                    let resp = client.post(&action.endpoint).json(&rpc_body).send().await?;
-                    if !resp.status().is_success() {
-                        return Err(anyhow!("RPC Error: {}", resp.status()));
-                    }
-                    let resp_json: serde_json::Value = resp.json().await?;
-                    if let Some(res) = resp_json.get("result") {
-                        Ok(serde_json::to_vec(res)?)
-                    } else {
-                        Err(anyhow!("RPC response missing 'result'"))
-                    }
+                    anyhow::ensure!(
+                        self.rpc_endpoints.read().contains(&action.endpoint),
+                        "RPC endpoint is not authorized"
+                    );
+                    let rpc = crate::extensions::rpc::ReadOnlyRpc::new(
+                        &action.endpoint,
+                        Duration::from_secs(10),
+                    )?;
+                    let result = rpc
+                        .call(&action.target, serde_json::from_str(&action.data)?)
+                        .await?;
+                    Ok(serde_json::to_vec(&result)?)
                 }
                 _ => Err(anyhow!("Unsupported scheme: {}", action.scheme)),
             }

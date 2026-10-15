@@ -23,11 +23,11 @@ dht_anti_sybil = []
 
 # --- 高级特性 ---
 xdp = ["dep:aya", "dep:aya-log", "dep:etherparse", "dep:nix"]
-ens-gateway = ["dep:ethers", "dep:warp"]
+ens-gateway = ["extensions", "dep:sha3", "dep:warp"]
 quantum-encryption = ["dep:pqcrypto-kyber", "dep:pqcrypto-dilithium", "dep:pqcrypto-traits"]
 paranoid-security = ["quantum-encryption"]
 ipfs-integration = ["dep:libp2p", "dep:multihash"]
-smart-contracts = ["dep:ethers"]
+smart-contracts = ["extensions", "dep:primitive-types"]
 solana = ["dep:solana-sdk"]
 ultrafileserver = ["dep:cap-std"]
 safefs = ["dep:argon2", "dep:memmap2", "dep:users", "dep:nix"]
@@ -174,13 +174,14 @@ tokio-util = { version = "0.7", features = ["codec"], optional = true }
 
 # --- Optional: ENS Gateway Dependencies---
 # ethers: 以太坊交互全家桶 (只启用必要特性以减小体积)
-ethers = { version = "2.0", features = ["rustls"], optional = true }
+sha3 = { version = "0.10", optional = true }
+primitive-types = { version = "0.14", features = ["serde"], optional = true }
 # warp: 轻量级、基于 Filter 的 HTTP 服务器
 warp = { version = "0.3", optional = true }
 
 # --- Optional: IPFS Integration ---
 # 仅在开启 ipfs-integration 时引入
-libp2p = { version = "0.56", features = ["tcp", "dns", "noise", "yamux", "kad", "macros", "tokio"], optional = true }
+libp2p = { version = "0.56", features = ["noise", "yamux", "kad", "macros", "tokio"], optional = true }
 multihash = { version = "0.19", optional = true }
 
 # Solana (仅在开启 solana 特性时引入)

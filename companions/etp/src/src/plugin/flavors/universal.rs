@@ -2,43 +2,43 @@
 
 #![cfg(feature = "sled")] // 基础依赖：必须有持久化支持
 
-use std::sync::Arc;
-use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::{Serialize, Deserialize};
-use sled::Db;
-use anyhow::{Result, anyhow, Context};
-use log::{info, warn, debug, error, trace};
-use parking_lot::{RwLock, Mutex};
-use tokio::sync::{broadcast, mpsc};
+use anyhow::{anyhow, Context, Result};
 use blake3;
-use rand::Rng;
-use ed25519_dalek::{SigningKey, VerifyingKey, Signer, Verifier, Signature};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use log::{debug, error, info, trace, warn};
 use lru::LruCache;
+use parking_lot::{Mutex, RwLock};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use sled::Db;
 use std::num::NonZeroUsize;
+use tokio::sync::{broadcast, mpsc};
 
 // 安全擦除支持
 #[cfg(feature = "paranoid-security")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // ETP 核心接口
-use crate::plugin::{Flavor, FlavorContext, CapabilityProvider};
-use crate::NodeID;
 use crate::common::DhtStoreRequest;
+use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
+use crate::NodeID;
 
 // --- 扩展模块 ---
 #[cfg(feature = "extensions")]
+use crate::crypto::onion::{NonceMode, OnionConfig, OnionCrypto, PaddingStrategy};
+#[cfg(feature = "extensions")]
+use crate::extensions::identity::{EtpIdentity, GhostIdentity, IdentityType};
+#[cfg(feature = "extensions")]
 use crate::extensions::kns::{KnsKernel, KnsPath, RecordKind, ResolutionPriority};
-#[cfg(feature = "extensions")]
-use crate::extensions::identity::{GhostIdentity, IdentityType, EtpIdentity};
-#[cfg(feature = "extensions")]
-use crate::crypto::onion::{OnionCrypto, OnionConfig, NonceMode, PaddingStrategy};
 
 // --- 区块链支持 ---
 #[cfg(feature = "smart-contracts")]
-use ethers::types::{Address as EthAddress, H256 as EthHash, U256};
+use primitive_types::{H160 as EthAddress, H256 as EthHash, U256};
 #[cfg(feature = "smart-contracts")]
 use std::str::FromStr;
 
@@ -49,11 +49,11 @@ use solana_sdk::Pubkey as SolPubkey;
 const UNIVERSAL_PROTO_VER: u8 = 0x02;
 
 // 策略 ID (Strategy / Command)
-const STRATEGY_DIRECT: u8    = 0x01; // 点对点
-const STRATEGY_MANAGED: u8   = 0x02; // 托管
+const STRATEGY_DIRECT: u8 = 0x01; // 点对点
+const STRATEGY_MANAGED: u8 = 0x02; // 托管
 const STRATEGY_BROADCAST: u8 = 0x03; // 广播 (Gossip)
-const STRATEGY_DEADDROP: u8  = 0x04; // 死信箱
-const STRATEGY_CONTROL: u8   = 0xFF; // [新增] 控制信令 (用于 Sync)
+const STRATEGY_DEADDROP: u8 = 0x04; // 死信箱
+const STRATEGY_CONTROL: u8 = 0xFF; // [新增] 控制信令 (用于 Sync)
 
 // 安全配置
 const REPLAY_CACHE_SIZE: usize = 10000;
@@ -87,11 +87,20 @@ pub struct MessageOptions {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum DeliveryStrategy {
-    Direct { target: NodeID },
-    Managed { server: SocketAddr, target: NodeID },
-    Broadcast { topic_hash: [u8; 32] },
+    Direct {
+        target: NodeID,
+    },
+    Managed {
+        server: SocketAddr,
+        target: NodeID,
+    },
+    Broadcast {
+        topic_hash: [u8; 32],
+    },
     #[cfg(feature = "extensions")]
-    DeadDrop { target_pub_key: [u8; 32] },
+    DeadDrop {
+        target_pub_key: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,15 +127,22 @@ pub enum ResourceLink {
 
     // --- 区块链 ---
     #[cfg(feature = "smart-contracts")]
-    EthTx { hash: EthHash, network_id: u64 },
+    EthTx {
+        hash: EthHash,
+        network_id: u64,
+    },
     #[cfg(feature = "smart-contracts")]
-    EthNft { contract: EthAddress, token_id: U256, network_id: u64 },
+    EthNft {
+        contract: EthAddress,
+        token_id: U256,
+        network_id: u64,
+    },
 
     /// Solana 资源引用
-    SolanaRef { 
+    SolanaRef {
         address: String, // Base58 string
         signature: Option<String>,
-        cluster: String 
+        cluster: String,
     },
 }
 
@@ -146,7 +162,7 @@ impl ResourceLink {
                 }
                 #[cfg(not(feature = "solana"))]
                 true // 未开启特性时不校验
-            },
+            }
             #[cfg(feature = "smart-contracts")]
             ResourceLink::EthNft { .. } | ResourceLink::EthTx { .. } => true, // 类型系统已保证 Hash 格式
             _ => true,
@@ -164,9 +180,7 @@ enum ControlMessage {
         time_range: (u64, u64), // (Start, End)
     },
     /// 同步请求：请求特定的 Message UUIDs
-    SyncRequest {
-        uuids: Vec<u128>,
-    },
+    SyncRequest { uuids: Vec<u128> },
 }
 
 // --- 简易 Bloom Filter ---
@@ -175,7 +189,9 @@ struct SyncBloom {
 }
 impl SyncBloom {
     fn new() -> Self {
-        Self { bits: vec![0u8; SYNC_BLOOM_SIZE_BITS / 8] }
+        Self {
+            bits: vec![0u8; SYNC_BLOOM_SIZE_BITS / 8],
+        }
     }
     fn from_bytes(bytes: Vec<u8>) -> Self {
         Self { bits: bytes }
@@ -189,7 +205,9 @@ impl SyncBloom {
     fn contains(&self, item: &[u8]) -> bool {
         for i in 0..SYNC_HASH_FUNCS {
             let idx = self.hash(item, i);
-            if (self.bits[idx / 8] & (1 << (idx % 8))) == 0 { return false; }
+            if (self.bits[idx / 8] & (1 << (idx % 8))) == 0 {
+                return false;
+            }
         }
         true
     }
@@ -222,15 +240,15 @@ impl UniversalStore {
     fn save_msg(&self, msg: &UniversalMessage) -> Result<bool> {
         let tree = self.db.open_tree("messages")?;
         let key = msg.uuid.to_be_bytes();
-        
+
         // 幂等检查
         if tree.contains_key(&key)? {
             return Ok(false);
         }
-        
+
         let val = bincode::serialize(msg)?;
         tree.insert(key, val)?;
-        
+
         // 建立索引：Topic -> UUID (用于 Gossip)
         if let DeliveryStrategy::Broadcast { topic_hash } = msg.strategy {
             let idx_tree = self.db.open_tree("idx_topic")?;
@@ -239,7 +257,7 @@ impl UniversalStore {
             idx_key.extend_from_slice(&key);
             idx_tree.insert(idx_key, &key)?;
         }
-        
+
         Ok(true)
     }
 
@@ -270,7 +288,7 @@ impl UniversalStore {
             for topic in topics {
                 let mut start_key = topic.to_vec();
                 start_key.extend_from_slice(&start.to_be_bytes());
-                
+
                 let mut end_key = topic.to_vec();
                 end_key.extend_from_slice(&end.to_be_bytes());
                 end_key.extend_from_slice(&[0xFF; 16]); // Cover UUID range
@@ -307,25 +325,31 @@ struct SecureSigningKey {
 
 impl SecureSigningKey {
     fn from_bytes(bytes: &[u8; 32]) -> Self {
-        Self { inner: SigningKey::from_bytes(bytes) }
+        Self {
+            inner: SigningKey::from_bytes(bytes),
+        }
     }
-    fn sign(&self, data: &[u8]) -> Signature { self.inner.sign(data) }
-    fn verifying_key(&self) -> VerifyingKey { self.inner.verifying_key() }
+    fn sign(&self, data: &[u8]) -> Signature {
+        self.inner.sign(data)
+    }
+    fn verifying_key(&self) -> VerifyingKey {
+        self.inner.verifying_key()
+    }
 }
 
 pub struct UniversalMessengerFlavor {
     signing_key: SecureSigningKey,
     verifying_key: VerifyingKey,
     store: Arc<UniversalStore>,
-    
+
     network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
     dht_tx: mpsc::Sender<DhtStoreRequest>,
     ui_tx: broadcast::Sender<UniversalMessage>,
 
     #[cfg(feature = "extensions")]
     kns: Option<Arc<KnsKernel>>,
-    
-    subscriptions: RwLock<HashSet<[u8; 32]>>, 
+
+    subscriptions: RwLock<HashSet<[u8; 32]>>,
     replay_cache: Mutex<LruCache<u128, u64>>,
 }
 
@@ -335,12 +359,11 @@ impl UniversalMessengerFlavor {
         key_bytes: &[u8; 32],
         network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
         dht_tx: mpsc::Sender<DhtStoreRequest>,
-        #[cfg(feature = "extensions")]
-        kns_kernel: Option<Arc<KnsKernel>>,
+        #[cfg(feature = "extensions")] kns_kernel: Option<Arc<KnsKernel>>,
     ) -> Result<Arc<Self>> {
         let signing_key = SecureSigningKey::from_bytes(key_bytes);
         let verifying_key = signing_key.verifying_key();
-        
+
         Ok(Arc::new(Self {
             signing_key,
             verifying_key,
@@ -348,10 +371,10 @@ impl UniversalMessengerFlavor {
             network_tx,
             dht_tx,
             ui_tx: broadcast::channel(1024).0,
-            
+
             #[cfg(feature = "extensions")]
             kns: kns_kernel,
-            
+
             subscriptions: RwLock::new(HashSet::new()),
             replay_cache: Mutex::new(LruCache::new(NonZeroUsize::new(REPLAY_CACHE_SIZE).unwrap())),
         }))
@@ -360,8 +383,8 @@ impl UniversalMessengerFlavor {
     // --- Public API ---
 
     pub async fn send(
-        &self, 
-        strategy: DeliveryStrategy, 
+        &self,
+        strategy: DeliveryStrategy,
         content: MessageContent,
         resources: Vec<ResourceLink>,
         options: Option<MessageOptions>,
@@ -390,7 +413,14 @@ impl UniversalMessengerFlavor {
             signature: vec![],
         };
 
-        let sign_payload = bincode::serialize(&(&msg.uuid, &msg.timestamp, &msg.content, &msg.strategy, &msg.resources, &msg.options))?;
+        let sign_payload = bincode::serialize(&(
+            &msg.uuid,
+            &msg.timestamp,
+            &msg.content,
+            &msg.strategy,
+            &msg.resources,
+            &msg.options,
+        ))?;
         msg.signature = self.signing_key.sign(&sign_payload).to_bytes().to_vec();
 
         self.store.save_msg(&msg)?;
@@ -418,31 +448,42 @@ impl UniversalMessengerFlavor {
     async fn dispatch_message(&self, msg: UniversalMessage) -> Result<()> {
         match msg.strategy {
             DeliveryStrategy::Direct { target } => {
-                self.dispatch_standard_packet(STRATEGY_DIRECT, &msg, None).await?;
+                self.dispatch_standard_packet(STRATEGY_DIRECT, &msg, None)
+                    .await?;
                 self.push_to_dht_storage(target, &msg).await?;
-            },
+            }
             DeliveryStrategy::Managed { server, .. } => {
-                self.dispatch_standard_packet(STRATEGY_MANAGED, &msg, Some(server)).await?;
-            },
+                self.dispatch_standard_packet(STRATEGY_MANAGED, &msg, Some(server))
+                    .await?;
+            }
             DeliveryStrategy::Broadcast { .. } => {
                 let broadcast_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-                self.dispatch_standard_packet(STRATEGY_BROADCAST, &msg, Some(broadcast_addr)).await?;
-            },
+                self.dispatch_standard_packet(STRATEGY_BROADCAST, &msg, Some(broadcast_addr))
+                    .await?;
+            }
             #[cfg(feature = "extensions")]
             DeliveryStrategy::DeadDrop { target_pub_key } => {
                 self.perform_dead_drop(target_pub_key, &msg).await?;
-            },
+            }
         }
         Ok(())
     }
 
-    async fn dispatch_standard_packet(&self, strategy_id: u8, msg: &UniversalMessage, target: Option<SocketAddr>) -> Result<()> {
+    async fn dispatch_standard_packet(
+        &self,
+        strategy_id: u8,
+        msg: &UniversalMessage,
+        target: Option<SocketAddr>,
+    ) -> Result<()> {
         let payload = bincode::serialize(msg)?;
         let mut packet = vec![UNIVERSAL_PROTO_VER, strategy_id];
         packet.extend(payload);
 
         if let Some(t) = target {
-            self.network_tx.send((t, packet)).await.map_err(|_| anyhow!("Net closed"))?;
+            self.network_tx
+                .send((t, packet))
+                .await
+                .map_err(|_| anyhow!("Net closed"))?;
         } else {
             // No direct target, rely on routing or DHT
         }
@@ -462,25 +503,28 @@ impl UniversalMessengerFlavor {
 
     #[cfg(feature = "extensions")]
     async fn perform_dead_drop(&self, target_pub: [u8; 32], msg: &UniversalMessage) -> Result<()> {
-        let kns = self.kns.as_ref().ok_or_else(|| anyhow!("KNS Kernel not available"))?;
+        let kns = self
+            .kns
+            .as_ref()
+            .ok_or_else(|| anyhow!("KNS Kernel not available"))?;
         let content = bincode::serialize(msg)?;
-        
+
         let now_day = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() / 86400;
         let mut hasher = blake3::Hasher::new();
         hasher.update(&target_pub);
         hasher.update(&now_day.to_be_bytes());
         let domain_id = hex::encode(hasher.finalize().as_bytes());
-        
+
         let ghost = Arc::new(GhostIdentity::new());
         let domain = kns.create_domain(&domain_id, ghost.clone());
         let path = KnsPath::new(vec!["drop".into()])?;
-        
-        let onion_conf = OnionConfig { 
-            nonce_mode: NonceMode::Random, 
-            padding: PaddingStrategy::BlockAligned(256) 
+
+        let onion_conf = OnionConfig {
+            nonce_mode: NonceMode::Random,
+            padding: PaddingStrategy::BlockAligned(256),
         };
         let encrypted = OnionCrypto::seal(&target_pub, &content, &onion_conf)?;
-        
+
         domain.publish(&path, &encrypted, RecordKind::Static, 3600)?;
         info!("Universal: DeadDrop to '{}'", domain_id);
         Ok(())
@@ -492,14 +536,23 @@ impl UniversalMessengerFlavor {
         // 1. Anti-Replay
         {
             let mut cache = self.replay_cache.lock();
-            if cache.contains(&msg.uuid) { return; }
+            if cache.contains(&msg.uuid) {
+                return;
+            }
             cache.put(msg.uuid, msg.timestamp);
         }
-        if self.store.msg_exists(msg.uuid) { return; }
+        if self.store.msg_exists(msg.uuid) {
+            return;
+        }
 
         // 2. Time Window
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-        if msg.timestamp > now + MSG_TIME_WINDOW_SEC || now.saturating_sub(msg.timestamp) > MSG_TIME_WINDOW_SEC * 100 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if msg.timestamp > now + MSG_TIME_WINDOW_SEC
+            || now.saturating_sub(msg.timestamp) > MSG_TIME_WINDOW_SEC * 100
+        {
             warn!("Universal: Time skew {}", msg.timestamp);
             return;
         }
@@ -510,30 +563,50 @@ impl UniversalMessengerFlavor {
             Err(_) => return,
         };
         let calculated_id: NodeID = blake3::hash(&msg.sender_pub_key).into();
-        if calculated_id != msg.sender_id { return; }
+        if calculated_id != msg.sender_id {
+            return;
+        }
 
-        if let Ok(sign_payload) = bincode::serialize(&(&msg.uuid, &msg.timestamp, &msg.content, &msg.strategy, &msg.resources, &msg.options)) {
+        if let Ok(sign_payload) = bincode::serialize(&(
+            &msg.uuid,
+            &msg.timestamp,
+            &msg.content,
+            &msg.strategy,
+            &msg.resources,
+            &msg.options,
+        )) {
             if let Ok(sig) = Signature::from_slice(&msg.signature) {
-                if verify_key.verify(&sign_payload, &sig).is_err() { return; }
-            } else { return; }
-        } else { return; }
+                if verify_key.verify(&sign_payload, &sig).is_err() {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else {
+            return;
+        }
 
         // 4. Strategy Filter
         if let DeliveryStrategy::Broadcast { topic_hash } = msg.strategy {
-            if !self.subscriptions.read().contains(&topic_hash) { return; }
+            if !self.subscriptions.read().contains(&topic_hash) {
+                return;
+            }
         }
 
         // 5. Store & Notify
         if let Ok(is_new) = self.store.save_msg(&msg) {
             if is_new {
                 let _ = self.ui_tx.send(msg.clone());
-                
+
                 // Burn-on-Read
                 if msg.options.delete_after_read_secs > 0 {
                     let store = self.store.clone();
                     let uuid = msg.uuid;
                     tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_secs(msg.options.delete_after_read_secs as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(
+                            msg.options.delete_after_read_secs as u64,
+                        ))
+                        .await;
                         let _ = store.delete_msg(uuid);
                     });
                 }
@@ -545,18 +618,29 @@ impl UniversalMessengerFlavor {
 
     fn handle_control_msg(&self, peer: SocketAddr, data: &[u8]) {
         match bincode::deserialize::<ControlMessage>(data) {
-            Ok(ControlMessage::SyncOffer { topic_hashes, bloom_bits, time_range }) => {
+            Ok(ControlMessage::SyncOffer {
+                topic_hashes,
+                bloom_bits,
+                time_range,
+            }) => {
                 // 收到对方的 Sync Offer
                 // 1. 检查是否有共同订阅的话题
                 let my_subs = self.subscriptions.read();
-                let common_topics: HashSet<_> = my_subs.intersection(&topic_hashes.into_iter().collect()).cloned().collect();
-                
-                if common_topics.is_empty() { return; }
+                let common_topics: HashSet<_> = my_subs
+                    .intersection(&topic_hashes.into_iter().collect())
+                    .cloned()
+                    .collect();
+
+                if common_topics.is_empty() {
+                    return;
+                }
 
                 // 2. 查找本地在这些话题下的消息
                 let bloom = SyncBloom::from_bytes(bloom_bits);
-                let local_uuids = self.store.get_uuids_in_range(&common_topics, time_range.0, time_range.1);
-                
+                let local_uuids =
+                    self.store
+                        .get_uuids_in_range(&common_topics, time_range.0, time_range.1);
+
                 let mut missing_in_remote = Vec::new();
                 for uuid in local_uuids {
                     // 如果对方 Bloom Filter 里没有这个 UUID，说明对方缺这个消息
@@ -569,21 +653,27 @@ impl UniversalMessengerFlavor {
 
                 // 3. 推送缺失消息
                 if !missing_in_remote.is_empty() {
-                    debug!("Universal: Syncing {} msgs to {}", missing_in_remote.len(), peer);
-                    for uuid in missing_in_remote.iter().take(50) { // Limit burst
+                    debug!(
+                        "Universal: Syncing {} msgs to {}",
+                        missing_in_remote.len(),
+                        peer
+                    );
+                    for uuid in missing_in_remote.iter().take(50) {
+                        // Limit burst
                         if let Some(msg) = self.store.get_msg(*uuid) {
-                            let _ = self.dispatch_standard_packet(STRATEGY_BROADCAST, &msg, Some(peer));
+                            let _ =
+                                self.dispatch_standard_packet(STRATEGY_BROADCAST, &msg, Some(peer));
                         }
                     }
                 }
-            },
+            }
             Ok(ControlMessage::SyncRequest { uuids }) => {
                 for uuid in uuids {
                     if let Some(msg) = self.store.get_msg(uuid) {
                         let _ = self.dispatch_standard_packet(STRATEGY_DIRECT, &msg, Some(peer));
                     }
                 }
-            },
+            }
             Err(_) => {}
         }
     }
@@ -592,15 +682,21 @@ impl UniversalMessengerFlavor {
 // --- Plugin Interface ---
 
 impl CapabilityProvider for UniversalMessengerFlavor {
-    fn capability_id(&self) -> String { "etp.flavor.universal.v2".into() }
+    fn capability_id(&self) -> String {
+        "etp.flavor.universal.v2".into()
+    }
 }
 
 impl Flavor for UniversalMessengerFlavor {
-    fn priority(&self) -> u8 { 200 }
+    fn priority(&self) -> u8 {
+        200
+    }
 
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
-        if data.len() < 2 || data[0] != UNIVERSAL_PROTO_VER { return false; }
-        
+        if data.len() < 2 || data[0] != UNIVERSAL_PROTO_VER {
+            return false;
+        }
+
         let strategy_id = data[1];
         let payload = &data[2..];
 
@@ -619,9 +715,14 @@ impl Flavor for UniversalMessengerFlavor {
     fn on_connection_open(&self, peer: SocketAddr) {
         // 发起 Gossip 同步
         let topics: Vec<[u8; 32]> = self.subscriptions.read().iter().cloned().collect();
-        if topics.is_empty() { return; }
+        if topics.is_empty() {
+            return;
+        }
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let start = now.saturating_sub(3600); // Sync last 1 hour
 
         // 构建 Bloom Filter
@@ -642,7 +743,7 @@ impl Flavor for UniversalMessengerFlavor {
         if let Ok(data) = bincode::serialize(&offer) {
             let mut packet = vec![UNIVERSAL_PROTO_VER, STRATEGY_CONTROL];
             packet.extend(data);
-            
+
             let tx = self.network_tx.clone();
             tokio::spawn(async move {
                 let _ = tx.send((peer, packet)).await;

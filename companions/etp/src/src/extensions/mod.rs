@@ -125,3 +125,5 @@ pub use pool_memory::{get_global_pool, SharedMemoryPool};
 
 #[cfg(feature = "tc16-tcc")]
 pub use tc16_tcc::{Tc16Cpu, Tc16Flavor}; // TccCompiler is internal helper
+
+pub mod rpc;
