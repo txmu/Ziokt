@@ -41,6 +41,8 @@ class CompanionBridge:
             if not isinstance(config[name],str) or not Path(config[name]).is_absolute() or '..' in Path(config[name]).parts:raise ProtocolError('INVALID_BRIDGE','fixed private application paths required')
         self.private=secure_read(config['signing_key'],32);self.appkey=secure_read(config['application_key'],32);self.app=config['application']
         self.community=Community(config['community_root'],strict_json(secure_read(config['policy'])),config['owner'],secure_read(config['encryption_key'],32))
+        with self.community.db:
+            self.community.db.execute('CREATE TABLE IF NOT EXISTS watchat_delivery_acks (channel TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(channel,event))')
         from .protocol import make_private
         community_root=Path(config['community_root']);community_root.mkdir(mode=0o700,parents=True,exist_ok=True);make_private(community_root)
         self._pending_path=community_root/('federation-pending-'+hmac.new(secure_read(config['application_key'],32),('Ziokt/pending/'+config['application']).encode(),hashlib.sha256).hexdigest()[:16]+'.jsonl')
@@ -117,10 +119,14 @@ class CompanionBridge:
             if set(params)!={'circuit'}:raise ProtocolError('INVALID_BRIDGE','exact Ano circuit required')
             return evaluate(params['circuit'])
         if method=='chat.append':
-            fields={'id','from','to','ciphertext','attachments'}
+            if set(params)=={'id','from','to','ciphertext','attachments'} and params.get('attachments')==[]:
+                params={**params,'attachment_digests':[]}
+            fields={'id','from','to','ciphertext','attachments','attachment_digests'}
             if (set(params)!=fields or any(not isinstance(params[k],str) or not UUID.fullmatch(params[k]) for k in ('id','from','to')) or params['from']==params['to'] or
                     not isinstance(params['attachments'],list) or len(params['attachments'])>2 or
-                    any(not isinstance(n,str) or not re.fullmatch('/uploads/[a-f0-9]{32}\\.bin',n) for n in params['attachments'])):
+                    not isinstance(params['attachment_digests'],list) or len(params['attachment_digests'])!=len(params['attachments']) or
+                    any(not isinstance(n,str) or not re.fullmatch('/uploads/[a-f0-9]{32}\\.bin',n) for n in params['attachments']) or
+                    any(not isinstance(d,str) or not re.fullmatch('sha256:[a-f0-9]{64}',d) for d in params['attachment_digests'])):
                 raise ProtocolError('INVALID_BRIDGE','bounded opaque chat event required')
             try:cipher=base64.b64decode(params['ciphertext'],validate=True)
             except (ValueError,TypeError):raise ProtocolError('INVALID_BRIDGE','sealed browser message required')
@@ -128,12 +134,18 @@ class CompanionBridge:
             if decision['decision']!='allow':raise ProtocolError('POLICY_DENIED','application defensive policy denied')
             channel=self._channel(params['from'],params['to']);key='watchat-'+self._tag(params['id'])[:48]
             packet=encoded({'schema':'ziokt.watchat-sealed.v1','id':params['id'],'sender':self._tag(channel+'/'+params['from']),
-                'ciphertext':params['ciphertext'],'attachments':params['attachments']})
+                'ciphertext':params['ciphertext'],'attachments':params['attachments'],'attachment_digests':params['attachment_digests']})
             events=self.community.view('chat',key)['events']
             if events:
                 for event in events:
                     ref=strict_json(event['body']['text'].encode())
-                    if ref.get('schema')!='ziokt.watchat-reference.v1' or event['body']['channel']!=channel or self.community.get_file(ref['packet'])!=packet:
+                    prior=self.community.get_file(ref['packet']) if ref.get('schema')=='ziokt.watchat-reference.v1' else b''
+                    try:old=strict_json(prior)
+                    except ProtocolError:old={}
+                    if (event['body']['channel']!=channel or old.get('schema')!='ziokt.watchat-sealed.v1' or
+                            old.get('id')!=params['id'] or old.get('sender')!=self._tag(channel+'/'+params['from']) or
+                            old.get('ciphertext')!=params['ciphertext'] or old.get('attachments')!=params['attachments'] or
+                            old.get('attachment_digests',[])!=params['attachment_digests']):
                         raise ProtocolError('IDEMPOTENCY_CONFLICT','opaque message identifier already has other content')
                 return {'event':events[0]['id'],'duplicate':True,'plaintext_disclosed':False}
             body={'channel':channel,'text':encoded({'schema':'ziokt.watchat-reference.v1','packet':self.community.put_file(packet)}).decode()}
@@ -144,6 +156,7 @@ class CompanionBridge:
         if method=='chat.pull':
             if set(params)!={'from','to'} or any(not isinstance(params[k],str) or not UUID.fullmatch(params[k]) for k in ('from','to')):raise ProtocolError('INVALID_BRIDGE','fixed opaque conversation required')
             channel=self._channel(params['from'],params['to']);messages=[]
+            acked={row[0] for row in self.community.db.execute('SELECT event FROM watchat_delivery_acks WHERE channel=?',(channel,))}
             for event in self.community.view('chat')['events']:
                 if event['body']['channel']!=channel:continue
                 ref=strict_json(event['body']['text'].encode())
@@ -152,11 +165,32 @@ class CompanionBridge:
                 if len(packet)>4096:raise ProtocolError('BRIDGE_LIMIT','opaque message packet exceeds budget')
                 value=strict_json(packet);sender=value.get('sender')
                 if value.get('schema')!='ziokt.watchat-sealed.v1' or sender not in {self._tag(channel+'/'+p) for p in (params['from'],params['to'])}:continue
+                if event['id'] in acked:continue
+                attachments=value.get('attachments',[]);digests=value.get('attachment_digests',[])
+                if (not isinstance(attachments,list) or not isinstance(digests,list) or len(attachments)!=len(digests) or len(digests)>2 or
+                        any(not isinstance(d,str) or not re.fullmatch('sha256:[a-f0-9]{64}',d) for d in digests)):continue
                 source=params['from'] if sender==self._tag(channel+'/'+params['from']) else params['to']
                 messages.append({'id':value['id'],'from':source,'to':params['to'] if source==params['from'] else params['from'],
-                    'kind':'sealed','ciphertext':value['ciphertext'],'attachments':value['attachments'],'event':event['id']})
-                if len(messages)>=64:break
+                    'kind':'sealed','ciphertext':value['ciphertext'],'attachments':attachments,'attachment_digests':digests,'event':event['id']})
+                if len(messages)>=12:break
             return {'messages':messages,'plaintext_disclosed':False}
+        if method=='chat.ack':
+            if (set(params)!={'from','to','events'} or any(not isinstance(params[k],str) or not UUID.fullmatch(params[k]) for k in ('from','to')) or
+                    not isinstance(params['events'],list) or not 1<=len(params['events'])<=12 or
+                    any(not isinstance(item,str) or not re.fullmatch('sha256:[a-f0-9]{64}',item) for item in params['events']) or len(set(params['events']))!=len(params['events'])):
+                raise ProtocolError('INVALID_BRIDGE','bounded conversation delivery acknowledgement required')
+            channel=self._channel(params['from'],params['to']);by_id={item['id']:item for item in self.community.view('chat')['events']}
+            valid=[]
+            allowed_senders={self._tag(channel+'/'+params['from']),self._tag(channel+'/'+params['to'])}
+            for event_id in params['events']:
+                event=by_id.get(event_id)
+                if not event or event['body'].get('channel')!=channel:raise ProtocolError('POLICY_DENIED','acknowledgement is outside the selected conversation')
+                ref=strict_json(event['body']['text'].encode());packet=self.community.get_file(ref['packet']);value=strict_json(packet)
+                if value.get('schema')!='ziokt.watchat-sealed.v1' or value.get('sender') not in allowed_senders:raise ProtocolError('POLICY_DENIED','acknowledgement does not name a sealed conversation frame')
+                valid.append((channel,event_id))
+            with self.community.db:
+                self.community.db.executemany('INSERT OR IGNORE INTO watchat_delivery_acks VALUES (?,?)',valid)
+            return {'acknowledged':len(valid)}
         if method in {'safefs.publish','safefs.read'}:
             if self.vault_root is None:raise ProtocolError('POLICY_DENIED','application vault root not enabled')
             if set(params)!={'digest'} or not isinstance(params['digest'],str) or not re.fullmatch('sha256:[a-f0-9]{64}',params['digest']):raise ProtocolError('INVALID_BRIDGE','exact immutable sealed vault reference required')

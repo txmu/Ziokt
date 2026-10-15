@@ -1,4 +1,5 @@
 import base64
+import hashlib
 from fractions import Fraction
 from pathlib import Path
 import secrets
@@ -57,16 +58,21 @@ class CompanionCrypto(unittest.TestCase):
     def test_bridge_ciphertext_idempotency_scope_and_purpose_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);private=secrets.token_bytes(32);public=sign({},private,'test')['public_key'];policy=create_policy(private,'test',{public:sorted(RIGHTS)})
-            write_exclusive(root/'policy.json',policy)
-            for name in ('signing','application','encryption'):write_binary_exclusive(root/(name+'.key'),private if name=='signing' else secrets.token_bytes(32))
-            config=root/'bridge.json';write_exclusive(config,{'schema':'ziokt.companion-bridge.v1','community_root':str(root/'community'),'policy':str(root/'policy.json'),
-                'owner':public,'encryption_key':str(root/'encryption.key'),'signing_key':str(root/'signing.key'),'application':'watchat','application_key':str(root/'application.key')})
+            inbox=root/'inbox';inbox.mkdir(mode=0o700)
+            config=self._make_bridge(root,private,public,policy,app='watchat',extra={'inbox':str(inbox)})
             bridge=CompanionBridge(config);self.addCleanup(bridge.close)
-            a,b=str(uuid.uuid4()),str(uuid.uuid4());payload={'id':str(uuid.uuid4()),'from':a,'to':b,'ciphertext':base64.b64encode(secrets.token_bytes(2048)).decode(),'attachments':[]}
+            a,b=str(uuid.uuid4()),str(uuid.uuid4());attachment=secrets.token_bytes(128);digest='sha256:'+hashlib.sha256(attachment).hexdigest()
+            write_binary_exclusive(inbox/(digest[7:]+'.bin'),attachment)
+            payload={'id':str(uuid.uuid4()),'from':a,'to':b,'ciphertext':base64.b64encode(secrets.token_bytes(2048)).decode(),
+                'attachments':['/uploads/'+'a'*32+'.bin'],'attachment_digests':[digest]}
             first=bridge.call('chat.append',payload);again=bridge.call('chat.append',payload)
             self.assertEqual(first['event'],again['event']);self.assertTrue(again['duplicate'])
             events=bridge.community.view('chat')['events'];self.assertNotIn(a,events[0]['body']['text']);self.assertNotIn(b,events[0]['body']['text'])
             returned=bridge.call('chat.pull',{'from':a,'to':b})['messages'][0];self.assertEqual(returned['ciphertext'],payload['ciphertext'])
+            self.assertEqual(returned['attachment_digests'],[digest])
+            self.assertFalse(bridge.call('file.publish',{'digest':digest})['plaintext_disclosed'])
+            self.assertEqual(bridge.call('chat.ack',{'from':a,'to':b,'events':[returned['event']]})['acknowledged'],1)
+            self.assertEqual(bridge.call('chat.pull',{'from':a,'to':b})['messages'],[])
             with self.assertRaises(ProtocolError):bridge.call('chat.append',{**payload,'ciphertext':base64.b64encode(secrets.token_bytes(2048)).decode()})
             with self.assertRaises(ProtocolError):bridge.call('shell.execute',{})
 

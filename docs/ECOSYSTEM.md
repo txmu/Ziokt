@@ -10,7 +10,7 @@ The source catalogue is `companions/ecosystem.json`; inspect it using `python3 -
 |---|---|
 | Shadow6 | Native Profiles, S6EPE, joint Virtual Broker node export, signed isolated Extensions on Go/Rust/Gleam/Ada/Nim/Idris |
 | Corium | Native P2P/DHT, signed ledger facts, private ZKN, ZKC; `corix p2p get HASH [FILENAME]` verifies SHA-256 and rejects overwrite/symlinks |
-| WATChat | `companions/watchat/WATChat-code`, browser ECDH/HKDF/AES-GCM sealed messages, fixed 2048-byte frames, contact fingerprint pins, durable ciphertext outbox |
+| WATChat | `companions/watchat/WATChat-code`, browser ECDH/HKDF/AES-GCM sealed messages, fixed 2048-byte frames, contact fingerprint pins, durable ciphertext outbox, opt-in Ziokt inbox pull with signed event acknowledgements and content-digested attachments |
 | SafeFS | `ziokt companion safefs`, scoped padded AEAD vault, signed encrypted community publication |
 | ZDA / Ano | `ziokt companion ano`, exact bounded rational arithmetic, typed unknown evidence, all-required-claims authorization gates |
 | UFS + DCPM | `ziokt companion ufsdcpm`, signed packages inside an encrypted UFS vault; coupled storage and package integrity remain native functions |
@@ -20,6 +20,8 @@ The source catalogue is `companions/ecosystem.json`; inspect it using `python3 -
 | Tri | `companions/tri/app` is a loopback development build and `/tri/` offline PWA, without third-party asset hosts or API-key injection; `ziokt companion tri put/get/publish` validates bounded snapshots and carries signed project files through SafeFS ciphertext |
 
 Original archives remain unchanged in the home directory; SOURCE.json files record their SHA-256. Tri project interchange validates JSON data and stores signed community events with the machine snapshot encrypted by the app-scoped SafeFS key. The simulator runs only when a user explicitly starts its local/browser UI; publishing a project never runs imported code. Historical Python files containing root/BCC hooks, pickle/eval or incomplete server implementations are preserved as original reference and are not the modern runtime entry points. Some optional ETP bindings were absent from the supplied archive and fail explicitly when selected; they are not advertised as working implementations.
+
+WATChat federation is opt-in through a fixed Ziokt bridge configuration. Each installation polls only conversations whose users and mutual contacts already exist locally, transfers sealed frames and up to two bounded attachment objects, verifies each attachment digest, persists the local message, then acknowledges the signed community event. A crash before the local save leaves the event unacknowledged for retry; duplicate event IDs are idempotent. The two installations must share the conversation's UUID identities and contact mapping. This adapter does not synchronize accounts or contact discovery.
 
 原始压缩包保持不变；历史实现保留用于兼容参考，不作为现代运行入口。导入包里缺失的 ETP Lua/Shell/PowerShell 绑定会明确拒绝启用。
 

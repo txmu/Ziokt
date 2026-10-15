@@ -84,7 +84,7 @@ def feature_matrix(root):
         binary=root/('Core-'+family.capitalize())/('shadow6-'+family+'-crosed')
         row={'core':family,'binary':str(binary),'source_supported':True,'runtime_verified':False,'eligible':False}
         try:
-            report=run_bounded([str(binary),'--feature-report'],timeout=5,limit=16384,library_dir=binary.parent if family=='nim' else None)
+            report=run_bounded([str(binary),'--feature-report'],timeout=5,limit=16384,library_dir=binary.parent)
             row.update(runtime_verified=True,eligible=report.get('core')=='shadow6-'+family and report.get('crosed_max_level',0)>=3 and report.get('app_transport') is True and {'transport.application','policy.request'}<=set(report.get('crosed_capabilities',[])),feature_report=report,binary_digest=artifact_digest(root,family))
         except (OSError,ProtocolError): row['diagnostic']='matching enabled prebuilt Core required'
         rows.append(row)
@@ -158,7 +158,7 @@ class Extensions:
             write_exclusive(tree/'request.json',request)
             result=run_bounded([sys.executable,'-I',str(tree/SOURCES[0]),'--core',str(core),'--request',str(tree/'request.json'),
                 '--crosed-trust',str(bundle/('crosed-trust-'+self.core+'.json')),'--bindings',str(bundle/'bindings.json'),
-                '--plugin-root',str(bundle/'plugins'),'--plugin-trust',str(bundle/'plugin-trust.json')],timeout=15,library_dir=core.parent if self.core=='nim' else None)
+                '--plugin-root',str(bundle/'plugins'),'--plugin-trust',str(bundle/'plugin-trust.json')],timeout=15,library_dir=core.parent)
         if (result.get('protocol')!='shadow6.extension.v1' or result.get('core')!='shadow6-'+self.core or result.get('slot')!='slot.security.policy' or
                 not isinstance(result.get('result'),dict) or not result['result'].get('results') or
                 any(r.get('ok') is not True or r.get('result',{}).get('allow') is not True for r in result['result']['results'])):

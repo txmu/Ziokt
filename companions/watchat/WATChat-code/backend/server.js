@@ -90,16 +90,25 @@ wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws
  const m={id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,time:Date.now()};store.messages.push(m);if(process.env.ZIOKT_BRIDGE_CONFIG)store.pending.push(m.id);save();notifier?.enqueue(m.to);push([m.from,m.to],{type:'message',message:m});send(ws,{type:'ack',id:m.id});flushBridge();
  }catch(_){send(ws,{type:'error',error:'INVALID_FRAME'})}})});
 const bridge=process.env.ZIOKT_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(__dirname,'../../../..')):null;
-let bridgeBusy=false;store.fileBackoff??={};
+let bridgeBusy=false,bridgePollAt=0,bridgePollCursor=0;store.fileBackoff??={};
+function bridgePairs(){const pairs=[],seen=new Set();for(const user of store.users)for(const peer of user.contacts||[]){if(!byId(peer)||peer===user.id)continue;const key=[user.id,peer].sort().join('/');if(seen.has(key))continue;seen.add(key);pairs.push({from:user.id,to:peer})}return pairs}
+async function pullBridgePair(){const pairs=bridgePairs();if(!pairs.length)return;const pair=pairs[bridgePollCursor++%pairs.length],reply=await bridge.call('chat.pull',pair);if(!reply||!Array.isArray(reply.messages)||reply.messages.length>12)throw Error('BRIDGE_PULL_INVALID');const ack=[];let changed=false;
+ for(const frame of reply.messages){if(!frame||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(frame.id)||!((frame.from===pair.from&&frame.to===pair.to)||(frame.from===pair.to&&frame.to===pair.from))||typeof frame.ciphertext!=='string'||Buffer.from(frame.ciphertext,'base64').length!==2048||Buffer.from(frame.ciphertext,'base64').toString('base64')!==frame.ciphertext||!Array.isArray(frame.attachments)||!Array.isArray(frame.attachment_digests)||frame.attachments.length!==frame.attachment_digests.length||frame.attachments.length>2)throw Error('BRIDGE_FRAME_INVALID');
+  for(let i=0;i<frame.attachments.length;i++){const url=frame.attachments[i],digest=frame.attachment_digests[i],match=typeof url==='string'&&url.match(/^\/uploads\/([a-f0-9]{32})\.bin$/);if(!match||typeof digest!=='string'||!/^sha256:[a-f0-9]{64}$/.test(digest))throw Error('BRIDGE_ATTACHMENT_INVALID');const id=match[1]+'.bin',local=path.join(DATA,id),existing=store.uploads[id];if(existing){if(existing.digest!==digest)throw Error('BRIDGE_ATTACHMENT_CONFLICT');continue}if(!bridgeInbox)throw Error('BRIDGE_INBOX_REQUIRED');await bridge.call('file.read',{digest});const source=path.join(bridgeInbox,digest.slice(7)+'.bin'),stat=fs.lstatSync(source);if(stat.isSymbolicLink()||!stat.isFile()||stat.size>8*1024*1024)throw Error('BRIDGE_ATTACHMENT_INVALID');const data=privateRead(source);if('sha256:'+crypto.createHash('sha256').update(data).digest('hex')!==digest)throw Error('BRIDGE_ATTACHMENT_DIGEST');if(fs.existsSync(local)){const restored=open(privateRead(local),'upload/'+id);if('sha256:'+crypto.createHash('sha256').update(restored).digest('hex')!==digest)throw Error('BRIDGE_ATTACHMENT_CONFLICT')}else exclusive(local,seal(data,'upload/'+id));store.uploads[id]={owner:frame.from,size:data.length,digest}}
+  const old=store.messages.find(message=>message.id===frame.id);if(old){if(old.from!==frame.from||old.to!==frame.to||old.ciphertext!==frame.ciphertext||JSON.stringify(old.attachments)!==JSON.stringify(frame.attachments))throw Error('BRIDGE_MESSAGE_CONFLICT')}else{if(store.messages.length>=10000)throw Error('LIMIT');const message={id:frame.id,from:frame.from,to:frame.to,kind:'sealed',ciphertext:frame.ciphertext,attachments:frame.attachments,time:Date.now()};store.messages.push(message);notifier?.enqueue(message.to);push([message.from,message.to],{type:'message',message});changed=true}ack.push(frame.event)}
+ if(changed)save();if(ack.length)await bridge.call('chat.ack',{...pair,events:ack});
+}
 async function flushBridge(){
  if(!bridge||bridgeBusy)return;
  const file=store.filePending.find(digest=>(store.fileBackoff[digest]||0)<=Date.now());
  store.pending=store.pending.filter(id=>store.messages.some(message=>message.id===id));
  const message=store.pending.length?store.messages.find(m=>m.id===store.pending[0]):null;
- if(!file&&!message)return;bridgeBusy=true;
+ const canPoll=bridgePairs().length>0&&Date.now()-bridgePollAt>=15000;
+ if(!file&&!message&&!canPoll)return;bridgeBusy=true;
  try{
   if(file){await bridge.call('file.publish',{digest:file});const index=store.filePending.indexOf(file);if(index>=0)store.filePending.splice(index,1);delete store.fileBackoff[file]}
-  else{await bridge.call('chat.append',{id:message.id,from:message.from,to:message.to,ciphertext:message.ciphertext,attachments:message.attachments});const index=store.pending.indexOf(message.id);if(index>=0)store.pending.splice(index,1)}
+  else if(message){const attachment_digests=message.attachments.map(url=>{const upload=store.uploads[url.slice(9)];if(!upload||upload.owner!==message.from)throw Error('INVALID_ATTACHMENT');return upload.digest});await bridge.call('chat.append',{id:message.id,from:message.from,to:message.to,ciphertext:message.ciphertext,attachments:message.attachments,attachment_digests});const index=store.pending.indexOf(message.id);if(index>=0)store.pending.splice(index,1)}
+  else{bridgePollAt=Date.now();await pullBridgePair()}
   save();
  }catch(_){if(file){store.fileBackoff[file]=Date.now()+30000;save()}}
  finally{bridgeBusy=false;if(store.pending.length||store.filePending.some(digest=>(store.fileBackoff[digest]||0)<=Date.now()))setTimeout(flushBridge,1000)}
