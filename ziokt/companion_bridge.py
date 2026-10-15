@@ -79,7 +79,8 @@ class CompanionBridge:
         """Replay a bounded, encrypted SQLite outbox; duplicate publishes are idempotent."""
         with self._outbox_lock:
             # Migrate old private JSONL queues once. Never follow an attacker-controlled link.
-            if self._pending_path.exists() or self._pending_path.is_symlink():
+            if self._pending_path.is_symlink():raise ProtocolError('UNSAFE_FILE','legacy outbox symlink denied')
+            if self._pending_path.exists():
                 raw=secure_read(self._pending_path,1024*1024)
                 lines=raw.splitlines()
                 if len(lines)>128:raise ProtocolError('BRIDGE_LIMIT','legacy outbox exceeds budget')

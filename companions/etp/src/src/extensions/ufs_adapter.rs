@@ -1,426 +1,261 @@
-// etp-core/src/extensions/ufs_adapter.rs
-
+//! Capability-rooted UFS operations with bounded requests, workers and replies.
 #![cfg(feature = "ultrafileserver")]
-
-use anyhow::{anyhow, Context, Result};
-use log::{debug, error, info, warn};
-use serde::{Deserialize, Serialize};
-use std::io::SeekFrom;
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::fs::{self, File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::mpsc;
-
 use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
-
-// ============================================================================
-//  UFS 协议定义 (Binary Protocol)
-// ============================================================================
-
-const UFS_PROTO_VER: u8 = 0x01;
-
-// 指令集 (Command Set)
-const CMD_LIST_REQ: u8 = 0x01; // 列出目录: [Ver][CMD][PathStr]
-const CMD_LIST_RESP: u8 = 0x02; // 响应目录: [Ver][CMD][JSON]
-const CMD_GET_REQ: u8 = 0x03; // 下载文件: [Ver][CMD][Offset(8)][PathStr]
-const CMD_GET_RESP: u8 = 0x04; // 文件数据: [Ver][CMD][Offset(8)][Data...]
-const CMD_PUT_REQ: u8 = 0x05; // 上传/写入: [Ver][CMD][Offset(8)][PathStrLen(2)][PathStr][Data...]
-const CMD_DEL_REQ: u8 = 0x06; // 删除文件: [Ver][CMD][PathStr]
-const CMD_INFO_REQ: u8 = 0x07; // 获取元数据: [Ver][CMD][PathStr]
-const CMD_INFO_RESP: u8 = 0x08; // 响应元数据: [Ver][CMD][JSON]
-const CMD_ERROR: u8 = 0xFF; // 错误响应: [Ver][CMD][ErrMsg]
-
-// 读写块大小
-const CHUNK_SIZE: usize = 64 * 1024; // 64KB
-
-// ============================================================================
-//  数据结构
-// ============================================================================
-
+use anyhow::{ensure, Result};
+use cap_std::fs::{Dir, OpenOptions};
+use serde::{Deserialize, Serialize};
+use std::{
+    io::{Read, Seek, SeekFrom, Write},
+    net::SocketAddr,
+    path::{Component, Path},
+    sync::Arc,
+};
+use tokio::sync::{mpsc, Semaphore};
+const VERSION: u8 = 1;
+const CHUNK: usize = 16384;
+const MAX_FILE: u64 = 16 * 1024 * 1024;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileMetadata {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
     pub modified: u64,
-    pub mime_type: String, // 简单 MIME 推断
+    pub mime_type: String,
 }
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DirectoryListing {
     pub path: String,
     pub files: Vec<FileMetadata>,
 }
-
-// ============================================================================
-//  Flavor 实现
-// ============================================================================
-
-/// UltraFileServer Flavor
-/// 将本地文件系统暴露给 ETP 网络，支持类 WebDAV 的操作，但通过高效的二进制流传输。
+#[derive(Clone)]
 pub struct UltraFileServerFlavor {
-    /// 根目录 (Chroot Jail)
-    root_dir: PathBuf,
-    /// 网络发送通道 (用于回包)
+    root: Arc<Dir>,
     network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
-    /// 是否允许写入 (Upload/Delete)
     read_only: bool,
+    workers: Arc<Semaphore>,
 }
-
 impl UltraFileServerFlavor {
     pub fn new(
-        root_path: &str,
+        path: &str,
         network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
         read_only: bool,
     ) -> Result<Arc<Self>> {
-        let root = PathBuf::from(root_path)
-            .canonicalize()
-            .context("Invalid root path")?;
-
-        if !root.exists() || !root.is_dir() {
-            return Err(anyhow!("Root path must be an existing directory"));
-        }
-
-        info!(
-            "UFS Adapter initialized. Root: {:?}, ReadOnly: {}",
-            root, read_only
-        );
-
         Ok(Arc::new(Self {
-            root_dir: root,
+            root: Arc::new(Dir::open_ambient_dir(path, cap_std::ambient_authority())?),
             network_tx,
             read_only,
+            workers: Arc::new(Semaphore::new(16)),
         }))
     }
-
-    // --- 路径安全检查 (Path Sanitization) ---
-    // 防止目录遍历攻击 (Directory Traversal)
-    fn resolve_path(&self, relative_path: &str) -> Result<PathBuf> {
-        // 移除开头的所有 ./ 和 /
-        let clean_rel = relative_path.trim_start_matches(|c| c == '/' || c == '\\' || c == '.');
-        let joined = self.root_dir.join(clean_rel);
-
-        // 规范化路径 (处理 ..)
-        // 注意：canonicalize 要求路径必须存在，对于写入新文件，我们需要检查其父目录
-        // 这里做一个简单的词法检查，更严格的检查通常需要 OS 支持
-        // 为简化，我们只允许 path 不包含 ".." 组件
-        if relative_path.split('/').any(|p| p == "..")
-            || relative_path.split('\\').any(|p| p == "..")
-        {
-            return Err(anyhow!("Invalid path: Traversal detected"));
-        }
-
-        Ok(joined)
-    }
-
-    // --- 业务处理逻辑 ---
-
-    async fn handle_list(&self, peer: SocketAddr, path_str: String) -> Result<()> {
-        let target_path = self.resolve_path(&path_str)?;
-
-        if !target_path.exists() {
-            return self.send_error(peer, "Path not found").await;
-        }
-
-        let mut entries = Vec::new();
-        let mut dir_reader = fs::read_dir(target_path).await?;
-
-        while let Some(entry) = dir_reader.next_entry().await? {
-            let meta = entry.metadata().await?;
-            let name = entry.file_name().to_string_lossy().to_string();
-
-            // 简单的 MIME 推断
-            let mime = if meta.is_dir() {
-                "inode/directory".to_string()
-            } else {
-                match Path::new(&name).extension().and_then(|s| s.to_str()) {
-                    Some("txt") => "text/plain",
-                    Some("json") => "application/json",
-                    Some("jpg") | Some("png") => "image/jpeg",
-                    Some("mp4") => "video/mp4",
-                    _ => "application/octet-stream",
-                }
-                .to_string()
-            };
-
-            let modified = meta
-                .modified()
-                .unwrap_or(SystemTime::now())
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            entries.push(FileMetadata {
-                name,
-                is_dir: meta.is_dir(),
-                size: meta.len(),
-                modified,
-                mime_type: mime,
-            });
-        }
-
-        let listing = DirectoryListing {
-            path: path_str,
-            files: entries,
-        };
-
-        let json_bytes = serde_json::to_vec(&listing)?;
-        let mut resp = vec![UFS_PROTO_VER, CMD_LIST_RESP];
-        resp.extend(json_bytes);
-
-        self.send_raw(peer, resp).await
-    }
-
-    async fn handle_get(&self, peer: SocketAddr, path_str: String, offset: u64) -> Result<()> {
-        let target_path = self.resolve_path(&path_str)?;
-
-        let mut file = match File::open(&target_path).await {
-            Ok(f) => f,
-            Err(_) => {
-                return self
-                    .send_error(peer, "File not found or access denied")
-                    .await
-            }
-        };
-
-        // Seek
-        if offset > 0 {
-            if let Err(_) = file.seek(SeekFrom::Start(offset)).await {
-                return self.send_error(peer, "Seek failed").await;
-            }
-        }
-
-        // 读取一块数据 (Chunked Read)
-        // 注意：在大文件传输中，我们不应该在这里循环读取所有数据，
-        // 否则会阻塞 Flavor 线程。
-        // UFS 协议设计为请求-响应式：客户端请求 Offset X，服务端返回 Offset X 的数据块。
-        // 客户端收到后，再请求 Offset X + ChunkSize。
-        // 这样实现了流控和多路复用的公平性。
-
-        let mut buf = vec![0u8; CHUNK_SIZE];
-        let n = file.read(&mut buf).await?;
-        buf.truncate(n);
-
-        // 构造响应: [Ver][CMD][Offset(8)][Data]
-        let mut resp = Vec::with_capacity(1 + 1 + 8 + n);
-        resp.push(UFS_PROTO_VER);
-        resp.push(CMD_GET_RESP);
-        resp.extend_from_slice(&offset.to_be_bytes());
-        resp.extend(buf);
-
-        self.send_raw(peer, resp).await
-    }
-
-    async fn handle_put(
-        &self,
-        peer: SocketAddr,
-        path_str: String,
-        offset: u64,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        if self.read_only {
-            return self.send_error(peer, "Server is read-only").await;
-        }
-
-        let target_path = self.resolve_path(&path_str)?;
-
-        // 确保父目录存在
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-
-        // 打开文件 (Create or Append/Write)
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&target_path)
-            .await?;
-
-        file.seek(SeekFrom::Start(offset)).await?;
-        file.write_all(&data).await?;
-
-        // 不需要显式 ACK，ETP 层保证可靠性。
-        // 或者可以发送 CMD_INFO_RESP 更新文件大小。
-        debug!(
-            "UFS: Wrote {} bytes to {} at {}",
-            data.len(),
-            path_str,
-            offset
+    fn path(value: &str) -> Result<&Path> {
+        ensure!(
+            value.len() <= 1024 && !value.contains(['\\', '\0']) && !value.contains(':'),
+            "bounded relative path required"
         );
-        Ok(())
-    }
-
-    async fn handle_del(&self, peer: SocketAddr, path_str: String) -> Result<()> {
-        if self.read_only {
-            return self.send_error(peer, "Server is read-only").await;
-        }
-
-        let target_path = self.resolve_path(&path_str)?;
-        if target_path.is_dir() {
-            fs::remove_dir_all(target_path).await?;
+        let path = Path::new(value);
+        ensure!(
+            path.components()
+                .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
+            "relative non-traversing path required"
+        );
+        Ok(if value.is_empty() {
+            Path::new(".")
         } else {
-            fs::remove_file(target_path).await?;
+            path
+        })
+    }
+    fn metadata(name: String, meta: cap_std::fs::Metadata) -> FileMetadata {
+        FileMetadata {
+            name,
+            is_dir: meta.is_dir(),
+            size: meta.len(),
+            modified: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.into_std().duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            mime_type: if meta.is_dir() {
+                "inode/directory"
+            } else {
+                "application/octet-stream"
+            }
+            .into(),
         }
-
-        // 返回新的列表或 Info
-        self.send_error(peer, "OK: Deleted").await // 复用 Error 帧发送简单消息
     }
-
-    async fn handle_info(&self, peer: SocketAddr, path_str: String) -> Result<()> {
-        let target_path = self.resolve_path(&path_str)?;
-        if let Ok(meta) = fs::metadata(&target_path).await {
-            let modified = meta
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs();
-            let info = FileMetadata {
-                name: path_str,
-                is_dir: meta.is_dir(),
-                size: meta.len(),
-                modified,
-                mime_type: "application/octet-stream".into(),
-            };
-            let json_bytes = serde_json::to_vec(&info)?;
-            let mut resp = vec![UFS_PROTO_VER, CMD_INFO_RESP];
-            resp.extend(json_bytes);
-            self.send_raw(peer, resp).await?;
-        } else {
-            self.send_error(peer, "Not found").await?;
+    fn request(&self, op: u8, data: &[u8]) -> Result<Vec<u8>> {
+        ensure!(data.len() <= CHUNK + 1034, "UFS request budget");
+        match op {
+            1 => {
+                let name = std::str::from_utf8(data)?;
+                let dir = self.root.open_dir(Self::path(name)?)?;
+                let mut files = Vec::new();
+                for entry in dir.entries()? {
+                    let entry = entry?;
+                    ensure!(files.len() < 128, "directory entry budget");
+                    files.push(Self::metadata(
+                        entry.file_name().to_string_lossy().into_owned(),
+                        entry.metadata()?,
+                    ));
+                }
+                let mut packet = vec![VERSION, 2];
+                packet.extend(serde_json::to_vec(&DirectoryListing {
+                    path: name.into(),
+                    files,
+                })?);
+                ensure!(packet.len() <= CHUNK * 2, "directory reply budget");
+                Ok(packet)
+            }
+            3 => {
+                ensure!(data.len() >= 8, "file offset required");
+                let offset = u64::from_be_bytes(data[..8].try_into()?);
+                ensure!(offset <= MAX_FILE, "file offset budget");
+                let name = std::str::from_utf8(&data[8..])?;
+                let mut file = self.root.open(Self::path(name)?)?;
+                ensure!(
+                    file.metadata()?.is_file() && file.metadata()?.len() <= MAX_FILE,
+                    "regular bounded file required"
+                );
+                file.seek(SeekFrom::Start(offset))?;
+                let mut bytes = vec![0; CHUNK];
+                let size = file.read(&mut bytes)?;
+                bytes.truncate(size);
+                let mut packet = vec![VERSION, 4];
+                packet.extend_from_slice(&offset.to_be_bytes());
+                packet.extend(bytes);
+                Ok(packet)
+            }
+            5 => {
+                ensure!(
+                    !self.read_only && data.len() >= 10,
+                    "write denied or malformed"
+                );
+                let offset = u64::from_be_bytes(data[..8].try_into()?);
+                let length = u16::from_be_bytes(data[8..10].try_into()?) as usize;
+                ensure!(
+                    length <= 1024 && data.len() >= 10 + length,
+                    "file path budget"
+                );
+                let bytes = &data[10 + length..];
+                ensure!(
+                    bytes.len() <= CHUNK
+                        && offset
+                            .checked_add(bytes.len() as u64)
+                            .map(|v| v <= MAX_FILE)
+                            .unwrap_or(false),
+                    "file write budget"
+                );
+                let name = std::str::from_utf8(&data[10..10 + length])?;
+                let path = Self::path(name)?;
+                let mut options = OpenOptions::new();
+                options.write(true).create(true);
+                let mut file = self.root.open_with(path, &options)?;
+                ensure!(file.metadata()?.is_file(), "regular destination required");
+                file.seek(SeekFrom::Start(offset))?;
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                Ok(vec![VERSION, 8])
+            }
+            6 => {
+                ensure!(!self.read_only, "delete denied");
+                let name = std::str::from_utf8(data)?;
+                let path = Self::path(name)?;
+                // Deliberately bounded: directories must be empty before removing them.
+                if self.root.symlink_metadata(path)?.is_dir() {
+                    self.root.remove_dir(path)?;
+                } else {
+                    self.root.remove_file(path)?;
+                }
+                Ok(vec![VERSION, 8])
+            }
+            7 => {
+                let name = std::str::from_utf8(data)?;
+                let meta = self.root.metadata(Self::path(name)?)?;
+                let mut packet = vec![VERSION, 8];
+                packet.extend(serde_json::to_vec(&Self::metadata(name.into(), meta))?);
+                Ok(packet)
+            }
+            _ => anyhow::bail!("unsupported UFS operation"),
         }
-        Ok(())
-    }
-
-    // --- 辅助 ---
-
-    async fn send_raw(&self, target: SocketAddr, data: Vec<u8>) -> Result<()> {
-        self.network_tx
-            .send((target, data))
-            .await
-            .map_err(|_| anyhow!("Network channel closed"))
-    }
-
-    async fn send_error(&self, target: SocketAddr, msg: &str) -> Result<()> {
-        let mut resp = vec![UFS_PROTO_VER, CMD_ERROR];
-        resp.extend_from_slice(msg.as_bytes());
-        self.send_raw(target, resp).await
     }
 }
-
-// ============================================================================
-//  Plugin Interface 实现
-// ============================================================================
-
 impl CapabilityProvider for UltraFileServerFlavor {
     fn capability_id(&self) -> String {
         "etp.flavor.ufs.v1".into()
     }
 }
-
 impl Flavor for UltraFileServerFlavor {
-    fn priority(&self) -> u8 {
-        100
-    }
-
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
-        if data.len() < 2 || data[0] != UFS_PROTO_VER {
+        if data.len() < 2 || data[0] != VERSION || !matches!(data[1], 1 | 3 | 5 | 6 | 7) {
             return false;
         }
-
-        let cmd = data[1];
-        let payload = &data[2..];
-        let peer = ctx.src_addr;
-
-        // 为了不阻塞 Flavor 调度线程，所有 IO 操作都 Spawn 出去
-        // 需要 Clone Arc
-        // 在 Rust 2018+，self 如果是 &Arc<Self> (via trait object wrapper logic in core),
-        // 但这里 self 是 &UltraFileServerFlavor。我们需要在外部通过 Arc 包装。
-        // 标准做法是 Flavor trait 自身不强制 Arc，但在注册时是 Arc<dyn Flavor>。
-        // 这里的 self 是引用。我们需要一种方式将 `self` 的数据移动到 async block。
-        //
-        // 解决方案：UltraFileServerFlavor 的字段大多是轻量的 (PathBuf, Sender) 或 Arc。
-        // 我们可以 Clone 字段。或者更好的是，我们在 new 时返回 Arc<Self>，
-        // 并在注册时使用。但是 Flavor trait 方法是 &self。
-        // 我们需要 clone 内部字段来 spawn。
-
-        let root_dir = self.root_dir.clone();
-        let net_tx = self.network_tx.clone();
-        let read_only = self.read_only;
-
-        // 构造一个临时的 Self 副本 (Lightweight clone) 用于 async task
-        // 注意：这种 clone 只是路径和通道的拷贝，开销很小
-        let worker = UltraFileServerFlavor {
-            root_dir,
-            network_tx: net_tx,
-            read_only,
+        if data.len() > CHUNK + 1036 {
+            return true;
+        }
+        let Ok(permit) = self.workers.clone().try_acquire_owned() else {
+            return true;
         };
-
-        // 将 payload 拷贝一份 (Vec<u8>)
-        let data_vec = payload.to_vec();
-
-        tokio::spawn(async move {
-            let res = match cmd {
-                CMD_LIST_REQ => {
-                    let path_str = String::from_utf8_lossy(&data_vec).to_string();
-                    worker.handle_list(peer, path_str).await
-                }
-                CMD_GET_REQ => {
-                    if data_vec.len() < 8 {
-                        return;
-                    }
-                    let offset_bytes: [u8; 8] = data_vec[0..8].try_into().unwrap();
-                    let offset = u64::from_be_bytes(offset_bytes);
-                    let path_str = String::from_utf8_lossy(&data_vec[8..]).to_string();
-                    worker.handle_get(peer, path_str, offset).await
-                }
-                CMD_PUT_REQ => {
-                    // [Offset(8)][PathLen(2)][Path][Data]
-                    if data_vec.len() < 10 {
-                        return;
-                    }
-                    let offset = u64::from_be_bytes(data_vec[0..8].try_into().unwrap());
-                    let path_len = u16::from_be_bytes(data_vec[8..10].try_into().unwrap()) as usize;
-
-                    if data_vec.len() < 10 + path_len {
-                        return;
-                    }
-                    let path_str =
-                        String::from_utf8_lossy(&data_vec[10..10 + path_len]).to_string();
-                    let file_data = data_vec[10 + path_len..].to_vec();
-
-                    worker.handle_put(peer, path_str, offset, file_data).await
-                }
-                CMD_DEL_REQ => {
-                    let path_str = String::from_utf8_lossy(&data_vec).to_string();
-                    worker.handle_del(peer, path_str).await
-                }
-                CMD_INFO_REQ => {
-                    let path_str = String::from_utf8_lossy(&data_vec).to_string();
-                    worker.handle_info(peer, path_str).await
-                }
-                _ => Ok(()),
-            };
-
-            if let Err(e) = res {
-                error!("UFS Worker Error: {}", e);
-                let _ = worker.send_error(peer, &e.to_string()).await;
-            }
+        let worker = self.clone();
+        let op = data[1];
+        let bytes = data[2..].to_vec();
+        let peer = ctx.src_addr;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let packet = worker
+                .request(op, &bytes)
+                .unwrap_or_else(|_| vec![VERSION, 255]);
+            let _ = worker.network_tx.try_send((peer, packet));
         });
-
         true
     }
-
-    fn on_connection_open(&self, _peer: SocketAddr) {
-        // UFS 是被动响应的，连接建立时不需要主动发包
-    }
-
-    fn on_connection_close(&self, _peer: SocketAddr) {}
+    fn on_connection_open(&self, _: SocketAddr) {}
+    fn on_connection_close(&self, _: SocketAddr) {}
 }
 impl std::fmt::Debug for UltraFileServerFlavor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UltraFileServerFlavor")
             .finish_non_exhaustive()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn capability_root_rejects_parent_and_symlink_escape_and_bounds_writes() {
+        let base = std::env::temp_dir().join(format!("etp-ufs-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(base.join("root")).unwrap();
+        std::fs::write(base.join("outside"), b"private").unwrap();
+        let (tx, _) = mpsc::channel(8);
+        let ufs =
+            UltraFileServerFlavor::new(base.join("root").to_str().unwrap(), tx, false).unwrap();
+        for path in ["../outside", "/etc/passwd", "..\\outside", "C:outside"] {
+            assert!(ufs.request(7, path.as_bytes()).is_err());
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(base.join("outside"), base.join("root/escape")).unwrap();
+            let mut req = 0u64.to_be_bytes().to_vec();
+            req.extend_from_slice(b"escape");
+            assert!(ufs.request(3, &req).is_err());
+        }
+        let mut put = 0u64.to_be_bytes().to_vec();
+        put.extend_from_slice(&4u16.to_be_bytes());
+        put.extend_from_slice(b"safe");
+        put.extend_from_slice(b"sealed");
+        ufs.request(5, &put).unwrap();
+        let mut get = 0u64.to_be_bytes().to_vec();
+        get.extend_from_slice(b"safe");
+        assert_eq!(&ufs.request(3, &get).unwrap()[10..], b"sealed");
+        let readonly = UltraFileServerFlavor::new(
+            base.join("root").to_str().unwrap(),
+            ufs.network_tx.clone(),
+            true,
+        )
+        .unwrap();
+        assert!(readonly.request(5, &put).is_err());
+        assert!(ufs.request(5, &vec![0; CHUNK + 1035]).is_err());
+        drop(ufs);
+        drop(readonly);
+        std::fs::remove_dir_all(base).unwrap();
     }
 }
