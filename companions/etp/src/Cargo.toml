@@ -97,6 +97,9 @@ sled = { version = "0.34", optional = true }
 # Async Runtime
 tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
+rustls = "0.21"
+tokio-rustls = "0.24"
+webpki-roots = "0.25"
 
 # 异步递归支持 (必需，用于 KNS 递归解析)
 async-recursion = "1.0"

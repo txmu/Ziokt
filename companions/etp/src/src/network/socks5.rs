@@ -128,67 +128,107 @@ impl EncryptedDnsResolver {
         Err(anyhow!("No upstream configured"))
     }
 
-    async fn resolve_dot(&self, addr: &str, _domain: &str, query: &[u8]) -> Result<Vec<u8>> {
-        // 简易 DoT: TCP 连接 -> 发送带长度前缀的包
-        // 生产环境应在此处使用 rustls 进行 TLS 握手
-        // 为了保持代码独立性，这里演示逻辑流，假设 socket 是建立在安全隧道上的，或直接透传
-        // 实际使用请取消 TLS 注释并添加依赖
-
-        let mut stream = TcpStream::connect(addr)
-            .await
-            .context("DoT connect failed")?;
-
-        // --- TLS Handshake Stub ---
-        // let connector = TlsConnector::from(...);
-        // let mut stream = connector.connect(domain, stream).await?;
-
-        let len = query.len() as u16;
-        let mut frame = Vec::with_capacity(2 + query.len());
-        frame.extend_from_slice(&len.to_be_bytes());
-        frame.extend_from_slice(query);
-
-        stream.write_all(&frame).await?;
-
-        let mut len_buf = [0u8; 2];
-        stream.read_exact(&mut len_buf).await?;
-        let resp_len = u16::from_be_bytes(len_buf) as usize;
-
-        let mut resp_buf = vec![0u8; resp_len];
-        stream.read_exact(&mut resp_buf).await?;
-
-        Ok(resp_buf)
+    async fn resolve_dot(&self, addr: &str, domain: &str, query: &[u8]) -> Result<Vec<u8>> {
+        anyhow::ensure!(
+            (12..=4096).contains(&query.len()),
+            "bounded DNS query required"
+        );
+        let name = rustls::ServerName::try_from(domain)
+            .map_err(|_| anyhow!("invalid TLS resolver name"))?;
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        let config = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let tcp = TcpStream::connect(addr).await?;
+            let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+            let mut stream = connector.connect(name, tcp).await?;
+            stream
+                .write_all(&(query.len() as u16).to_be_bytes())
+                .await?;
+            stream.write_all(query).await?;
+            let mut length = [0; 2];
+            stream.read_exact(&mut length).await?;
+            let size = u16::from_be_bytes(length) as usize;
+            anyhow::ensure!(size >= 12, "truncated DNS response");
+            let mut response = vec![0; size];
+            stream.read_exact(&mut response).await?;
+            Self::validate_response(query, &response)?;
+            Ok(response)
+        })
+        .await
+        .map_err(|_| anyhow!("TLS resolver deadline exceeded"))?
     }
 
-    async fn resolve_doh(&self, _url: &str, query: &[u8]) -> Result<Vec<u8>> {
-        // 简易 DoH: HTTP/1.1 POST
-        // 避免引入 reqwest 巨型依赖，手动构造 HTTP
-        let host = "dns.google";
-        let path = "/dns-query";
-
-        let mut stream = TcpStream::connect("8.8.4.4:443").await?;
-        // Need TLS wrapper here in production
-
-        let body_len = query.len();
-        let request = format!(
-            "POST {} HTTP/1.1\r\n\
-             Host: {}\r\n\
-             Content-Type: application/dns-message\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n",
-            path, host, body_len
+    async fn resolve_doh(&self, url: &str, query: &[u8]) -> Result<Vec<u8>> {
+        anyhow::ensure!(
+            (12..=4096).contains(&query.len()),
+            "bounded DNS query required"
         );
-
-        stream.write_all(request.as_bytes()).await?;
-        stream.write_all(query).await?;
-
-        let mut buf = Vec::new();
-        stream.read_to_end(&mut buf).await?;
-
-        if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            return Ok(buf[idx + 4..].to_vec());
+        #[cfg(feature = "extensions")]
+        {
+            let endpoint = reqwest::Url::parse(url)?;
+            anyhow::ensure!(
+                endpoint.scheme() == "https"
+                    && endpoint.username().is_empty()
+                    && endpoint.password().is_none()
+                    && endpoint.fragment().is_none(),
+                "fixed HTTPS DNS endpoint required"
+            );
+            let client = reqwest::Client::builder()
+                .https_only(true)
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(10))
+                .build()?;
+            let mut response = client
+                .post(endpoint)
+                .header("Content-Type", "application/dns-message")
+                .header("Accept", "application/dns-message")
+                .body(query.to_vec())
+                .send()
+                .await?
+                .error_for_status()?;
+            anyhow::ensure!(
+                response
+                    .headers()
+                    .get("Content-Type")
+                    .and_then(|h| h.to_str().ok())
+                    .map(|h| h.split(';').next() == Some("application/dns-message"))
+                    .unwrap_or(false),
+                "invalid DNS response media type"
+            );
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                anyhow::ensure!(bytes.len() + chunk.len() <= 65535, "DNS response budget");
+                bytes.extend_from_slice(&chunk);
+            }
+            Self::validate_response(query, &bytes)?;
+            Ok(bytes)
         }
-
-        Err(anyhow!("Invalid DoH response"))
+        #[cfg(not(feature = "extensions"))]
+        {
+            let _ = url;
+            Err(anyhow!("HTTPS DNS requires the extensions feature"))
+        }
+    }
+    fn validate_response(query: &[u8], response: &[u8]) -> Result<()> {
+        anyhow::ensure!(
+            response.len() >= 12
+                && query.len() >= 12
+                && response[..2] == query[..2]
+                && response[2] & 0x80 != 0,
+            "unmatched DNS response"
+        );
+        Ok(())
     }
 }
 
@@ -298,10 +338,20 @@ impl ExitRouter for RuleBasedRouter {
         // 1. 规则匹配
         if let Socks5Target::Domain(domain, _) = target {
             let rules = self.domain_rules.read();
-            for (suffix, node) in rules.iter() {
-                if domain.ends_with(suffix) {
-                    return Ok(*node);
-                }
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            if let Some((_, node)) = rules
+                .iter()
+                .filter(|(suffix, _)| {
+                    let suffix = suffix
+                        .trim_start_matches('.')
+                        .trim_end_matches('.')
+                        .to_ascii_lowercase();
+                    !suffix.is_empty()
+                        && (domain == suffix || domain.ends_with(&format!(".{}", suffix)))
+                })
+                .max_by_key(|(suffix, _)| suffix.len())
+            {
+                return Ok(*node);
             }
         }
 
@@ -420,6 +470,10 @@ impl Socks5Server {
         listener: TcpListener,
         mut etp_rx: mpsc::Receiver<(SocketAddr, u32, Vec<u8>)>,
     ) -> Result<()> {
+        anyhow::ensure!(
+            listener.local_addr()?.ip().is_loopback() || !self.auth.is_empty(),
+            "public SOCKS listener requires authentication"
+        );
         info!("SOCKS5 Server running on {}", self.listen_addr);
 
         // 1. 启动本地 DNS (如果启用)

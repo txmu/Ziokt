@@ -1877,6 +1877,9 @@ dependencies = [
  "warp",
  "winapi",
  "x25519-dalek",
+ "rustls",
+ "tokio-rustls",
+ "webpki-roots",
  "zeroize",
 ]
 

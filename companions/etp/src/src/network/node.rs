@@ -611,7 +611,7 @@ struct ProcessingContext {
     transport: Arc<dyn PacketTransport>,
     config: Arc<NodeConfig>,
     routing_table: Arc<RoutingTable>,
-    sessions: Arc<DashMap<SocketAddr, RwLock<SessionContext>>>,
+    sessions: Arc<DashMap<SocketAddr, Arc<tokio::sync::Mutex<SessionContext>>>>,
     nat_manager: Arc<RwLock<NatManager>>,
     acl: Arc<AclManager>,
     plugins: Arc<PluginRegistry>,
@@ -894,13 +894,13 @@ impl EtpEngine {
     }
 
     async fn process_existing_session(ctx: ProcessingContext, data: Vec<u8>, src: SocketAddr) {
-        let session_lock = match ctx.sessions.get(&src) {
+        let session_lock = match ctx.sessions.get(&src).map(|s| s.value().clone()) {
             Some(s) => s,
             None => return,
         };
 
         // Note: Using RwLock write lock during processing
-        let mut session = session_lock.write();
+        let mut session = session_lock.lock().await;
         session.last_activity = Instant::now();
 
         if session.dialect.probe(&data) {
@@ -1162,7 +1162,8 @@ impl EtpEngine {
                             .fetch_add(1, Ordering::Relaxed);
                         session.flavor.on_connection_open(src);
                     }
-                    ctx.sessions.insert(src, RwLock::new(session));
+                    ctx.sessions
+                        .insert(src, Arc::new(tokio::sync::Mutex::new(session)));
                     ctx.metrics.active_sessions.fetch_add(1, Ordering::Relaxed);
                     handled = true;
                     release_buffer(out);
@@ -1229,8 +1230,9 @@ impl EtpEngine {
                 category,
                 data,
             } => {
-                if let Some(session_ref) = self.ctx.sessions.get(&target) {
-                    let mut session = session_ref.write();
+                if let Some(session_ref) = self.ctx.sessions.get(&target).map(|s| s.value().clone())
+                {
+                    let mut session = session_ref.lock().await;
                     let sc_manager = &mut session.side_channels;
                     let channel_id = category.id();
 
@@ -1339,8 +1341,8 @@ impl EtpEngine {
             if let Err(_) = self.initiate_handshake(target, &[0u8; 32]).await {
                 warn!("Auto-connect failed");
             } else {
-                if let Some(s) = self.ctx.sessions.get(&target) {
-                    s.write().pending_queue.push_back(frame);
+                if let Some(s) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
+                    s.lock().await.pending_queue.push_back(frame);
                 }
             }
         }
@@ -1351,8 +1353,9 @@ impl EtpEngine {
             .ctx
             .sessions
             .get(&target)
+            .map(|s| s.value().clone())
             .ok_or(anyhow!("Session lost"))?;
-        let mut ctx = session_ref.write();
+        let mut ctx = session_ref.lock().await;
 
         // 1. Handshake check
         if !ctx.handshake_completed {
@@ -1498,15 +1501,17 @@ impl EtpEngine {
             interceptors,
             &self.ctx.plugins,
         );
-        if let Some(previous) = self.ctx.sessions.get(&target) {
-            session.pending_queue = std::mem::take(&mut previous.write().pending_queue);
+        if let Some(previous) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
+            session.pending_queue = std::mem::take(&mut previous.lock().await.pending_queue);
         }
         let mut buf = acquire_buffer();
         buf.resize(1024, 0);
         let (len, _) = session.crypto.write_handshake_message(&[], &mut buf)?;
 
         self.ctx.transport.send_to(&buf[..len], target).await?;
-        self.ctx.sessions.insert(target, RwLock::new(session));
+        self.ctx
+            .sessions
+            .insert(target, Arc::new(tokio::sync::Mutex::new(session)));
         self.ctx
             .metrics
             .active_sessions
@@ -1520,8 +1525,8 @@ impl EtpEngine {
         target: SocketAddr,
         mut frames: VecDeque<Frame>,
     ) {
-        if let Some(s) = ctx.sessions.get(&target) {
-            let mut session = s.write();
+        if let Some(s) = ctx.sessions.get(&target).map(|s| s.value().clone()) {
+            let mut session = s.lock().await;
             let mut batch = Vec::new();
             while let Some(f) = frames.pop_front() {
                 batch.push(f);
@@ -1776,15 +1781,20 @@ impl EtpEngine {
         let mut tasks = Vec::new();
         let timeout = self.ctx.config.session_timeout;
 
-        for entry in self.ctx.sessions.iter() {
-            let target = *entry.key();
+        let sessions: Vec<_> = self
+            .ctx
+            .sessions
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect();
+        for (target, session) in sessions {
+            let mut ctx = session.lock().await;
             // Timeout Check
-            if entry.value().read().last_activity.elapsed() > timeout {
+            if ctx.last_activity.elapsed() > timeout {
                 remove_list.push(target);
                 continue;
             }
 
-            let mut ctx = entry.value().write();
             ctx.side_channels.maintenance();
 
             if !ctx.handshake_completed {

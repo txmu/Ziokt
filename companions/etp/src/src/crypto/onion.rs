@@ -91,7 +91,7 @@ impl OnionCrypto {
         // 3. 密钥协商 (ECDH)
         let shared_secret = ephemeral_secret.diffie_hellman(&target_pub);
         anyhow::ensure!(
-            shared_secret.is_contributory(),
+            shared_secret.was_contributory(),
             "non-contributory X25519 peer rejected"
         );
         let shared_secret_bytes = shared_secret.as_bytes();
@@ -188,7 +188,7 @@ impl OnionCrypto {
         let my_secret = StaticSecret::from(my_secret_arr);
         let shared_secret = my_secret.diffie_hellman(&ephemeral_pub);
         anyhow::ensure!(
-            shared_secret.is_contributory(),
+            shared_secret.was_contributory(),
             "non-contributory X25519 peer rejected"
         );
         let shared_secret_bytes = shared_secret.as_bytes();
