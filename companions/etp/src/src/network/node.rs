@@ -323,6 +323,9 @@ struct SessionContext {
     flavor: Arc<dyn Flavor>,
     pending_queue: VecDeque<Frame>,
     stream_offsets: HashMap<u32, u64>,
+    handshake_flight: Vec<u8>,
+    handshake_sent: Instant,
+    handshake_attempts: u8,
 
     interceptors: Vec<Arc<dyn Interceptor>>,
     config_snapshot: NodeConfig, // Snapshot for runtime logic
@@ -376,6 +379,9 @@ impl SessionContext {
             flavor,
             pending_queue: VecDeque::new(),
             stream_offsets: HashMap::new(),
+            handshake_flight: Vec::new(),
+            handshake_sent: Instant::now(),
+            handshake_attempts: 0,
             interceptors,
             config_snapshot: config.clone(),
         }
@@ -431,7 +437,8 @@ impl SessionContext {
         let time_limit =
             Duration::from_secs(self.config_snapshot.security.strict_rekey_interval_secs);
 
-        self.bytes_sent_since_rekey >= bytes_limit || self.last_rekey_time.elapsed() >= time_limit
+        self.bytes_sent_since_rekey >= bytes_limit
+            || (!time_limit.is_zero() && self.last_rekey_time.elapsed() >= time_limit)
     }
 }
 
@@ -644,6 +651,7 @@ struct ProcessingContext {
     dht_store: Arc<DashMap<NodeID, (Vec<u8>, std::time::SystemTime)>>,
     metrics: Arc<NodeMetrics>,
     incoming_slots: Arc<tokio::sync::Semaphore>,
+    handshakes: Arc<parking_lot::Mutex<HashMap<(SocketAddr, [u8; 32]), (Instant, Vec<u8>)>>>,
 
     default_handler: Option<Arc<dyn PacketHandler>>,
     fallback_handler: Option<Arc<dyn PacketHandler>>,
@@ -811,6 +819,7 @@ impl EtpEngine {
             dht_store,
             metrics,
             incoming_slots: Arc::new(tokio::sync::Semaphore::new(128)),
+            handshakes: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             default_handler: None,
             fallback_handler: None,
             banned_ips,
@@ -992,18 +1001,37 @@ impl EtpEngine {
 
         // Note: Using RwLock write lock during processing
         let mut session = session_lock.lock().await;
+        if !ctx
+            .sessions
+            .get(&src)
+            .map(|current| Arc::ptr_eq(current.value(), &session_lock))
+            .unwrap_or(false)
+        {
+            return;
+        }
         session.last_activity = Instant::now();
 
         if session.dialect.probe(&data) {
             if let Ok(plain_data) = session.dialect.open(&data) {
                 if !session.handshake_completed {
+                    if plain_data.len() == 128 {
+                        let remote = ctx.config.trusted_peers.get(&src);
+                        if remote
+                            .map(|k| ctx.config.keypair.public.as_slice() > k.as_slice())
+                            .unwrap_or(false)
+                        {
+                            drop(session);
+                            Self::process_new_connection_or_fallback(ctx, data, src).await;
+                        }
+                        return;
+                    }
                     // Handshake processing...
                     let mut out = acquire_buffer();
                     out.resize(1024, 0);
 
                     let res = session.crypto.read_handshake_message(&plain_data, &mut out);
                     match res {
-                        Ok((len, fin)) => {
+                        Ok((_len, fin)) => {
                             // ACL Check
                             if let Some(pubk) = session.crypto.get_remote_static() {
                                 if !ctx.acl.allow_connection(pubk) {
@@ -1012,13 +1040,6 @@ impl EtpEngine {
                                     return;
                                 }
                             }
-                            // Response
-                            if len > 0 {
-                                let mut resp = out[..len].to_vec();
-                                session.dialect.seal(&mut resp);
-                                let _ = ctx.transport.send_to(&resp, src).await;
-                            }
-
                             // Check finish or write next
                             let mut complete = fin;
                             if !complete {
@@ -1068,7 +1089,14 @@ impl EtpEngine {
                 let mut plaintext_buf = acquire_buffer();
                 plaintext_buf.resize(plain_data.len(), 0);
 
-                if let Ok(len) = session.crypto.decrypt(&plain_data, &mut plaintext_buf) {
+                let decrypted = session.crypto.decrypt(&plain_data, &mut plaintext_buf);
+                if decrypted.is_err() && plain_data.len() == 128 {
+                    release_buffer(plaintext_buf);
+                    drop(session);
+                    Self::process_new_connection_or_fallback(ctx, data, src).await;
+                    return;
+                }
+                if let Ok(len) = decrypted {
                     plaintext_buf.truncate(len);
                     if let Ok(pkt) = bincode::DefaultOptions::new()
                         .with_fixint_encoding()
@@ -1186,6 +1214,9 @@ impl EtpEngine {
         data: Vec<u8>,
         src: SocketAddr,
     ) {
+        if !ctx.config.trusted_peers.contains_key(&src) {
+            return;
+        }
         let mut handled = false;
 
         // Dynamic dialect probing
@@ -1200,7 +1231,22 @@ impl EtpEngine {
                 Err(_) => continue,
             };
 
-            if ctx.sessions.len() >= ctx.config.max_sessions {
+            if plain_data.len() != 128 {
+                continue;
+            }
+            let fingerprint = *blake3::hash(&plain_data).as_bytes();
+            let cached = {
+                let mut cache = ctx.handshakes.lock();
+                cache.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(36));
+                cache
+                    .get(&(src, fingerprint))
+                    .map(|(_, reply)| reply.clone())
+            };
+            if let Some(reply) = cached {
+                let _ = ctx.transport.send_to(&reply, src).await;
+                return;
+            }
+            if ctx.sessions.len() >= ctx.config.max_sessions && !ctx.sessions.contains_key(&src) {
                 return;
             }
 
@@ -1223,9 +1269,33 @@ impl EtpEngine {
             let mut out = acquire_buffer();
             out.resize(1024, 0);
 
-            if let Ok((_len, finished)) =
+            if let Ok((payload_len, finished)) =
                 session.crypto.read_handshake_message(&plain_data, &mut out)
             {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if payload_len != 32 || &out[..8] != b"ETPIK3\0\0" {
+                    release_buffer(out);
+                    continue;
+                }
+                let issued = u64::from_be_bytes(out[8..16].try_into().unwrap());
+                if issued > now.saturating_add(5) || now > issued.saturating_add(30) {
+                    release_buffer(out);
+                    continue;
+                }
+                if session.crypto.get_remote_static()
+                    != ctx.config.trusted_peers.get(&src).map(|key| key.as_slice())
+                {
+                    release_buffer(out);
+                    continue;
+                }
+                if ctx.handshakes.lock().len() >= 4096 {
+                    release_buffer(out);
+                    return;
+                }
+
                 if let Some(pubk) = session.crypto.get_remote_static() {
                     if !ctx.acl.allow_connection(pubk) {
                         ctx.metrics.packet_drop_acl.fetch_add(1, Ordering::Relaxed);
@@ -1237,6 +1307,15 @@ impl EtpEngine {
                     if wlen > 0 {
                         let mut resp = out[..wlen].to_vec();
                         dialect.seal(&mut resp);
+                        ctx.handshakes
+                            .lock()
+                            .insert((src, fingerprint), (Instant::now(), resp.clone()));
+                        if let Some(previous) = ctx.sessions.get(&src).map(|s| s.value().clone()) {
+                            let mut previous = previous.lock().await;
+                            std::mem::swap(&mut session.reliability, &mut previous.reliability);
+                            session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
+                            session.pending_queue = std::mem::take(&mut previous.pending_queue);
+                        }
                         let _ = ctx.transport.send_to(&resp, src).await;
                     }
                     session.handshake_completed = wfin || finished;
@@ -1506,8 +1585,17 @@ impl EtpEngine {
         }
 
         // 3. Congestion Check
-        if !ctx.reliability.can_send() {
-            return Err(anyhow!("Congestion"));
+        if !ctx.reliability.can_send()
+            && frames
+                .iter()
+                .any(|f| !matches!(f, Frame::Ack { .. } | Frame::Padding(_)))
+        {
+            anyhow::ensure!(
+                ctx.pending_queue.len() + frames.len() <= 1024,
+                "pending frame budget"
+            );
+            ctx.pending_queue.extend(frames);
+            return Ok(());
         }
 
         let mut processed_frames = Vec::new();
@@ -1578,8 +1666,13 @@ impl EtpEngine {
         // 8. Finalize & Send
         let pn = ctx.reliability.get_next_packet_num();
         let est_size: usize = final_frames.iter().map(|_| 100).sum();
-        ctx.reliability
-            .on_packet_sent(pn, final_frames.clone(), est_size);
+        if final_frames
+            .iter()
+            .any(|f| !matches!(f, Frame::Ack { .. } | Frame::Padding(_)))
+        {
+            ctx.reliability
+                .on_packet_sent(pn, final_frames.clone(), est_size);
+        }
 
         let packet = DecryptedPacket::Stateful(StatefulPacket {
             session_id: 1,
@@ -1630,13 +1723,26 @@ impl EtpEngine {
             let mut previous = previous.lock().await;
             session.pending_queue = std::mem::take(&mut previous.pending_queue);
             session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
+            std::mem::swap(&mut session.reliability, &mut previous.reliability);
         }
         let mut buf = acquire_buffer();
         buf.resize(1024, 0);
-        let (len, _) = session.crypto.write_handshake_message(&[], &mut buf)?;
+        let mut hello = b"ETPIK3\0\0".to_vec();
+        hello.extend_from_slice(
+            &std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs()
+                .to_be_bytes(),
+        );
+        let random: [u8; 16] = rand::random();
+        hello.extend_from_slice(&random);
+        let (len, _) = session.crypto.write_handshake_message(&hello, &mut buf)?;
 
         let mut message = buf[..len].to_vec();
         session.dialect.seal(&mut message);
+        session.handshake_flight = message.clone();
+        session.handshake_sent = Instant::now();
+        session.handshake_attempts = 1;
         self.ctx
             .sessions
             .insert(target, Arc::new(tokio::sync::Mutex::new(session)));
@@ -1958,6 +2064,7 @@ impl EtpEngine {
             .retain(|_, q| q.1.elapsed() < Duration::from_secs(5));
         let mut remove_list = Vec::new();
         let mut tasks = Vec::new();
+        let mut flights = Vec::new();
         let timeout = self.ctx.config.session_timeout;
 
         let sessions: Vec<_> = self
@@ -1977,10 +2084,30 @@ impl EtpEngine {
             ctx.side_channels.maintenance();
 
             if !ctx.handshake_completed {
+                if !ctx.handshake_flight.is_empty()
+                    && ctx.handshake_sent.elapsed() > Duration::from_millis(300)
+                {
+                    if ctx.handshake_attempts >= 5 {
+                        remove_list.push(target);
+                    } else {
+                        flights.push((target, ctx.handshake_flight.clone()));
+                        ctx.handshake_attempts += 1;
+                        ctx.handshake_sent = Instant::now();
+                    }
+                }
                 continue;
             }
 
             let mut frames = Vec::new();
+            if ctx.reliability.can_send() {
+                for _ in 0..5 {
+                    if let Some(frame) = ctx.pending_queue.pop_front() {
+                        frames.push(frame);
+                    } else {
+                        break;
+                    }
+                }
+            }
 
             // 1. Reliability Maintenance
             frames.append(&mut ctx.reliability.get_lost_frames());
@@ -2013,6 +2140,9 @@ impl EtpEngine {
                 .fetch_sub(1, Ordering::Relaxed);
         }
 
+        for (target, packet) in flights {
+            let _ = self.ctx.transport.send_to(&packet, target).await;
+        }
         for (t, f) in tasks {
             let _ = self.send_frames(t, f).await;
         }
@@ -2124,6 +2254,8 @@ mod runtime_regression_tests {
             a_address,
             a_config.keypair.public.as_slice().try_into().unwrap(),
         );
+        a_config.security.strict_rekey_interval_secs = 1;
+        b_config.security.strict_rekey_interval_secs = 1;
         let b_id = *blake3::hash(&b_config.keypair.public).as_bytes();
         let (a, a_handle, _) = EtpEngine::new_with_transport(
             a_config,
@@ -2155,6 +2287,12 @@ mod runtime_regression_tests {
             assert_eq!(received.recv().await.unwrap().1, b"second");
             let found = a_handle.dht_find_node(b_id).await.unwrap();
             assert!(found.iter().any(|n| n.id == b_id && n.addr == b_address));
+            tokio::time::sleep(Duration::from_millis(1100)).await;
+            a_handle
+                .send_data(b_address, b"after rekey".to_vec())
+                .await
+                .unwrap();
+            assert_eq!(received.recv().await.unwrap().1, b"after rekey");
             b_handle
                 .send_data(a_address, b"return".to_vec())
                 .await

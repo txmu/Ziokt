@@ -1,12 +1,12 @@
 // etp-core/src/transport/reliability.rs
 
-use std::collections::{BTreeMap, VecDeque, HashSet, HashMap};
-use std::time::{Duration, Instant};
-use bytes::Bytes;
+use super::congestion::{CongestionControlAlgo, NewReno};
+use super::padding::{NoPadding, PaddingStrategy};
 use crate::wire::frame::Frame;
 use crate::PacketNumber;
-use super::congestion::{CongestionControlAlgo, NewReno};
-use super::padding::{PaddingStrategy, NoPadding};
+use bytes::Bytes;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
 // 配置
 const MAX_SACK_RANGES: usize = 32;
@@ -61,7 +61,7 @@ impl TimerWheel {
         let now = Instant::now();
         let elapsed_ms = now.duration_since(self.start_time).as_millis() as u64;
         let target_tick = (elapsed_ms / TIMER_TICK_MS) as usize;
-        
+
         let mut expired = Vec::new();
         while self.current_tick <= target_tick {
             let slot_idx = self.current_tick % TIMER_WHEEL_SLOTS;
@@ -74,7 +74,7 @@ impl TimerWheel {
                     } else {
                         // 未超时，重新调度 (处理时间轮多圈情况或哈希冲突)
                         // 简化版：这里重新 schedule 会更新 lookup
-                        let _ = self.schedule(id, *expiry); 
+                        let _ = self.schedule(id, *expiry);
                     }
                 }
             }
@@ -86,7 +86,11 @@ impl TimerWheel {
     fn schedule(&mut self, pn: PacketNumber, expiry: Instant) {
         self.cancel(pn);
         let now = Instant::now();
-        let delay = if expiry > now { expiry - now } else { Duration::ZERO };
+        let delay = if expiry > now {
+            expiry - now
+        } else {
+            Duration::ZERO
+        };
         let delay_ticks = (delay.as_millis() as u64 / TIMER_TICK_MS) as usize;
         let target_tick = self.current_tick + delay_ticks;
         let slot_idx = target_tick % TIMER_WHEEL_SLOTS;
@@ -106,18 +110,21 @@ impl TimerWheel {
 #[derive(Debug)]
 pub struct StreamReassembler {
     next_expected_offset: u64,
-    buffer: BTreeMap<u64, Bytes>, 
+    buffer: BTreeMap<u64, Bytes>,
 }
 
 impl StreamReassembler {
     pub fn new() -> Self {
-        Self { next_expected_offset: 0, buffer: BTreeMap::new() }
+        Self {
+            next_expected_offset: 0,
+            buffer: BTreeMap::new(),
+        }
     }
 
     pub fn push(&mut self, offset: u64, data: Bytes) -> Vec<Bytes> {
         let len = data.len() as u64;
         let end_offset = offset + len;
-        
+
         if end_offset <= self.next_expected_offset {
             return Vec::new(); // 既往数据，丢弃
         }
@@ -172,12 +179,18 @@ impl StreamManager {
                 // 这里我们将数据放入唯一的重组器，但返回时仍带上原始 stream_id，
                 // 以便上层 RouterFlavor 可以继续通过 Header 分流。
                 let chunks = reassembler.push(offset, data);
-                chunks.into_iter().map(|b| (stream_id, b.to_vec())).collect() 
-            },
+                chunks
+                    .into_iter()
+                    .map(|b| (stream_id, b.to_vec()))
+                    .collect()
+            }
             StreamManager::Multi(map) => {
                 let reassembler = map.entry(stream_id).or_insert_with(StreamReassembler::new);
                 let chunks = reassembler.push(offset, data);
-                chunks.into_iter().map(|b| (stream_id, b.to_vec())).collect()
+                chunks
+                    .into_iter()
+                    .map(|b| (stream_id, b.to_vec()))
+                    .collect()
             }
         }
     }
@@ -189,14 +202,14 @@ pub struct ReliabilityLayer {
     next_packet_num: PacketNumber,
     sent_queue: BTreeMap<PacketNumber, InFlightPacket>,
     timer_wheel: TimerWheel,
-    
+
     // Mods (策略)
     pub congestion: Box<dyn CongestionControlAlgo>,
     pub padding_strategy: Box<dyn PaddingStrategy>,
-    
+
     // --- 接收端 ---
     largest_received: PacketNumber,
-    received_ranges: VecDeque<AckRange>, 
+    received_ranges: VecDeque<AckRange>,
     ack_needed: bool,
     ack_alarm: Option<Instant>,
 
@@ -211,14 +224,14 @@ impl ReliabilityLayer {
             sent_queue: BTreeMap::new(),
             timer_wheel: TimerWheel::new(),
             // 默认策略
-            congestion: Box::new(NewReno::new()), 
+            congestion: Box::new(NewReno::new()),
             padding_strategy: Box::new(NoPadding),
-            
+
             largest_received: 0,
             received_ranges: VecDeque::new(),
             ack_needed: false,
             ack_alarm: None,
-            
+
             stream_manager: StreamManager::new(mode),
         }
     }
@@ -241,7 +254,8 @@ impl ReliabilityLayer {
 
     pub fn can_send(&self) -> bool {
         let bytes_inflight = self.sent_queue.values().map(|p| p.size as u64).sum();
-        self.congestion.can_send(bytes_inflight) && self.congestion.get_pacing_delay() == Duration::ZERO
+        self.congestion.can_send(bytes_inflight)
+            && self.congestion.get_pacing_delay() == Duration::ZERO
     }
 
     pub fn time_until_send(&self) -> Duration {
@@ -255,28 +269,44 @@ impl ReliabilityLayer {
     }
 
     pub fn on_packet_sent(&mut self, pn: PacketNumber, frames: Vec<Frame>, size: usize) {
-        let reliable_frames: Vec<Frame> = frames.into_iter().filter(|f| {
-            matches!(f, Frame::Stream { .. } | Frame::Injection { .. } | Frame::Gossip { .. } | Frame::Relay { .. })
-        }).collect();
+        let reliable_frames: Vec<Frame> = frames
+            .into_iter()
+            .filter(|f| {
+                matches!(
+                    f,
+                    Frame::Stream { .. }
+                        | Frame::Injection { .. }
+                        | Frame::Gossip { .. }
+                        | Frame::Relay { .. }
+                )
+            })
+            .collect();
 
         if !reliable_frames.is_empty() {
-            self.sent_queue.insert(pn, InFlightPacket {
-                sent_time: Instant::now(),
-                frames: reliable_frames,
-                size,
-                retransmitted: false,
-            });
-            
+            self.sent_queue.insert(
+                pn,
+                InFlightPacket {
+                    sent_time: Instant::now(),
+                    frames: reliable_frames,
+                    size,
+                    retransmitted: false,
+                },
+            );
+
             let rto = self.congestion.get_rto();
             self.timer_wheel.schedule(pn, Instant::now() + rto);
-            
+
             self.congestion.on_packet_sent(1, size);
         }
     }
 
     /// 处理接收包
     /// 返回: (IsDuplicate, ReassembledData)
-    pub fn on_packet_received(&mut self, pn: PacketNumber, frames: Vec<Frame>) -> (bool, Vec<(u32, Vec<u8>)>) {
+    pub fn on_packet_received(
+        &mut self,
+        pn: PacketNumber,
+        frames: Vec<Frame>,
+    ) -> (bool, Vec<(u32, Vec<u8>)>) {
         if self.is_duplicate(pn) {
             return (true, Vec::new());
         }
@@ -284,16 +314,30 @@ impl ReliabilityLayer {
             self.largest_received = pn;
         }
         self.add_to_ranges(pn);
-        self.ack_needed = true;
-        if self.ack_alarm.is_none() {
+        let eliciting = frames.is_empty()
+            || frames
+                .iter()
+                .any(|f| !matches!(f, Frame::Ack { .. } | Frame::Padding(_)));
+        if eliciting {
+            self.ack_needed = true;
+        }
+        if eliciting && self.ack_alarm.is_none() {
             self.ack_alarm = Some(Instant::now() + Duration::from_millis(MAX_ACK_DELAY_MS));
         }
 
         let mut ready_data = Vec::new();
         // 处理 Frame 中的 Stream 数据
         for frame in frames {
-            if let Frame::Stream { stream_id, offset, data, .. } = frame {
-                let chunks = self.stream_manager.push(stream_id, offset, Bytes::from(data));
+            if let Frame::Stream {
+                stream_id,
+                offset,
+                data,
+                ..
+            } = frame
+            {
+                let chunks = self
+                    .stream_manager
+                    .push(stream_id, offset, Bytes::from(data));
                 ready_data.extend(chunks);
             }
         }
@@ -309,11 +353,20 @@ impl ReliabilityLayer {
 
         let mut acked_pns = Vec::new();
         if ranges.is_empty() {
-            let keys: Vec<u64> = self.sent_queue.keys().cloned().filter(|&k| k <= largest_acked).collect();
+            let keys: Vec<u64> = self
+                .sent_queue
+                .keys()
+                .cloned()
+                .filter(|&k| k <= largest_acked)
+                .collect();
             acked_pns.extend(keys);
         } else {
             for &(start, end) in ranges {
-                let keys: Vec<u64> = self.sent_queue.range(start..=end).map(|(k, _)| *k).collect();
+                let keys: Vec<u64> = self
+                    .sent_queue
+                    .range(start..=end)
+                    .map(|(k, _)| *k)
+                    .collect();
                 acked_pns.extend(keys);
             }
         }
@@ -345,7 +398,7 @@ impl ReliabilityLayer {
                 lost_frames.extend(pkt.frames.clone());
                 pkt.retransmitted = true;
             }
-            self.sent_queue.remove(&pn); 
+            self.sent_queue.remove(&pn);
         }
 
         if has_loss {
@@ -372,7 +425,9 @@ impl ReliabilityLayer {
 
     fn is_duplicate(&self, pn: PacketNumber) -> bool {
         for r in &self.received_ranges {
-            if pn >= r.0 && pn <= r.1 { return true; }
+            if pn >= r.0 && pn <= r.1 {
+                return true;
+            }
         }
         false
     }
@@ -395,7 +450,9 @@ impl ReliabilityLayer {
             }
             merged.push_back(current);
         }
-        while merged.len() > MAX_SACK_RANGES { merged.pop_front(); }
+        while merged.len() > MAX_SACK_RANGES {
+            merged.pop_front();
+        }
         self.received_ranges = merged;
     }
 }
