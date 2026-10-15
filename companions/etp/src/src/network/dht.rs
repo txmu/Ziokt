@@ -488,6 +488,24 @@ impl DhtRoutingTable {
             node.virtual_ip = Some(VirtualNetworkMapper::map_id_to_ip(&node.id));
         }
 
+        #[cfg(feature = "dht_anti_sybil")]
+        {
+            let limit = if node.addr.is_ipv4() {
+                MAX_PEERS_PER_IPV4_SUBNET
+            } else {
+                MAX_PEERS_PER_IPV6_SUBNET
+            };
+            let peers = self.buckets.iter().flat_map(|b| b.nodes.iter());
+            // Enforce subnet diversity across the whole table, including address changes.
+            let count = peers
+                .filter(|n| {
+                    n.id != node.id && KBucket::is_same_subnet(&n.addr.ip(), &node.addr.ip())
+                })
+                .count();
+            if count >= limit {
+                return DhtAddResult::RejectedSybil;
+            }
+        }
         if let Some(idx) = self.bucket_index(&node.id) {
             let res = self.buckets[idx].update(node);
 

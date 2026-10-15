@@ -225,6 +225,11 @@ impl Tc16Cpu {
         let end = start + 2;
         let bytes = val.to_le_bytes();
 
+        if start >= MMIO_BASE as usize && end <= MEM_SIZE {
+            self.write_mem(addr, bytes[0]);
+            self.write_mem(addr + 1, bytes[1]);
+            return Ok(());
+        }
         if let Some(mem_slice) = self.memory.get_mut(start..end) {
             mem_slice.copy_from_slice(&bytes);
             Ok(())
@@ -279,6 +284,11 @@ impl Tc16Cpu {
         let start = addr as usize;
         let end = start + data.len();
 
+        if start >= MMIO_BASE as usize && end <= MEM_SIZE {
+            self.write_mem(addr, bytes[0]);
+            self.write_mem(addr + 1, bytes[1]);
+            return Ok(());
+        }
         if let Some(mem_slice) = self.memory.get_mut(start..end) {
             mem_slice.copy_from_slice(data);
             Ok(())
@@ -1147,5 +1157,36 @@ impl Flavor for Tc16Flavor {
 impl std::fmt::Debug for Tc16Flavor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Tc16Flavor").finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    #[test]
+    fn native_vm_uses_16_bits_and_bounded_execution_and_mmio() {
+        let mut cpu = Tc16Cpu::new(Arc::new(EphemeralStorage::default()));
+        cpu.load_code(&[0x30, 0, 0xFF, 0xFF, 0x30, 1, 2, 0, 0x40, 0x01, 0], 0)
+            .unwrap();
+        assert_eq!(cpu.execute(100).unwrap(), VmStatus::Halted);
+        assert_eq!(cpu.regs[0], 1);
+        assert_ne!(cpu.flags & FLAG_C, 0);
+        cpu.write_u16_safe(MMIO_STDOUT, 65).unwrap();
+        assert_eq!(cpu.get_output(), "A");
+        assert!(cpu.read_u16_safe(0xFFFF).is_err());
+        assert!(cpu.write_u16_safe(0xFFFF, 1).is_err());
+        assert!(cpu.pop_u16().is_err());
+        cpu.load_code(&[0x60, 0, 0], 0).unwrap();
+        assert!(cpu.execute(20).is_err());
+    }
+    #[test]
+    fn native_tcc_compiles_a_bounded_integer_function() {
+        let code = Compiler::new()
+            .compile("int main() { return 65535; }")
+            .unwrap();
+        let mut cpu = Tc16Cpu::new(Arc::new(EphemeralStorage::default()));
+        cpu.load_code(&code, 0).unwrap();
+        assert_eq!(cpu.execute(1000).unwrap(), VmStatus::Halted);
+        assert_eq!(cpu.regs[0], 65535);
     }
 }

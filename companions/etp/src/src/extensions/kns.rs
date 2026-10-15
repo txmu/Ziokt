@@ -947,3 +947,29 @@ impl KnsKernel {
         }
     }
 }
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    use crate::extensions::identity::AnchorIdentity;
+    #[test]
+    fn updated_names_use_fresh_authenticated_nonces_and_reject_tampering() {
+        let domain = SecurityDomain::new("test", Arc::new(AnchorIdentity::new()));
+        let path = KnsPath::from_str("private/test").unwrap();
+        let first = domain
+            .publish(&path, b"first", RecordKind::Static, 60)
+            .unwrap();
+        let second = domain
+            .publish(&path, b"second", RecordKind::Static, 60)
+            .unwrap();
+        assert_ne!(&first.payload[..12], &second.payload[..12]);
+        assert_eq!(
+            domain.decrypt_and_verify(&path, &first).unwrap(),
+            Some(b"first".to_vec())
+        );
+        assert_eq!(domain.read(&path).unwrap(), Some(b"second".to_vec()));
+        let mut tampered = second.clone();
+        tampered.payload[15] ^= 1;
+        assert!(domain.decrypt_and_verify(&path, &tampered).is_err());
+    }
+}
