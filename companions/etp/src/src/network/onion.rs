@@ -260,3 +260,91 @@ impl OnionRouter {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto::noise::KeyPair;
+    #[derive(Debug)]
+    struct Capture {
+        address: SocketAddr,
+        tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
+    }
+    #[async_trait::async_trait]
+    impl PacketTransport for Capture {
+        async fn send_to(&self, bytes: &[u8], target: SocketAddr) -> std::io::Result<usize> {
+            self.tx
+                .send((target, bytes.to_vec()))
+                .await
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+            Ok(bytes.len())
+        }
+        async fn recv_from(&self, _: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+            unreachable!()
+        }
+        fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            Ok(self.address)
+        }
+    }
+    #[tokio::test]
+    async fn three_hops_hide_content_reassemble_reordered_fragments_and_reject_replays() {
+        let keys: Vec<_> = (0..4).map(|_| KeyPair::generate()).collect();
+        let addresses: Vec<SocketAddr> = (0..4)
+            .map(|i| format!("127.0.0.1:{}", 19000 + i).parse().unwrap())
+            .collect();
+        let (tx, mut wire) = mpsc::channel(256);
+        let mut routers = Vec::new();
+        let mut receivers = Vec::new();
+        for i in 0..4 {
+            let mut config = NodeConfig::default();
+            config.keypair = keys[i].clone();
+            config.enable_onion_relay = true;
+            config.trusted_peers = addresses
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(j, a)| (*a, keys[j].public.as_slice().try_into().unwrap()))
+                .collect();
+            let (data, rx) = mpsc::channel(4);
+            receivers.push(rx);
+            routers.push(OnionRouter::new(
+                Arc::new(config),
+                Arc::new(Capture {
+                    address: addresses[i],
+                    tx: tx.clone(),
+                }),
+                data,
+            ));
+        }
+        let bytes = (0..65536).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+        let path = (1..4)
+            .map(|i| (addresses[i], keys[i].public.clone()))
+            .collect();
+        routers[0].send(path, bytes.clone()).await.unwrap();
+        for hop in 1..4 {
+            let mut packets = Vec::new();
+            while let Ok((target, packet)) = wire.try_recv() {
+                assert_eq!(target, addresses[hop]);
+                assert!(packet.len() <= MAX_PACKET);
+                assert!(!packet.windows(128).any(|p| p == &bytes[..128]));
+                packets.push(packet);
+            }
+            assert_eq!(packets.len(), 64);
+            packets.reverse();
+            for packet in packets {
+                let mut tampered = packet.clone();
+                *tampered.last_mut().unwrap() ^= 1;
+                assert!(!routers[hop].receive(&tampered, addresses[hop - 1]).await);
+                assert!(routers[hop].receive(&packet, addresses[hop - 1]).await);
+                assert!(routers[hop].receive(&packet, addresses[hop - 1]).await);
+            }
+        }
+        assert_eq!(receivers[3].try_recv().unwrap().1, bytes);
+        assert!(receivers.iter_mut().all(|rx| rx.try_recv().is_err()));
+        assert!(routers[3].state.lock().assemblies.is_empty());
+        assert!(routers[0]
+            .send(vec![(addresses[1], keys[1].public.clone()); 2], vec![1])
+            .await
+            .is_err());
+    }
+}

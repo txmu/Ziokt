@@ -54,3 +54,48 @@ async fn socks5_routes_framed_stream_and_receives_reply() {
         .unwrap();
     task.abort();
 }
+
+#[test]
+fn suffix_routes_match_labels_and_choose_longest_rule() {
+    use super::socks5::{ExitRouter, Socks5Target};
+    let fallback = "127.0.0.1:1".parse().unwrap();
+    let specific = "127.0.0.1:2".parse().unwrap();
+    let general = "127.0.0.1:3".parse().unwrap();
+    let router = RuleBasedRouter::new(vec![fallback]);
+    router.add_domain_rule("example.org", general);
+    router.add_domain_rule("private.example.org", specific);
+    assert_eq!(
+        router
+            .select_exit(&Socks5Target::Domain("evil-example.org".into(), 443))
+            .unwrap(),
+        fallback
+    );
+    assert_eq!(
+        router
+            .select_exit(&Socks5Target::Domain("sub.private.example.org".into(), 443))
+            .unwrap(),
+        specific
+    );
+}
+#[tokio::test]
+async fn dns_does_not_send_queries_in_plaintext_when_tls_fails() {
+    use super::socks5::EncryptedDnsResolver;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let query = [0xAA; 32];
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = vec![0; 4096];
+        let count = socket.read(&mut bytes).await.unwrap();
+        bytes.truncate(count);
+        assert!(!bytes.windows(query.len()).any(|p| p == query));
+        assert_eq!(bytes[0], 22);
+        socket.write_all(b"not a TLS server").await.unwrap();
+    });
+    assert!(EncryptedDnsResolver::new()
+        .with_dot(&address.to_string(), "resolver.invalid")
+        .resolve(&query)
+        .await
+        .is_err());
+    task.await.unwrap();
+}

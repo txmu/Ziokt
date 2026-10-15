@@ -117,7 +117,7 @@ impl KnsRecord {
         if self.version > now + 300 {
             return true;
         }
-        now > self.version + self.ttl as u64
+        now >= self.version.saturating_add(self.ttl as u64)
     }
 }
 
@@ -217,18 +217,26 @@ impl SecurityDomain {
     ) -> Result<KnsRecord> {
         let secrets = self.secrets.read();
 
-        // 1. 确定性加密 (Deterministic Encryption)
-        // 使用 BlindIndex 的前 12 字节作为 Nonce。
-        // 这确保了对于相同的 path 和 secrets，产生的密文也是稳定的 (对于无状态缓存很重要)。
-        // 警告：如果你需要每次加密都不一样，应引入随机 Nonce 并存储在 Record 中。
-        // 在 KNS 设计中，我们倾向于确定性以支持 Content-Addressable Storage (CAS) 特性。
+        anyhow::ensure!(
+            value.len() <= 65536 && ttl > 0 && ttl <= 86400,
+            "KNS payload or TTL budget"
+        );
         let cipher = ChaCha20Poly1305::new(&secrets.master_key.into());
         let blind_idx = path.blind_index(&secrets.blind_seed);
-        let nonce = &blind_idx[0..12].into();
-
-        let encrypted_payload = cipher
-            .encrypt(nonce, value)
-            .map_err(|_| anyhow!("Payload encryption failed"))?;
+        let mut nonce = [0u8; 12];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        let mut encrypted_payload = nonce.to_vec();
+        encrypted_payload.extend(
+            cipher
+                .encrypt(
+                    (&nonce).into(),
+                    chacha20poly1305::aead::Payload {
+                        msg: value,
+                        aad: &blind_idx,
+                    },
+                )
+                .map_err(|_| anyhow!("Payload encryption failed"))?,
+        );
 
         // 2. 结构化签名 (Structured Signing)
         // 签名内容 = BlindIndex(32) + EncryptedPayload(N) + KindTag(1) + TTL(4) + Version(8)
@@ -422,10 +430,19 @@ impl SecurityDomain {
         // 这符合 "Security Domain" 作为共享保密空间的定义。
 
         let cipher = ChaCha20Poly1305::new(&secrets.master_key.into());
-        let nonce = &blind_idx[0..12].into(); // 复用盲索引做 Nonce
-
+        anyhow::ensure!(
+            (28..=65564).contains(&record.payload.len()),
+            "KNS ciphertext budget"
+        );
+        let nonce = chacha20poly1305::Nonce::from_slice(&record.payload[..12]);
         let plaintext = cipher
-            .decrypt(nonce, record.payload.as_ref())
+            .decrypt(
+                nonce,
+                chacha20poly1305::aead::Payload {
+                    msg: &record.payload[12..],
+                    aad: &blind_idx,
+                },
+            )
             .map_err(|_| anyhow!("Payload decryption failed (MasterKey mismatch?)"))?;
 
         Ok(Some(plaintext))
