@@ -4,9 +4,9 @@
   "regression": {
     "passed": true,
     "full_python_suite": {
-      "tests": 156,
+      "tests": 158,
       "skipped": 3,
-      "seconds": 182.264,
+      "seconds": 189.754,
       "result": "OK"
     },
     "native_provider_python": {
@@ -18,7 +18,11 @@
     "real_effort_browser": "explicit start, SHA-256 proof, stop, hidden page stop, no external requests",
     "subsequent_packaged_resource_and_effort_tests": 4,
     "subsequent_etp_snapshot_tests": 4,
-    "real_downloaded_etp_four_process_smoke": "passed, no local native compilation"
+    "real_downloaded_etp_four_process_smoke": "passed, no local native compilation",
+    "subsequent_slow_carrier_tests": {
+      "tests": 12,
+      "result": "OK"
+    }
   },
   "ci": {
     "current_submission": "pending; local results apply to the final working tree",
@@ -41,6 +45,12 @@
       "applications": "success",
       "etp_native_minimal": "success",
       "etp_native_integrated": "success"
+    },
+    "observed_i2p_failure": {
+      "run_id": 38757080157,
+      "cause": "pinned peer retained 5-second body timeout; early error lost privacy padding",
+      "fixed": "known mTLS peer read budget and bounded total lease; padded retryable transport errors",
+      "live_rerun": "pending"
     }
   },
   "privacy": {

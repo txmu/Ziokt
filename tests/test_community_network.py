@@ -155,6 +155,35 @@ class CommunityNetworkTests(unittest.TestCase):
         self.assertEqual(self.target.view('wiki'), self.source.view('wiki'))
         self.assertEqual(self.target.get_file(self.manifest), b'real network content'*800)
 
+    def test_pinned_tls_peer_can_pause_beyond_unauthenticated_read_budget(self):
+        import http.client,json,time
+        from ziokt.protocol import encoded
+        from ziokt.remote import padded_json,resource_for
+        from ziokt.security import grant
+        request={'provider_id':'village','method':'community.status','params':{}}
+        token=grant(self.private,audience='village',action=request['method'],resource=resource_for(request['method'],{}),federation='village',request_digest=content_id(encoded(request)))
+        body=padded_json({'request':request,'grant':token},65536)
+        raw=socket.create_connection(('127.0.0.1',self.server.server_port),timeout=10)
+        with self.context.wrap_socket(raw,server_hostname=ONION) as stream:
+            header=('POST /zfcp HTTP/1.1\r\nHost: '+ONION+'\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body))+'\r\nConnection: close\r\n\r\n').encode()
+            stream.sendall(header+body[:100]);time.sleep(5.2);stream.sendall(body[100:])
+            response=http.client.HTTPResponse(stream);response.begin();value=json.loads(response.read());response.close()
+            self.assertTrue(value['ok']);self.assertIn('padding',value)
+
+    def test_padded_timeout_keeps_typed_retryable_error(self):
+        import ziokt.remote as remote
+        from ziokt.protocol import encoded
+        from ziokt.security import grant
+        original=remote.strict_json
+        def timeout_on_request(data,*args,**kwargs):
+            if b'"grant":' in data:raise TimeoutError('simulated slow carrier')
+            return original(data,*args,**kwargs)
+        request={'provider_id':'village','method':'community.status','params':{}}
+        token=lambda:grant(self.private,audience='village',action=request['method'],resource=remote.resource_for(request['method'],{}),federation='village',request_digest=content_id(encoded(request)))
+        with patch('ziokt.remote.strict_json',side_effect=timeout_on_request):
+            with self.assertRaises(ProtocolError) as error:remote.request_remote('127.0.0.1',self.server.server_port,self.context,request,token,privacy_padding=True)
+        self.assertEqual(error.exception.code,'CARRIER_UNAVAILABLE')
+
     def test_member_submits_own_files_and_posts_without_archive_authority(self):
         from ziokt.community_network import push_remote, SyncWorker
         writer = secrets.token_bytes(32); writer_public = sign({}, writer, 'test')['public_key']

@@ -119,6 +119,14 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
             self.connection.settimeout(5)
             try:
                 self.connection.do_handshake()
+                fingerprint=hashlib.sha256(self.connection.getpeercert(binary_form=True)).hexdigest()
+                if fingerprint in trusted_clients:
+                    # Authenticated anonymous carriers can pause between TLS records.
+                    # Unauthenticated connections keep the short handshake budget.
+                    self.connection.settimeout(25)
+                    self.deadline_timer.cancel()
+                    self.deadline_timer=threading.Timer(90,expire)
+                    self.deadline_timer.daemon=True;self.deadline_timer.start()
                 super().setup()
             except BaseException:
                 self.deadline_timer.cancel()
@@ -144,6 +152,10 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 
         def do_POST(self):
             status, result, padded = 200, None, False
+            length_header=self.headers.get('Content-Length','')
+            if len(self.headers.get_all('Content-Length',[]))==1 and length_header.isascii() and length_header.isdecimal() and len(length_header)<=6:
+                announced=int(length_header)
+                padded=16384<=announced<=MAX_REQUEST and announced&(announced-1)==0
             try:
                 if (self.path != "/zfcp" or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Type") != "application/json" or
                         len(self.headers.get_all("Content-Length", [])) != 1 or len(self.headers.get_all("Content-Type", [])) != 1):
@@ -185,6 +197,9 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 finally:
                     slots.release()
                 result = {"ok": True, "result": value}
+            except TimeoutError:
+                status=504
+                result={'ok':False,'error':{'code':'CARRIER_UNAVAILABLE','message':'bounded authenticated transport deadline exceeded'}}
             except (ProtocolError, ValueError, OSError, TypeError, KeyError) as exc:
                 status = 403 if isinstance(exc, ProtocolError) else 400
                 result = {"ok": False, "error": {"code": getattr(exc, "code", "INVALID_REQUEST"),
