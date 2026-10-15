@@ -34,9 +34,13 @@ def register(sub):
         if action=='get':item.add_argument('--authority',required=True);item.add_argument('--output',type=Path,required=True)
         if action=='publish':item.add_argument('--bridge-config',type=Path,required=True)
     ano=families.add_parser('ano');actions=ano.add_subparsers(dest='companion_action',required=True)
-    for action in ('evaluate','truth-table','defence'):
+    for action in ('evaluate','truth-table','defence','laws'):
         item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en')
         if action in ('evaluate','defence'):item.add_argument('--input',type=Path,required=True)
+        if action in ('truth-table','laws'):
+            from .ano import PROFILES,PROFILE
+            item.add_argument('--profile',choices=PROFILES,default=PROFILE)
+        if action=='truth-table':item.add_argument('--include-unknown',action='store_true')
     tri=families.add_parser('tri');actions=tri.add_subparsers(dest='companion_action',required=True)
     for action in ('put','get','publish'):
         item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en')
@@ -108,8 +112,9 @@ def execute(args):
             return store.vault.publish(bridge.community,bridge.private,args.digest)
         finally:bridge.close()
     if args.companion=='ano':
-        from .ano import evaluate,truth_table,defence
-        if args.companion_action=='truth-table':return truth_table()
+        from .ano import evaluate,truth_table,defence,law_report
+        if args.companion_action=='truth-table':return truth_table(profile=args.profile,include_unknown=args.include_unknown)
+        if args.companion_action=='laws':return law_report(args.profile)
         value=strict_json(secure_read(args.input))
         if args.companion_action=='evaluate':return evaluate(value)
         if not isinstance(value,dict) or set(value)!={'evidence','required'}:raise ProtocolError('INVALID_ANO','exact defence evidence required')

@@ -24,6 +24,7 @@ jobs:
       - name: Modern algebra, vault, package and TC-16 regression
         run: |
           python -m unittest discover -s tests -p test_companion_crypto.py -v
+          python -m unittest discover -s tests -p test_ano_laws.py -v
           python -m unittest discover -s tests -p test_ufsdcpm.py -v
           python -m unittest discover -s tests -p test_tc16.py -v
           python -m unittest discover -s tests -p test_etp_adapter.py -v

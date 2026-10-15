@@ -284,11 +284,7 @@ impl Tc16Cpu {
         let start = addr as usize;
         let end = start + data.len();
 
-        if start >= MMIO_BASE as usize && end <= MEM_SIZE {
-            self.write_mem(addr, bytes[0]);
-            self.write_mem(addr + 1, bytes[1]);
-            return Ok(());
-        }
+        anyhow::ensure!(end <= MMIO_BASE as usize, "blob overlaps MMIO");
         if let Some(mem_slice) = self.memory.get_mut(start..end) {
             mem_slice.copy_from_slice(data);
             Ok(())

@@ -9,6 +9,12 @@ from fractions import Fraction
 from .protocol import ProtocolError
 
 PROFILE='ano.boolean.v1'
+LEGACY_PROFILE='ano.refined-equality.v0'
+PROFILES=(PROFILE,LEGACY_PROFILE)
+
+def _profile(value):
+    if value not in PROFILES:raise ProtocolError('INVALID_ANO','explicit supported operation profile required')
+    return value
 
 class Signal(str,Enum):
     POSITIVE='positive'
@@ -25,15 +31,15 @@ def signal(value):
     return aliases[value]
 
 
-def merge(a,b):
-    a,b=signal(a),signal(b)
-    if Signal.UNKNOWN in (a,b):return Signal.UNKNOWN
+def merge(a,b,*,profile=PROFILE):
+    _profile(profile);a,b=signal(a),signal(b)
+    if profile==PROFILE and Signal.UNKNOWN in (a,b):return Signal.UNKNOWN
     return Signal.NEGATIVE if a==b else Signal.POSITIVE
 
 
-def cross(a,b):
-    a,b=signal(a),signal(b)
-    if Signal.UNKNOWN in (a,b):return Signal.UNKNOWN
+def cross(a,b,*,profile=PROFILE):
+    _profile(profile);a,b=signal(a),signal(b)
+    if profile==PROFILE and Signal.UNKNOWN in (a,b):return Signal.UNKNOWN
     return Signal.POSITIVE if a==b else Signal.NEGATIVE
 
 
@@ -171,10 +177,37 @@ class AnoVector:
     def dot(self,other):return self.x*other.x+self.y*other.y+self.z*other.z
 
 
-def truth_table():
-    rows=[]
-    for a in (Signal.NEGATIVE,Signal.POSITIVE):
-        for b in (Signal.NEGATIVE,Signal.POSITIVE):
-            rows.append({'a':a.value,'b':b.value,'merge':merge(a,b).value,'cross':cross(a,b).value,
-                         'loop':merge(merge(a,b),merge(a,b)).value,'mirror':cross(merge(a,b),merge(a,b)).value})
-    return {'schema':'ziokt.ano-truth-table.v1','profile':PROFILE,'rows':rows,'exhaustive':True,'cryptographic_proof':False}
+def truth_table(*,profile=PROFILE,include_unknown=False):
+    _profile(profile);rows=[]
+    states=tuple(Signal) if include_unknown else (Signal.NEGATIVE,Signal.POSITIVE)
+    for a in states:
+        for b in states:
+            rows.append({'a':a.value,'b':b.value,'merge':merge(a,b,profile=profile).value,'cross':cross(a,b,profile=profile).value,
+                         'loop':merge(merge(a,b,profile=profile),merge(a,b,profile=profile),profile=profile).value,'mirror':cross(merge(a,b,profile=profile),merge(a,b,profile=profile),profile=profile).value})
+    return {'schema':'ziokt.ano-truth-table.v1','profile':profile,'rows':rows,'exhaustive':True,'cryptographic_proof':False}
+
+
+def law_report(profile=PROFILE):
+    """Exhaustive finite-domain witnesses; not a proof about unbounded numbers or policy."""
+    from itertools import product
+    _profile(profile)
+    states=tuple(Signal)
+    m=lambda a,b:merge(a,b,profile=profile)
+    x=lambda a,b:cross(a,b,profile=profile)
+    def check(arity,predicate):
+        cases=list(product(states,repeat=arity))
+        failures=[args for args in cases if not predicate(*args)]
+        return {'holds':not failures,'cases':len(cases),'counterexample':[v.value for v in failures[0]] if failures else None}
+    laws={
+        'merge_commutative':check(2,lambda a,b:m(a,b)==m(b,a)),
+        'cross_commutative':check(2,lambda a,b:x(a,b)==x(b,a)),
+        'merge_associative':check(3,lambda a,b,c:m(m(a,b),c)==m(a,m(b,c))),
+        'cross_associative':check(3,lambda a,b,c:x(x(a,b),c)==x(a,x(b,c))),
+        'cross_distributes_over_merge':check(3,lambda a,b,c:x(a,m(b,c))==m(x(a,b),x(a,c))),
+        'merge_identity_negative':check(1,lambda a:m(a,Signal.NEGATIVE)==a),
+        'cross_identity_positive':check(1,lambda a:x(a,Signal.POSITIVE)==a),
+        'unknown_absorbs_merge':check(1,lambda a:m(a,Signal.UNKNOWN)==Signal.UNKNOWN),
+        'unknown_absorbs_cross':check(1,lambda a:x(a,Signal.UNKNOWN)==Signal.UNKNOWN),
+    }
+    return {'schema':'ziokt.ano-laws.v1','profile':profile,'domain':[s.value for s in states],
+            'method':'exhaustive finite enumeration','laws':laws,'numeric_field_proof':False,'security_policy_proof':False}
