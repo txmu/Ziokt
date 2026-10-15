@@ -1,10 +1,11 @@
 {
  "schema":"ziokt.verification-report.v1",
  "local_native_compilation":false,
- "regression":{"passed":true,"full_python_suite":{"tests":142,"skipped":3,"seconds":146.004,"result":"OK"},"subsequent_affected_suites":{"tri_safefs_federation":2,"etp_adapter":3,"companion_crypto":6,"watchat_gateway":4}},
+ "regression":{"passed":true,"full_python_suite":{"tests":142,"skipped":3,"seconds":143.927,"result":"OK"},"latest_ci_full_suite":{"run_id":38719594424,"tests":142,"skipped":4,"seconds":222.368,"result":"OK"},"subsequent_affected_suites":{"tri_safefs_federation":2,"etp_adapter":3,"companion_crypto":6,"watchat_gateway":4}},
+ "ci":{"integration_workflow":{"run_id":38719594424,"result":"success","url":"https://github.com/txmu/Ziokt/actions/runs/38719594424","i2p_sam_and_mtls":true,"tor_nested_socks_and_mtls":true,"nested_nat":true,"linux_macos_windows":true,"six_core_isolated_extensions":true,"native_package_artifact":true},"companion_workflow":{"run_id":38719594495,"applications":"success","url":"https://github.com/txmu/Ziokt/actions/runs/38719594495","etp_native_compile":"failed: 83 compiler errors in bundled legacy ETP modules"}},
  "privacy":{"owned_loopback_observer_tests":3,"adjacent_route_only":true,"relay_content_key_absent":true,"small_frame_padding_verified":true,"unauthenticated_product_banner_absent":true,"global_observer_anonymity_proven":false},
- "extensions":{"native_core_families":["go","rust","gleam","ada","nim","idris"],"real_signed_isolated_plugin_tests_passed":true,"native_artifacts":"pre-existing compiled products"},
+ "extensions":{"native_core_families":["go","rust","gleam","ada","nim","idris"],"real_signed_isolated_plugin_tests_passed":true,"native_artifacts":"pre-existing compiled products; tested in CI under temporary user-namespace policy and restored afterward"},
  "browser":{"watchat_ecdh_chat":true,"mobile_viewport":true,"sim_locale":true,"sim_encrypted_persistence":true,"sim_script_capability_rejection_and_deadline":true,"tri_offline_pwa_manifest_and_no_external_asset_requests":true,"offline_pwa_shells":true,"notification_permission_path":true,"physical_phone_notification_delivery":false,"headless_notification_limitation":"Headless Chromium did not allow OS notification delivery; denial was handled and reported."},
- "etp":{"source_manifest_checked":true,"source_parser_checked":true,"pinned_worker_and_real_aead_adapter_tests_passed":true,"native_gateway_compiled_and_run":false,"native_ci_required":true},
+ "etp":{"source_manifest_checked":true,"source_parser_checked":true,"pinned_worker_and_real_aead_adapter_tests_passed":true,"native_gateway_compiled_and_run":false,"native_ci_required":true,"latest_native_ci_errors":83},
  "deployment":{"external_systems_scanned":false,"host_network_or_firewall_changed":false,"services_automatically_enabled":false}
 }

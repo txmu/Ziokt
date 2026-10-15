@@ -15,7 +15,7 @@ The source catalogue is `companions/ecosystem.json`; inspect it using `python3 -
 | ZDA / Ano | `ziokt companion ano`, exact bounded rational arithmetic, typed unknown evidence, all-required-claims authorization gates |
 | UFS + DCPM | `ziokt companion ufsdcpm`, signed packages inside an encrypted UFS vault; coupled storage and package integrity remain native functions |
 | TC-16 / TCC | `ziokt companion tc16`, real 16-bit registers and arithmetic, 16 registers, byte/word memory, stack/calls, BCD, interrupts, bounded capability calls; TCC functions, recursion, conditions and loops |
-| ENEO ETP Core | Source in `companions/etp/src`, pinned local native `ziokt_gateway` adapter; explicit approved onion paths, no direct fallback. Native compilation is a CI gate, not a local test claim |
+| ENEO ETP Core | Source in `companions/etp/src`, pinned local native `ziokt_gateway` adapter; explicit approved onion paths, no direct fallback. Adapter tests pass; the latest native Rust CI build is still blocked by 83 compile errors across the supplied crate's module APIs |
 | SIM Manager | `companions/sim-manager/src`, encrypted IndexedDB state, migration of old plaintext after successful save, 304 bilingual static labels, PWA, private durable reminder gateway |
 | Tri | `companions/tri/app` is a loopback development build and `/tri/` offline PWA, without third-party asset hosts or API-key injection; `ziokt companion tri put/get/publish` validates bounded snapshots and carries signed project files through SafeFS ciphertext |
 
