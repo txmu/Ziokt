@@ -54,6 +54,10 @@ jobs:
             companions/watchat/WATChat-code/frontend/
           if-no-files-found: error
   native-etp:
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [minimal, integrated]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -64,4 +68,13 @@ jobs:
           workspaces: companions/etp/src
       - name: ETP native core and gateway build (CI only)
         working-directory: companions/etp/src
-        run: cargo test --locked --no-default-features --lib && cargo check --locked --no-default-features --example ziokt_gateway
+        env:
+          ETP_PROFILE: ${{ matrix.profile }}
+        run: |
+          if [ "$ETP_PROFILE" = minimal ]; then
+            cargo test --locked --no-default-features --lib
+            cargo check --locked --no-default-features --example ziokt_gateway
+          else
+            cargo test --locked --features tc16-tcc,dsl-runtime --lib
+            cargo check --locked --features tc16-tcc,dsl-runtime --example ziokt_gateway
+          fi
