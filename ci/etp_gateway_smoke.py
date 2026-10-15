@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import secrets
 import socket
+import shutil
 import sys
 import tempfile
 import time
@@ -20,7 +21,6 @@ from ziokt.protocol import ProtocolError
 
 def main(binary):
     binary = Path(binary).resolve()
-    digest = 'sha256:' + hashlib.sha256(binary.read_bytes()).hexdigest()
     keys = [X25519PrivateKey.generate() for _ in range(4)]
     # Hold all port reservations until distinct addresses have been chosen.
     reservations = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in keys]
@@ -32,6 +32,13 @@ def main(binary):
     public = [key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex() for key in keys]
     workers = []
     with tempfile.TemporaryDirectory() as temporary:
+        # Cargo links its example artifact to a second filename. Use a private, single-link
+        # executable, as required by the production adapter's file-integrity checks.
+        installed = Path(temporary) / 'ziokt_gateway'
+        shutil.copyfile(binary, installed)
+        installed.chmod(0o700)
+        binary = installed
+        digest = 'sha256:' + hashlib.sha256(binary.read_bytes()).hexdigest()
         try:
             for i, key in enumerate(keys):
                 config = Path(temporary) / f'node-{i}.json'

@@ -27,10 +27,10 @@ jobs:
       run:
         working-directory: Ziokt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           path: Ziokt
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
@@ -43,7 +43,7 @@ jobs:
       - name: Offline capsules and isolated site hosting
         run: python -m unittest discover -s tests -p test_capsule_and_site_hosting.py -v
       - run: python ci/build.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: ziokt-${{ matrix.os }}
           path: Ziokt/dist/ziokt.pyz
@@ -55,10 +55,10 @@ jobs:
       run:
         working-directory: Ziokt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           path: Ziokt
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
@@ -71,8 +71,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
@@ -86,10 +86,10 @@ jobs:
       run:
         working-directory: Ziokt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           path: Ziokt
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
@@ -102,20 +102,20 @@ jobs:
       run:
         working-directory: Ziokt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           path: Ziokt
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
       - id: native
         run: python ci/native_refs.py
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           repository: txmu/Shadow6
           ref: ${{ steps.native.outputs.shadow6 }}
           path: Shadow6
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           repository: txmu/Corium
           ref: ${{ steps.native.outputs.corium }}
@@ -183,7 +183,7 @@ jobs:
           make core-nim nim-crosed-variant test-nim PYTHON=python
           sha256sum Core-Nim/shadow6-nim Core-Nim/shadow6-nim-crosed Core-Nim/libdatachannel.so.0.23 > Core-Nim/runtime-sha256.txt
       - name: Preserve the same-commit tested Nim runtime for diagnosis
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ziokt-nim-${{ github.sha }}
           path: |
@@ -226,7 +226,7 @@ jobs:
           python ci/build.py
       - name: Package tested native support artifacts
         run: python ci/package_native.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: success()
         with:
           name: ziokt-enabled-native-artifacts
