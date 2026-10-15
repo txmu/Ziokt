@@ -181,7 +181,7 @@ warp = { version = "0.3", optional = true }
 
 # --- Optional: IPFS Integration ---
 # 仅在开启 ipfs-integration 时引入
-libp2p = { version = "0.56", features = ["noise", "yamux", "kad", "macros", "tokio"], optional = true }
+libp2p = { version = "0.57", features = ["noise", "yamux", "kad", "macros", "tokio", "ed25519"], optional = true }
 multihash = { version = "0.19", optional = true }
 
 # Solana (仅在开启 solana 特性时引入)

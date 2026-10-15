@@ -20,9 +20,9 @@ use std::{
 use tokio::sync::mpsc;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroize;
-const CHUNK: usize = 1024;
+const CHUNK: usize = 768;
 const MAX_RECORD: usize = 65536;
-const MAX_PACKET: usize = 4096;
+const MAX_PACKET: usize = 1350;
 #[derive(Serialize, Deserialize)]
 enum Layer {
     Relay {
@@ -166,7 +166,7 @@ impl OnionRouter {
         let digest = *blake3::hash(&bytes).as_bytes();
         let count = bytes.len().div_ceil(CHUNK) as u16;
         let onion_config = OnionConfig {
-            padding: PaddingStrategy::BlockAligned(256),
+            padding: PaddingStrategy::BlockAligned(32),
             ..OnionConfig::default()
         };
         for (index, chunk) in bytes.chunks(CHUNK).enumerate() {
@@ -337,15 +337,15 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn three_hops_hide_content_reassemble_reordered_fragments_and_reject_replays() {
-        let keys: Vec<_> = (0..4).map(|_| KeyPair::generate()).collect();
-        let addresses: Vec<SocketAddr> = (0..4)
+    async fn four_hops_fit_mtu_hide_content_reassemble_reordering_and_reject_replays() {
+        let keys: Vec<_> = (0..5).map(|_| KeyPair::generate()).collect();
+        let addresses: Vec<SocketAddr> = (0..5)
             .map(|i| format!("127.0.0.1:{}", 19000 + i).parse().unwrap())
             .collect();
         let (tx, mut wire) = mpsc::channel(256);
         let mut routers = Vec::new();
         let mut receivers = Vec::new();
-        for i in 0..4 {
+        for i in 0..5 {
             let mut config = NodeConfig::default();
             config.keypair = keys[i].clone();
             config.enable_onion_relay = true;
@@ -377,11 +377,11 @@ mod tests {
         assert!(routers[2].open_control(addresses[0], &control).is_err());
         assert!(!routers[1].receive(&control, addresses[0]).await);
         let bytes = (0..65536).map(|i| (i % 251) as u8).collect::<Vec<_>>();
-        let path = (1..4)
+        let path = (1..5)
             .map(|i| (addresses[i], keys[i].public.clone()))
             .collect();
         routers[0].send(path, bytes.clone()).await.unwrap();
-        for hop in 1..4 {
+        for hop in 1..5 {
             let mut packets = Vec::new();
             while let Ok((target, packet)) = wire.try_recv() {
                 assert_eq!(target, addresses[hop]);
@@ -389,7 +389,7 @@ mod tests {
                 assert!(!packet.windows(128).any(|p| p == &bytes[..128]));
                 packets.push(packet);
             }
-            assert_eq!(packets.len(), 64);
+            assert_eq!(packets.len(), bytes.len().div_ceil(CHUNK));
             packets.reverse();
             for packet in packets {
                 let mut tampered = packet.clone();
@@ -399,9 +399,9 @@ mod tests {
                 assert!(routers[hop].receive(&packet, addresses[hop - 1]).await);
             }
         }
-        assert_eq!(receivers[3].try_recv().unwrap().1, bytes);
+        assert_eq!(receivers[4].try_recv().unwrap().1, bytes);
         assert!(receivers.iter_mut().all(|rx| rx.try_recv().is_err()));
-        assert!(routers[3].state.lock().assemblies.is_empty());
+        assert!(routers[4].state.lock().assemblies.is_empty());
         assert!(routers[0]
             .send(vec![(addresses[1], keys[1].public.clone()); 2], vec![1])
             .await
