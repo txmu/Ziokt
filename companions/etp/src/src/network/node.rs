@@ -322,6 +322,7 @@ struct SessionContext {
     dialect: Arc<dyn Dialect>,
     flavor: Arc<dyn Flavor>,
     pending_queue: VecDeque<Frame>,
+    stream_offsets: HashMap<u32, u64>,
 
     interceptors: Vec<Arc<dyn Interceptor>>,
     config_snapshot: NodeConfig, // Snapshot for runtime logic
@@ -374,6 +375,7 @@ impl SessionContext {
             dialect,
             flavor,
             pending_queue: VecDeque::new(),
+            stream_offsets: HashMap::new(),
             interceptors,
             config_snapshot: config.clone(),
         }
@@ -628,10 +630,20 @@ struct ProcessingContext {
     acl: Arc<AclManager>,
     plugins: Arc<PluginRegistry>,
     data_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
-    dht_pending_queries: Arc<DashMap<u64, oneshot::Sender<Result<Vec<NodeInfo>>>>>,
+    dht_pending_queries: Arc<
+        DashMap<
+            u64,
+            (
+                Vec<SocketAddr>,
+                Instant,
+                oneshot::Sender<Result<Vec<NodeInfo>>>,
+            ),
+        >,
+    >,
     token_manager: Arc<TokenManager>,
     dht_store: Arc<DashMap<NodeID, (Vec<u8>, std::time::SystemTime)>>,
     metrics: Arc<NodeMetrics>,
+    incoming_slots: Arc<tokio::sync::Semaphore>,
 
     default_handler: Option<Arc<dyn PacketHandler>>,
     fallback_handler: Option<Arc<dyn PacketHandler>>,
@@ -758,6 +770,9 @@ impl EtpEngine {
         // 3. 构建共享状态
         let token_manager = Arc::new(TokenManager::new(config.stateless_secret));
         let routing_table = Arc::new(RoutingTable::new());
+        for (address, key) in &config.trusted_peers {
+            routing_table.add_node(NodeInfo::new(*blake3::hash(key).as_bytes(), *address));
+        }
         let acl = Arc::new(AclManager::new(true));
         for key in config.trusted_peers.values() {
             acl.trust_node(*key, 0);
@@ -795,6 +810,7 @@ impl EtpEngine {
             token_manager,
             dht_store,
             metrics,
+            incoming_slots: Arc::new(tokio::sync::Semaphore::new(128)),
             default_handler: None,
             fallback_handler: None,
             banned_ips,
@@ -930,7 +946,28 @@ impl EtpEngine {
 
     fn spawn_incoming_handler(&self, data: Vec<u8>, src: SocketAddr) {
         let ctx = self.ctx.clone();
+        let Ok(permit) = ctx.incoming_slots.clone().try_acquire_owned() else {
+            return;
+        };
         tokio::spawn(async move {
+            let _permit = permit;
+            for dialect in ctx.plugins.all_dialects() {
+                if let Ok(plain) = dialect.open(&data) {
+                    if let Ok(plain) = ctx.onion.open_control(src, &plain) {
+                        if let Ok(packet) = bincode::DefaultOptions::new()
+                            .with_fixint_encoding()
+                            .with_limit(4096)
+                            .reject_trailing_bytes()
+                            .deserialize::<StatelessPacket>(&plain)
+                        {
+                            if packet.frames.len() <= 8 && packet.token.is_empty() {
+                                Self::handle_stateless_packet(packet, src, &ctx).await;
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
             if ctx.onion.receive(&data, src).await {
                 return;
             }
@@ -1163,15 +1200,6 @@ impl EtpEngine {
                 Err(_) => continue,
             };
 
-            // Stateless Packet Check
-            if let Ok(pkt) = bincode::deserialize::<StatelessPacket>(&plain_data) {
-                if ctx.token_manager.validate_token(&pkt.token) {
-                    Self::handle_stateless_packet(pkt, src, &ctx).await;
-                    handled = true;
-                    break;
-                }
-            }
-
             if ctx.sessions.len() >= ctx.config.max_sessions {
                 return;
             }
@@ -1248,13 +1276,7 @@ impl EtpEngine {
                     channel_id: 0,
                     data,
                 } => {
-                    if let Ok(decrypted_payload) = Self::decrypt_stateless_payload(
-                        &data,
-                        pkt.nonce,
-                        &ctx.config.stateless_secret,
-                    ) {
-                        Self::handle_dht_rpc(decrypted_payload, src, ctx).await;
-                    }
+                    Self::handle_dht_rpc(data, src, ctx).await;
                 }
                 Frame::NatSignal {
                     signal_type: NatSignalType::Ping,
@@ -1343,11 +1365,27 @@ impl EtpEngine {
             Command::DhtFindNode { target_id, reply } => {
                 // Simplified DHT logic for example
                 let nonce = rand::random::<u64>();
-                self.ctx.dht_pending_queries.insert(nonce, reply);
                 let neighbors = self.ctx.routing_table.find_closest(&target_id, 3);
+                if neighbors.is_empty() {
+                    let _ = reply.send(Ok(Vec::new()));
+                    return;
+                }
+                if self.ctx.dht_pending_queries.len() >= 128 {
+                    let _ = reply.send(Err(anyhow!("query budget")));
+                    return;
+                }
+                self.ctx.dht_pending_queries.insert(
+                    nonce,
+                    (
+                        neighbors.iter().map(|n| n.addr).collect(),
+                        Instant::now(),
+                        reply,
+                    ),
+                );
                 for node in neighbors {
                     let mut payload = vec![0x01];
                     payload.extend_from_slice(&nonce.to_be_bytes());
+                    payload.extend_from_slice(&self.ctx.my_node_id());
                     payload.extend_from_slice(&target_id);
                     let frame = Frame::SideChannel {
                         channel_id: 0,
@@ -1358,9 +1396,17 @@ impl EtpEngine {
                 }
             }
             Command::DhtStore { key, value, ttl } => {
+                if value.len() > 2048
+                    || ttl == 0
+                    || ttl > 86400
+                    || *blake3::hash(&value).as_bytes() != key
+                {
+                    return;
+                }
                 let neighbors = self.ctx.routing_table.find_closest(&key, 5);
                 for node in neighbors {
                     let mut payload = vec![0x02];
+                    payload.extend_from_slice(&self.ctx.my_node_id());
                     payload.extend_from_slice(&key);
                     payload.extend_from_slice(&ttl.to_be_bytes());
                     payload.extend_from_slice(&value);
@@ -1389,22 +1435,37 @@ impl EtpEngine {
     }
 
     async fn handle_app_data(&self, target: SocketAddr, stream_id: u32, data: Vec<u8>) {
-        let frame = Frame::Stream {
-            stream_id,
-            offset: 0,
-            fin: false,
-            data,
-        };
-        if self.ctx.sessions.contains_key(&target) {
-            let _ = self.send_frames(target, vec![frame]).await;
-        } else {
-            if let Err(_) = self.initiate_handshake(target, &[0u8; 32]).await {
-                warn!("Auto-connect failed");
-            } else {
-                if let Some(s) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
-                    s.lock().await.pending_queue.push_back(frame);
-                }
+        if data.len() > 1024 || stream_id > 4095 {
+            return;
+        }
+        if !self.ctx.sessions.contains_key(&target) {
+            let Some(key) = self.ctx.config.trusted_peers.get(&target) else {
+                return;
+            };
+            if self.initiate_handshake(target, key).await.is_err() {
+                return;
             }
+        }
+        let session = self.ctx.sessions.get(&target).map(|s| s.value().clone());
+        if let Some(session) = session {
+            let offset = {
+                let mut guard = session.lock().await;
+                let offset = guard.stream_offsets.entry(stream_id).or_insert(0);
+                let previous = *offset;
+                *offset = offset.saturating_add(data.len() as u64);
+                previous
+            };
+            let _ = self
+                .send_frames(
+                    target,
+                    vec![Frame::Stream {
+                        stream_id,
+                        offset,
+                        fin: false,
+                        data,
+                    }],
+                )
+                .await;
         }
     }
 
@@ -1419,6 +1480,10 @@ impl EtpEngine {
 
         // 1. Handshake check
         if !ctx.handshake_completed {
+            anyhow::ensure!(
+                ctx.pending_queue.len() + frames.len() <= 1024,
+                "pending frame budget"
+            );
             ctx.pending_queue.extend(frames);
             return Ok(());
         }
@@ -1562,7 +1627,9 @@ impl EtpEngine {
             &self.ctx.plugins,
         );
         if let Some(previous) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
-            session.pending_queue = std::mem::take(&mut previous.lock().await.pending_queue);
+            let mut previous = previous.lock().await;
+            session.pending_queue = std::mem::take(&mut previous.pending_queue);
+            session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
         }
         let mut buf = acquire_buffer();
         buf.resize(1024, 0);
@@ -1635,14 +1702,16 @@ impl EtpEngine {
         target: SocketAddr,
         frames: Vec<Frame>,
     ) -> Result<()> {
-        let token = ctx.token_manager.generate_token();
+        let token = Vec::new();
         let nonce = rand::random::<u64>();
         let packet = StatelessPacket {
             token,
             nonce,
             frames,
         };
-        let plain = bincode::serialize(&packet)?;
+        let plain = ctx
+            .onion
+            .seal_control(target, &bincode::serialize(&packet)?)?;
         let default_dialect = ctx
             .plugins
             .get_dialect(&ctx.config.default_dialect)
@@ -1660,6 +1729,19 @@ impl EtpEngine {
 
         let op = data[0];
         let payload = &data[1..];
+        let Some(public) = ctx.config.trusted_peers.get(&src) else {
+            return;
+        };
+        let expected = *blake3::hash(public).as_bytes();
+        let claimed = if op == Self::DHT_OP_STORE {
+            payload.get(..32)
+        } else {
+            payload.get(8..40)
+        };
+        if claimed != Some(expected.as_slice()) {
+            return;
+        }
+
         let my_id = ctx.my_node_id();
 
         // 辅助闭包：更新路由表 (被动发现)
@@ -1723,6 +1805,14 @@ impl EtpEngine {
                 update_routing(sender_id);
 
                 // 2. 存储逻辑
+                if value.len() > 2048
+                    || ttl == 0
+                    || ttl > 86400
+                    || *blake3::hash(&value).as_bytes() != key
+                    || (ctx.dht_store.len() >= 1024 && !ctx.dht_store.contains_key(&key))
+                {
+                    return;
+                }
                 let expiry = std::time::SystemTime::now() + Duration::from_secs(ttl as u64);
                 ctx.dht_store.insert(key, (value, expiry));
 
@@ -1772,20 +1862,44 @@ impl EtpEngine {
                 update_routing(responder_id);
 
                 // 2. 触发回调
-                if let Some((_, sender)) = ctx.dht_pending_queries.remove(&nonce_val) {
-                    if let Ok(nodes) = bincode::deserialize::<Vec<NodeInfo>>(&payload[40..]) {
-                        // 学习查询结果中的新节点
-                        for node in &nodes {
-                            // 注意：这里不要盲目添加，只添加看起来合法的
-                            if node.id != my_id {
-                                ctx.routing_table.add_node(node.clone());
-                            }
-                        }
-                        let _ = sender.send(Ok(nodes));
-                    } else {
-                        // 如果反序列化失败，可能是数据截断
-                        let _ = sender.send(Err(anyhow!("Malformed DHT response")));
+                let expected = ctx
+                    .dht_pending_queries
+                    .get(&nonce_val)
+                    .map(|q| q.0.contains(&src) && q.1.elapsed() < Duration::from_secs(5))
+                    .unwrap_or(false);
+                if !expected {
+                    return;
+                }
+                let Ok(nodes) = bincode::DefaultOptions::new()
+                    .with_fixint_encoding()
+                    .with_limit(4096)
+                    .reject_trailing_bytes()
+                    .deserialize::<Vec<NodeInfo>>(&payload[40..])
+                else {
+                    return;
+                };
+                if nodes.len() > 64 {
+                    return;
+                }
+                let mut nodes: Vec<_> = nodes
+                    .into_iter()
+                    .filter(|node| {
+                        ctx.config
+                            .trusted_peers
+                            .get(&node.addr)
+                            .map(|key| *blake3::hash(key).as_bytes() == node.id)
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                if !nodes.iter().any(|n| n.addr == src) {
+                    nodes.push(NodeInfo::new(responder_id, src));
+                }
+                nodes.truncate(64);
+                if let Some((_, (_, _, sender))) = ctx.dht_pending_queries.remove(&nonce_val) {
+                    for node in &nodes {
+                        ctx.routing_table.add_node(node.clone());
                     }
+                    let _ = sender.send(Ok(nodes));
                 }
             }
 
@@ -1839,6 +1953,9 @@ impl EtpEngine {
     }
 
     async fn handle_tick(&self) {
+        self.ctx
+            .dht_pending_queries
+            .retain(|_, q| q.1.elapsed() < Duration::from_secs(5));
         let mut remove_list = Vec::new();
         let mut tasks = Vec::new();
         let timeout = self.ctx.config.session_timeout;
@@ -1929,8 +2046,9 @@ impl EtpEngine {
 
             // 记录 Pending，虽然对于 Refresh 我们可能不关心结果，
             // 但为了防止收到回复时被当作无关包丢弃，最好还是注册一下
-            let (tx, _rx) = oneshot::channel();
-            self.ctx.dht_pending_queries.insert(nonce, tx);
+            self.ctx
+                .dht_pending_queries
+                .retain(|_, q| q.1.elapsed() < Duration::from_secs(5));
 
             let neighbors = self.ctx.routing_table.find_closest(&target_id, 3);
 
@@ -1984,5 +2102,67 @@ impl EtpEngine {
                 expired_count, refresh_count, ping_count
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod runtime_regression_tests {
+    use super::*;
+    #[tokio::test]
+    async fn real_udp_noise_stream_offsets_and_authenticated_dht_work_together() {
+        let a_socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let b_socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let a_address = a_socket.local_addr().unwrap();
+        let b_address = b_socket.local_addr().unwrap();
+        let mut a_config = NodeConfig::default();
+        let mut b_config = NodeConfig::default();
+        a_config.trusted_peers.insert(
+            b_address,
+            b_config.keypair.public.as_slice().try_into().unwrap(),
+        );
+        b_config.trusted_peers.insert(
+            a_address,
+            a_config.keypair.public.as_slice().try_into().unwrap(),
+        );
+        let b_id = *blake3::hash(&b_config.keypair.public).as_bytes();
+        let (a, a_handle, _) = EtpEngine::new_with_transport(
+            a_config,
+            Arc::new(PluginRegistry::new()),
+            Arc::new(UdpTransport(a_socket)),
+        )
+        .await
+        .unwrap();
+        let (b, b_handle, mut received) = EtpEngine::new_with_transport(
+            b_config,
+            Arc::new(PluginRegistry::new()),
+            Arc::new(UdpTransport(b_socket)),
+        )
+        .await
+        .unwrap();
+        let a_task = tokio::spawn(a.run());
+        let b_task = tokio::spawn(b.run());
+        let exchange = async {
+            // Auto-connect uses the pinned remote key, not a zero key.
+            a_handle
+                .send_data(b_address, b"first".to_vec())
+                .await
+                .unwrap();
+            assert_eq!(received.recv().await.unwrap().1, b"first");
+            a_handle
+                .send_data(b_address, b"second".to_vec())
+                .await
+                .unwrap();
+            assert_eq!(received.recv().await.unwrap().1, b"second");
+            let found = a_handle.dht_find_node(b_id).await.unwrap();
+            assert!(found.iter().any(|n| n.id == b_id && n.addr == b_address));
+            b_handle
+                .send_data(a_address, b"return".to_vec())
+                .await
+                .unwrap();
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), exchange).await;
+        a_task.abort();
+        b_task.abort();
+        result.unwrap();
     }
 }

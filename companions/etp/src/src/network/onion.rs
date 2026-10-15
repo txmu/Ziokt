@@ -4,6 +4,10 @@ use super::node::{NodeConfig, PacketTransport};
 use crate::crypto::onion::{OnionConfig, OnionCrypto, PaddingStrategy};
 use anyhow::{ensure, Result};
 use bincode::Options;
+use chacha20poly1305::{
+    aead::{Aead, Payload},
+    ChaCha20Poly1305, KeyInit,
+};
 use parking_lot::Mutex;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -43,6 +47,7 @@ struct Assembly {
 #[derive(Default)]
 struct State {
     seen: HashMap<[u8; 32], Instant>,
+    controls: HashMap<[u8; 32], Instant>,
     completed: HashMap<[u8; 16], Instant>,
     assemblies: HashMap<[u8; 16], Assembly>,
 }
@@ -93,6 +98,51 @@ impl OnionRouter {
         out[16..48].copy_from_slice(mac.finalize().as_bytes());
         key.zeroize();
         Ok(out)
+    }
+    pub(crate) fn seal_control(&self, peer: SocketAddr, plain: &[u8]) -> Result<Vec<u8>> {
+        ensure!(plain.len() <= 4096, "control record budget");
+        let mut base = self.link_key(peer)?;
+        let mut key = blake3::derive_key("ETP authenticated control v2", &base);
+        base.zeroize();
+        let mut nonce = [0u8; 12];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        let result = ChaCha20Poly1305::new((&key).into()).encrypt(
+            (&nonce).into(),
+            Payload {
+                msg: plain,
+                aad: b"ETP/control/v2",
+            },
+        );
+        key.zeroize();
+        let mut out = nonce.to_vec();
+        out.extend(result.map_err(|_| anyhow::anyhow!("control encryption"))?);
+        Ok(out)
+    }
+    pub(crate) fn open_control(&self, peer: SocketAddr, packet: &[u8]) -> Result<Vec<u8>> {
+        ensure!((28..=4124).contains(&packet.len()), "control record size");
+        let mut base = self.link_key(peer)?;
+        let mut key = blake3::derive_key("ETP authenticated control v2", &base);
+        base.zeroize();
+        let result = ChaCha20Poly1305::new((&key).into()).decrypt(
+            chacha20poly1305::Nonce::from_slice(&packet[..12]),
+            Payload {
+                msg: &packet[12..],
+                aad: b"ETP/control/v2",
+            },
+        );
+        key.zeroize();
+        let plain = result.map_err(|_| anyhow::anyhow!("control authentication"))?;
+        let fingerprint = *blake3::hash(packet).as_bytes();
+        let mut state = self.state.lock();
+        state
+            .controls
+            .retain(|_, t| t.elapsed() < Duration::from_secs(60));
+        ensure!(
+            !state.controls.contains_key(&fingerprint) && state.controls.len() < 8192,
+            "control replay or budget"
+        );
+        state.controls.insert(fingerprint, Instant::now());
+        Ok(plain)
     }
     pub async fn send(&self, path: Vec<(SocketAddr, Vec<u8>)>, bytes: Vec<u8>) -> Result<()> {
         ensure!(
@@ -316,6 +366,16 @@ mod tests {
                 data,
             ));
         }
+        let control = routers[0]
+            .seal_control(addresses[1], b"DHT control")
+            .unwrap();
+        assert_eq!(
+            routers[1].open_control(addresses[0], &control).unwrap(),
+            b"DHT control"
+        );
+        assert!(routers[1].open_control(addresses[0], &control).is_err());
+        assert!(routers[2].open_control(addresses[0], &control).is_err());
+        assert!(!routers[1].receive(&control, addresses[0]).await);
         let bytes = (0..65536).map(|i| (i % 251) as u8).collect::<Vec<_>>();
         let path = (1..4)
             .map(|i| (addresses[i], keys[i].public.clone()))
