@@ -464,6 +464,7 @@ pub enum Command {
     SendOnion {
         path: Vec<(SocketAddr, Vec<u8>)>,
         data: Vec<u8>,
+        reply: oneshot::Sender<Result<(), String>>,
     },
     DhtFindNode {
         target_id: NodeID,
@@ -550,10 +551,16 @@ impl EtpHandle {
         path: Vec<(SocketAddr, Vec<u8>)>,
         data: Vec<u8>,
     ) -> Result<(), EtpError> {
+        let (reply, result) = oneshot::channel();
         self.cmd_tx
-            .send(Command::SendOnion { path, data })
+            .send(Command::SendOnion { path, data, reply })
             .await
-            .map_err(|_| EtpError::Internal("Engine channel closed".into()))
+            .map_err(|_| EtpError::Internal("Engine channel closed".into()))?;
+        tokio::time::timeout(Duration::from_secs(5), result)
+            .await
+            .map_err(|_| EtpError::Internal("onion send deadline".into()))?
+            .map_err(|_| EtpError::Internal("onion send cancelled".into()))?
+            .map_err(EtpError::Internal)
     }
 
     /// 执行 DHT 节点查找
@@ -1326,8 +1333,12 @@ impl EtpEngine {
             Command::Connect { target, remote_pub } => {
                 let _ = self.initiate_handshake(target, &remote_pub).await;
             }
-            Command::SendOnion { path, data } => {
-                let _ = self.handle_onion_send(path, data).await;
+            Command::SendOnion { path, data, reply } => {
+                let _ = reply.send(
+                    self.handle_onion_send(path, data)
+                        .await
+                        .map_err(|_| "onion route rejected".to_string()),
+                );
             }
             Command::DhtFindNode { target_id, reply } => {
                 // Simplified DHT logic for example

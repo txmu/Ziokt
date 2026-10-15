@@ -73,8 +73,20 @@ jobs:
         run: |
           if [ "$ETP_PROFILE" = minimal ]; then
             cargo test --locked --no-default-features --lib
-            cargo check --locked --no-default-features --example ziokt_gateway
+            cargo build --locked --no-default-features --example ziokt_gateway
           else
             cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver --lib
-            cargo check --locked --features tc16-tcc,dsl-runtime,ultrafileserver --example ziokt_gateway
+            cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver --example ziokt_gateway
           fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python adapter with four real native ETP processes
+        run: |
+          python -m pip install -r requirements.txt
+          python ci/etp_gateway_smoke.py companions/etp/src/target/debug/examples/ziokt_gateway
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-etp-gateway-${{ matrix.profile }}
+          path: companions/etp/src/target/debug/examples/ziokt_gateway
+          if-no-files-found: error
