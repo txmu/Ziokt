@@ -209,6 +209,24 @@ jobs:
           bash -n corix_v108.sh
           python ci/static-checks.py
           python -m unittest -v test_ziokt test_zkt
+      - name: Verify six isolated signed Extensions with runner namespace privileges
+        run: |
+          shadow6_root="$RUNNER_TEMP/ziokt-shadow6-root"
+          mkdir -p "$shadow6_root"
+          for source in Extension-System/shadow6_extensions.py Crosed/crosedctl.py Crosed/install_layout.py Crosed/feature_contract.py Crosed/native_profiles.py Deployment/service_storage.py Application-Layer/shadow_protocols.py Plugin-System/shadow6_plugins.py Slot-System/shadow6_slots.py; do
+            mkdir -p "$shadow6_root/$(dirname "$source")"
+            cp "Shadow6/$source" "$shadow6_root/$source"
+          done
+          mkdir -p "$shadow6_root/Core-Go" "$shadow6_root/Core-Rust" "$shadow6_root/Core-Gleam" "$shadow6_root/Core-Ada" "$shadow6_root/Core-Nim" "$shadow6_root/Core-Idris"
+          cp Shadow6/Core-Go/shadow6-go-crosed "$shadow6_root/Core-Go/"
+          cp Shadow6/Core-Rust/shadow6-rust-crosed "$shadow6_root/Core-Rust/"
+          cp Shadow6/Core-Gleam/shadow6-gleam-crosed "$shadow6_root/Core-Gleam/"
+          cp Shadow6/Core-Ada/shadow6-ada-crosed "$shadow6_root/Core-Ada/"
+          cp Shadow6/Core-Nim/shadow6-nim-crosed Shadow6/Core-Nim/libdatachannel.so* "$shadow6_root/Core-Nim/"
+          cp Shadow6/Core-Idris/shadow6-idris-crosed Shadow6/Core-Idris/*.so "$shadow6_root/Core-Idris/"
+          cp -a Shadow6/Core-Idris/shadow6-idris*_app "$shadow6_root/Core-Idris/"
+          sudo chown -R root:root "$shadow6_root"
+          sudo env PATH="$PATH" LD_LIBRARY_PATH="$shadow6_root/Core-Nim:$shadow6_root/Core-Idris:${LD_LIBRARY_PATH:-}" ZIOKT_EXTENSION_DIAGNOSTICS=1 ZIOKT_EXTENSION_ROOT="$shadow6_root" ZIOKT_REQUIRE_EXTENSION_MATRIX=1 python -m unittest discover -s tests -p test_extensions_ziokt.py -v
       - name: Full Ziokt contract and native integration suites
         run: |
           python tools/sync_providers.py --check

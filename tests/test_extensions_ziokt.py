@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 import secrets
+import shutil
+import subprocess
 import tempfile
 import unittest
 from ziokt.extensions import Extensions,feature_matrix,install
@@ -15,7 +17,16 @@ class ZioktExtensions(unittest.TestCase):
         self.key=secrets.token_bytes(32);self.binding=install(ROOT,Path(self.temp.name)/'bundle',self.key)
         self.payload={'schema':'ziokt.extension-event.v1','kind':'zkn-gift','network_id':'default','content_digest':'sha256:'+'a'*64,'hops':2,'private':True,'free_forwarding':True}
 
+    def require_network_namespace(self):
+        unshare=shutil.which('unshare')
+        try:
+            available=bool(unshare and subprocess.run([unshare,'--user','--map-current-user','--net','true'],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5,check=False).returncode==0)
+        except (OSError,subprocess.TimeoutExpired):available=False
+        if not available:self.skipTest('OS user and network namespaces unavailable to this runner identity')
+
     def test_six_existing_cores_authorize_real_isolated_signed_plugin(self):
+        self.require_network_namespace()
         rows=feature_matrix(ROOT)
         self.assertEqual(len(rows),6)
         available=[r for r in rows if r['eligible']]
@@ -27,6 +38,7 @@ class ZioktExtensions(unittest.TestCase):
                 self.assertEqual(result['result']['results'][0]['result']['allow'],True)
 
     def test_private_metadata_only_and_no_policy_fallback(self):
+        self.require_network_namespace()
         rows=[r for r in feature_matrix(ROOT) if r['eligible']]
         if not rows:self.skipTest('matching existing compiled extension artifacts unavailable')
         row=rows[0];invoke=Extensions(self.binding,self.key,row['core'],row['binary_digest'])
