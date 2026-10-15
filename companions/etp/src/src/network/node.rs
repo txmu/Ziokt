@@ -132,6 +132,8 @@ pub struct NodeConfig {
     pub keypair: KeyPair,
     pub profile: SecurityProfile,
     pub bootstrap_peers: Vec<SocketAddr>,
+    pub trusted_peers: std::collections::HashMap<SocketAddr, [u8; 32]>,
+    pub enable_onion_relay: bool,
     pub default_dialect: String,
     pub default_flavor: String,
     pub stateless_secret: [u8; 32],
@@ -162,6 +164,8 @@ impl Default for NodeConfig {
             keypair: KeyPair::generate(),
             profile: SecurityProfile::Balanced,
             bootstrap_peers: vec![],
+            trusted_peers: std::collections::HashMap::new(),
+            enable_onion_relay: false,
             default_dialect: "etp.dialect.noise.std".to_string(),
             default_flavor: "etp.flavor.core".to_string(),
             stateless_secret: [0u8; 32],
@@ -611,6 +615,7 @@ struct ProcessingContext {
     transport: Arc<dyn PacketTransport>,
     config: Arc<NodeConfig>,
     routing_table: Arc<RoutingTable>,
+    onion: Arc<super::onion::OnionRouter>,
     sessions: Arc<DashMap<SocketAddr, Arc<tokio::sync::Mutex<SessionContext>>>>,
     nat_manager: Arc<RwLock<NatManager>>,
     acl: Arc<AclManager>,
@@ -694,6 +699,35 @@ impl EtpEngine {
         plugins: Arc<PluginRegistry>,
         transport: Arc<dyn PacketTransport>, // <--- 关键：依赖注入
     ) -> Result<(Self, EtpHandle, mpsc::Receiver<(SocketAddr, Vec<u8>)>)> {
+        anyhow::ensure!(
+            config.keypair.private.len() == 32
+                && config.keypair.public.len() == 32
+                && config.trusted_peers.len() <= 128,
+            "bounded valid node identity required"
+        );
+        anyhow::ensure!(
+            config.anonymity.jitter_ms_range.0 <= config.anonymity.jitter_ms_range.1
+                && config.anonymity.jitter_ms_range.1 <= 10000,
+            "jitter range"
+        );
+        if config.stateless_secret == [0; 32] {
+            rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut config.stateless_secret);
+        }
+        if plugins.get_dialect(&config.default_dialect).is_none()
+            && config.default_dialect == "etp.dialect.noise.std"
+        {
+            plugins.register_dialect(Arc::new(crate::plugin::StandardDialect));
+        }
+        if plugins.get_flavor(&config.default_flavor).is_none()
+            && config.default_flavor == "etp.flavor.core"
+        {
+            plugins.register_flavor(Arc::new(crate::plugin::StandardFlavor));
+        }
+        anyhow::ensure!(
+            plugins.get_dialect(&config.default_dialect).is_some()
+                && plugins.get_flavor(&config.default_flavor).is_some(),
+            "configured plugins unavailable"
+        );
         // 1. 初始化核心组件
         let my_id = blake3::hash(&config.keypair.public).into();
 
@@ -717,7 +751,10 @@ impl EtpEngine {
         // 3. 构建共享状态
         let token_manager = Arc::new(TokenManager::new(config.stateless_secret));
         let routing_table = Arc::new(RoutingTable::new());
-        let acl = Arc::new(AclManager::new(true)); // 默认开启严格 ACL 模式
+        let acl = Arc::new(AclManager::new(true));
+        for key in config.trusted_peers.values() {
+            acl.trust_node(*key, 0);
+        } // 默认开启严格 ACL 模式
         let nat_mgr = Arc::new(RwLock::new(NatManager::new()));
         let sessions = Arc::new(DashMap::new());
         let dht_store = Arc::new(DashMap::new());
@@ -731,9 +768,16 @@ impl EtpEngine {
         let (cmd_tx, cmd_rx) = mpsc::channel(256); // Commands
 
         // 5. 组装上下文
+        let config = Arc::new(config);
+        let onion = Arc::new(super::onion::OnionRouter::new(
+            config.clone(),
+            transport.clone(),
+            data_tx.clone(),
+        ));
         let ctx = ProcessingContext {
+            onion,
             transport, // 使用传入的 Transport
-            config: Arc::new(config),
+            config,
             routing_table,
             sessions,
             nat_manager: nat_mgr,
@@ -880,6 +924,9 @@ impl EtpEngine {
     fn spawn_incoming_handler(&self, data: Vec<u8>, src: SocketAddr) {
         let ctx = self.ctx.clone();
         tokio::spawn(async move {
+            if ctx.onion.receive(&data, src).await {
+                return;
+            }
             if let Some(handler) = &ctx.default_handler {
                 if handler.handle(&data, src, &ctx.transport).await {
                     return;
@@ -980,6 +1027,8 @@ impl EtpEngine {
                 if let Ok(len) = session.crypto.decrypt(&plain_data, &mut plaintext_buf) {
                     plaintext_buf.truncate(len);
                     if let Ok(pkt) = bincode::DefaultOptions::new()
+                        .with_fixint_encoding()
+                        .with_limit(65536)
                         .allow_trailing_bytes()
                         .deserialize::<StatefulPacket>(&plaintext_buf)
                     {
@@ -1508,10 +1557,12 @@ impl EtpEngine {
         buf.resize(1024, 0);
         let (len, _) = session.crypto.write_handshake_message(&[], &mut buf)?;
 
-        self.ctx.transport.send_to(&buf[..len], target).await?;
+        let mut message = buf[..len].to_vec();
+        session.dialect.seal(&mut message);
         self.ctx
             .sessions
             .insert(target, Arc::new(tokio::sync::Mutex::new(session)));
+        self.ctx.transport.send_to(&message, target).await?;
         self.ctx
             .metrics
             .active_sessions
@@ -1746,10 +1797,10 @@ impl EtpEngine {
 
     async fn handle_onion_send(
         &self,
-        _path: Vec<(SocketAddr, Vec<u8>)>,
-        _data: Vec<u8>,
+        path: Vec<(SocketAddr, Vec<u8>)>,
+        data: Vec<u8>,
     ) -> Result<()> {
-        Ok(())
+        self.ctx.onion.send(path, data).await
     }
 
     fn encrypt_stateless_payload(data: &[u8], nonce: u64, secret: &[u8]) -> Result<Vec<u8>> {

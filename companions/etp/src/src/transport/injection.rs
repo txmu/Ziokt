@@ -2,17 +2,17 @@
 
 use crate::wire::frame::{Frame, InjectionCommand};
 use crate::NodeID;
-use ed25519_dalek::{Verifier, VerifyingKey, Signature};
-use std::collections::{HashMap, HashSet};
-use anyhow::{Result, anyhow};
-use parking_lot::RwLock; // 高性能读写锁
+use anyhow::{anyhow, Result};
 use bincode;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use parking_lot::RwLock; // 高性能读写锁
+use std::collections::{HashMap, HashSet};
 
 pub const CAP_ROUTE_HINT: u32 = 1 << 0;
-pub const CAP_THROTTLE:   u32 = 1 << 1;
+pub const CAP_THROTTLE: u32 = 1 << 1;
 pub const CAP_SERVICE_AD: u32 = 1 << 2;
 /// 超级管理员权限：允许修改 ACL 本身或执行所有操作
-pub const CAP_ADMIN:      u32 = 0xFFFFFFFF;
+pub const CAP_ADMIN: u32 = 0xFFFFFFFF;
 
 /// 生产级 ACL 管理器
 /// 支持运行时动态更新、零信任鉴权与指令审计
@@ -20,10 +20,10 @@ pub struct AclManager {
     /// 白名单: NodeID -> (Permissions, Public Key Bytes)
     /// 使用 RwLock 允许在运行时动态添加新的信任节点
     whitelist: RwLock<HashMap<NodeID, (u32, [u8; 32])>>,
-    
+
     /// 黑名单: 被封禁的 NodeID
     blacklist: RwLock<HashSet<NodeID>>,
-    
+
     /// 是否开启严格零信任模式 (Strict Mode)
     /// true: 只有白名单内的节点允许握手
     /// false: 允许陌生节点握手 (但 Injection 仍需权限)
@@ -46,7 +46,8 @@ impl AclManager {
         let id = blake3::hash(&pub_key).into();
         let mut wl = self.whitelist.write();
         wl.insert(id, (permissions, pub_key));
-        
+
+        drop(wl);
         // 如果该节点在黑名单中，移除它
         let mut bl = self.blacklist.write();
         bl.remove(&id);
@@ -56,6 +57,7 @@ impl AclManager {
     pub fn block_node(&self, id: NodeID) {
         let mut bl = self.blacklist.write();
         bl.insert(id);
+        drop(bl);
         // 从白名单移除
         let mut wl = self.whitelist.write();
         wl.remove(&id);
@@ -86,7 +88,12 @@ impl AclManager {
     /// 验证控制帧的安全性与权限
     pub fn verify_frame(&self, frame: &Frame) -> Result<bool> {
         match frame {
-            Frame::Injection { target_session, injector_id, command, signature } => {
+            Frame::Injection {
+                target_session,
+                injector_id,
+                command,
+                signature,
+            } => {
                 // 1. 再次检查黑名单 (防止连接建立后被拉黑)
                 if self.blacklist.read().contains(injector_id) {
                     return Err(anyhow!("Node is blacklisted"));
@@ -94,7 +101,8 @@ impl AclManager {
 
                 // 2. 获取权限与公钥
                 let wl = self.whitelist.read();
-                let (perms, pub_key_bytes) = wl.get(injector_id)
+                let (perms, pub_key_bytes) = wl
+                    .get(injector_id)
                     .ok_or_else(|| anyhow!("Node not authorized for injection"))?;
 
                 // 3. 权限位检查
@@ -104,7 +112,7 @@ impl AclManager {
                     InjectionCommand::ServiceAdvertisement { .. } => CAP_SERVICE_AD,
                 };
 
-                if (perms & required_perm) == 0 && (perms & CAP_ADMIN) == 0 {
+                if (perms & required_perm) == 0 && (*perms & CAP_ADMIN) != CAP_ADMIN {
                     return Err(anyhow!("Permission denied: Missing capability"));
                 }
 
@@ -112,7 +120,7 @@ impl AclManager {
                 // 验证内容必须包含 SessionID 和 Command，防止重放攻击到其他 Session
                 let verify_key = VerifyingKey::from_bytes(pub_key_bytes)
                     .map_err(|_| anyhow!("Invalid stored public key"))?;
-                
+
                 let sig_obj = Signature::from_bytes(signature);
 
                 let mut msg = Vec::new();
@@ -121,11 +129,12 @@ impl AclManager {
                 let cmd_bytes = bincode::serialize(command)?;
                 msg.extend_from_slice(&cmd_bytes);
 
-                verify_key.verify(&msg, &sig_obj)
+                verify_key
+                    .verify(&msg, &sig_obj)
                     .map_err(|_| anyhow!("Invalid signature verification"))?;
 
                 Ok(true)
-            },
+            }
             // 其他非控制帧由 Session 层的加密保证安全性，无需 ACL 介入
             _ => Ok(true),
         }
