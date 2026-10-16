@@ -1,6 +1,6 @@
 // etp-core/examples/remote_etpnet.rs
 
-#![cfg(feature = "persistence")]
+#![cfg(all(feature = "persistence", feature = "extensions"))]
 
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
@@ -103,9 +103,14 @@ async fn main() -> Result<()> {
         &key_bytes, &key_bytes, dht_tx.clone(), chat_tx
     )?;
     
-    let forum = ForumFlavor::new(
+    // Persist the author across restarts while separating the Ed25519 author
+    // seed from the Noise transport key. Their public NodeIDs are distinct.
+    let mut forum_seed = blake3::derive_key("ETP Forum Ed25519 author seed v2", &key_bytes);
+    let forum_identity = Arc::new(etp_core::extensions::identity::AnchorIdentity::from_bytes(&forum_seed));
+    zeroize::Zeroize::zeroize(&mut forum_seed);
+    let forum = ForumFlavor::new_with_identity(
         data_dir.join("forum.db").to_str().unwrap(),
-        dht_tx.clone(), forum_tx
+        dht_tx.clone(), forum_tx, forum_identity
     )?;
 
     let tns = TnsFlavor::new(
@@ -129,6 +134,7 @@ async fn main() -> Result<()> {
     composite.bind_stream(STREAM_FS, fs.clone());
     
     // 注册 Composite 到系统
+    registry.register_flavor(forum.clone());
     registry.register_flavor(composite);
 
     // 6. 节点配置

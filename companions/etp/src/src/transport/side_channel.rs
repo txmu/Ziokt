@@ -1,13 +1,13 @@
 // etp-core/src/transport/side_channel.rs
 
-use std::collections::{HashMap, VecDeque, BTreeMap};
-use std::time::{Duration, Instant};
-use log::{debug, warn, trace, error};
 use crate::wire::frame::Frame;
+use log::{debug, error, trace, warn};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 // --- 配置常量 ---
-const MAX_SIDE_CHANNELS: usize = 64; 
-const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(60); 
+const MAX_SIDE_CHANNELS: usize = 64;
+const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_BUFFER_PER_CHANNEL: usize = 2 * 1024 * 1024; // 2MB buffer limit
 const DEFAULT_BURST_SIZE: usize = 16 * 1024; // 16KB burst allow
 
@@ -37,7 +37,7 @@ pub struct SideChannelPolicy {
     pub mode: ChannelMode,
     pub priority: u8, // 0-255, 越高越优先
     pub timeout: Duration,
-    
+
     // --- 新增特性 ---
     /// 速率限制 (字节/秒)，0 表示无限制
     pub rate_limit: usize,
@@ -76,11 +76,13 @@ impl TokenBucket {
     }
 
     fn consume(&mut self, amount: usize) -> bool {
-        if self.rate_per_sec <= 0.0 { return true; } // Unlimited
+        if self.rate_per_sec <= 0.0 {
+            return true;
+        } // Unlimited
 
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_update).as_secs_f64();
-        
+
         // Refill
         self.tokens = (self.tokens + elapsed * self.rate_per_sec).min(self.capacity);
         self.last_update = now;
@@ -100,12 +102,12 @@ struct SideChannel {
     policy: SideChannelPolicy,
     created_at: Instant,
     last_active: Instant,
-    
+
     /// 发送队列
     tx_queue: VecDeque<Vec<u8>>,
     /// 接收缓冲区 (用于流控)
     rx_buffer_size: usize,
-    
+
     /// 限流器
     rate_limiter: TokenBucket,
 
@@ -151,7 +153,10 @@ impl SideChannel {
 
         // 2. 速率限制检查 (Anti-DoS)
         if !self.rate_limiter.consume(data.len()) {
-            warn!("SideChannel {}: Rate limit exceeded, dropping packet", self.id);
+            warn!(
+                "SideChannel {}: Rate limit exceeded, dropping packet",
+                self.id
+            );
             return false;
         }
 
@@ -166,7 +171,7 @@ impl SideChannel {
         // SideChannel 内部实现保序是双重保险。
         // 在此实现中，我们采用：
         // 如果是 ReliableMessage，我们在 data 头部插入 8 字节 Sequence Number。
-        
+
         if self.policy.mode == ChannelMode::ReliableMessage {
             let mut seq_data = Vec::with_capacity(8 + data.len());
             seq_data.extend_from_slice(&self.next_tx_seq.to_be_bytes());
@@ -193,7 +198,10 @@ impl SideChannel {
 
         // ReliableMessage 模式：解析 Seq
         if data.len() < 8 {
-            warn!("SideChannel {}: Malformed reliable packet (too short)", self.id);
+            warn!(
+                "SideChannel {}: Malformed reliable packet (too short)",
+                self.id
+            );
             return vec![];
         }
 
@@ -221,10 +229,16 @@ impl SideChannel {
             // 乱序到达 (Gap Detected)，缓存之
             // 限制缓存大小防止内存攻击
             if self.reorder_buffer.len() < 100 {
-                debug!("SideChannel {}: Gap detected, buffered seq {} (expecting {})", self.id, seq, self.next_rx_seq);
+                debug!(
+                    "SideChannel {}: Gap detected, buffered seq {} (expecting {})",
+                    self.id, seq, self.next_rx_seq
+                );
                 self.reorder_buffer.insert(seq, payload);
             } else {
-                warn!("SideChannel {}: Reorder buffer full, dropping seq {}", self.id, seq);
+                warn!(
+                    "SideChannel {}: Reorder buffer full, dropping seq {}",
+                    self.id, seq
+                );
             }
             return vec![];
         }
@@ -233,14 +247,14 @@ impl SideChannel {
     fn apply_padding(&self, data: &mut Vec<u8>) {
         let current_len = data.len();
         match self.policy.padding {
-            PaddingMode::None => {},
+            PaddingMode::None => {}
             PaddingMode::Fixed(size) => {
                 if current_len < size {
                     let pad_len = size - current_len;
                     data.resize(size, 0); // 简单填0，加密层会使其随机化
-                    // 实际上应该填随机数，但在 RawPacket 层会再次加密，填0也是安全的
+                                          // 实际上应该填随机数，但在 RawPacket 层会再次加密，填0也是安全的
                 }
-            },
+            }
             PaddingMode::BlockAligned(block) => {
                 if block > 0 {
                     let rem = current_len % block;
@@ -283,7 +297,8 @@ impl SideChannelManager {
             return false;
         }
         // 如果存在则更新策略，如果不存在则创建
-        self.channels.entry(id)
+        self.channels
+            .entry(id)
             .and_modify(|ch| ch.policy = policy.clone())
             .or_insert_with(|| SideChannel::new(id, policy));
         true
@@ -291,11 +306,15 @@ impl SideChannelManager {
 
     /// 创建动态信道 (自动分配 ID)
     pub fn create_dynamic_channel(&mut self, policy: SideChannelPolicy) -> Option<u32> {
-        if self.channels.len() >= MAX_SIDE_CHANNELS { return None; }
-        
+        if self.channels.len() >= MAX_SIDE_CHANNELS {
+            return None;
+        }
+
         let id = self.next_local_id;
         self.next_local_id = self.next_local_id.wrapping_add(1);
-        if self.next_local_id < 1000 { self.next_local_id = 1000; }
+        if self.next_local_id < 1000 {
+            self.next_local_id = 1000;
+        }
 
         self.channels.insert(id, SideChannel::new(id, policy));
         Some(id)
@@ -313,8 +332,20 @@ impl SideChannelManager {
     /// 处理从网络接收到的原始帧
     /// 返回: true (成功处理), false (信道拒绝或不存在)
     pub fn on_frame_received(&mut self, id: u32, data: Vec<u8>) -> bool {
-        // 自动创建默认信道 (Lazy Accept)
+        self.on_frame_received_with_policy(id, data, true)
+    }
+
+    /// Reject unknown IDs before allocating any state when dynamic channels are disabled.
+    pub fn on_frame_received_with_policy(
+        &mut self,
+        id: u32,
+        data: Vec<u8>,
+        allow_dynamic: bool,
+    ) -> bool {
         if !self.channels.contains_key(&id) {
+            if !allow_dynamic {
+                return false;
+            }
             // 默认策略：不可靠、低优先、短超时，防止恶意创建大量状态
             let default_policy = SideChannelPolicy {
                 mode: ChannelMode::Datagram,
@@ -331,7 +362,7 @@ impl SideChannelManager {
         if let Some(ch) = self.channels.get_mut(&id) {
             // 处理保序和去重
             let ready_msgs = ch.process_ingress(data);
-            
+
             // 将就绪消息放入 Outbox 供上层提取
             if !ready_msgs.is_empty() {
                 let queue = self.rx_outbox.entry(id).or_insert_with(VecDeque::new);
@@ -365,7 +396,9 @@ impl SideChannelManager {
         let mut total_bytes = 0;
 
         // 1. 获取所有有发送数据的信道
-        let mut candidates: Vec<&mut SideChannel> = self.channels.values_mut()
+        let mut candidates: Vec<&mut SideChannel> = self
+            .channels
+            .values_mut()
             .filter(|ch| !ch.tx_queue.is_empty())
             .collect();
 
@@ -375,11 +408,13 @@ impl SideChannelManager {
 
         // 3. 填充配额
         for ch in candidates {
-            if total_bytes >= limit_bytes { break; }
+            if total_bytes >= limit_bytes {
+                break;
+            }
 
             // 每个信道每次调度的配额 (Burst)，防止高优先级饿死低优先级
             // 高优先级的 Burst 更大
-            let burst_limit = (ch.policy.priority as usize * 64).max(1024); 
+            let burst_limit = (ch.policy.priority as usize * 64).max(1024);
             let mut sent_this_round = 0;
 
             while sent_this_round < burst_limit && total_bytes < limit_bytes {
@@ -387,7 +422,7 @@ impl SideChannelManager {
                     let len = data.len();
                     // 这里不再次检查 Rate Limit，因为入队时已经检查过了
                     // 入队是 Token Bucket 生产控制，出队是 Priority 调度控制
-                    
+
                     ch.bytes_sent += len;
                     total_bytes += len;
                     sent_this_round += len;
@@ -418,5 +453,27 @@ impl SideChannelManager {
             self.channels.remove(&id);
             self.rx_outbox.remove(&id);
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_ingress_rejects_unknown_channels_without_allocating() {
+        let mut channels = SideChannelManager::new();
+        assert!(!channels.on_frame_received_with_policy(42, b"unregistered".to_vec(), false));
+        assert!(channels.channels.is_empty());
+        assert!(channels.active_channel_ids().is_empty());
+        assert!(channels.register_or_update_channel(42, SideChannelPolicy::default()));
+        assert!(channels.on_frame_received_with_policy(42, b"registered".to_vec(), false));
+        assert_eq!(channels.recv_message(42), Some(b"registered".to_vec()));
+        assert!(!channels.on_frame_received_with_policy(43, b"unknown".to_vec(), false));
+        assert_eq!(channels.channels.len(), 1);
+        assert!(channels.on_frame_received_with_policy(43, b"explicit dynamic".to_vec(), true));
+        assert_eq!(
+            channels.recv_message(43),
+            Some(b"explicit dynamic".to_vec())
+        );
     }
 }

@@ -43,9 +43,8 @@ pub struct DeepAnonymityFacade {
     /// 全局 ACL (防火墙联动)
     global_acl: Arc<AclManager>,
 
-    /// 持有 Transport 引用以便运行时更新路由表 (Hybrid Mode only)
-    /// 因为 Transport 被 move 给了 Engine，我们需要保留一份 Weak 或者 Arc 克隆
-    hybrid_transport: RwLock<Option<Arc<HybridTransport>>>,
+    /// Retain onion mappings for both strict external and explicitly mixed modes.
+    tor_transport: RwLock<Option<Arc<TorDynamicTransport>>>,
 }
 
 impl DeepAnonymityFacade {
@@ -55,7 +54,7 @@ impl DeepAnonymityFacade {
             state: RwLock::new(FacadeState::Initializing),
             isolation_mgr: Arc::new(IsolationManager::new(storage_base)),
             global_acl: Arc::new(AclManager::new(true)),
-            hybrid_transport: RwLock::new(None),
+            tor_transport: RwLock::new(None),
         }
     }
 
@@ -65,7 +64,7 @@ impl DeepAnonymityFacade {
 
     pub async fn spawn_main_node(
         &self,
-        mut config: NodeConfig,
+        config: NodeConfig,
         mut registry: PluginRegistry,
     ) -> Result<(EtpHandle, mpsc::Receiver<(SocketAddr, Vec<u8>)>)> {
         let mut state = self.state.write().await;
@@ -93,9 +92,9 @@ impl DeepAnonymityFacade {
             let tor_trans =
                 TorDynamicTransport::new(&proxy).context("Failed to initialize Tor Transport")?;
 
-            if true {
-                // 暂时假设开启 "Hybrid" 模式作为高级特性的默认行为
-                // 因为 Hybrid 包含 Pure Tor 的能力，且更灵活
+            *self.tor_transport.write().await = Some(tor_trans.clone());
+            if profile.allow_clearnet_fallback {
+                warn!("Facade: explicit mixed mode permits clearnet UDP for unmapped peers");
 
                 // 初始化 UDP
                 let udp_sock = tokio::net::UdpSocket::bind(&config.bind_addr).await?;
@@ -105,14 +104,10 @@ impl DeepAnonymityFacade {
                 // 组合
                 let hybrid = HybridTransport::new(udp_trans, tor_trans.clone());
 
-                // 保存引用以便后续 map_domain
-                *self.hybrid_transport.write().await = Some(hybrid.clone());
-
                 // 注入 Engine
                 EtpEngine::new_with_transport(config, Arc::new(registry), hybrid).await?
             } else {
-                // Pure Darknet Mode (No UDP) - Logic placeholder
-                // 如果需要纯 Darknet，不绑定 UDP，直接用 TorDynamicTransport
+                // Strict external anonymity: no UDP socket is created.
                 EtpEngine::new_with_transport(config, Arc::new(registry), tor_trans).await?
             }
         } else {
@@ -139,9 +134,9 @@ impl DeepAnonymityFacade {
     /// 注册一个 Onion 地址，并获取可用于 send_data 的虚拟 SocketAddr
     /// 仅在 Hybrid 或 Darknet 模式下有效
     pub async fn register_onion_peer(&self, onion_domain: &str) -> Result<SocketAddr> {
-        let guard = self.hybrid_transport.read().await;
+        let guard = self.tor_transport.read().await;
         if let Some(trans) = guard.as_ref() {
-            let addr = trans.map_onion_address(onion_domain);
+            let addr = trans.map_domain(onion_domain);
             info!("Facade: Mapped {} -> {}", onion_domain, addr);
             Ok(addr)
         } else {
@@ -178,5 +173,80 @@ impl DeepAnonymityFacade {
 
         // 3. 进程退出 (Optional)
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::node::PacketTransport;
+    use tokio::net::{TcpListener, UdpSocket};
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn strict_external_mode_never_binds_or_sends_clearnet() {
+        let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let profile: DeepProfile = serde_json::from_value(serde_json::json!({
+            "enable_external_anonymity": true,
+            "proxy_addr": proxy.local_addr().unwrap().to_string(),
+            "enable_domain_isolation": false,
+            "enable_canary_traps": false
+        }))
+        .unwrap();
+        assert!(!profile.allow_clearnet_fallback);
+        let facade = DeepAnonymityFacade::new(profile, std::env::temp_dir());
+        let config = NodeConfig {
+            bind_addr: udp.local_addr().unwrap().to_string(),
+            ..NodeConfig::default()
+        };
+        // This port is already occupied: any implicit UDP bind would fail.
+        let (_handle, _inbox) = facade
+            .spawn_main_node(config, PluginRegistry::new())
+            .await
+            .unwrap();
+        let virtual_peer = facade
+            .register_onion_peer(&format!("{}.onion:443", "a".repeat(56)))
+            .await
+            .unwrap();
+        let transport = facade.tor_transport.read().await.clone().unwrap();
+        assert!(transport
+            .resolve_ip(&virtual_peer)
+            .unwrap()
+            .0
+            .ends_with(".onion"));
+        assert!(transport
+            .send_to(b"must not leak", udp.local_addr().unwrap())
+            .await
+            .is_err());
+        assert!(
+            timeout(Duration::from_millis(50), udp.recv_from(&mut [0u8; 64]))
+                .await
+                .is_err()
+        );
+        assert!(timeout(Duration::from_millis(50), proxy.accept())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn mixed_transport_requires_explicit_permission() {
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let profile = DeepProfile {
+            enable_external_anonymity: true,
+            allow_clearnet_fallback: true,
+            proxy_addr: Some("127.0.0.1:9050".into()),
+            enable_canary_traps: false,
+            ..DeepProfile::default()
+        };
+        let facade = DeepAnonymityFacade::new(profile, std::env::temp_dir());
+        let config = NodeConfig {
+            bind_addr: occupied.local_addr().unwrap().to_string(),
+            ..NodeConfig::default()
+        };
+        assert!(facade
+            .spawn_main_node(config, PluginRegistry::new())
+            .await
+            .is_err());
     }
 }

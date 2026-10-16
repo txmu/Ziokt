@@ -924,7 +924,12 @@ impl EtpEngine {
 
         // 显式清空 Sessions。
         // 这会导致所有 SessionContext 被 Drop -> Flavor 被 Drop -> Sled Db 被 Drop -> 数据刷盘。
+        let closing_sessions: Vec<_> = self.ctx.sessions.iter().map(|entry| (*entry.key(), entry.value().clone())).collect();
         self.ctx.sessions.clear();
+        for (peer, session) in closing_sessions {
+            let flavor = session.lock().await.flavor.clone();
+            flavor.on_connection_close(peer);
+        }
         info!("Sessions cleared. Persistence layers should have flushed.");
 
         Ok(())
@@ -1083,7 +1088,11 @@ impl EtpEngine {
                                 warn!("Zero Tolerance: Banning {} for invalid handshake", src);
                                 ctx.banned_ips
                                     .insert(src, Instant::now() + Duration::from_secs(300));
-                                ctx.sessions.remove(&src);
+                                let flavor = session.flavor.clone();
+                                drop(session);
+                                if ctx.sessions.remove(&src).is_some() {
+                                    flavor.on_connection_close(src);
+                                }
                             }
                         }
                     }
@@ -1137,16 +1146,11 @@ impl EtpEngine {
                                     // [Side Channel Ingress]
                                     Frame::SideChannel { channel_id, data } => {
                                         let allowed =
-                                            if ctx.config.security.allow_dynamic_side_channels {
-                                                session
-                                                    .side_channels
-                                                    .on_frame_received(channel_id, data)
-                                            } else {
-                                                // TODO: Check against registered list logic
-                                                session
-                                                    .side_channels
-                                                    .on_frame_received(channel_id, data)
-                                            };
+                                            session.side_channels.on_frame_received_with_policy(
+                                                channel_id,
+                                                data,
+                                                ctx.config.security.allow_dynamic_side_channels,
+                                            );
                                         if allowed {
                                             ctx.metrics
                                                 .control_bytes_ingress
@@ -2115,11 +2119,11 @@ impl EtpEngine {
         }
 
         for target in remove_list {
-            self.ctx.sessions.remove(&target);
-            self.ctx
-                .metrics
-                .active_sessions
-                .fetch_sub(1, Ordering::Relaxed);
+            if let Some((_, session)) = self.ctx.sessions.remove(&target) {
+                let flavor = session.lock().await.flavor.clone();
+                flavor.on_connection_close(target);
+                self.ctx.metrics.active_sessions.fetch_sub(1, Ordering::Relaxed);
+            }
         }
 
         for (target, packet) in flights {

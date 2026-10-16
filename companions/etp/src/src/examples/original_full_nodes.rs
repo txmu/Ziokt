@@ -315,7 +315,7 @@ async fn main() -> anyhow::Result<()> {
         .expect("FS Flavor missing")
         .downcast_arc::<FileShareFlavor>().ok().expect("FS Type mismatch");
 
-    let _http_gw = HttpGatewayFlavor::new(cli.http_port, tns_f.clone(), fs_f.clone());
+    let _http_gw = HttpGatewayFlavor::bind(cli.http_port, tns_f.clone(), fs_f.clone()).await?;
 
     // 10. 用户交互 CLI
     run_repl(my_node_id, socks_addr, cli.http_port, handle, tns_f, fs_f, registry.clone()).await?;

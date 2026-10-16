@@ -71,9 +71,9 @@ async fn main() -> Result<()> {
     )?;
 
     // 4. 初始化 Gateway Flavor
-    // 注意：HttpGatewayFlavor 会启动一个 TCP Listener 绑定到 0.0.0.0 (在源码中可配置)
+    // 注意：HttpGatewayFlavor 只绑定本机 127.0.0.1，启动失败返回错误
     // 这里我们传入 TNS 和 FS 的引用，Gateway 会调用它们的方法来响应 HTTP 请求
-    let _gateway = HttpGatewayFlavor::new(cli.http_port, tns.clone(), fs.clone());
+    let _gateway = HttpGatewayFlavor::bind(cli.http_port, tns.clone(), fs.clone()).await?;
 
     // 注册这些 Flavor 以便处理回包
     registry.register_flavor(tns);

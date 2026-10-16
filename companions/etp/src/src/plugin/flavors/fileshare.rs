@@ -74,7 +74,13 @@ fn regular_read(path: &Path) -> Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Open the reparse point itself; the regular-file check below rejects it.
+        options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
     }
     let file = options.open(path)?;
     ensure!(file.metadata()?.is_file(), "regular file required");
@@ -171,6 +177,40 @@ impl FileShareFlavor {
         self.shared_files.write().insert(hash, manifest);
         Ok(hash)
     }
+    /// Snapshot only an explicitly shared/completed local object, validating every
+    /// chunk before any caller can expose its bytes. Hashes are not filesystem paths.
+    pub fn read_shared(&self, hash: [u8; 32]) -> Result<Vec<u8>> {
+        let manifest = self
+            .shared_files
+            .read()
+            .get(&hash)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("local object not shared"))?;
+        ensure!(
+            manifest.validate() && manifest.root_hash == hash,
+            "invalid local manifest"
+        );
+        let file = regular_read(&self.storage_dir.join(hex::encode(hash)))?;
+        ensure!(
+            file.metadata()?.len() == manifest.file_size,
+            "stored content size changed"
+        );
+        let mut bytes = Vec::new();
+        file.take(manifest.file_size + 1).read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() as u64 == manifest.file_size,
+            "stored content changed"
+        );
+        ensure!(
+            bytes
+                .chunks(CHUNK_SIZE)
+                .enumerate()
+                .all(|(i, data)| manifest.verify_chunk(i as u32, data)),
+            "stored content digest mismatch"
+        );
+        Ok(bytes)
+    }
+
     pub async fn start_download(&self, hash: [u8; 32], peer: SocketAddr) -> Result<()> {
         {
             let mut pending = self.pending.lock();
