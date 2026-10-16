@@ -85,7 +85,8 @@ lifecycle and response validation, not native networking.
 
 `ci/etp_gateway_smoke.py` now explicitly requires Forum for integrated builds and
 requires `METHOD_UNSUPPORTED` for minimal builds. The real-native section defines
-two pinned-key UDP gateways, signed 32 KiB publication, independent Ed25519 proof
+two pinned-key UDP gateways (one reached through the actual ApplicationRouter
+and its cached native backend), signed 32 KiB publication, independent Ed25519 proof
 verification, dynamic subscription persistence, same-address process restart,
 and a return reply. Native execution results must come from CI; no local cargo
 build/check/test was run. This document does not mark that pending native smoke

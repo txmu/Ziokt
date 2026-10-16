@@ -25,25 +25,40 @@ import zlib
 import platform
 import argparse
 import json
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 import time
 import base64
 import hashlib
 import http.server
 import socketserver
+import socket
 import shutil
 import subprocess
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import logging
+import logging.handlers
+import copy
+import gzip
+import hmac
+import html
+import io
+import re
+import secrets
+import stat
+from ufs_http_security import ConfinedFiles, DigestAuthority, digest_fields
 import threading
 import asyncio
-import aiohttp
-import aiofiles
 import signal
 from pathlib import Path, PurePath
-from urllib.parse import unquote, parse_qs
+from urllib.parse import unquote, parse_qs, urlsplit, quote
 from threading import Thread, Lock, RLock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ipaddress import ip_network, ip_address
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler
@@ -67,7 +82,7 @@ INIT_SYSTEMS = {
     'netbsd': ['rc.d']
 }
 
-sys.modules['ctypes'] = None  # 想调libc？做梦！
+# Do not modify the importing process's module registry.
 
 # ==================== WebDAV常量 ====================
 DAV_METHODS = ['OPTIONS', 'GET', 'HEAD', 'POST', 'DELETE', 'PUT', 
@@ -97,6 +112,12 @@ class Config:
     __lock = RLock()
     __config_file = None
     __last_modified = 0
+    __instance = None
+
+    def __new__(cls):
+        with cls.__lock:
+            if cls.__instance is None: cls.__instance = super().__new__(cls)
+            return cls.__instance
 
     def __init__(self):
         with self.__lock:
@@ -104,6 +125,14 @@ class Config:
                 self.load_config()
 
     def load_config(self):
+        with self.__lock:
+            previous = (self.__config,self.__config_file,self.__last_modified)
+            try: return self._load_config()
+            except BaseException:
+                self.__config,self.__config_file,self.__last_modified = previous
+                raise
+
+    def _load_config(self):
         # 尝试加载YAML或JSON配置文件
         config_paths = [
             Path('ufs-config.yaml'),
@@ -114,9 +143,13 @@ class Config:
         
         for path in config_paths:
             if path.exists():
+                info = path.lstat()
+                if path.is_symlink() or not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 256*1024 or (os.name!='nt' and info.st_uid!=os.geteuid()):
+                    raise ValueError('UFS_PRIVATE_CONFIG_REQUIRED')
                 self.__config_file = path
                 self.__last_modified = path.stat().st_mtime
                 if path.suffix == '.yaml':
+                    if yaml is None: raise RuntimeError('UFS_YAML_REQUIRES_PYYAML')
                     with open(path, 'r') as f:
                         self.__config = yaml.safe_load(f)
                 else:
@@ -127,6 +160,14 @@ class Config:
         if not self.__config:
             self.__config = self.default_config()
         
+        if self.__config_file:
+            base = self.__config_file.parent.absolute()
+            for field in ('root_dir','log_file','ssl_cert'):
+                if field in self.__config and not Path(self.__config[field]).is_absolute():
+                    self.__config[field] = str(base/self.__config[field])
+        self.__config = validated_config(self.__config)
+        if self.__config_file and self.__config_file.absolute().is_relative_to(Path(self.__config['root_dir'])):
+            raise ValueError('UFS_CONFIG_INSIDE_SERVED_ROOT')
         # 确保必要目录存在
         Path(self.__config['root_dir']).mkdir(parents=True, exist_ok=True)
         Path(self.__config['log_file']).parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +182,12 @@ class Config:
             'port': 8000,
             'web_port': 8001,
             'mode': 'standard',
-            'root_dir': self.safe_path(Path.cwd()),
+            'root_dir': self.safe_path(Path.cwd()/'ufs-data'),
+            'host': '127.0.0.1',
+            'request_timeout': 10,
+            'request_total_timeout': 30,
+            'max_listing': 1024,
+            'cleanup_enabled': False,
             'max_conn': 100,
             'threads': 50,
             
@@ -150,19 +196,19 @@ class Config:
             'ssl_cert': 'cert.pem',
             'auth': {
                 'user': 'admin',
-                'pass': self.generate_password(12, special_chars=True),
+                'pass': self.generate_password(20, special_chars=True),
                 'role': 'admin',
-                'min_length': 8,
+                'min_length': 12,
                 'special_chars': True
             },
             'realm': 'UltraFileServer',
             'nonce': hashlib.md5(str(time.time()).encode()).hexdigest(),
-            'ip_whitelist': ['192.168.124.0/24'],
+            'ip_whitelist': ['127.0.0.0/8', '::1/128'],
             'blacklist': [],
             
             # 传输配置
-            'upload': True,
-            'max_upload': 10*1024**3,
+            'upload': False,
+            'max_upload': 64*1024**2,
             'download_limit': 0,
             'checksum': True,
             'retention_days': 7,
@@ -195,10 +241,12 @@ class Config:
     @staticmethod
     def detect_init():
         if OS_TYPE == 'Linux':
-            if Path('/run/shepherd').exists() or 'shepherd' in subprocess.getoutput('ps aux'):
+            try: pid1 = Path('/proc/1/comm').read_text().strip()
+            except OSError: pid1 = ''
+            if Path('/run/shepherd').exists() or pid1 == 'shepherd':
                 return 'shepherd'
             for init in INIT_SYSTEMS['linux']:
-                if Path(f'/{init}').exists() or Path(f'/run/{init}').exists():
+                if pid1 == init or Path(f'/{init}').exists() or Path(f'/run/{init}').exists():
                     return init
             return 'unknown'
         elif OS_TYPE.lower() in ['freebsd', 'openbsd', 'netbsd']:
@@ -217,7 +265,7 @@ class Config:
         chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         if special_chars:
             chars += "!@#$%^&*()_+-=[]{}|;:,.<>?"
-        return ''.join(chars[c % len(chars)] for c in os.urandom(length))
+        return ''.join(secrets.choice(chars) for _ in range(length))
 
     def generate_self_signed_cert(self):
         """生成自签名SSL证书"""
@@ -244,16 +292,17 @@ class Config:
         ).serial_number(
             x509.random_serial_number()
         ).not_valid_before(
-            datetime.utcnow()
+            datetime.now(timezone.utc)
         ).not_valid_after(
-            datetime.utcnow() + timedelta(days=365)
+            datetime.now(timezone.utc) + timedelta(days=365)
         ).add_extension(
             x509.SubjectAlternativeName([x509.DNSName("localhost")]),
             critical=False,
         ).sign(key, hashes.SHA256(), default_backend())
         
         cert_path = Path(self.__config['ssl_cert'])
-        with open(cert_path, "wb") as f:
+        cert_fd = os.open(cert_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(cert_fd, "wb") as f:
             f.write(key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
@@ -302,7 +351,7 @@ class Config:
 
     @property
     def data(self):
-        return self.__config.copy()
+        with self.__lock: return copy.deepcopy(self.__config)
 
 # ==================== 令牌桶限速器 ====================
 class TokenBucket:
@@ -310,13 +359,13 @@ class TokenBucket:
         self.capacity = capacity
         self.rate = rate
         self.tokens = capacity
-        self.last_check = time.time()
+        self.last_check = time.monotonic()
         self.lock = Lock()
 
     def consume(self, amount):
         with self.lock:
-            now = time.time()
-            elapsed = now - self.last_check
+            now = time.monotonic()
+            elapsed = max(0, now - self.last_check)
             self.last_check = now
             
             # 添加新令牌
@@ -579,7 +628,7 @@ if %errorlevel% == 0 (
                 self.main()
                 
             def main(self):
-                server = UltraServer(('0.0.0.0', Config().data['port']), UltraHandler)
+                server = UltraServer((Config().data.get('host','127.0.0.1'), Config().data['port']), UltraHandler)
                 server.serve_forever()
         
         win32serviceutil.HandleCommandLine(UFSService)
@@ -603,458 +652,494 @@ if %errorlevel% == 0 (
             return False
 
 # ==================== 核心功能实现 ====================
+def auth_accounts(config):
+    auth = config['auth']
+    if not isinstance(auth, dict) or auth.get('enabled', True) is not True:
+        raise ValueError('UFS_AUTHENTICATION_REQUIRED')
+    minimum = auth.get('min_length', 12)
+    if type(minimum) is not int or not 8 <= minimum <= 128: raise ValueError('UFS_PASSWORD_POLICY')
+    users = auth.get('users')
+    if users is None:
+        users = {auth.get('user'): {'password':auth.get('pass'), 'role':auth.get('role','user')}}
+    if not isinstance(users, dict) or not 1 <= len(users) <= 64: raise ValueError('UFS_USERS_LIMIT')
+    result = {}
+    for username, account in users.items():
+        if not isinstance(username,str) or not re.fullmatch('[A-Za-z0-9_.@-]{1,64}',username): raise ValueError('UFS_USERNAME')
+        if (not isinstance(account,dict) or not isinstance(account.get('password'),str) or
+                not minimum <= len(account['password']) <= 1024 or not isinstance(account.get('role','user'),str) or account.get('role','user') not in API_PERMISSIONS):
+            raise ValueError('UFS_ACCOUNT_POLICY')
+        result[username] = {'password':account['password'], 'role':account.get('role','user')}
+    return result
+
+
+def validated_config(value):
+    if not isinstance(value,dict): raise ValueError('UFS_CONFIG_OBJECT')
+    config = Config.default_config(object.__new__(Config))
+    config.update(copy.deepcopy(value))
+    config['active_transfers'] = {}
+    for key, low, high in [('port',0,65535),('max_conn',1,256),('request_timeout',1,60),
+            ('request_total_timeout',1,300),('mmap_threshold',0,1024**4),('max_listing',1,4096),('max_upload',0,10*1024**3),('retention_days',1,36500),('compression_level',0,9)]:
+        if type(config[key]) is not int or not low <= config[key] <= high: raise ValueError('UFS_LIMIT_'+key)
+    if type(config['download_limit']) not in (int,float) or not 0 <= config['download_limit'] <= 10000:
+        raise ValueError('UFS_DOWNLOAD_LIMIT')
+    for key in ('ssl','upload','checksum','compression','cleanup_enabled','self_test','use_mmap'):
+        if type(config[key]) is not bool: raise ValueError('UFS_BOOL_'+key)
+    if not isinstance(config['realm'],str) or not re.fullmatch('[A-Za-z0-9 _.-]{1,64}',config['realm']):
+        raise ValueError('UFS_REALM')
+    for key in ('root_dir','log_file','ssl_cert'):
+        if not isinstance(config[key],(str,Path)) or not str(config[key]) or '\x00' in str(config[key]):
+            raise ValueError('UFS_PATH_CONFIG')
+        config[key] = str(Path(config[key]).absolute())
+    root = Path(config['root_dir'])
+    if any(Path(config[k]).is_relative_to(root) for k in ('ssl_cert','log_file')):
+        raise ValueError('UFS_PRIVATE_MATERIAL_INSIDE_SERVED_ROOT')
+    for key in ('ip_whitelist','blacklist'):
+        if not isinstance(config[key],list) or len(config[key])>256: raise ValueError('UFS_IP_POLICY')
+        for address in config[key]:
+            if key=='ip_whitelist': ip_network(address)
+            else: ip_address(address)
+    bucket = config['token_bucket']
+    if (not isinstance(bucket,dict) or set(bucket)!={'capacity','rate'} or
+            any(type(bucket[k]) is not int or not 65536<=bucket[k]<=1024**3 for k in bucket)):
+        raise ValueError('UFS_TOKEN_BUDGET')
+    auth_accounts(config)
+    return config
+
+
 class UltraHandler(http.server.SimpleHTTPRequestHandler):
+    """Authenticated HTTP/WebDAV with bounded, descriptor-confined file I/O."""
     def __init__(self, *args, **kwargs):
-        self.cfg = Config().data
-        self.start_time = time.time()
+        self.cfg = args[2].config
+        self.start_time = time.monotonic()
         self.rate_limit = self.cfg['download_limit'] * 1024**2
-        self.token_bucket = TokenBucket(
-            self.cfg['token_bucket']['capacity'],
-            self.cfg['token_bucket']['rate']
-        )
-        self.transfer_id = None
-        self.user_role = None
+        self.transfer_id, self.user_role, self.authenticated = None, None, False
         super().__init__(*args, directory=self.cfg['root_dir'], **kwargs)
-    
-    # ========== 安全验证增强 ==========
+
+    def setup(self):
+        self.request.settimeout(self.cfg['request_timeout'])
+        super().setup()
+        # A per-read timeout alone does not stop a peer dripping one byte at a
+        # time. Enforce a wall-clock budget over headers and body as well.
+        def expire():
+            try: self.request.shutdown(socket.SHUT_RDWR)
+            except OSError: return  # Connection already closed by its owner.
+        self._deadline = threading.Timer(self.cfg['request_total_timeout'],expire)
+        self._deadline.daemon = True; self._deadline.start()
+
+    def finish(self):
+        self._deadline.cancel()
+        super().finish()
+
+    def handle(self):
+        try: super().handle()
+        except (BrokenPipeError,ConnectionResetError,TimeoutError,ssl.SSLError):
+            return  # Closed/expired peers cannot receive another error frame.
+
+    def parse_request(self):
+        if not super().parse_request(): return False
+        self.authenticated = False
+        expected_origin = ('https' if self.cfg['ssl'] else 'http')+'://'+self.headers.get('Host','')
+        if self.headers.get('Origin') not in {None, expected_origin} or self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            self.send_error(403, 'Cross-origin browser request denied'); return False
+        if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Authorization', [])) > 1:
+            self.send_error(400, 'Ambiguous request framing or authorization'); return False
+        return self.authenticate()
+
+    def end_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'")
+        super().end_headers()
+
     def check_ip_whitelist(self):
-        client_ip = self.client_address[0]
-        if client_ip in self.cfg['blacklist']:
-            self.send_error(403, "IP Blocked")
-            return False
-            
-        for network in self.cfg['ip_whitelist']:
-            if ip_address(client_ip) in ip_network(network):
-                return True
-        self.send_error(403, "IP Not Allowed")
-        return False
-    
-    def generate_digest_response(self, nonce, method, uri):
-        ha1 = hashlib.md5(f"{self.cfg['auth']['user']}:{self.cfg['realm']}:{self.cfg['auth']['pass']}".encode()).hexdigest()
-        ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
-        return hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest()
-    
-    def authenticate(self):
-        if not self.check_ip_whitelist():
-            return False
-            
-        auth_header = self.headers.get('Authorization', '')
-        if not auth_header.startswith('Digest '):
-            self.send_auth_required()
-            return False
-            
-        auth_params = {}
-        for item in auth_header[7:].split(','):
-            key, val = item.strip().split('=', 1)
-            auth_params[key] = val.strip('"')
-            
-        if auth_params.get('username') != self.cfg['auth']['user']:
-            self.send_error(401, "Invalid credentials")
-            return False
-            
-        expected = self.generate_digest_response(
-            auth_params['nonce'],
-            self.command,
-            self.path
-        )
-        
-        if auth_params.get('response') != expected:
-            self.send_error(401, "Invalid credentials")
-            return False
-            
-        self.user_role = self.cfg['auth'].get('role', 'user')
+        address = ip_address(self.client_address[0])
+        if str(address) in self.cfg['blacklist'] or not any(address in ip_network(n) for n in self.cfg['ip_whitelist']):
+            self.send_error(403, 'IP not allowed'); return False
         return True
-    
+
+    def generate_digest_response(self, nonce, method, uri, *, username=None, password=None, nc=None, cnonce=None):
+        if not nc or not cnonce: raise ValueError('UFS_QOP_REQUIRED')
+        username = username or self.cfg['auth'].get('user')
+        password = password or self.cfg['auth'].get('pass')
+        digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+        ha1 = digest(f'{username}:{self.cfg["realm"]}:{password}')
+        return digest(f'{ha1}:{nonce}:{nc}:{cnonce}:auth:{digest(method+":"+uri)}')
+
+    def authenticate(self):
+        if self.authenticated: return True
+        if not self.check_ip_whitelist(): return False
+        try:
+            fields = digest_fields(self.headers.get('Authorization', ''))
+            account = self.server.accounts.get(fields['username'])
+            if (not account or fields['realm'] != self.cfg['realm'] or fields['uri'] != self.path or
+                    fields.get('opaque', self.server.opaque) != self.server.opaque): raise ValueError('UFS_SCOPE')
+            expected = self.generate_digest_response(fields['nonce'], self.command, fields['uri'],
+                username=fields['username'], password=account['password'], nc=fields['nc'], cnonce=fields['cnonce'])
+            if not hmac.compare_digest(fields['response'].lower(), expected): raise ValueError('UFS_PROOF')
+            if not self.server.digest.admit(fields['nonce'], fields['username'], fields['cnonce'], int(fields['nc'],16)):
+                raise ValueError('UFS_NONCE_OR_REPLAY')
+            self.user_role, self.authenticated = account['role'], True
+            self.username = fields['username']
+            return True
+        except (ValueError, TypeError):
+            self.send_auth_required(); return False
+
     def check_api_permission(self, endpoint):
-        if self.user_role == 'admin':
-            return True
-            
-        allowed = API_PERMISSIONS.get(self.user_role, [])
-        if '*' in allowed or endpoint in allowed:
-            return True
-            
-        return False
-    
+        return self.user_role == 'admin' or endpoint in API_PERMISSIONS.get(self.user_role, [])
+
     def send_auth_required(self):
         self.send_response(401)
-        self.send_header('WWW-Authenticate', 
-            f'Digest realm="{self.cfg["realm"]}", qop="auth", nonce="{self.cfg["nonce"]}", opaque="{hashlib.md5(self.cfg["realm"].encode()).hexdigest()}"')
-        self.end_headers()
-    
-    # ========== WebDAV支持 ==========
-    def do_PROPFIND(self):
-        if not self.authenticate():
-            return
-            
-        path = self.translate_path(self.path)
-        if not os.path.exists(path):
-            self.send_error(404, "Not Found")
-            return
-            
-        depth = self.headers.get('Depth', '0')
-        if depth not in ('0', '1', 'infinity'):
-            self.send_error(400, "Invalid Depth header")
-            return
-            
-        propfind_data = self.rfile.read(int(self.headers.get('Content-Length', 0)))
-        response = self.generate_dav_response(path, depth == '1')
-        self.send_response(207)
-        self.send_header('Content-Type', 'application/xml; charset="utf-8"')
-        self.send_header('Content-Length', len(response))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
-    
-    def generate_dav_response(self, path, recursive):
-        prop_elements = []
-        for prop_name, (dav_name, getter) in DAV_PROPS.items():
-            try:
-                prop_value = getter(Path(path))
-                if prop_value:
-                    prop_elements.append(f'<d:{dav_name}>{prop_value}</d:{dav_name}>')
-            except:
-                continue
-                
-        props_xml = '\n'.join(prop_elements)
-        
-        return f'''<?xml version="1.0" encoding="utf-8" ?>
-<d:multistatus xmlns:d="{DAV_NS}">
-    <d:response>
-        <d:href>{self.path}</d:href>
-        <d:propstat>
-            <d:prop>
-                {props_xml}
-            </d:prop>
-            <d:status>HTTP/1.1 200 OK</d:status>
-        </d:propstat>
-    </d:response>
-</d:multistatus>'''
-    
-    # ========== 文件传输优化 ==========
+        self.send_header('WWW-Authenticate', f'Digest realm="{self.cfg["realm"]}", qop="auth", algorithm=SHA-256, nonce="{self.server.digest.challenge()}", opaque="{self.server.opaque}"')
+        self.send_header('Content-Length', '0'); self.end_headers()
+
+    def translate_path(self, path):
+        # Compatibility for extensions. Core operations use retained directory
+        # descriptors instead of reopening this string after checking it.
+        parts = self.server.files.parts(path)
+        self.server.files.info(parts)
+        return str(self.server.files.root.joinpath(*parts))
+
+    def _error(self, error):
+        if isinstance(error, FileNotFoundError): self.send_error(404, 'Not found')
+        elif isinstance(error, FileExistsError): self.send_error(409, 'Already exists')
+        elif isinstance(error, (PermissionError, NotADirectoryError, IsADirectoryError)): self.send_error(403, 'Unsafe or unauthorized path')
+        elif isinstance(error, ValueError): self.send_error(400, 'Invalid path, body or resource limit')
+        else: self.send_error(409, 'File operation failed')
+
+    def do_GET(self):
+        if urlsplit(self.path).path.startswith('/api/'): return self.handle_api()
+        super().do_GET()
+
+    def do_HEAD(self):
+        if urlsplit(self.path).path.startswith('/api/'): return self.handle_api()
+        super().do_HEAD()
+
     def send_head(self):
-        """重写以实现下载限速和压缩"""
-        if self.rate_limit > 0:
-            return self._send_with_rate_limit()
-        return super().send_head()
-    
-    def _send_with_rate_limit(self):
-        path = self.translate_path(self.path)
         try:
-            with open(path, 'rb') as f:
-                fs = os.fstat(f.fileno())
-                self.send_response(200)
-                self.send_header("Content-type", self.guess_type(path))
-                
-                # 压缩支持
-                accept_encoding = self.headers.get('Accept-Encoding', '')
-                if self.cfg['compression'] and 'gzip' in accept_encoding and path.endswith(('.txt', '.html', '.css', '.js', '.json')):
-                    data = f.read()
-                    compressed = zlib.compress(data, self.cfg['compression_level'])
-                    self.send_header("Content-Encoding", "gzip")
-                    self.send_header("Content-Length", str(len(compressed)))
-                    self.end_headers()
-                    self.wfile.write(compressed)
-                    return None
-                
-                self.send_header("Content-Length", str(fs.st_size))
-                self.end_headers()
-                
-                # mmap加速
-                if self.cfg['use_mmap'] and fs.st_size > self.cfg['mmap_threshold']:
-                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                        chunk_size = 1024 * 1024
-                        delay = chunk_size / self.rate_limit if self.rate_limit > 0 else 0
-                        for i in range(0, fs.st_size, chunk_size):
-                            if not self.token_bucket.consume(chunk_size):
-                                time.sleep(1 / self.token_bucket.rate)
-                            self.wfile.write(mm[i:i+chunk_size])
-                            if delay > 0:
-                                time.sleep(delay)
-                else:
-                    chunk_size = 1024 * 1024
-                    delay = chunk_size / self.rate_limit if self.rate_limit > 0 else 0
-                    while True:
-                        if not self.token_bucket.consume(chunk_size):
-                            time.sleep(1 / self.token_bucket.rate)
-                        data = f.read(chunk_size)
-                        if not data:
-                            break
-                        self.wfile.write(data)
-                        if delay > 0:
-                            time.sleep(delay)
-        except OSError:
-            self.send_error(404, "File not found")
-        return None
+            parts = self.server.files.parts(self.path)
+            info = self.server.files.info(parts)
+            if stat.S_ISDIR(info.st_mode):
+                entries = self.server.files.entries(parts, self.cfg['max_listing'])
+                listing = '<!doctype html><meta charset="utf-8"><title>UFS</title><ul>'
+                for name, meta in entries:
+                    suffix = '/' if stat.S_ISDIR(meta.st_mode) else ''
+                    listing += '<li><a href="'+quote(name)+suffix+'">'+html.escape(name)+suffix+'</a></li>'
+                data = (listing+'</ul>').encode()
+                source, kind = io.BytesIO(data), 'text/html; charset=utf-8'
+            else:
+                source = self.server.files.open(parts)
+                kind = self.guess_type(parts[-1])
+                if self.cfg['compression'] and info.st_size <= 8*1024*1024 and 'gzip' in self.headers.get('Accept-Encoding', '').split(','):
+                    data = gzip.compress(source.read(), compresslevel=self.cfg['compression_level']); source.close()
+                    source = io.BytesIO(data); self._gzip = True
+                else: data = None
+            size = len(data) if data is not None else os.fstat(source.fileno()).st_size
+            self.send_response(200); self.send_header('Content-Type', kind)
+            self.send_header('Content-Length', str(size))
+            if getattr(self, '_gzip', False): self.send_header('Content-Encoding', 'gzip')
+            self.end_headers(); return source
+        except (OSError, ValueError, UnicodeError) as error:
+            self._error(error); return None
+
+    def _send_with_rate_limit(self):
+        return self.send_head()
+
+    def copyfile(self, source, target):
+        mapped = None
+        try:
+            if self.cfg['use_mmap']:
+                try:
+                    size = os.fstat(source.fileno()).st_size
+                    if size and size > self.cfg['mmap_threshold']:
+                        mapped = mmap.mmap(source.fileno(),0,access=mmap.ACCESS_READ)
+                except io.UnsupportedOperation: pass  # Directory/gzip BytesIO.
+            reader = mapped if mapped is not None else source
+            while data := reader.read(65536):
+                if self.server.stopping.is_set(): return
+                while not self.server.bucket.consume(len(data)):
+                    if self.server.stopping.wait(min(0.1, len(data)/self.server.bucket.rate)): return
+                target.write(data)
+                if self.rate_limit: self.server.stopping.wait(len(data)/self.rate_limit)
+            with self.server.state_lock: self.server.stats['downloads'] += 1
+        finally:
+            if mapped is not None: mapped.close()
+
+    def _length(self, maximum, required=True):
+        values = self.headers.get_all('Content-Length', [])
+        if not values and not required: return 0
+        if len(values) != 1 or not re.fullmatch('[0-9]{1,12}', values[0]): raise ValueError('UFS_LENGTH_REQUIRED')
+        size = int(values[0])
+        if size > maximum: raise OverflowError('UFS_BODY_LIMIT')
+        return size
+
+    def _writable(self):
+        if not self.cfg['upload'] or self.user_role not in {'user', 'admin'}:
+            self.send_error(403, 'Writes disabled or unauthorized'); return False
+        return True
 
     def do_PUT(self):
-        """优化上传：使用mmap和进度跟踪"""
-        if not (self.authenticate() and self.cfg['upload']):
-            return
-        
-        path = self.translate_path(self.path)
-        if Path(path).is_dir():
-            self.send_error(400, "Cannot overwrite directory")
-            return
-        
-        size = int(self.headers.get('Content-Length', 0))
-        if size > self.cfg['max_upload']:
-            self.send_error(413, "File too large")
-            return
-        
-        self.transfer_id = str(time.time())
-        self.cfg['active_transfers'][self.transfer_id] = {
-            'path': path,
-            'total': size,
-            'transferred': 0,
-            'start_time': time.time(),
-            'client': self.client_address[0]
-        }
-        
+        if not self._writable(): return
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            
-            # 原子性操作：先写入临时文件
-            temp_path = f"{path}.tmp"
-            with open(temp_path, 'wb') as f:
-                if self.cfg['use_mmap'] and size > self.cfg['mmap_threshold']:
-                    f.truncate(size)
-                    with mmap.mmap(f.fileno(), size, access=mmap.ACCESS_WRITE) as mm:
-                        remaining = size
-                        while remaining > 0:
-                            chunk = min(remaining, 1024*1024)
-                            data = self.rfile.read(chunk)
-                            mm.write(data)
-                            remaining -= len(data)
-                            self.update_transfer_progress(len(data))
-                else:
-                    while True:
-                        data = self.rfile.read(1024*1024)
-                        if not data:
-                            break
-                        f.write(data)
-                        self.update_transfer_progress(len(data))
-            
-            # 原子性重命名
-            if self.cfg['atomic_operations']:
-                os.replace(temp_path, path)
-            
-            if self.cfg['checksum']:
-                self.generate_checksum(path)
-            
-            self.send_response(201)
-            self.end_headers()
-            self.log_transfer('upload', path, size)
-        except Exception as e:
-            self.send_error(500, str(e))
-            if Path(temp_path).exists():
-                try:
-                    Path(temp_path).unlink()
-                except: pass
+            size = self._length(self.cfg['max_upload'])
+            parts = self.server.files.parts(self.path)
+            if not parts or parts[-1].endswith('.checksum'): raise PermissionError('UFS_RESERVED_METADATA')
+            self.transfer_id = secrets.token_hex(16)
+            with self.server.state_lock:
+                self.cfg['active_transfers'][self.transfer_id] = {'path': '/'.join(parts), 'total': size,
+                    'transferred': 0, 'start_time': time.monotonic(), 'client': self.client_address[0]}
+            with self.server.files.lock:
+                if self.cfg['checksum']:
+                    try: self.server.files.info(self._checksum_parts(parts))
+                    except FileNotFoundError: pass
+                existed = self.server.files.put(parts, self.rfile, size, self.update_transfer_progress)
+                if self.cfg['checksum']: self.generate_checksum(self.server.files.root.joinpath(*parts))
+            with self.server.state_lock: self.server.stats['uploads'] += 1
+            self.send_response(204 if existed else 201); self.send_header('Content-Length', '0'); self.end_headers()
+            self.log_transfer('upload', '/'.join(parts), size)
+        except OverflowError: self.send_error(413, 'File too large')
+        except (OSError, ValueError, UnicodeError) as error: self._error(error)
         finally:
-            if self.transfer_id in self.cfg['active_transfers']:
-                del self.cfg['active_transfers'][self.transfer_id]
-    
+            with self.server.state_lock: self.cfg['active_transfers'].pop(self.transfer_id, None)
+
     def update_transfer_progress(self, chunk_size):
-        if self.transfer_id in self.cfg['active_transfers']:
-            transfer = self.cfg['active_transfers'][self.transfer_id]
-            transfer['transferred'] += chunk_size
-            transfer['speed'] = transfer['transferred'] / (time.time() - transfer['start_time'])
-    
-    # ========== 增强API端点 ==========
+        with self.server.state_lock:
+            transfer = self.cfg['active_transfers'].get(self.transfer_id)
+            if transfer:
+                transfer['transferred'] += chunk_size
+                transfer['speed'] = transfer['transferred']/max(time.monotonic()-transfer['start_time'], 0.001)
+
+    def do_DELETE(self):
+        if not self._writable(): return
+        try:
+            self.server.files.delete(self.server.files.parts(self.path))
+            self.send_response(204); self.send_header('Content-Length', '0'); self.end_headers()
+        except (OSError, ValueError) as error: self._error(error)
+
+    def do_MKCOL(self):
+        if not self._writable(): return
+        try:
+            if self._length(0, required=False): raise ValueError('UFS_COLLECTION_BODY')
+            self.server.files.mkdir(self.server.files.parts(self.path))
+            self.send_response(201); self.send_header('Content-Length', '0'); self.end_headers()
+        except OverflowError: self.send_error(415, 'MKCOL body not supported')
+        except (OSError, ValueError) as error: self._error(error)
+
+    def do_OPTIONS(self):
+        self.send_response(200); self.send_header('DAV', '1')
+        self.send_header('Allow', 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, POST')
+        self.send_header('Content-Length', '0'); self.end_headers()
+
+    def do_PROPFIND(self):
+        try:
+            size = self._length(65536, required=False)
+            if len(self.rfile.read(size)) != size: raise ValueError('UFS_TRUNCATED_BODY')
+            depth = self.headers.get('Depth', '0')
+            if depth not in {'0', '1'}: raise ValueError('UFS_DEPTH_LIMIT')
+            parts = self.server.files.parts(self.path)
+            response = self.generate_dav_response(parts, depth == '1').encode()
+            self.send_response(207); self.send_header('Content-Type', 'application/xml; charset=utf-8')
+            self.send_header('Content-Length', str(len(response))); self.end_headers()
+            self.wfile.write(response)
+        except OverflowError: self.send_error(413, 'PROPFIND body too large')
+        except (OSError, ValueError, UnicodeError) as error: self._error(error)
+
+    def generate_dav_response(self, path, recursive):
+        parts = path if isinstance(path, list) else self.server.files.parts(self.path)
+        entries = [(parts, self.server.files.info(parts))]
+        if recursive and stat.S_ISDIR(entries[0][1].st_mode):
+            entries += [(parts+[name], info) for name, info in self.server.files.entries(parts, self.cfg['max_listing'])]
+        result = '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">'
+        for item, info in entries:
+            name = item[-1] if item else ''
+            href = '/'+ '/'.join(quote(p) for p in item)
+            collection = '<d:collection/>' if stat.S_ISDIR(info.st_mode) else ''
+            result += ('<d:response><d:href>'+html.escape(href)+'</d:href><d:propstat><d:prop>'
+                '<d:displayname>'+html.escape(name)+'</d:displayname><d:getcontentlength>'+str(info.st_size)+
+                '</d:getcontentlength><d:getlastmodified>'+format_date_time(info.st_mtime)+
+                '</d:getlastmodified><d:resourcetype>'+collection+'</d:resourcetype></d:prop>'
+                '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>')
+        return result+'</d:multistatus>'
+
+    def do_POST(self):
+        if urlsplit(self.path).path.startswith('/api/'): return self.handle_api()
+        self.send_error(405, 'POST is available only for authorized API actions')
+
     def handle_api(self):
-        if not self.authenticate():
-            return
-            
-        if not self.check_api_permission(self.path):
-            self.send_error(403, "Forbidden: Insufficient permissions")
-            return
-            
-        endpoints = {
-            '/api/stats': self.api_stats,
-            '/api/files': self.api_files,
-            '/api/config': self.api_config,
-            '/api/cleanup': self.api_cleanup,
-            '/api/transfers': self.api_transfers
-        }
-        
-        handler = endpoints.get(self.path, None)
-        if handler:
-            handler()
-        else:
-            self.send_error(404, "API endpoint not found")
-    
+        endpoint = urlsplit(self.path).path
+        if not self.check_api_permission(endpoint): self.send_error(403, 'Insufficient API permission'); return
+        handlers = {'/api/stats': self.api_stats, '/api/files': self.api_files,
+            '/api/config': self.api_config, '/api/cleanup': self.api_cleanup, '/api/transfers': self.api_transfers}
+        if endpoint not in handlers: self.send_error(404, 'API endpoint not found'); return
+        if (endpoint == '/api/cleanup') != (self.command == 'POST'):
+            self.send_error(405, 'Method not allowed'); return
+        handlers[endpoint]()
+
     def api_stats(self):
-        stats = {
-            "uptime": time.time() - self.start_time,
-            "transfers": {
-                "downloads": self.server.stats['downloads'],
-                "uploads": self.server.stats['uploads']
-            },
-            "system": {
-                "connections": threading.active_count(),
-                "memory": psutil.Process().memory_info().rss
-            }
-        }
-        self.send_json(stats)
-    
+        system = {'connections':threading.active_count()}
+        if psutil is not None: system['memory'] = psutil.Process().memory_info().rss
+        else:
+            try:
+                import resource
+                system['memory_peak'] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if OS_TYPE == 'Darwin' else 1024)
+            except ImportError: system['memory_metrics_available'] = False
+        self.send_json({'uptime': time.monotonic()-self.server.started, 'transfers': dict(self.server.stats), 'system':system})
+
+    def api_config(self):
+        self.send_json({key:self.cfg[key] for key in ('max_upload','upload','download_limit','max_conn','ssl')})
+
     def api_transfers(self):
-        transfers = []
-        for tid, info in self.cfg['active_transfers'].items():
-            transfers.append({
-                'id': tid,
-                'path': info['path'],
-                'progress': f"{info['transferred']/info['total']*100:.1f}%",
-                'speed': f"{info.get('speed', 0)/1024:.1f} KB/s",
-                'client': info['client']
-            })
-        self.send_json({"active_transfers": transfers})
-    
+        with self.server.state_lock:
+            transfers = [{'id':tid, 'path':info['path'], 'progress':100*info['transferred']/max(info['total'],1),
+                'speed':info.get('speed',0)} for tid,info in self.cfg['active_transfers'].items()]
+        self.send_json({'active_transfers':transfers})
+
     def api_files(self):
-        files = []
-        for f in Path(self.cfg['root_dir']).glob('*'):
-            if f.is_file():
-                files.append({
-                    "name": f.name,
-                    "size": f.stat().st_size,
-                    "modified": f.stat().st_mtime,
-                    "checksum": self.get_checksum(f) if self.cfg['checksum'] else None
-                })
-        self.send_json({"files": files})
-    
+        try:
+            files = [{'name':name,'size':info.st_size,'modified':info.st_mtime,
+                'checksum': self.get_checksum(self.server.files.root/name) if self.cfg['checksum'] and not name.endswith('.checksum') else None}
+                for name, info in self.server.files.entries([], self.cfg['max_listing']) if stat.S_ISREG(info.st_mode)]
+            self.send_json({'files':files})
+        except (OSError, ValueError) as error: self._error(error)
+
     def api_cleanup(self):
-        if self.user_role != 'admin':
-            self.send_error(403, "Forbidden: Admin only")
-            return
-            
-        deleted = []
-        cutoff = time.time() - self.cfg['retention_days'] * 86400
-        for f in Path(self.cfg['root_dir']).glob('*'):
-            if f.is_file() and f.stat().st_mtime < cutoff:
-                try:
-                    f.unlink()
-                    deleted.append(f.name)
-                except Exception as e:
-                    self.send_error(500, f"Cleanup failed: {str(e)}")
-                    return
-        self.send_json({"deleted": deleted})
+        if not self.cfg['cleanup_enabled']: self.send_error(403, 'Automatic deletion is disabled'); return
+        deleted = self.server.cleanup_old_files()
+        self.send_json({'deleted':deleted})
 
-    # ========== 实用工具方法 ==========
+    def _parts_for_local_path(self, path):
+        relative = Path(path).absolute().relative_to(self.server.files.root)
+        return self.server.files.parts('/'+'/'.join(quote(p) for p in relative.parts))
+
+    def _checksum_parts(self, parts):
+        name = parts[-1]+'.checksum'
+        if len(name.encode())>255: name='ufs-'+hashlib.sha256(parts[-1].encode()).hexdigest()+'.checksum'
+        return parts[:-1]+[name]
+
     def generate_checksum(self, path):
-        hashes = {
-            'md5': hashlib.md5(),
-            'sha256': hashlib.sha256()
-        }
-        with open(path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b''):
-                for h in hashes.values():
-                    h.update(chunk)
-        
-        checksum_file = Path(path).with_suffix('.checksum')
-        with open(checksum_file, 'w') as f:
-            f.write(f"MD5: {hashes['md5'].hexdigest()}\n")
-            f.write(f"SHA256: {hashes['sha256'].hexdigest()}\n")
-    
-    def get_checksum(self, path):
-        checksum_file = Path(path).with_suffix('.checksum')
-        if checksum_file.exists():
-            with open(checksum_file, 'r') as f:
-                return f.read()
-        return None
-    
-    def log_transfer(self, action, path=None, size=0):
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "client": self.client_address[0],
-            "action": action,
-            "path": path,
-            "size": size,
-            "duration": time.time() - self.start_time
-        }
-        with open(self.cfg['log_file'], 'a') as f:
-            f.write(json.dumps(log_entry) + '\n')
-    
-    def send_json(self, data):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(json.dumps(data))))
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        parts = self._parts_for_local_path(path)
+        md5, sha256 = hashlib.md5(), hashlib.sha256()
+        with self.server.files.open(parts) as source:
+            while data := source.read(65536): md5.update(data); sha256.update(data)
+        raw = f'MD5: {md5.hexdigest()}\nSHA256: {sha256.hexdigest()}\n'.encode()
+        self.server.files.put(self._checksum_parts(parts), io.BytesIO(raw), len(raw))
 
-# ==================== 服务器实例 ====================
+    def get_checksum(self, path):
+        parts = self._parts_for_local_path(path)
+        try:
+            with self.server.files.open(self._checksum_parts(parts)) as source: return source.read(512).decode()
+        except FileNotFoundError: return None
+
+    def log_transfer(self, action, path=None, size=0):
+        logging.info('UFS transfer action=%s size=%s', action, size)
+
+    def send_json(self, data):
+        raw = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(200); self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(raw))); self.end_headers()
+        if self.command != 'HEAD': self.wfile.write(raw)
+
+
 class UltraServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-    def __init__(self, *args, **kwargs):
-        self.stats = {'downloads': 0, 'uploads': 0}
-        self.config_reloader = None
-        super().__init__(*args, **kwargs)
-        if Config().data['ssl']:
-            self.socket = ssl.wrap_socket(
-                self.socket,
-                certfile=Config().data['ssl_cert'],
-                server_side=True,
-                ssl_version=ssl.PROTOCOL_TLS
-            )
-        
-        # 启动配置重载线程
-        self.start_config_reloader()
-        
-        # 自我测试
-        if Config().data['self_test']:
-            self.start_self_test()
+    daemon_threads = False
+    def __init__(self, *args, config=None, **kwargs):
+        if os.environ.get('ZIOKT_AIRGAP','').lower() in {'1','true','yes'}:
+            raise PermissionError('UFS_AIRGAP_NETWORK_DENIED')
+        self.config = validated_config(config if config is not None else Config().data)
+        self.accounts = auth_accounts(self.config)
+        address = args[0][0]
+        if not self.config['ssl'] and not ip_address(address).is_loopback:
+            raise ValueError('UFS_TLS_REQUIRED_FOR_REMOTE_LISTENER')
+        self.stats = {'downloads':0, 'uploads':0}
+        self.started = time.monotonic(); self.state_lock = threading.RLock()
+        self.stopping = threading.Event(); self.config_reloader = None
+        self.files = ConfinedFiles(self.config['root_dir'])
+        self.digest = DigestAuthority(); self.opaque = secrets.token_hex(16)
+        self.bucket = TokenBucket(self.config['token_bucket']['capacity'], self.config['token_bucket']['rate'])
+        self.slots = threading.BoundedSemaphore(self.config['max_conn'])
+        self._next_cleanup = time.monotonic()+3600
+        try:
+            super().__init__(*args, **kwargs)
+            if self.config['ssl']:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
+                context.load_cert_chain(self.config['ssl_cert'])
+                self.socket = context.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+            if self.config['self_test']: self.start_self_test()
+            if config is None: self.start_config_reloader()
+        except BaseException:
+            self.files.close()
+            if hasattr(self, 'socket'): self.socket.close()
+            raise
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request); return
+        try: super().process_request(request, client_address)
+        except BaseException: self.slots.release(); raise
+
+    def process_request_thread(self, request, client_address):
+        try: super().process_request_thread(request, client_address)
+        finally: self.slots.release()
+
+    def server_close(self):
+        self.stopping.set()
+        super().server_close(); self.files.close()
+        if self.config_reloader is not None: self.config_reloader.join(2)
 
     def start_config_reloader(self):
-        def reloader():
-            while True:
-                time.sleep(5)
-                if Config().check_reload():
-                    logging.info("Configuration reloaded")
-        
-        self.config_reloader = threading.Thread(target=reloader, daemon=True)
+        if self.config_reloader is not None: return False
+        def reload_config():
+            while not self.stopping.wait(5):
+                try:
+                    if not Config().check_reload(): continue
+                    candidate = validated_config(Config().data)
+                    # Structural listener changes require a restart. Updating
+                    # them while old requests are active could cross roots or
+                    # retain the previous TLS/key policy silently.
+                    fixed = ('root_dir','ssl','ssl_cert','host','port','max_conn','token_bucket')
+                    if any(candidate[k] != self.config[k] for k in fixed):
+                        logging.error('UFS configuration needs restart for root/listener/budget changes')
+                        continue
+                    accounts = auth_accounts(candidate)
+                    with self.state_lock:
+                        candidate['active_transfers'] = self.config['active_transfers']
+                        self.config, self.accounts = candidate, accounts
+                    logging.info('UFS request policy reloaded')
+                except (OSError, ValueError, TypeError, KeyError) as error:
+                    logging.error('UFS config reload rejected: %s', type(error).__name__)
+        self.config_reloader = threading.Thread(target=reload_config, name='ufs-config', daemon=True)
         self.config_reloader.start()
+        return True
 
     def start_self_test(self):
-        def self_test():
-            time.sleep(5)  # 等待服务器启动
-            
-            test_file = Path(Config().data['root_dir']) / 'ufs_self_test.txt'
-            test_content = b"UltraFileServer Self Test - " + os.urandom(32)
-            
-            try:
-                # 测试上传
-                with test_file.open('wb') as f:
-                    f.write(test_content)
-                
-                # 测试下载
-                with test_file.open('rb') as f:
-                    downloaded = f.read()
-                
-                if downloaded != test_content:
-                    logging.error("Self-test failed: Downloaded content mismatch")
-                else:
-                    logging.info("Self-test passed")
-            except Exception as e:
-                logging.error(f"Self-test failed: {str(e)}")
-            finally:
-                try:
-                    test_file.unlink()
-                except:
-                    pass
-        
-        threading.Thread(target=self_test, daemon=True).start()
+        parts = ['ufs-self-test-'+secrets.token_hex(8)]
+        data = secrets.token_bytes(32)
+        self.files.put(parts, io.BytesIO(data), len(data))
+        try:
+            with self.files.open(parts) as source:
+                if source.read() != data: raise RuntimeError('UFS_SELF_TEST_FAILED')
+        finally: self.files.delete(parts)
 
     def service_actions(self):
-        self.cleanup_old_files()
-    
+        if self.config['cleanup_enabled'] and time.monotonic() >= self._next_cleanup:
+            self._next_cleanup = time.monotonic()+3600
+            try: self.cleanup_old_files()
+            except (OSError, ValueError) as error:
+                logging.error('UFS retention cleanup rejected: %s', type(error).__name__)
+
     def cleanup_old_files(self):
-        cutoff = time.time() - Config().data['retention_days'] * 86400
-        for f in Path(Config().data['root_dir']).glob('*'):
-            if f.is_file() and f.stat().st_mtime < cutoff:
-                try:
-                    f.unlink()
-                except: pass
+        if not self.config['cleanup_enabled']: return []
+        cutoff = time.time()-self.config['retention_days']*86400
+        deleted = []
+        for name, info in self.files.entries([], self.config['max_listing']):
+            if stat.S_ISREG(info.st_mode) and info.st_mtime < cutoff:
+                self.files.delete([name]); deleted.append(name)
+        return deleted
 
 # ==================== Docker支持 ====================
 def generate_dockerfile():
     dockerfile = """# UltraFileServer Pro Dockerfile
-FROM python:3.9-slim
+FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y \\
     gcc \\
@@ -1068,7 +1153,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000 8001
 
-CMD ["python", "ufsproplus.py", "--mode", "standard"]
+CMD ["python", "ufsultra.py", "--mode", "standard"]
 """
     with open('Dockerfile', 'w') as f:
         f.write(dockerfile)
@@ -1093,9 +1178,12 @@ def main():
     )
     
     if args.gen_config:
-        with open('ufs-config.yaml', 'w') as f:
-            yaml.dump(Config().default_config(), f, default_flow_style=False)
-        print("示例配置文件已生成: ufs-config.yaml")
+        name = 'ufs-config.yaml' if yaml is not None else 'ufs-config.json'
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            if yaml is not None: yaml.safe_dump(Config().default_config(), f, default_flow_style=False)
+            else: json.dump(Config().default_config(),f,ensure_ascii=False,indent=2)
+        print('Generated private configuration: '+name)
         return
     
     if args.gen_reqs:
@@ -1119,9 +1207,10 @@ def main():
         daemonize()
     
     # 注册信号处理
-    signal.signal(signal.SIGHUP, lambda sig, frame: Config().check_reload())
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, lambda sig, frame: Config().check_reload())
     
-    server = UltraServer(('0.0.0.0', Config().data['port']), UltraHandler)
+    server = UltraServer((Config().data.get('host','127.0.0.1'), Config().data['port']), UltraHandler)
     print(f"服务器已启动 | 模式: {args.mode} | 端口: {Config().data['port']} | SSL: {Config().data['ssl']}")
     try:
         server.serve_forever()

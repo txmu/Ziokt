@@ -131,9 +131,18 @@ space. This change does not silently truncate historical records to meet quota.
 | cross_protocol_signatures_and_retargeted_parent_proofs_are_rejected | Valid actual ChatMessage signature cannot authenticate Forum; signed parent target cannot be changed; invalid parent cannot appear available |
 | independent_engines_route_forum_over_real_noise_udp_streams | Two separately configured real Engine instances, pinned Noise keys, actual UDP sockets, Composite stream 3 routing, initial synchronization, fragmented signed reply, return publication, graceful close callbacks |
 
-The Forum Rust suite now defines 17 tests (16 when `extensions` is disabled).
+The Forum Rust suite now defines 18 tests (17 when `extensions` is disabled).
 None was executed locally. The real Engine test is a test definition, not a
 claim that Noise/Forum interoperability has already passed. The earlier list of
 unverified acceptance areas continues to apply until CI or an authorized native
 runner supplies actual execution evidence. Full-capacity and concurrent tests
 are now defined, so their remaining gap is execution rather than missing code.
+
+The native gateway integration also adds
+`subscriptions_persist_and_reopen_without_network_side_effects`: dynamic topic
+hashes flush to `subscriptions_v2`, survive reopen, obey the 64-topic budget,
+and constructor/subscription changes produce no packets without a connection.
+This definition is likewise pending native execution. The configured gateway
+uses the explicit `publish_prepared_post` receipt: local admission or flush
+failure is an error, while a successful result reports DHT enqueue separately.
+A post merely visible in sled is not sufficient for a durable publication ACK.

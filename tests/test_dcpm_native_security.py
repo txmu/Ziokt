@@ -174,13 +174,27 @@ class NativeDcpmSecurityTests(unittest.TestCase):
         finally: dcpm_core.CURRENT_NETWORK.set_dht_nodes(previous)
 
     def test_native_dht_respects_airgap_before_network(self):
-        previous=os.environ.get('ZIOKT_AIRGAP'); os.environ['ZIOKT_AIRGAP']='1'
-        try:
-            with self.assertRaisesRegex(PermissionError,'AIRGAP_DENIED'):
-                asyncio.run(DHTNode('https://must-not-resolve.invalid').get('key'))
-        finally:
-            if previous is None: os.environ.pop('ZIOKT_AIRGAP',None)
-            else: os.environ['ZIOKT_AIRGAP']=previous
+        # AirGap latches for the process, including asyncio's socketpair audit.
+        # Exercise the real implementation in an isolated process, as production
+        # requires restarting before returning online.
+        script = """
+import asyncio, os
+from dcpm_core import DHTNode
+async def check():
+    os.environ['ZIOKT_AIRGAP']='1'
+    try:
+        await DHTNode('https://must-not-resolve.invalid').get('key')
+    except PermissionError as exc:
+        assert 'AIRGAP_DENIED' in str(exc)
+    else:
+        raise AssertionError('AirGap allowed native DHT traffic')
+asyncio.run(check())
+"""
+        environment = dict(os.environ, PYTHONPATH=str(SOURCE))
+        result = subprocess.run([sys.executable, '-c', script], env=environment,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 
 if __name__ == '__main__': unittest.main()

@@ -23,7 +23,7 @@ for name, directory in projects.items():
         files[name + '/' + relative] = path
 manifest = {'schema': 'ziokt.source-delivery.v1', 'revisions': revisions,
             'kind': 'source-only', 'native_binaries_included': False,
-            'verification': 'See audit supplements; new Rust checks await GitHub Actions availability.', 'files': {}}
+            'verification': 'Source-only archive; consult the pinned verification report and audit supplements.', 'files': {}}
 dist = root / 'dist'
 dist.mkdir(exist_ok=True)
 output = dist / ('ziokt-sources-' + revisions['Ziokt'][:12] + '.zip')
