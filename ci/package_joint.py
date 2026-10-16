@@ -37,6 +37,15 @@ for app, pwa in [('sim-manager',pwas/'sim-manager/src/dist'),('tri',pwas/'tri/ap
  if not (pwa/'manifest.webmanifest').is_file() or not (pwa/'sw.js').is_file():raise ValueError('verified built '+app+' PWA required')
  for file in sorted(pwa.rglob('*')):
   if file.is_file() and not file.is_symlink():files['apps/'+app+'/'+str(file.relative_to(pwa))]=file
+# Include the checked WATChat server and PWA as an independently deployable app.
+# Dependencies are installed from the pinned lockfile; never ship live data/keys.
+watchat=root/'companions/watchat/WATChat-code'
+for directory in ('backend','frontend'):
+ for file in sorted((watchat/directory).rglob('*')):
+  if file.is_file() and not file.is_symlink() and file.suffix!='.txt':
+   files['apps/watchat/'+str(file.relative_to(watchat))]=file
+for name in ('package.json','package-lock.json'):
+ files['apps/watchat/'+name]=watchat/name
 files['native-baseline/'+args.native.name]=args.native;files['verification/REPORT.json']=args.report
 manifest={'schema':'ziokt.joint-package.v1','revisions':revisions,'native_baseline':lock,'verification':report,'files':{}}
 with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
