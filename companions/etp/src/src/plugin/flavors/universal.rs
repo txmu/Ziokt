@@ -444,6 +444,7 @@ impl UniversalStore {
         Ok(())
     }
     fn sweep(&self) -> Result<()> {
+        let _guard = self.mutation.lock();
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let deadlines = self.db.open_tree("read_deadlines_v3")?;
         let messages = self.db.open_tree("messages")?;
@@ -733,10 +734,12 @@ impl UniversalMessengerFlavor {
         packet.extend(payload);
 
         if let Some(t) = target {
-            self.network_tx
-                .send((t, packet))
-                .await
-                .map_err(|_| anyhow!("Net closed"))?;
+            self.network_tx.try_send((t, packet)).map_err(|e| {
+                anyhow!(
+                    "message stored locally; bounded network queue unavailable: {}",
+                    e
+                )
+            })?;
         } else {
             return Err(anyhow!(
                 "message stored locally; no reviewed direct peer mapping"

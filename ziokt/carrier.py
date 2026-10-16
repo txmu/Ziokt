@@ -94,8 +94,8 @@ def connect_onion(host, port, carrier, timeout=30):
     deadline = time.monotonic()+timeout
     try:
         sock = socket.create_connection((carrier['proxy_host'], carrier['proxy_port']), timeout=timeout)
-    except OSError:
-        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion entry unavailable') from None
+    except OSError as exc:
+        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion entry unavailable (phase=entry-connect; kind='+type(exc).__name__+')') from None
     def send(data):
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('carrier deadline')
@@ -111,18 +111,25 @@ def connect_onion(host, port, carrier, timeout=30):
             if not part: raise OSError('carrier closed')
             data.extend(part)
         return bytes(data)
-    def negotiate(destination, destination_port):
+    diagnostic={'phase':'entry-connected','reply':None}
+    def negotiate(destination, destination_port, label):
+        diagnostic['phase']=label+'-auth-method';diagnostic['reply']=None
         # Require authentication negotiation; fresh Tor isolation values on each
         # connection. A proxy refusing this method does not get a downgrade.
         send(b'\x05\x01\x02')
         if read(2) != b'\x05\x02': raise OSError('carrier authentication method')
+        diagnostic['phase']=label+'-isolation-auth'
         username = b'<torS0X>0'; password = secrets.token_hex(16).encode()
         send(b'\x01'+bytes([len(username)])+username+bytes([len(password)])+password)
         if read(2) != b'\x01\x00': raise OSError('carrier isolation rejected')
+        diagnostic['phase']=label+'-socks-connect'
         name = destination.encode('ascii')
         send(b'\x05\x01\x00\x03'+bytes([len(name)])+name+struct.pack('!H', destination_port))
         reply = read(4)
-        if reply[:3] != b'\x05\x00\x00': raise OSError('carrier destination rejected')
+        if reply[0]!=5 or reply[2]!=0:raise OSError('carrier malformed reply')
+        diagnostic['reply']=reply[1]
+        if reply[1]!=0:raise OSError('carrier destination rejected')
+        diagnostic['phase']=label+'-bound-address'
         if reply[3] == 1: read(4)
         elif reply[3] == 4: read(16)
         elif reply[3] == 3: read(read(1)[0])
@@ -132,16 +139,18 @@ def connect_onion(host, port, carrier, timeout=30):
         # Every intermediary is an operator-provisioned SOCKS5 onion service.
         # All CONNECT names stay inside their respective Tor paths; only the
         # loopback entry proxy is opened locally, with no retry or bypass.
-        for hop in carrier.get('hops', []):
-            negotiate(hop['host'], hop['port'])
-        negotiate(host, port)
+        for index,hop in enumerate(carrier.get('hops', [])):
+            negotiate(hop['host'], hop['port'],'hop-'+str(index+1))
+        negotiate(host, port,'target')
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('carrier deadline')
         sock.settimeout(remaining)
         return sock
-    except OSError:
+    except OSError as exc:
         sock.close()
-        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion path failed') from None
+        detail='phase='+diagnostic['phase']+'; kind='+type(exc).__name__
+        if diagnostic['reply'] is not None:detail+='; socks_reply=0x'+format(diagnostic['reply'],'02x')
+        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion path failed ('+detail+')') from None
     except BaseException:
         sock.close()
         raise

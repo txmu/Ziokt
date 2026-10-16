@@ -21,6 +21,12 @@ class ProtocolTests(unittest.TestCase):
         self.config = runtime.validate_config({"schema": "ziokt.provider.v1", "enabled": True,
                                               "federation_id": "test", "provider_id": "native"})
 
+    def test_capabilities_match_native_service_binding_support(self):
+        from ziokt import _runtime as integrated
+        for provider,expected in [('corium',False),('shadow6',True)]:
+            methods={c['operation'] for c in integrated.capabilities(provider,self.config)['capabilities']}
+            self.assertEqual('service.binding' in methods,expected)
+
     def test_reject_duplicate_keys_floats_depth_and_noncanonical_text(self):
         for raw in (b'{"a":1,"a":2}', b'{"a":1.5}', b'{"a":NaN}',
                     b'{"a":9007199254740992}', b'[' * 18 + b']' * 18,

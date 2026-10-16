@@ -108,3 +108,69 @@ regression signs an actual ChatMessage's canonical bytes.
 This fixes the discovered feature/API/signature path; it does not claim the
 remaining historical Chat SYNC, retry/DHT delivery, full message fragmentation,
 or application trust-extension placeholders have been completed.
+
+## Authenticated restart versus rekey: IK4
+
+The native same-address restart CI found that preserving a stopped peer's stream
+offsets and ACK/deduplication state hides new offset-zero messages indefinitely.
+The Engine now explicitly negotiates the runtime incarnation inside Noise IK.
+Its 32-byte authenticated hello is `ETPIK4\0\0`, UTC seconds (big endian u64),
+and a random 16-byte Engine boot ID. The authenticated response is
+`ETPR4\0\0\0` followed by the responder's 16-byte boot ID. The boot ID is never
+an additional plaintext header or public identity. It is generated independently
+for each Engine instance; Noise still creates a fresh ephemeral key per handshake.
+
+The existing trusted-static-key pin, ACL, 30-second hello freshness and replay
+response cache are enforced before replacing a session. Existing-session traffic
+first attempts normal transport authentication; only a failed 128-byte record
+is considered as an initial IK flight. Valid transport frames of that length
+continue through normal decoding.
+
+Same-boot rekeys retain stream offsets/reliability so previously established
+stream sequences continue. A different authenticated boot ID creates fresh
+stream offsets and packet/ACK state and emits close/open callbacks outside the
+session lock. Old pending plaintext, old ACKs and old in-flight reliability state
+are not copied to the new peer runtime. The application must retry using its
+own durable state; Forum's reconnect inventories recover retained posts. A
+local enqueue acknowledgement is still not a remote delivery acknowledgement.
+The fresh session is installed before its handshake response is sent, so fast
+transport packets cannot race an old map entry. Session replacement does not
+increment the live-session counter a second time.
+
+IK3 is explicitly rejected: both peers must upgrade to IK4. Node configuration,
+pinned long-term keys and Forum's post format do not change. There is no implicit
+legacy fallback that pretends restart continuity.
+
+Two added Rust regression definitions check discarded old plaintext/ACK queues
+and actual UDP same-port replacement of a complete Engine, bidirectional
+zero-offset traffic, same-boot rekey continuation, session counts and rejection
+of a genuinely Noise-authenticated obsolete IK3 hello. The Rust test retains a
+bound real socket to avoid port-allocation races; the existing native gateway CI
+smoke separately closes and rebinds a real process on the same address. Neither
+new regression was executed locally; cargo remains restricted to CI.
+
+### Final Chat safety follow-up
+
+Inbox inserts and message-ID indexes now update atomically and flush before any
+UI event or ACK. Conflicting IDs and the 4096-message capacity fail without an
+ACK. Delivery history/outbox removal is atomic and flushed. ACK acceptance
+requires an active session and an Engine-authenticated route for the exact signed
+receiver/target NodeID; an unresolved or different peer cannot mark delivery.
+The signed receiver is the destination Engine NodeID, distinct from the author's
+Ed25519 identity.
+
+Retries use bounded existing channels (no per-packet spawned task), send only to
+cached Engine-verified connected routes, and persist successful attempt counts.
+Missing routes remain pending. Native DHT requests obey the serialized-value
+hash key, 2048-byte maximum and 86400-second TTL. Closed/full queues or oversized
+objects do not become `SentToDHT`; even successful enqueue stays Pending because
+it is not remote delivery. Historical valid `SentToDHT` entries return to Pending
+on reopen. Chat SYNC is explicitly reported unsupported; no DHT GET/inbox
+inventory implementation is claimed.
+
+Three added Rust negative/contract definitions use real sled and channels:
+capacity failure emits neither UI nor ACK; closed DHT/oversized payload remains
+pending across reopen; successful DHT enqueue has the actual native key/size/TTL
+but does not claim delivery. They were not run locally. Full Chat peer-identity
+ACK/retry end-to-end verification and persistence I/O fault injection remain
+unverified; the real capacity failure test is not a disk-failure simulation.

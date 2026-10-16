@@ -33,7 +33,7 @@ bash /path/to/Corium/corix_v108.sh ziokt companion app call --bridge-config /srv
 | SIM Manager | `sim.reminders.replace/pull`、加密状态文件交换 |
 | Tri | `tri.put/get/publish`、加密项目与签名文件发布 |
 
-`vault.put` 接收 `name` 与 `data_base64`；`vault.get` 接收 `digest`。小 RPC 的明文数据上限为 32 KiB，大文件使用已有加密不可变对象引用。`package.build` 的 `files` 为路径到本应用 vault 摘要的映射；`tri.put` 接收 `program`、`state`。所有组件还共享配置了固定收件密钥的 `component.send/receive`。
+`vault.put` 接收 `name` 与 `data_base64`；`vault.get` 接收 `digest`。小 RPC 的明文数据上限为 32 KiB，大文件使用已有加密不可变对象引用。`package.build` 的 `files` 为路径到本应用 vault 摘要的映射；`tri.put` 接收 `program`、`state`。八个 CompanionBridge 目标支持配置了固定收件密钥的 `component.send/receive`；Shadow6、Corium、ETP 原生目标使用各自授权方法，不把组件名称相同视为已经接通该交换方法。
 
 连续调用可使用同一配置的有界 JSONL 入口，ETP 后端跨请求保留会话：
 

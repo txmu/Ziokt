@@ -39,6 +39,25 @@ class ExplorerTests(unittest.TestCase):
         self.assertEqual(error.exception.code,'NOT_FOUND')
         self.assertEqual(self.fixture.semantic(),before)
 
+    def test_transaction_pages_pending_activity_and_block_cursor(self):
+        self.fixture.run_core("for i in {1..22}; do blockchain_create_transaction set_nickname \"$(jq -cn --arg name \"page-$i\" '{nickname:$name}')\" >/dev/null || exit; done")
+        before=self.fixture.semantic()
+        first=self.explorer.query('/api/explorer/transactions?pending=1')
+        self.assertEqual(len(first['transactions']),20)
+        self.assertTrue(first['next_after'])
+        second=self.explorer.query('/api/explorer/transactions?pending=1&after='+first['next_after'])
+        self.assertEqual(len(second['transactions']),2)
+        self.assertIsNone(second['next_after'])
+        self.assertTrue(all(t['phase']=='pending-native-consensus' and t['confirmations']==0 for t in first['transactions']))
+        self.assertFalse(set(t['hash'] for t in first['transactions']) & set(t['hash'] for t in second['transactions']))
+        activity=self.explorer.query('/api/explorer/activity')
+        self.assertEqual(activity['blocks'][0]['height'],0)
+        self.assertEqual(activity['blocks'][0]['transaction_count'],0)
+        self.assertNotIn('page-',json.dumps(first))
+        for path in ['/api/explorer/transactions?pending=yes','/api/explorer/transactions?after=bad','/api/explorer/block/0?after=bad','/api/explorer/activity?sql=x']:
+            with self.subTest(path=path),self.assertRaises(ProtocolError):self.explorer.query(path)
+        self.assertEqual(self.fixture.semantic(),before)
+
     def test_real_http_assets_api_origin_and_missing_chain_fail_closed(self):
         pool=EffortPool(FakeChain(),'a'*64,self.fixture.root/'web');self.addCleanup(pool.close)
         server=effort_server(pool,'http://127.0.0.1:0',explorer=self.explorer)

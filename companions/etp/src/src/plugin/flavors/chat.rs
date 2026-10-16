@@ -10,6 +10,7 @@ use log::{debug, error, info, trace, warn};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sled::{Db, IVec};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -117,12 +118,16 @@ enum MsgStatus {
 /// 聊天存储引擎 (基于 Sled)
 pub struct ChatStore {
     db: Db,
+    mutation: parking_lot::Mutex<()>,
 }
 
 impl ChatStore {
     pub fn open(path: &str) -> Result<Self> {
         let db = sled::open(path).context("Failed to open Chat DB")?;
-        let store = Self { db };
+        let store = Self {
+            db,
+            mutation: parking_lot::Mutex::new(()),
+        };
         store.quarantine_legacy()?;
         Ok(store)
     }
@@ -142,6 +147,21 @@ impl ChatStore {
                         .map(|msg| msg.verify().is_ok())
                         .unwrap_or(false)
                 };
+                if valid && source == "outbox" {
+                    if let Ok(mut entry) = crate::common::safe_deserialize::<OutboxEntry>(&bytes) {
+                        if entry.status == MsgStatus::SentToDHT {
+                            entry.status = MsgStatus::Pending;
+                            tree.insert(key.as_ref(), bincode::serialize(&entry)?)?;
+                        }
+                    }
+                }
+                if valid && source == "inbox" {
+                    if let Ok(msg) = crate::common::safe_deserialize::<ChatMessage>(&bytes) {
+                        self.db
+                            .open_tree("inbox_ids_v3")?
+                            .insert(msg.msg_id.to_be_bytes(), key.as_ref())?;
+                    }
+                }
                 if !valid {
                     let record = bincode::serialize(&(source, key.to_vec(), bytes.to_vec()))?;
                     let record_id = blake3::hash(&record);
@@ -160,44 +180,76 @@ impl ChatStore {
     }
 
     /// 保存收到消息 (Inbox)
-    pub fn save_inbox(&self, msg: &ChatMessage) -> Result<()> {
+    pub fn save_inbox(&self, msg: &ChatMessage) -> Result<bool> {
         msg.verify()?;
+        let _guard = self.mutation.lock();
         let tree = self.db.open_tree("inbox")?;
-        // Key: Timestamp(BE) + MsgID (按时间排序)
-        // 使用 BigEndian 确保 Sled 的字节序排序符合时间顺序
-        let mut key = Vec::with_capacity(24);
-        key.extend_from_slice(&msg.timestamp.to_be_bytes());
-        key.extend_from_slice(&msg.msg_id.to_be_bytes());
-
+        let ids = self.db.open_tree("inbox_ids_v3")?;
+        let mut key = msg.timestamp.to_be_bytes().to_vec();
+        key.extend(msg.msg_id.to_be_bytes());
         let value = bincode::serialize(msg)?;
-        tree.insert(key, value)?;
-        Ok(())
+        if let Some(existing) = ids.get(msg.msg_id.to_be_bytes())? {
+            if tree.get(&existing)?.as_deref() != Some(value.as_slice()) {
+                return Err(anyhow!("conflicting Chat message ID"));
+            }
+            self.db.flush()?;
+            return Ok(false);
+        }
+        anyhow::ensure!(tree.len() < 4096, "Chat inbox capacity");
+        (&tree, &ids)
+            .transaction(|(inbox, index)| {
+                inbox.insert(key.as_slice(), value.as_slice())?;
+                index.insert(msg.msg_id.to_be_bytes().as_slice(), key.as_slice())?;
+                Ok::<_, ConflictableTransactionError<()>>(())
+            })
+            .map_err(|e| anyhow!("Chat inbox transaction: {:?}", e))?;
+        self.db.flush()?;
+        Ok(true)
     }
 
     /// 保存待发送消息 (Outbox)
     fn save_outbox(&self, entry: &OutboxEntry) -> Result<()> {
+        entry.msg.verify()?;
+        anyhow::ensure!(
+            entry.target_node_id == entry.msg.receiver_id,
+            "Chat target metadata conflicts with signed receiver"
+        );
+        let _guard = self.mutation.lock();
         let tree = self.db.open_tree("outbox")?;
-        // Key: MsgID (用于 ACK 快速查找)
         let key = entry.msg.msg_id.to_be_bytes();
-        let value = bincode::serialize(entry)?;
-        tree.insert(key, value)?;
+        anyhow::ensure!(
+            tree.contains_key(key)? || tree.len() < 1024,
+            "Chat outbox capacity"
+        );
+        tree.insert(key, bincode::serialize(entry)?)?;
+        self.db.flush()?;
         Ok(())
+    }
+    fn get_outbox(&self, id: u128) -> Result<Option<OutboxEntry>> {
+        self.db
+            .open_tree("outbox")?
+            .get(id.to_be_bytes())?
+            .map(|bytes| crate::common::safe_deserialize(&bytes).map_err(Into::into))
+            .transpose()
     }
 
     /// 标记消息已送达 (收到 ACK)
     pub fn mark_delivered(&self, msg_id: u128) -> Result<()> {
+        let _guard = self.mutation.lock();
         let tree = self.db.open_tree("outbox")?;
-        let key = msg_id.to_be_bytes();
-        if let Some(val_bytes) = tree.get(&key)? {
-            let mut entry: OutboxEntry = crate::common::safe_deserialize(&val_bytes)?;
-            entry.status = MsgStatus::Delivered;
-            // 实际上可以直接删除，或者移入 "sent_history"
-            // 这里为了简洁，直接从 outbox 删除
-            tree.remove(&key)?;
-
-            // 存入历史记录
+        if let Some(bytes) = tree.get(msg_id.to_be_bytes())? {
+            let entry: OutboxEntry = crate::common::safe_deserialize(&bytes)?;
+            entry.msg.verify()?;
             let history = self.db.open_tree("history")?;
-            history.insert(key, bincode::serialize(&entry.msg)?)?;
+            let value = bincode::serialize(&entry.msg)?;
+            (&tree, &history)
+                .transaction(|(pending, sent)| {
+                    sent.insert(msg_id.to_be_bytes().as_slice(), value.as_slice())?;
+                    pending.remove(msg_id.to_be_bytes().as_slice())?;
+                    Ok::<_, ConflictableTransactionError<()>>(())
+                })
+                .map_err(|e| anyhow!("Chat delivery transaction: {:?}", e))?;
+            self.db.flush()?;
         }
         Ok(())
     }
@@ -210,9 +262,14 @@ impl ChatStore {
         };
 
         tree.iter()
+            .take(1024)
             .filter_map(|res| res.ok())
             .filter_map(|(_, v)| crate::common::safe_deserialize::<OutboxEntry>(&v).ok())
-            .filter(|e| e.status == MsgStatus::Pending && e.msg.verify().is_ok())
+            .filter(|e| {
+                e.status == MsgStatus::Pending
+                    && e.target_node_id == e.msg.receiver_id
+                    && e.msg.verify().is_ok()
+            })
             .collect()
     }
 
@@ -232,8 +289,10 @@ impl ChatStore {
 
     /// 检查消息是否已存在 (去重)
     pub fn exists_in_inbox(&self, msg_id: u128) -> bool {
-        // MVP Optimization: 暂时不做全表扫描去重，依赖上层逻辑
-        false
+        self.db
+            .open_tree("inbox_ids_v3")
+            .and_then(|tree| tree.contains_key(msg_id.to_be_bytes()))
+            .unwrap_or(false)
     }
 
     // ========================================================================
@@ -278,6 +337,8 @@ pub struct ChatFlavor {
     dht_tx: mpsc::Sender<DhtStoreRequest>,
     /// 网络发送通道 (用于主动发包，如 Retry 或 Sync)
     network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
+    routes: parking_lot::RwLock<HashMap<NodeID, SocketAddr>>,
+    peers: parking_lot::RwLock<HashSet<SocketAddr>>,
 
     // --- 新特性状态 ---
     #[cfg(feature = "anonymity")]
@@ -307,6 +368,8 @@ impl ChatFlavor {
             ui_tx,
             dht_tx,
             network_tx,
+            routes: parking_lot::RwLock::new(HashMap::new()),
+            peers: parking_lot::RwLock::new(HashSet::new()),
             #[cfg(feature = "anonymity")]
             last_real_traffic: parking_lot::Mutex::new(std::time::Instant::now()),
         }))
@@ -396,51 +459,16 @@ impl ChatFlavor {
         self.pack_message(&msg, target_enc_pub)
     }
 
-    /// 发送 ACK
-    async fn send_ack(&self, target_addr: SocketAddr, msg_id: u128) {
-        let mut payload = Vec::new();
-        payload.push(CHAT_PROTO_VER);
-        payload.push(CMD_ACK);
-        payload.extend_from_slice(&msg_id.to_be_bytes());
-
-        let _ = self.network_tx.send((target_addr, payload)).await;
-    }
-
-    /// 发送 SYNC 请求
-    async fn send_sync(&self, target_addr: SocketAddr) {
-        let my_id: NodeID = blake3::hash(self.verifying_key.as_bytes()).into();
-        let mut payload = Vec::new();
-        payload.push(CHAT_PROTO_VER);
-        payload.push(CMD_SYNC);
-        payload.extend_from_slice(&my_id);
-
-        info!("ChatFlavor: Sending SYNC request to {}", target_addr);
-        let _ = self.network_tx.send((target_addr, payload)).await;
-    }
-
-    /// 处理离线投递 (DHT)
-    async fn trigger_dht_fallback(&self, entry: &mut OutboxEntry) -> Result<()> {
-        info!(
-            "ChatFlavor: Message {} timed out, falling back to DHT",
-            entry.msg.msg_id
-        );
-
-        // 重新加密 (注意：DHT 存储的内容也是 E2EE 的)
-        let payload = self.pack_message(&entry.msg, entry.target_enc_pub)?;
-
-        let req = DhtStoreRequest {
-            key: entry.target_node_id, // 对方 ID 作为 Key
-            value: payload,
-            ttl_seconds: MSG_TTL_SECS as u32,
-        };
-
-        self.dht_tx
-            .send(req)
-            .await
-            .map_err(|_| anyhow!("DHT busy"))?;
-
-        entry.status = MsgStatus::SentToDHT;
-        self.store.update_outbox_entry(entry)?;
+    fn persist_and_ack(&self, msg: &ChatMessage, peer: SocketAddr) -> Result<()> {
+        let is_new = self.store.save_inbox(msg)?;
+        if is_new {
+            let _ = self.ui_tx.send(msg.clone());
+        }
+        let mut ack = vec![CHAT_PROTO_VER, CMD_ACK];
+        ack.extend(msg.msg_id.to_be_bytes());
+        if self.network_tx.try_send((peer, ack)).is_err() {
+            debug!("Chat ACK queue full; sender must retry");
+        }
         Ok(())
     }
 
@@ -477,6 +505,17 @@ impl Flavor for ChatFlavor {
             *self.last_real_traffic.lock() = std::time::Instant::now();
         }
 
+        // Cache only routes independently authenticated by the Engine context.
+        for entry in self.store.get_pending_messages() {
+            if ctx.system.lookup_peer(&entry.target_node_id) == Some(ctx.src_addr)
+                && ctx.system.is_connected(ctx.src_addr)
+            {
+                let mut routes = self.routes.write();
+                if routes.len() < 1024 || routes.contains_key(&entry.target_node_id) {
+                    routes.insert(entry.target_node_id, ctx.src_addr);
+                }
+            }
+        }
         match data[1] {
             CMD_MSG => {
                 // v3: [Ver][CMD][complete versioned OnionCrypto packet]
@@ -512,10 +551,7 @@ impl Flavor for ChatFlavor {
 
                 if let Ok(msg) = crate::common::safe_deserialize::<ChatMessage>(&plaintext) {
                     // 验签
-                    if msg.verify().is_ok()
-                        && msg.receiver_id
-                            == *blake3::hash(self.verifying_key.as_bytes()).as_bytes()
-                    {
+                    if msg.verify().is_ok() && msg.receiver_id == ctx.system.my_node_id() {
                         // [Feature] Extensions: 额外身份检查
                         #[cfg(feature = "extensions")]
                         {
@@ -530,24 +566,9 @@ impl Flavor for ChatFlavor {
                             hex::encode(msg.sender_pub_key)
                         );
 
-                        // 去重与存储
-                        if !self.store.exists_in_inbox(msg.msg_id) {
-                            let _ = self.store.save_inbox(&msg);
-                            let _ = self.ui_tx.send(msg.clone());
+                        if let Err(error) = self.persist_and_ack(&msg, ctx.src_addr) {
+                            warn!("Chat inbox persistence rejected; no ACK: {}", error);
                         }
-
-                        // 立即发送 ACK
-                        let sender_addr = ctx.src_addr;
-                        let msg_id = msg.msg_id;
-                        let net_tx = self.network_tx.clone();
-                        tokio::spawn(async move {
-                            // 构造 ACK 包
-                            let mut ack = Vec::new();
-                            ack.push(CHAT_PROTO_VER);
-                            ack.push(CMD_ACK);
-                            ack.extend_from_slice(&msg_id.to_be_bytes());
-                            let _ = net_tx.send((sender_addr, ack)).await;
-                        });
                     }
                 }
                 true
@@ -561,30 +582,27 @@ impl Flavor for ChatFlavor {
                 id_bytes.copy_from_slice(&data[2..18]);
                 let msg_id = u128::from_be_bytes(id_bytes);
 
-                info!("Chat: Received ACK for MsgID {}", msg_id);
-                let _ = self.store.mark_delivered(msg_id);
+                if data.len() != 18 {
+                    return true;
+                }
+                if let Ok(Some(entry)) = self.store.get_outbox(msg_id) {
+                    if entry.msg.verify().is_ok()
+                        && entry.target_node_id == entry.msg.receiver_id
+                        && ctx.system.is_connected(ctx.src_addr)
+                        && ctx.system.lookup_peer(&entry.target_node_id) == Some(ctx.src_addr)
+                    {
+                        if let Err(error) = self.store.mark_delivered(msg_id) {
+                            warn!("Chat ACK persistence failed: {}", error);
+                        }
+                    } else {
+                        warn!("Chat ACK rejected: sender is not the authenticated target");
+                    }
+                }
                 true
             }
             CMD_SYNC => {
-                // 格式: [Ver][CMD][RequesterNodeID(32)]
-                if data.len() < 34 {
-                    return true;
-                }
-                let mut node_id = [0u8; 32];
-                node_id.copy_from_slice(&data[2..34]);
-
-                info!("Chat: Received SYNC request from {:?}", node_id);
-
-                // 查找待发送给该 ID 的消息
-                let pending = self.store.get_messages_for_target(&node_id);
-                if !pending.is_empty() {
-                    info!(
-                        "Chat: Syncing {} messages to {}",
-                        pending.len(),
-                        ctx.src_addr
-                    );
-                    // 逻辑省略：重新加密并发送 (需要对方 EncKey，通常 OutboxEntry 里有)
-                }
+                // No native DHT GET/inbox inventory protocol is implemented here.
+                warn!("Chat SYNC unsupported; no messages acknowledged or advertised as synced");
                 true
             }
             CMD_COVER_NOISE => {
@@ -599,22 +617,15 @@ impl Flavor for ChatFlavor {
     }
 
     fn on_connection_open(&self, peer: SocketAddr) {
-        // 主动发送 SYNC 请求
-        let net_tx = self.network_tx.clone();
-        let my_id = blake3::hash(self.verifying_key.as_bytes())
-            .as_bytes()
-            .clone();
-
-        tokio::spawn(async move {
-            let mut payload = Vec::new();
-            payload.push(CHAT_PROTO_VER);
-            payload.push(CMD_SYNC);
-            payload.extend_from_slice(&my_id);
-            let _ = net_tx.send((peer, payload)).await;
-        });
+        let mut peers = self.peers.write();
+        if peers.len() < 128 {
+            peers.insert(peer);
+        }
     }
-
-    fn on_connection_close(&self, _peer: SocketAddr) {}
+    fn on_connection_close(&self, peer: SocketAddr) {
+        self.peers.write().remove(&peer);
+        self.routes.write().retain(|_, addr| *addr != peer);
+    }
 
     /// 后台轮询 (由 Node Tick 驱动)
     fn poll(&self) {
@@ -651,49 +662,40 @@ impl Flavor for ChatFlavor {
             }
         }
 
-        // 2. 消息重试逻辑
-        let pending = self.store.get_pending_messages();
-        for mut entry in pending {
-            // 如果已经在 DHT 状态，跳过
-            if entry.status != MsgStatus::Pending {
+        // Queue and durably count only actual attempts. A missing authenticated
+        // route remains pending; it is never falsely marked delivered/synced.
+        for mut entry in self.store.get_pending_messages().into_iter().take(128) {
+            if now.saturating_sub(entry.last_attempt) <= RETRY_INTERVAL_SECS {
                 continue;
             }
-
-            // 检查间隔
-            if now.saturating_sub(entry.last_attempt) > RETRY_INTERVAL_SECS {
-                entry.attempts += 1;
+            let Ok(payload) = self.pack_message(&entry.msg, entry.target_enc_pub) else {
+                continue;
+            };
+            let accepted = if entry.attempts < MAX_DIRECT_RETRIES {
+                let route = self.routes.read().get(&entry.target_node_id).copied();
+                route
+                    .filter(|peer| self.peers.read().contains(peer))
+                    .map_or(false, |peer| {
+                        self.network_tx.try_send((peer, payload.clone())).is_ok()
+                    })
+            } else if payload.len() <= 2048 {
+                self.dht_tx
+                    .try_send(DhtStoreRequest {
+                        key: blake3::hash(&payload).into(),
+                        value: payload,
+                        ttl_seconds: 86400,
+                    })
+                    .is_ok()
+            } else {
+                false
+            };
+            if accepted {
+                entry.attempts = entry.attempts.saturating_add(1);
                 entry.last_attempt = now;
-                info!(
-                    "Chat: Retrying message {}, attempt {}",
-                    entry.msg.msg_id, entry.attempts
-                );
-
-                if entry.attempts > MAX_DIRECT_RETRIES {
-                    // 降级到 DHT
-                    let dht_tx = self.dht_tx.clone();
-                    let store = self.store.clone();
-
-                    // 重新打包 (需要处理可能的 feature 加密逻辑)
-                    let payload_res = self.pack_message(&entry.msg, entry.target_enc_pub);
-
-                    if let Ok(payload) = payload_res {
-                        let req = DhtStoreRequest {
-                            key: entry.target_node_id,
-                            value: payload,
-                            ttl_seconds: MSG_TTL_SECS as u32,
-                        };
-
-                        let dht_ch = self.dht_tx.clone();
-                        tokio::spawn(async move {
-                            let _ = dht_ch.send(req).await;
-                        });
-
-                        // Update status sync
-                        entry.status = MsgStatus::SentToDHT;
-                        let _ = self.store.update_outbox_entry(&entry);
-                    } else {
-                        error!("Chat: Failed to pack message for DHT fallback");
-                    }
+                // DHT enqueue is not replication or delivery. Keep Pending for
+                // durable retries; legacy SentToDHT is not used as false success.
+                if let Err(error) = self.store.update_outbox_entry(&entry) {
+                    warn!("Chat retry count persistence failed: {}", error);
                 }
             }
         }
@@ -779,5 +781,125 @@ mod protocol_regression_tests {
             assert_eq!(value, bytes);
         }
         std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod durability_regressions {
+    use super::*;
+    struct Directory(std::path::PathBuf);
+    impl Directory {
+        fn new() -> Self {
+            Self(
+                std::env::temp_dir().join(format!(
+                    "chat-durable-{}-{}",
+                    std::process::id(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                )),
+            )
+        }
+        fn path(&self) -> &str {
+            self.0.to_str().unwrap()
+        }
+    }
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn pending(content: Vec<u8>) -> OutboxEntry {
+        let key = SigningKey::from_bytes(&[42; 32]);
+        let mut msg = ChatMessage {
+            msg_id: 42,
+            sender_pub_key: key.verifying_key().to_bytes(),
+            receiver_id: [7; 32],
+            timestamp: Utc::now().timestamp(),
+            content_type: "text/plain".into(),
+            content,
+            signature: vec![],
+        };
+        msg.signature = key.sign(&msg.signing_bytes()).to_bytes().to_vec();
+        OutboxEntry {
+            msg,
+            target_node_id: [7; 32],
+            target_enc_pub: XPublicKey::from(&StaticSecret::from([8; 32])).to_bytes(),
+            attempts: MAX_DIRECT_RETRIES,
+            last_attempt: 0,
+            status: MsgStatus::Pending,
+        }
+    }
+    #[test]
+    fn real_store_capacity_failure_cannot_emit_ui_or_ack() {
+        let dir = Directory::new();
+        let (net, mut net_rx) = mpsc::channel(8);
+        let (dht, _dht_rx) = mpsc::channel(8);
+        let flavor = ChatFlavor::new(dir.path(), &[42; 32], &[8; 32], dht, net).unwrap();
+        let mut ui = flavor.subscribe();
+        let tree = flavor.store.db.open_tree("inbox").unwrap();
+        let mut batch = sled::Batch::default();
+        for index in 0..4096u64 {
+            batch.insert(
+                index.to_be_bytes().as_slice(),
+                b"capacity fixture".as_slice(),
+            );
+        }
+        tree.apply_batch(batch).unwrap();
+        flavor.store.db.flush().unwrap();
+        let message = pending(b"must not ACK rejected storage".to_vec()).msg;
+        assert!(flavor
+            .persist_and_ack(&message, "127.0.0.1:1234".parse().unwrap())
+            .is_err());
+        assert!(net_rx.try_recv().is_err());
+        assert!(ui.try_recv().is_err());
+    }
+    #[test]
+    fn dht_failure_and_oversize_remain_durable_pending_without_false_sent_status() {
+        for oversized in [false, true] {
+            let dir = Directory::new();
+            let (net, _net_rx) = mpsc::channel(8);
+            let (dht, mut dht_rx) = mpsc::channel(8);
+            let flavor = ChatFlavor::new(dir.path(), &[42; 32], &[8; 32], dht, net).unwrap();
+            let entry = pending(if oversized {
+                vec![b'x'; 32768]
+            } else {
+                b"retry".to_vec()
+            });
+            flavor.store.save_outbox(&entry).unwrap();
+            if !oversized {
+                dht_rx.close();
+            }
+            flavor.poll();
+            assert!(dht_rx.try_recv().is_err());
+            let saved = flavor.store.get_outbox(42).unwrap().unwrap();
+            assert_eq!(saved.status, MsgStatus::Pending);
+            assert_eq!(saved.attempts, MAX_DIRECT_RETRIES);
+            drop(flavor);
+            let store = ChatStore::open(dir.path()).unwrap();
+            let saved = store.get_outbox(42).unwrap().unwrap();
+            assert_eq!(saved.status, MsgStatus::Pending);
+            assert_eq!(saved.attempts, MAX_DIRECT_RETRIES);
+        }
+    }
+    #[test]
+    fn actual_dht_enqueue_obeys_native_contract_but_does_not_claim_delivery() {
+        let dir = Directory::new();
+        let (net, _net_rx) = mpsc::channel(8);
+        let (dht, mut dht_rx) = mpsc::channel(8);
+        let flavor = ChatFlavor::new(dir.path(), &[42; 32], &[8; 32], dht, net).unwrap();
+        flavor
+            .store
+            .save_outbox(&pending(b"small encrypted object".to_vec()))
+            .unwrap();
+        flavor.poll();
+        let request = dht_rx.try_recv().unwrap();
+        assert_eq!(request.key, *blake3::hash(&request.value).as_bytes());
+        assert!(request.value.len() <= 2048);
+        assert_eq!(request.ttl_seconds, 86400);
+        let entry = flavor.store.get_outbox(42).unwrap().unwrap();
+        assert_eq!(entry.status, MsgStatus::Pending);
+        assert_eq!(entry.attempts, MAX_DIRECT_RETRIES + 1);
     }
 }

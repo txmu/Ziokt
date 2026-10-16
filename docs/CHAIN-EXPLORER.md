@@ -50,3 +50,21 @@ Public deployment also passed real Chromium checks in Chinese/English at a
 48px controls, no horizontal scroll, no browser errors, no external requests and
 no computation requests. The actual public URL and service details are recorded
 in `/home/admin/fendou.txt` on the deployment host.
+
+## Additional read-only features (2026-10-16)
+
+The interface includes genesis/previous/next block navigation, pending and all
+transaction views, cursor pagination, the latest 20 blocks' transaction counts,
+explicit refresh, and export of the displayed bounded JSON query. Search accepts
+heights or normalized digest strings. No address index, private payload, receipt,
+signing key, RPC control or mining action is exposed.
+
+`GET /api/explorer/transactions?pending=1&after=<hash>` uses 20-row keyset pages;
+`pending=0` (default) lists retained transactions in hash order, not time order.
+`GET /api/explorer/block/<height-or-hash>?after=<hash>` continues 100-row block
+pages. `GET /api/explorer/activity` reads at most the latest 20 canonical heights.
+All queries retain read-only transactions and the existing SQLite work budget.
+The browser supports Fetch/Worker-era browsers, feature-detects AbortController,
+avoids relying on replaceChildren, handles BFCache restore, and uses accessible
+mobile controls. Chromium/Firefox/WebKit UI tests run separately from genuine
+Corium database tests; browser fixtures do not establish chain correctness.

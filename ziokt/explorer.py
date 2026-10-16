@@ -42,15 +42,28 @@ class ChainExplorer:
                     if not before.isascii() or not before.isdecimal() or len(before)>16 or not 0<=int(before)<2**53:raise ProtocolError('INVALID_REQUEST','bounded height required')
                     rows=db.execute('SELECT height,hash,previous_hash,timestamp,validator,total_weight,length(transactions) FROM blocks WHERE height<? ORDER BY height DESC LIMIT 20',(int(before),)).fetchall()
                     return {**base,'blocks':[self.block(row,tip[0]) for row in rows],'next_before':rows[-1][0] if rows else None}
-                if route.path.startswith('/api/explorer/block/') and not args:
+                if route.path=='/api/explorer/transactions' and set(args)<={'after','pending'}:
+                    after=args.get('after',[''])[0]
+                    pending=args.get('pending',['0'])[0]
+                    if (after and not HEX.fullmatch(after)) or pending not in {'0','1'}:
+                        raise ProtocolError('INVALID_REQUEST','exact transaction cursor and pending flag required')
+                    condition='hash>?'+(' AND block_height IS NULL' if pending=='1' else '')
+                    rows=db.execute('SELECT hash,type,timestamp,block_height,length(data) FROM transactions WHERE '+condition+' ORDER BY hash LIMIT 21',(after,)).fetchall()
+                    return {**base,'transactions':[self.tx(r,tip[0]) for r in rows[:20]],'next_after':rows[19][0] if len(rows)>20 else None,'pending_only':pending=='1'}
+                if route.path=='/api/explorer/activity' and not args:
+                    rows=db.execute('SELECT b.height,b.timestamp,COUNT(t.hash) FROM blocks b LEFT JOIN transactions t ON t.block_height=b.height WHERE b.height>=? GROUP BY b.height ORDER BY b.height DESC LIMIT 20',(max(0,tip[0]-19),)).fetchall()
+                    return {**base,'blocks':[{'height':r[0],'timestamp':r[1],'transaction_count':r[2]} for r in rows]}
+                if route.path.startswith('/api/explorer/block/') and set(args)<={'after'}:
                     value=route.path.rsplit('/',1)[1]
                     if HEX.fullmatch(value):where=('hash=?',value)
                     elif value.isascii() and value.isdecimal() and len(value)<=16 and int(value)<2**53:where=('height=?',int(value))
                     else:raise ProtocolError('INVALID_REQUEST','block height or digest required')
                     row=db.execute('SELECT height,hash,previous_hash,timestamp,validator,total_weight,length(transactions) FROM blocks WHERE '+where[0],(where[1],)).fetchone()
                     if not row:raise ProtocolError('NOT_FOUND','block not on local canonical chain')
-                    txs=db.execute('SELECT hash,type,timestamp,block_height,length(data) FROM transactions WHERE block_height=? ORDER BY hash LIMIT 101',(row[0],)).fetchall()
-                    return {**base,'block':self.block(row,tip[0]),'transactions':[self.tx(r,tip[0]) for r in txs[:100]],'transactions_truncated':len(txs)>100}
+                    after=args.get('after',[''])[0]
+                    if after and not HEX.fullmatch(after):raise ProtocolError('INVALID_REQUEST','transaction digest cursor required')
+                    txs=db.execute('SELECT hash,type,timestamp,block_height,length(data) FROM transactions WHERE block_height=? AND hash>? ORDER BY hash LIMIT 101',(row[0],after)).fetchall()
+                    return {**base,'block':self.block(row,tip[0]),'transactions':[self.tx(r,tip[0]) for r in txs[:100]],'transactions_truncated':len(txs)>100,'next_after':txs[99][0] if len(txs)>100 else None}
                 if route.path.startswith('/api/explorer/transaction/') and not args:
                     value=route.path.rsplit('/',1)[1]
                     if not HEX.fullmatch(value):raise ProtocolError('INVALID_REQUEST','transaction digest required')

@@ -310,6 +310,8 @@ struct SessionContext {
     cover_engine: CoverTrafficEngine, // New Feature
 
     handshake_completed: bool,
+    /// Authenticated remote Engine incarnation, never an address or public identifier.
+    remote_boot_id: Option<[u8; 16]>,
     last_activity: Instant,
     created_at: Instant,
 
@@ -339,6 +341,37 @@ impl SessionContext {
         interceptors: Vec<Arc<dyn Interceptor>>,
         registry: &Arc<PluginRegistry>,
     ) -> Self {
+        let reliability = Self::fresh_reliability(config, registry);
+
+        Self {
+            crypto,
+            reliability,
+            shaper: TrafficShaper::new(config.profile),
+            side_channels: SideChannelManager::new(),
+            cover_engine: CoverTrafficEngine::new(&config.anonymity),
+
+            handshake_completed: false,
+            remote_boot_id: None,
+            last_activity: Instant::now(),
+            created_at: Instant::now(),
+
+            bytes_sent_total: 0,
+            bytes_sent_since_rekey: 0,
+            last_rekey_time: Instant::now(),
+
+            dialect,
+            flavor,
+            pending_queue: VecDeque::new(),
+            stream_offsets: HashMap::new(),
+            handshake_flight: Vec::new(),
+            handshake_sent: Instant::now(),
+            handshake_attempts: 0,
+            interceptors,
+            config_snapshot: config.clone(),
+        }
+    }
+
+    fn fresh_reliability(config: &NodeConfig, registry: &Arc<PluginRegistry>) -> ReliabilityLayer {
         let mut reliability = ReliabilityLayer::new(config.multiplexing_mode);
 
         if let Some(algo) = registry.create_congestion_algo(&config.congestion_algo) {
@@ -359,31 +392,15 @@ impl SessionContext {
             );
         }
 
-        Self {
-            crypto,
-            reliability,
-            shaper: TrafficShaper::new(config.profile),
-            side_channels: SideChannelManager::new(),
-            cover_engine: CoverTrafficEngine::new(&config.anonymity),
+        reliability
+    }
 
-            handshake_completed: false,
-            last_activity: Instant::now(),
-            created_at: Instant::now(),
-
-            bytes_sent_total: 0,
-            bytes_sent_since_rekey: 0,
-            last_rekey_time: Instant::now(),
-
-            dialect,
-            flavor,
-            pending_queue: VecDeque::new(),
-            stream_offsets: HashMap::new(),
-            handshake_flight: Vec::new(),
-            handshake_sent: Instant::now(),
-            handshake_attempts: 0,
-            interceptors,
-            config_snapshot: config.clone(),
-        }
+    fn reset_for_remote_restart(&mut self, registry: &Arc<PluginRegistry>) {
+        self.reliability = Self::fresh_reliability(&self.config_snapshot, registry);
+        self.stream_offsets.clear();
+        // These bytes/ACKs belong to the old incarnation. Applications receive
+        // close/open and retry from their own durable state, never a stale stream.
+        self.pending_queue.clear();
     }
 
     fn run_ingress_interceptors(&self, stream_id: u32, mut data: Vec<u8>) -> Option<Vec<u8>> {
@@ -650,6 +667,8 @@ struct ProcessingContext {
     metrics: Arc<NodeMetrics>,
     incoming_slots: Arc<tokio::sync::Semaphore>,
     handshakes: Arc<parking_lot::Mutex<HashMap<(SocketAddr, [u8; 32]), (Instant, Vec<u8>)>>>,
+    /// Random per Engine instance; transmitted only inside Noise-authenticated payloads.
+    boot_id: [u8; 16],
 
     default_handler: Option<Arc<dyn PacketHandler>>,
     fallback_handler: Option<Arc<dyn PacketHandler>>,
@@ -826,6 +845,7 @@ impl EtpEngine {
             metrics,
             incoming_slots: Arc::new(tokio::sync::Semaphore::new(128)),
             handshakes: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            boot_id: rand::random(),
             default_handler: None,
             fallback_handler: None,
             banned_ips,
@@ -1042,7 +1062,16 @@ impl EtpEngine {
 
                     let res = session.crypto.read_handshake_message(&plain_data, &mut out);
                     match res {
-                        Ok((_len, fin)) => {
+                        Ok((payload_len, fin)) => {
+                            // IK4 response authenticates the responder incarnation.
+                            if payload_len != 24 || &out[..8] != b"ETPR4\0\0\0" {
+                                release_buffer(out);
+                                return;
+                            }
+                            let remote_boot: [u8; 16] = out[8..24].try_into().unwrap();
+                            let restarted = session.remote_boot_id.is_some_and(|previous| previous != remote_boot);
+                            if restarted { session.reset_for_remote_restart(&ctx.plugins); }
+                            session.remote_boot_id = Some(remote_boot);
                             // ACL Check
                             if let Some(pubk) = session.crypto.get_remote_static() {
                                 if !ctx.acl.allow_connection(pubk) {
@@ -1073,10 +1102,12 @@ impl EtpEngine {
                                 ctx.metrics
                                     .handshake_success
                                     .fetch_add(1, Ordering::Relaxed);
-                                session.flavor.on_connection_open(src);
-                                // Flush pending frames if any
+                                let flavor = session.flavor.clone();
+                                // Flush same-incarnation pending frames only.
                                 let pending = std::mem::take(&mut session.pending_queue);
-                                drop(session); // release lock before sending
+                                drop(session); // callbacks may consult the session map
+                                if restarted { flavor.on_connection_close(src); }
+                                flavor.on_connection_open(src);
                                 release_buffer(out);
                                 Self::flush_pending_frames(ctx, src, pending).await;
                                 return;
@@ -1286,11 +1317,13 @@ impl EtpEngine {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                if payload_len != 32 || &out[..8] != b"ETPIK3\0\0" {
+                if payload_len != 32 || &out[..8] != b"ETPIK4\0\0" {
                     release_buffer(out);
                     continue;
                 }
                 let issued = u64::from_be_bytes(out[8..16].try_into().unwrap());
+                let remote_boot: [u8; 16] = out[16..32].try_into().unwrap();
+                session.remote_boot_id = Some(remote_boot);
                 if issued > now.saturating_add(5) || now > issued.saturating_add(30) {
                     release_buffer(out);
                     continue;
@@ -1313,31 +1346,40 @@ impl EtpEngine {
                         return;
                     }
                 }
-                if let Ok((wlen, wfin)) = session.crypto.write_handshake_message(&[], &mut out) {
-                    if wlen > 0 {
-                        let mut resp = out[..wlen].to_vec();
-                        dialect.seal(&mut resp);
-                        ctx.handshakes
-                            .lock()
-                            .insert((src, fingerprint), (Instant::now(), resp.clone()));
-                        if let Some(previous) = ctx.sessions.get(&src).map(|s| s.value().clone()) {
-                            let mut previous = previous.lock().await;
+                let mut response_payload = b"ETPR4\0\0\0".to_vec();
+                response_payload.extend_from_slice(&ctx.boot_id);
+                if let Ok((wlen, wfin)) = session.crypto.write_handshake_message(&response_payload, &mut out) {
+                    let mut response = out[..wlen].to_vec();
+                    dialect.seal(&mut response);
+                    let mut closed_flavor = None;
+                    if let Some(previous) = ctx.sessions.get(&src).map(|s| s.value().clone()) {
+                        let mut previous = previous.lock().await;
+                        let continuity = previous.remote_boot_id == Some(remote_boot)
+                            || (previous.remote_boot_id.is_none() && !previous.handshake_completed);
+                        if continuity {
                             std::mem::swap(&mut session.reliability, &mut previous.reliability);
                             session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
                             session.pending_queue = std::mem::take(&mut previous.pending_queue);
+                        } else {
+                            // Different Engine: neither old plaintext nor packet/ACK
+                            // state may cross this authenticated incarnation boundary.
+                            closed_flavor = Some(previous.flavor.clone());
                         }
-                        let _ = ctx.transport.send_to(&resp, src).await;
                     }
                     session.handshake_completed = wfin || finished;
-                    if session.handshake_completed {
-                        ctx.metrics
-                            .handshake_success
-                            .fetch_add(1, Ordering::Relaxed);
-                        session.flavor.on_connection_open(src);
+                    let completed = session.handshake_completed;
+                    let flavor = session.flavor.clone();
+                    let previous = ctx.sessions.insert(src, Arc::new(tokio::sync::Mutex::new(session)));
+                    if previous.is_none() { ctx.metrics.active_sessions.fetch_add(1, Ordering::Relaxed); }
+                    ctx.handshakes.lock().insert((src, fingerprint), (Instant::now(), response.clone()));
+                    // Install before replying: a fast peer may immediately send data.
+                    // Callbacks run with neither a session guard nor a map guard held.
+                    if let Some(flavor) = closed_flavor { flavor.on_connection_close(src); }
+                    let _ = ctx.transport.send_to(&response, src).await;
+                    if completed {
+                        ctx.metrics.handshake_success.fetch_add(1, Ordering::Relaxed);
+                        flavor.on_connection_open(src);
                     }
-                    ctx.sessions
-                        .insert(src, Arc::new(tokio::sync::Mutex::new(session)));
-                    ctx.metrics.active_sessions.fetch_add(1, Ordering::Relaxed);
                     handled = true;
                     release_buffer(out);
                     break;
@@ -1731,21 +1773,23 @@ impl EtpEngine {
         );
         if let Some(previous) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
             let mut previous = previous.lock().await;
+            session.remote_boot_id = previous.remote_boot_id;
             session.pending_queue = std::mem::take(&mut previous.pending_queue);
             session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
             std::mem::swap(&mut session.reliability, &mut previous.reliability);
         }
         let mut buf = acquire_buffer();
         buf.resize(1024, 0);
-        let mut hello = b"ETPIK3\0\0".to_vec();
+        let mut hello = b"ETPIK4\0\0".to_vec();
         hello.extend_from_slice(
             &std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs()
                 .to_be_bytes(),
         );
-        let random: [u8; 16] = rand::random();
-        hello.extend_from_slice(&random);
+        // Noise generates a fresh ephemeral key for every handshake; this field
+        // identifies whether reliable streams belong to the same Engine runtime.
+        hello.extend_from_slice(&self.ctx.boot_id);
         let (len, _) = session.crypto.write_handshake_message(&hello, &mut buf)?;
 
         let mut message = buf[..len].to_vec();
@@ -1753,14 +1797,9 @@ impl EtpEngine {
         session.handshake_flight = message.clone();
         session.handshake_sent = Instant::now();
         session.handshake_attempts = 1;
-        self.ctx
-            .sessions
-            .insert(target, Arc::new(tokio::sync::Mutex::new(session)));
+        let previous = self.ctx.sessions.insert(target, Arc::new(tokio::sync::Mutex::new(session)));
         self.ctx.transport.send_to(&message, target).await?;
-        self.ctx
-            .metrics
-            .active_sessions
-            .fetch_add(1, Ordering::Relaxed);
+        if previous.is_none() { self.ctx.metrics.active_sessions.fetch_add(1, Ordering::Relaxed); }
         release_buffer(buf);
         Ok(())
     }
@@ -2224,6 +2263,88 @@ impl EtpEngine {
 #[cfg(test)]
 mod runtime_regression_tests {
     use super::*;
+
+    #[test]
+    fn remote_restart_resets_stream_offsets_and_discards_old_pending_plaintext_and_acks() {
+        let config = NodeConfig::default(); let registry = Arc::new(PluginRegistry::new());
+        let mut session = SessionContext::new(NoiseSession::new_responder(&config.keypair).unwrap(), &config, Arc::new(crate::plugin::StandardDialect), Arc::new(crate::plugin::StandardFlavor), vec![], &registry);
+        session.stream_offsets.insert(3, 999);
+        session.pending_queue.push_back(Frame::Stream { stream_id:3, offset:999, fin:false, data:b"old incarnation bytes".to_vec() });
+        session.pending_queue.push_back(Frame::Ack { largest_acknowledged:9, delay_time_micros:0, ranges:vec![(1,9)] });
+        session.reset_for_remote_restart(&registry);
+        assert!(session.stream_offsets.is_empty()); assert!(session.pending_queue.is_empty());
+        let (_, chunks) = session.reliability.on_packet_received(0, vec![Frame::Stream { stream_id:3, offset:0, fin:false, data:b"new incarnation".to_vec() }]);
+        assert_eq!(chunks, vec![(3,b"new incarnation".to_vec())]);
+    }
+
+    async fn wait_for_incarnation(ctx: &ProcessingContext, peer: SocketAddr, boot: [u8;16], old: Option<&Arc<tokio::sync::Mutex<SessionContext>>>) {
+        loop {
+            if let Some(session) = ctx.sessions.get(&peer).map(|item| item.value().clone()) {
+                if old.map_or(false, |old| Arc::ptr_eq(old, &session)) { tokio::task::yield_now().await; continue; }
+                let state = session.lock().await;
+                if state.handshake_completed && state.remote_boot_id == Some(boot) { return; }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn actual_udp_same_port_new_engine_resets_streams_but_same_boot_rekey_preserves_them() {
+        let a_socket=Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let b_socket=Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let a_addr=a_socket.local_addr().unwrap();let b_addr=b_socket.local_addr().unwrap();
+        let mut a_config=NodeConfig::default();let mut b_config=NodeConfig::default();
+        a_config.trusted_peers.insert(b_addr,b_config.keypair.public.as_slice().try_into().unwrap());
+        b_config.trusted_peers.insert(a_addr,a_config.keypair.public.as_slice().try_into().unwrap());
+        let a_public=a_config.keypair.public.clone();let b_public=b_config.keypair.public.clone();
+        let (a,a_handle,mut a_received)=EtpEngine::new_with_transport(a_config,Arc::new(PluginRegistry::new()),Arc::new(UdpTransport(a_socket))).await.unwrap();
+        let (b,b_handle,mut b_received)=EtpEngine::new_with_transport(b_config.clone(),Arc::new(PluginRegistry::new()),Arc::new(UdpTransport(b_socket.clone()))).await.unwrap();
+        let a_ctx=a.ctx.clone();let old_b_boot=b.ctx.boot_id;
+        let mut a_task=tokio::spawn(a.run());let mut b_task=tokio::spawn(b.run());let mut restarted_task=None;
+        let exchange=async {
+            a_handle.send_data(b_addr,b"old outbound offsets".to_vec()).await.unwrap();
+            assert_eq!(b_received.recv().await.unwrap().1,b"old outbound offsets");
+            b_handle.send_data(a_addr,b"old return offsets".to_vec()).await.unwrap();
+            assert_eq!(a_received.recv().await.unwrap().1,b"old return offsets");
+            wait_for_incarnation(&a_ctx,b_addr,old_b_boot,None).await;
+            b_handle.shutdown().await.unwrap();tokio::time::timeout(Duration::from_secs(3),&mut b_task).await.unwrap().unwrap().unwrap();
+            // Replace the complete Engine and crypto/reliability runtime while
+            // retaining the bound real UDP socket to avoid a test port-allocation race.
+            // Native gateway smoke additionally closes/rebinds an actual process.
+            let (restarted,new_handle,mut fresh_received)=EtpEngine::new_with_transport(b_config.clone(),Arc::new(PluginRegistry::new()),Arc::new(UdpTransport(b_socket.clone()))).await.unwrap();
+            let fresh_ctx=restarted.ctx.clone();assert_ne!(fresh_ctx.boot_id,old_b_boot);
+            restarted_task=Some(tokio::spawn(restarted.run()));
+            new_handle.connect(a_addr,a_public.clone()).await.unwrap();
+            wait_for_incarnation(&a_ctx,b_addr,fresh_ctx.boot_id,None).await;
+            wait_for_incarnation(&fresh_ctx,a_addr,a_ctx.boot_id,None).await;
+            new_handle.send_data(a_addr,b"offset zero from restarted peer".to_vec()).await.unwrap();
+            assert_eq!(a_received.recv().await.unwrap().1,b"offset zero from restarted peer");
+            a_handle.send_data(b_addr,b"return after peer restart".to_vec()).await.unwrap();
+            assert_eq!(fresh_received.recv().await.unwrap().1,b"return after peer restart");
+            // A cryptographically valid but explicitly obsolete IK3 hello must
+            // not replace an established IK4 session or reset its receive offsets.
+            let live=a_ctx.sessions.get(&b_addr).unwrap().value().clone();
+            let mut legacy=NoiseSession::new_initiator(&b_config.keypair,&a_public).unwrap();
+            let mut hello=b"ETPIK3\0\0".to_vec();
+            hello.extend(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_be_bytes());hello.extend([9u8;16]);
+            let mut wire=vec![0;1024];let (size,_)=legacy.write_handshake_message(&hello,&mut wire).unwrap();
+            wire.truncate(size); crate::plugin::StandardDialect.seal(&mut wire);
+            b_socket.send_to(&wire,a_addr).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert!(Arc::ptr_eq(&live,&a_ctx.sessions.get(&b_addr).unwrap().value().clone()));
+            new_handle.send_data(a_addr,b"still live after rejected IK3".to_vec()).await.unwrap();assert_eq!(a_received.recv().await.unwrap().1,b"still live after rejected IK3");
+            let old_a=a_ctx.sessions.get(&b_addr).unwrap().value().clone();let old_b=fresh_ctx.sessions.get(&a_addr).unwrap().value().clone();
+            a_handle.connect(b_addr,b_public.clone()).await.unwrap();
+            wait_for_incarnation(&a_ctx,b_addr,fresh_ctx.boot_id,Some(&old_a)).await;
+            wait_for_incarnation(&fresh_ctx,a_addr,a_ctx.boot_id,Some(&old_b)).await;
+            a_handle.send_data(b_addr,b"same boot explicit rekey".to_vec()).await.unwrap();assert_eq!(fresh_received.recv().await.unwrap().1,b"same boot explicit rekey");
+            new_handle.send_data(a_addr,b"same boot return".to_vec()).await.unwrap();assert_eq!(a_received.recv().await.unwrap().1,b"same boot return");
+            assert_eq!(a_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);assert_eq!(fresh_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);
+        };
+        let result=tokio::time::timeout(Duration::from_secs(15),exchange).await;
+        a_task.abort();b_task.abort();if let Some(task)=restarted_task { task.abort(); }
+        result.expect("same-port restart or same-runtime rekey failed actual UDP exchange");
+    }
     #[tokio::test]
     async fn real_udp_noise_stream_offsets_and_authenticated_dht_work_together() {
         let a_socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());

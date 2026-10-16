@@ -153,8 +153,10 @@ class NativeStreamTests(unittest.TestCase):
                     result = json.loads(response.stdout.strip().splitlines()[-1])
                     self.assertEqual(base64.b64decode(result["data_base64"]), content)
                     with Community(base/"community-replica", community_policy, community_public, community_key) as replica:
-                        replica.admit([sealed_event])
+                        # Admission validates the complete signed file manifest.
+                        # Persist the actually fetched ciphertext before the event.
                         replica.put_blob(base64.b64decode(result["data_base64"]), content_digest)
+                        replica.admit([sealed_event])
                         self.assertEqual(replica.get_file(manifest), b"Community survives native node loss")
                     for role in ('client','agent','broker'): registry.stop(names[role])
                     for role in names: registry.run(names[role])
