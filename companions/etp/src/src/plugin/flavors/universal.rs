@@ -459,14 +459,14 @@ impl UniversalStore {
             });
             if expired || read_expired {
                 if let Ok(bytes) = key.as_ref().try_into() {
-                    self.delete_msg(u128::from_be_bytes(bytes))?;
+                    self.delete_msg_locked(u128::from_be_bytes(bytes))?;
                 }
             }
         }
         Ok(())
     }
-    fn delete_msg(&self, uuid: u128) -> Result<()> {
-        let _guard = self.mutation.lock();
+    // Caller owns mutation for the entire sweep; never recursively lock it.
+    fn delete_msg_locked(&self, uuid: u128) -> Result<()> {
         let messages = self.db.open_tree("messages")?;
         let index = self.db.open_tree("idx_topic")?;
         let deadlines = self.db.open_tree("read_deadlines_v3")?;
