@@ -329,8 +329,8 @@ def main(argv=None):
             result = NativeClient(config["federation_id"], provider).call("zkt.account" if args.address else "zkt.status", {"address": args.address} if args.address else {})
         else:
             result = initialize(args) if args.action == "init" else inspect(load(args.config), args.action, args.kind)
-        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-        return 0 if result.get("healthy", True) else 2
+        if result is not None:print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0 if result is None or result.get("healthy", True) else 2
     except (ProtocolError, OSError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": {
             "code": getattr(exc, "code", "CONFIGURATION_ERROR"),

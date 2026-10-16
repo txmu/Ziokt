@@ -66,3 +66,38 @@ class EtpRecordTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):wrong.recv(4096)
         client.send(b'tamper');packet=b.inbox.get();b.inbox.put(packet[:-1]+bytes([packet[-1]^1]))
         with self.assertRaises(ProtocolError):server.recv(4096)
+
+class EtpForumAdapterTests(unittest.TestCase):
+    """Actual pinned helper processes test IPC validation, not native ETP execution."""
+    def worker(self,root,body):
+        binary=root/'forum-ipc-fixture';config=root/'config.json';write_binary_exclusive(config,b'{}')
+        binary.write_text('#!/usr/bin/env python3\nimport sys,json,base64,os\n'+body);binary.chmod(0o700)
+        gateway=EtpGateway(binary,'sha256:'+hashlib.sha256(binary.read_bytes()).hexdigest(),config);self.addCleanup(gateway.close)
+        return gateway
+    def test_typed_forum_ipc_and_explicit_anonymous_author(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gateway=self.worker(Path(tmp),'''for line in sys.stdin:
+ r=json.loads(line);m=r['method'];p=r['params']
+ if m=='etp.shutdown':break
+ if m=='etp.forum.identity':v={'schema':'ziokt.etp-forum-identity.v1','name':p['name'],'author_id':'ab'*32}
+ elif m=='etp.forum.subscribe':v={'subscribed':True,'topic_hash':'cd'*32}
+ elif m=='etp.forum.publish':v={'schema':'ziokt.etp-forum-publish.v1','id':'ef'*32,'stored':True,'dht_enqueued':False,'delivery_confirmed':False,'state':'stored_locally','gossip':'best_effort'}
+ else:v={'post':{'id':p['id'],'topic_hash':'cd'*32,'author_id':None,'timestamp':1,'content_base64':[base64.b64encode(b'x'*3072).decode() for _ in range(10)]+[base64.b64encode(b'x'*2048).decode()],'parent_id':None,'signature_base64':'','parent_status':'not_reply'}}
+ print(json.dumps({'id':r['id'],'ok':True,'result':v}),flush=True)
+''')
+            self.assertEqual(gateway.call('etp.forum.identity',{'name':'alice'})['author_id'],'ab'*32)
+            self.assertTrue(gateway.call('etp.forum.subscribe',{'topic':'native'})['subscribed'])
+            response=gateway.call('etp.forum.publish',{'topic':'native','content':'text','author':None})
+            self.assertEqual(response['state'],'stored_locally');self.assertFalse(response['delivery_confirmed'])
+            post=gateway.call('etp.forum.get',{'id':'ef'*32})['post'];self.assertEqual(sum(len(base64.b64decode(c)) for c in post['content_base64']),32768)
+            invalid=[('etp.forum.publish',{'topic':'native','content':'text'}),('etp.forum.publish',{'topic':'native','content':'text','author':True}),('etp.forum.publish',{'topic':'native','content':'x'*32769,'author':None}),('etp.forum.publish',{'topic':'native','content':'text','author':None,'private_key':'00'*32}),('etp.forum.get',{'id':'not-a-hash'}),('etp.forum.subscribe',{'topic':'line\nbreak'}),('etp.forum.identity',{'name':'../seed'}),('etp.forum.delete',{})]
+            sequence=gateway.sequence
+            for method,params in invalid:
+                with self.subTest(method=method,params=list(params)),self.assertRaises(ProtocolError):gateway.call(method,params)
+            self.assertEqual(gateway.sequence,sequence)
+    def test_native_unsupported_and_untyped_success_do_not_imply_forum_support(self):
+        for reply,code in [("{'id':r['id'],'ok':False,'error':{'code':'METHOD_UNSUPPORTED'}}",'METHOD_UNSUPPORTED'),("{'id':r['id'],'ok':True,'result':{'fixture':True}}",'INVALID_RESPONSE')]:
+            with tempfile.TemporaryDirectory() as tmp:
+                gateway=self.worker(Path(tmp),"for line in sys.stdin:\n r=json.loads(line)\n if r['method']=='etp.shutdown':break\n print(json.dumps("+reply+"),flush=True)\n")
+                with self.assertRaises(ProtocolError) as error:gateway.call('etp.forum.identity',{'name':'alice'})
+                self.assertEqual(error.exception.code,code);self.assertIsNone(gateway.process)

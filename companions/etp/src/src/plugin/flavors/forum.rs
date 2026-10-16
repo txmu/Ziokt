@@ -664,8 +664,14 @@ impl ForumFlavor {
         dht_result
     }
 
-    pub async fn publish_prepared_post(&self, post: ForumPost) -> Result<()> {
-        self.publish(post).await
+    /// Err means local admission/durability failed. Ok reports DHT admission;
+    /// the post has been flushed even when remote submission is unavailable.
+    pub async fn publish_prepared_post(&self, post: ForumPost) -> Result<bool> {
+        self.store.save_post(&post)?;
+        // Also establish durability for a duplicate left visible by a previous
+        // failed flush; visibility alone must never become a stored ACK.
+        self.store.db.flush()?;
+        Ok(self.publish(post).await.is_ok())
     }
 
     pub fn subscribe(&self, topic: &str) {
@@ -1464,9 +1470,7 @@ mod tests {
             content: post.canonical(),
             signature: vec![],
         };
-        let mut foreign = chat.msg_id.to_be_bytes().to_vec();
-        foreign.extend(chat.timestamp.to_be_bytes());
-        foreign.extend(&chat.content);
+        let foreign = chat.signing_bytes();
         chat.signature = key.sign(&foreign).to_bytes().to_vec();
         assert!(chat.verify().is_ok());
         post.signature[32..].copy_from_slice(&chat.signature);

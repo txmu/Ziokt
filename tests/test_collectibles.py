@@ -11,6 +11,7 @@ from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from ziokt import _runtime
+from ziokt.protocol import encoded,strict_json
 from ziokt.collectibles import receiver,gift,accept_gift,GiftOutbox,issue_edition,pack_editions,unpack_editions
 from ziokt.protocol import ProtocolError,encoded
 import test_native_assets as native_assets
@@ -48,10 +49,28 @@ class Collectibles(unittest.TestCase):
         with self.assertRaises(ProtocolError): _runtime.asset_signed_gift(altered,'default')
         with self.assertRaises(ProtocolError): accept_gift(receiver('default')[1],self.snapshot,self.tx,self.fact())
         with self.assertRaises(ProtocolError): accept_gift(self.wallet,self.snapshot,self.tx,{**self.fact(),'confirmations':1})
+        from ziokt.collectibles import verify_snapshot, verify_receiver
+        for field, malformed in [('public_key', {}), ('signature', [])]:
+            with self.assertRaises(ProtocolError): verify_snapshot({**self.snapshot, field: malformed}, 'default')
+            with self.assertRaises(ProtocolError): verify_receiver({**self.offer, field: malformed}, 'default')
+        with self.assertRaises(ProtocolError):
+            verify_snapshot({**self.snapshot, 'manifest': {**self.snapshot['manifest'], 'schema': []}}, 'default')
+
+    def test_valid_signature_cannot_reuse_receipt_for_another_collectible(self):
+        # The encrypted receipt remains for A, while a valid owner signature
+        # and matching trusted-native fact describe a transfer of B.
+        transaction = json.loads(encoded(self.tx))
+        transaction['data']['token_id'] = 'c'*64
+        transaction['signature'] = _runtime.native_ec_sign(self.owner, _runtime.asset_transaction_bytes(transaction))
+        tx_hash = _runtime.asset_signed_gift(transaction, 'default')[1]
+        fact = {**self.fact(), 'transaction': transaction, 'transaction_hash': tx_hash}
+        with self.assertRaises(ProtocolError) as error:
+            accept_gift(self.wallet, self.snapshot, transaction, fact)
+        self.assertEqual(error.exception.code, 'GIFT_REJECTED')
 
     def test_outbox_survives_lost_ack_uses_another_route_and_reconciles_fork(self):
         with tempfile.TemporaryDirectory() as tmp:
-            key=secrets.token_bytes(32);path=Path(tmp)/'outbox.sqlite';box=GiftOutbox(path,key)
+            key=secrets.token_bytes(32);path=Path(tmp)/'outbox.sqlite';box=GiftOutbox(path,key,privacy_mode='legacy')
             self.addCleanup(box.close);self.assertEqual(box.enqueue(self.tx),box.enqueue(self.tx))
             self.assertNotIn(self.tx['data']['token_id'].encode(),path.read_bytes())
             routes=[];calls=[];included=[False]
@@ -71,12 +90,77 @@ class Collectibles(unittest.TestCase):
             wrong=GiftOutbox(path,secrets.token_bytes(32));self.addCleanup(wrong.close)
             with self.assertRaises(ProtocolError): wrong._open(self.tx_hash,box.db.execute('SELECT body FROM gifts').fetchone()[0])
 
+    def test_mixed_queue_persists_delay_and_operation_intent_after_restart(self):
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            key=secrets.token_bytes(32);path=Path(tmp)/'mixed.sqlite';box=GiftOutbox(path,key)
+            before=int(time.time());box.enqueue(self.tx)
+            row=box.db.execute('SELECT next_try,operation_id,delivery_mode FROM gifts').fetchone()
+            self.assertTrue(before+1<=row[0]<=int(time.time())+8);self.assertEqual(row[2],'mixed')
+            self.assertNotIn(self.tx_hash[:20],row[1]);calls=[]
+            self.assertEqual(box.cycle(lambda *args:calls.append(args),lambda *args:None)[0]['attempts'],0)
+            self.assertEqual(calls,[])
+            with box.db:box.db.execute('UPDATE gifts SET next_try=0')
+            def call(method,params,route):
+                if method=='zkn.fact':return {'phase':'absent'}
+                calls.append(params['operation_id'])
+                if method=='operation.prepare':return {'plan_digest':'sha256:'+'c'*64}
+                raise OSError('lost ack')
+            box.cycle(call,lambda *args:None);box.close()
+            reopened=GiftOutbox(path,key);self.addCleanup(reopened.close)
+            self.assertEqual(reopened.db.execute('SELECT operation_id FROM gifts').fetchone()[0],row[1])
+            with reopened.db:reopened.db.execute('UPDATE gifts SET next_try=0')
+            reopened.cycle(call,lambda *args:None)
+            self.assertEqual(calls,[row[1]]*4)
+
+    def test_legacy_outbox_migration_preserves_body_and_prior_intent(self):
+        import sqlite3
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        with tempfile.TemporaryDirectory() as tmp:
+            key=secrets.token_bytes(32);path=Path(tmp)/'legacy.sqlite';nonce=secrets.token_bytes(12)
+            body=nonce+AESGCM(key).encrypt(nonce,encoded(self.tx),self.tx_hash.encode())
+            db=sqlite3.connect(path);db.execute('CREATE TABLE gifts(id TEXT PRIMARY KEY,body BLOB,phase TEXT,attempts INTEGER,next_try INTEGER)')
+            db.execute('INSERT INTO gifts VALUES (?,?,?,?,?)',(self.tx_hash,body,'queued',3,0));db.commit();db.close();path.chmod(0o600)
+            box=GiftOutbox(path,key);self.addCleanup(box.close)
+            saved=box.db.execute('SELECT body,attempts,operation_id,delivery_mode FROM gifts').fetchone()
+            self.assertEqual(saved,(body,3,'gift-'+self.tx_hash[:40]+'-2','legacy'))
+            self.assertEqual(box._open(self.tx_hash,saved[0]),self.tx)
+
+    def test_large_legacy_database_reopens_without_old_whole_file_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            key=secrets.token_bytes(32);path=Path(tmp)/'history.sqlite';box=GiftOutbox(path,key,privacy_mode='legacy')
+            box.enqueue(self.tx)
+            with box.db:
+                box.db.execute('CREATE TABLE historical_padding(data BLOB)')
+                box.db.execute('INSERT INTO historical_padding VALUES (zeroblob(?))',(33*1024*1024,))
+            box.close();self.assertGreater(path.stat().st_size,32*1024*1024)
+            reopened=GiftOutbox(path,key);self.addCleanup(reopened.close)
+            self.assertEqual(reopened.status()[0]['transaction_hash'],self.tx_hash)
+            self.assertEqual(reopened.db.execute('PRAGMA cache_size').fetchone()[0],-2048)
+            pages=reopened.db.execute('PRAGMA max_page_count').fetchone()[0]
+            size=reopened.db.execute('PRAGMA page_size').fetchone()[0]
+            self.assertLessEqual(pages*size,256*1024*1024)
+
+    def test_versioned_delivery_capsules_have_fixed_shape_and_fresh_identifiers(self):
+        from ziokt.collectibles import wrap_delivery,unwrap_delivery,delivery_digest
+        value={'request':{'transaction':self.tx},'grant':{'nonce':'fresh'}}
+        ids=[secrets.token_hex(32) for _ in range(2)]
+        frames=[wrap_delivery(value,ident,65536) for ident in ids]
+        self.assertEqual([len(frame) for frame in frames],[32768,32768]);self.assertNotEqual(*frames)
+        for frame,ident in zip(frames,ids):
+            self.assertNotIn(self.tx['data']['token_id'].encode(),frame)
+            outer=strict_json(frame);inner,actual=unwrap_delivery(outer,len(frame))
+            self.assertEqual(actual,ident);self.assertEqual(inner,value)
+            for changed in [{**outer,'schema':'unknown'}, {**outer,'delivery_id':'0'*64}, {**outer,'payload':'!!!'}, {**outer,'padding':['not hex']}]:
+                with self.assertRaises(ProtocolError):unwrap_delivery(changed,len(frame))
+        self.assertNotEqual(delivery_digest(value,ids[0]),delivery_digest(value,ids[1]))
+
     def test_zkc_types_encrypted_pack_tamper_and_confirmation(self):
         token=self.tx['data']['token_id'];digest='sha256:'+'d'*64
         repeated=issue_edition('default',token,'repeat','0',digest,pem(self.owner))
         unique=issue_edition('default',token,'unique','1',digest,pem(self.owner))
         self.assertNotEqual(_runtime.zkc_edition_id(repeated['data']),_runtime.zkc_edition_id(unique['data']))
-        for kind,serial in [('repeat','1'),('unique','0'),('unique','01')]:
+        for kind,serial in [('repeat','1'),('unique','0'),('unique','01'),([], '1')]:
             with self.assertRaises(ProtocolError): issue_edition('default',token,kind,serial,digest,pem(self.owner))
         blob=pack_editions([repeated,unique],'default',pem(self.owner),self.offer)
         self.assertEqual(len(blob),16384);self.assertNotIn(token.encode(),blob)
@@ -85,6 +169,9 @@ class Collectibles(unittest.TestCase):
             return {'phase':'on-chain','transaction_hash':params['transaction_hash'],'transaction':tx,'confirmations':2,'inclusion':{'assurance':'native-signed-inclusion'}}
         result=unpack_editions(blob,self.wallet,publisher=repeated['public_key'],query=query)
         self.assertTrue(result['ledger_confirmed']);self.assertEqual(len(result['editions']),2)
+        for malformed in [[], {**query('zkc.fact', {'transaction_hash': _runtime.asset_signed_gift(unique, 'default', 'zkc_issue')[1]}), 'inclusion': []}]:
+            with self.assertRaises(ProtocolError):
+                unpack_editions(blob,self.wallet,publisher=repeated['public_key'],query=lambda *_:malformed)
         with self.assertRaises(ProtocolError): unpack_editions(blob[:-1]+bytes([blob[-1]^1]),self.wallet,publisher=repeated['public_key'])
         with self.assertRaises(ProtocolError): pack_editions([unique,unique],'default',pem(self.owner),self.offer)
         self.assertFalse(unpack_editions(blob,self.wallet,publisher=repeated['public_key'])['ledger_confirmed'])

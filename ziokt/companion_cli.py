@@ -12,6 +12,7 @@ def register(sub):
     from .component_links import COMPONENTS,KINDS
     app=families.add_parser('app');actions=app.add_subparsers(dest='companion_action',required=True)
     call=actions.add_parser('call');call.add_argument('--bridge-config',type=Path,required=True);call.add_argument('--request',type=Path,required=True);call.add_argument('--lang',choices=LOCALES,default='en')
+    serve=actions.add_parser('serve');serve.add_argument('--bridge-config',type=Path,required=True);serve.add_argument('--lang',choices=LOCALES,default='en')
     etp=families.add_parser('etp');actions=etp.add_subparsers(dest='companion_action',required=True)
     call=actions.add_parser('call');call.add_argument('--binary',type=Path,required=True);call.add_argument('--digest',required=True);call.add_argument('--config',type=Path,required=True);call.add_argument('--request',type=Path,required=True);call.add_argument('--lang',choices=LOCALES,default='en')
     links=families.add_parser('link');actions=links.add_subparsers(dest='companion_action',required=True)
@@ -63,11 +64,15 @@ def register(sub):
 
 
 def execute(args):
+    if args.companion=='app' and args.companion_action=='serve':
+        import sys
+        from .application_router import serve
+        serve(args.bridge_config,sys.stdin.buffer,sys.stdout.buffer);return None
     if args.companion in {'app','etp'}:
-        request=strict_json(secure_read(args.request,131072),131072)
+        request=strict_json(secure_read(args.request,131072),131072,string_limit=32768)
         if args.companion=='app' and isinstance(request,dict) and set(request)=={'target','method','params'}:
             from .application_router import ApplicationRouter
-            return ApplicationRouter(args.bridge_config).call(request['target'],request['method'],request['params'])
+            with ApplicationRouter(args.bridge_config) as router:return router.call(request['target'],request['method'],request['params'])
         if not isinstance(request,dict) or set(request)!={'method','params'} or not isinstance(request['method'],str) or not isinstance(request['params'],dict):raise ProtocolError('INVALID_REQUEST','exact typed local companion operation required')
         if args.companion=='etp':
             from .etp import EtpGateway

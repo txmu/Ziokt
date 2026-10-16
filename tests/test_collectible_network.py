@@ -1,5 +1,6 @@
 """Actual mTLS two-hop gifts, a lost acknowledgement and a different route."""
 import hashlib
+import http.client
 from pathlib import Path
 import secrets
 import sqlite3
@@ -40,8 +41,14 @@ class CollectibleNetwork(unittest.TestCase):
             last,last_hop=self.proxy('last-'+name,destination.server_port)
             first,first_hop=self.proxy('first-'+name,last.server_address[1]);servers.append(first)
             paths.append({'host':'127.0.0.1','port':destination.server_port,'carrier':{'kind':'peer-multihop','hops':[first_hop,last_hop]}})
+        observed=[];original_request=http.client.HTTPSConnection.request
+        def record_request(connection,method,url,body=None,headers=None,*,encode_chunked=False):
+            if url=='/zfcp' and isinstance(body,bytes):observed.append(body)
+            return original_request(connection,method,url,body,headers or {},encode_chunked=encode_chunked)
+        http.client.HTTPSConnection.request=record_request
+        self.addCleanup(setattr,http.client.HTTPSConnection,'request',original_request)
         rpc=GiftRPC('test','corium-local',tls_context(*pairs['client'][:2],ca),private)
-        box=GiftOutbox(self.root/'gift-outbox.sqlite',secrets.token_bytes(32));self.addCleanup(box.close);box.enqueue(tx)
+        box=GiftOutbox(self.root/'gift-outbox.sqlite',secrets.token_bytes(32),mix_window=(0,0));self.addCleanup(box.close);box.enqueue(tx)
         route_calls=[]
         def choose(tx_hash,attempts):route_calls.append(attempts);return paths[min(attempts,1)]
         def dropped_ack(method,params,endpoint):
@@ -60,3 +67,26 @@ class CollectibleNetwork(unittest.TestCase):
         with sqlite3.connect(self.fixture.chain) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions WHERE hash=?',(tx_hash,)).fetchone()[0],1)
         fact=rpc('zkn.fact',{'transaction_hash':tx_hash},paths[1])
         self.assertTrue(accept_gift(wallet,snapshot,tx,fact,confirmations=1)['confirmed'])
+
+        # Observe actual sender frames while retaining every real socket/native call.
+        from ziokt.protocol import strict_json,ProtocolError
+        from ziokt.collectibles import delivery_digest
+        from ziokt.remote import request_remote,resource_for
+        from ziokt.security import grant
+        capsules=[strict_json(body) for body in observed]
+        self.assertTrue(capsules);self.assertTrue(all(len(body)==32768 for body in observed))
+        self.assertEqual(len({frame['delivery_id'] for frame in capsules}),len(capsules))
+        self.assertTrue(all(set(frame)=={'schema','delivery_id','payload','padding'} for frame in capsules))
+        self.assertTrue(all(tx['data']['token_id'].encode() not in body for body in observed))
+        request={'provider_id':'corium-local','method':'zkn.fact','params':{'transaction_hash':tx_hash}}
+        ident=secrets.token_hex(32)
+        signed=grant(private,audience='corium-local',action='zkn.fact',resource=resource_for('zkn.fact',request['params']),federation='test',request_digest=delivery_digest(request,ident))
+        def direct(delivery):
+            return request_remote('127.0.0.1',destination.server_port,tls_context(*pairs['client'][:2],ca),request,signed,carrier=paths[1]['carrier'],privacy_padding=True,delivery_id=delivery)
+        self.assertEqual(direct(ident)['transaction_hash'],tx_hash)
+        with self.assertRaises(ProtocolError) as replay:direct(ident)
+        self.assertEqual(replay.exception.code,'REPLAY_REJECTED')
+        with self.assertRaises(ProtocolError) as altered:direct(secrets.token_hex(32))
+        self.assertEqual(altered.exception.code,'INVALID_GRANT')
+        legacy=GiftRPC('test','corium-local',tls_context(*pairs['client'][:2],ca),private,delivery_version=1)
+        self.assertEqual(legacy('zkn.fact',{'transaction_hash':tx_hash},paths[1])['transaction_hash'],tx_hash)

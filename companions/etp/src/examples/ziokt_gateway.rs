@@ -1,4 +1,6 @@
 //! Explicit bounded local JSONL bridge; the operator supplies private keys and approved peers.
+#[path = "support/forum_gateway.rs"]
+mod forum_gateway;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use etp_core::{
     crypto::noise::KeyPair,
@@ -23,6 +25,8 @@ struct Config {
     peers: HashMap<SocketAddr, String>,
     #[serde(default)]
     relay: bool,
+    #[serde(default)]
+    forum: Option<forum_gateway::ForumConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,11 +81,12 @@ async fn main() -> anyhow::Result<()> {
     let mut raw = Vec::new();
     config_file.take(65537).read_to_end(&mut raw)?;
     anyhow::ensure!(raw.len() <= 65536, "configuration budget");
-    let settings: Config = serde_json::from_slice(&raw)?;
+    let mut settings: Config = serde_json::from_slice(&raw)?;
     use zeroize::Zeroize;
     raw.zeroize();
     anyhow::ensure!(settings.peers.len() <= 128, "peer budget");
     let private = hex_key(&settings.private_key)?;
+    settings.private_key.zeroize();
     let secret = x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(private.as_slice())?);
     let mut config = NodeConfig::default();
     config.bind_addr = settings.bind.to_string();
@@ -102,8 +107,20 @@ async fn main() -> anyhow::Result<()> {
     }
     let plugins = Arc::new(PluginRegistry::new());
     plugins.register_dialect(Arc::new(StandardDialect));
+    #[cfg(feature = "persistence")]
+    let mut forum = settings
+        .forum
+        .take()
+        .map(|settings| forum_gateway::ForumGateway::prepare(settings, &plugins, &mut config))
+        .transpose()?;
+    #[cfg(feature = "persistence")]
+    let forum_peers = config.trusted_peers.clone();
     let (engine, handle, mut received) = EtpEngine::new(config, plugins).await?;
-    let task = tokio::spawn(engine.run());
+    #[cfg(feature = "persistence")]
+    if let Some(forum) = &mut forum {
+        forum.start(handle.clone(), forum_peers);
+    }
+    let mut task = tokio::spawn(engine.run());
     let input = io::stdin();
     let mut reader = input.lock();
     let mut output = io::stdout();
@@ -131,11 +148,19 @@ async fn main() -> anyhow::Result<()> {
    },
    "etp.receive"=>{anyhow::ensure!(request.params==json!({}),"exact receive request");match tokio::time::timeout(std::time::Duration::from_secs(5),received.recv()).await {Ok(Some((_address,bytes)))=>{anyhow::ensure!(bytes.len()<=65536,"receive budget");Ok(json!({"ciphertext":bytes.chunks(3072).map(|chunk|STANDARD.encode(chunk)).collect::<Vec<_>>()}))},_=>Ok(json!({"ciphertext":null}))}},
    "etp.shutdown"=>{handle.shutdown().await?;Ok(json!({"stopped":true}))},
+   method if method.starts_with("etp.forum.") => {
+    #[cfg(feature = "persistence")]
+    { if let Some(forum) = &forum { forum.call(method, &request.params).await } else { Err(anyhow::anyhow!("METHOD_UNSUPPORTED")) } }
+    #[cfg(not(feature = "persistence"))]
+    { Err(anyhow::anyhow!("METHOD_UNSUPPORTED")) }
+   },
    _=>Err(anyhow::anyhow!("unsupported operation"))
   }}.await;
         let response = match result {
             Ok(result) => json!({"id":request.id,"ok":true,"result":result}),
-            Err(_) => json!({"id":request.id,"ok":false,"error":{"code":"ETP_REJECTED"}}),
+            Err(error) => {
+                json!({"id":request.id,"ok":false,"error":{"code":if error.to_string() == "METHOD_UNSUPPORTED" { "METHOD_UNSUPPORTED" } else { "ETP_REJECTED" }}})
+            }
         };
         writeln!(output, "{}", response)?;
         output.flush()?;
@@ -143,6 +168,12 @@ async fn main() -> anyhow::Result<()> {
             break;
         }
     }
-    task.abort();
+    let _ = handle.shutdown().await;
+    if tokio::time::timeout(std::time::Duration::from_secs(3), &mut task)
+        .await
+        .is_err()
+    {
+        task.abort();
+    }
     Ok(())
 }

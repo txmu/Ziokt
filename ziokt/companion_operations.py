@@ -45,6 +45,28 @@ def execute(bridge, method, params):
         exact(['digest']);name,data=vault.get(params['digest'])
         if len(data)>32768:raise ProtocolError('BRIDGE_LIMIT','use encrypted file references for larger payloads')
         return {'name':name,'data_base64':base64.b64encode(data).decode()}
+    if method=='vault.publish':
+        exact(['digest'])
+        return vault.publish(bridge.community,bridge.private,params['digest'])
+    if method in {'tri.get','tri.publish'}:
+        if bridge.app!='tri':raise ProtocolError('SCOPE_MISMATCH','Tri application required')
+        exact(['digest'])
+        from .tri import read_project
+        _,data=vault.get(params['digest'])
+        if len(data)>32768:raise ProtocolError('BRIDGE_LIMIT','use encrypted project references for larger snapshots')
+        project=read_project(data)
+        if method=='tri.get':return project
+        return vault.publish(bridge.community,bridge.private,params['digest'])
+    if method in {'package.verify','package.publish'}:
+        if bridge.app not in {'ufs','dcpm'}:raise ProtocolError('SCOPE_MISMATCH','UFS/DCPM application required')
+        exact(['digest','authority'])
+        if not isinstance(params['authority'],str) or len(params['authority'])!=64 or any(c not in '0123456789abcdef' for c in params['authority']):
+            raise ProtocolError('INVALID_PACKAGE','explicit publisher public key required')
+        from .ufsdcpm import read_package
+        _,data=vault.get(params['digest'])
+        manifest,files=read_package(data,params['authority'])
+        if method=='package.publish':return vault.publish(bridge.community,bridge.private,params['digest'])
+        return {'schema':'ziokt.package-verification.v1','manifest':manifest,'publisher':params['authority'],'files_verified':len(files),'installation_authorized':False}
     if method=='tri.put':
         if bridge.app!='tri':raise ProtocolError('SCOPE_MISMATCH','Tri application required')
         exact(['program','state'])

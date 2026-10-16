@@ -20,9 +20,10 @@ from .client import NativeClient
 from .protocol import MAX_REQUEST, MAX_RESPONSE, ProtocolError, encoded, strict_json
 from .security import ReplayAuthority
 
-def padded_json(value, maximum):
+def padded_json(value, maximum, *, fixed_size=None):
     empty=encoded({**value,'padding':[]})
-    size=max(16384,1<<(len(empty)-1).bit_length())
+    size=max(16384,1<<(len(empty)-1).bit_length()) if fixed_size is None else fixed_size
+    if type(size) is not int or size<16384 or size&(size-1) or len(empty)>size:raise ProtocolError('RESPONSE_LIMIT','fixed padded frame budget exceeded')
     if size>maximum:raise ProtocolError('RESPONSE_LIMIT','padded frame exceeds bounded transport budget')
     count=max(1,(size-len(empty)+4095)//4096)
     length=size-len(empty)-(3*count-1)
@@ -152,6 +153,7 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 
         def do_POST(self):
             status, result, padded = 200, None, False
+            delivery_id=None
             length_header=self.headers.get('Content-Length','')
             if len(self.headers.get_all('Content-Length',[]))==1 and length_header.isascii() and length_header.isdecimal() and len(length_header)<=6:
                 announced=int(length_header)
@@ -164,12 +166,16 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 if not 1 <= length <= MAX_REQUEST:
                     raise ProtocolError("INVALID_REQUEST", "request size budget exceeded")
                 envelope = strict_json(self.rfile.read(length))
+                if isinstance(envelope,dict) and envelope.get('schema')=='ziokt.zkn-delivery.v2':
+                    from .collectibles import unwrap_delivery
+                    envelope,delivery_id=unwrap_delivery(envelope,length)
+                    padded=True
                 if (not isinstance(envelope, dict) or not {"request","grant"} <= set(envelope) or set(envelope)-{"request","grant","padding"} or
                         "padding" in envelope and not valid_padding(envelope["padding"])):
                     raise ProtocolError("INVALID_REQUEST", "exact request and scoped grant required")
                 if "padding" in envelope and (length<16384 or length&(length-1)):
                     raise ProtocolError("INVALID_REQUEST","padded request must use a bounded power-of-two frame")
-                padded="padding" in envelope
+                padded=padded or "padding" in envelope
                 request = envelope["request"]
                 if (not isinstance(request, dict) or set(request) != {"provider_id", "method", "params"} or
                         not isinstance(request["params"], dict) or not isinstance(request["provider_id"], str) or not isinstance(request["method"], str)):
@@ -183,10 +189,18 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                     raise ProtocolError("POLICY_DENIED", "provider not configured on this server")
                 if request["method"] in WRITE_METHODS and not allow_mutations:
                     raise ProtocolError("MUTATION_DISABLED", "remote mutations are disabled")
+                if delivery_id is not None:
+                    from .collectibles import delivery_digest
+                    digest=delivery_digest(request,delivery_id)
+                    if request['method'] not in {'zkn.fact','operation.prepare','operation.commit','operation.reconcile'}:
+                        raise ProtocolError('POLICY_DENIED','collectible delivery method required')
+                    if request['method']=='operation.prepare' and request['params'].get('action')!='zkn.gift':
+                        raise ProtocolError('POLICY_DENIED','collectible gift preparation required')
+                else:digest="sha256:"+hashlib.sha256(encoded(request)).hexdigest()
                 with authority_lock:
                     authority.admit(envelope["grant"], principal["public_key"],
                         audience=request["provider_id"], action=request["method"], resource=resource_for(request["method"], request["params"]),
-                        federation=federation["federation_id"], request_digest="sha256:"+hashlib.sha256(encoded(request)).hexdigest())
+                        federation=federation["federation_id"], request_digest=digest)
                 if not slots.acquire(False):
                     raise ProtocolError("BACKPRESSURE", "remote native execution budget exhausted")
                 try:
@@ -204,10 +218,15 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
                 status = 403 if isinstance(exc, ProtocolError) else 400
                 result = {"ok": False, "error": {"code": getattr(exc, "code", "INVALID_REQUEST"),
                     "message": str(exc) if isinstance(exc, ProtocolError) else "remote request rejected"}}
-            try:raw = padded_json(result,MAX_RESPONSE) if padded else encoded(result)
+            def response_bytes(value):
+                if delivery_id is not None:
+                    from .collectibles import wrap_delivery
+                    return wrap_delivery(value,delivery_id,MAX_RESPONSE,response=True)
+                return padded_json(value,MAX_RESPONSE) if padded else encoded(value)
+            try:raw = response_bytes(result)
             except ProtocolError:
                 status=413;result={"ok":False,"error":{"code":"RESPONSE_LIMIT","message":"response budget exceeded"}}
-                raw=padded_json(result,MAX_RESPONSE) if padded else encoded(result)
+                raw=response_bytes(result)
             if len(raw) > MAX_RESPONSE:
                 status, raw = 413, encoded({"ok": False, "error": {"code": "RESPONSE_LIMIT", "message": "response budget exceeded"}})
             self.send_response(status); self.send_header("Content-Type", "application/json")
@@ -236,7 +255,7 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
     return server
 
 
-def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None, privacy_padding=False):
+def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None, privacy_padding=False, delivery_id=None):
     from .runtime_policy import require_network
     require_network()
     from .carrier import open_carrier, validate_carrier
@@ -284,16 +303,23 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
         timer = threading.Timer(remaining, expire); timer.daemon = True; timer.start()
         connection.sock.do_handshake()
         envelope={"request":request,"grant":signed_grant() if callable(signed_grant) else signed_grant}
-        body = padded_json(envelope,MAX_REQUEST) if privacy_padding else encoded(envelope)
+        if delivery_id is not None:
+            from .collectibles import wrap_delivery
+            body=wrap_delivery(envelope,delivery_id,MAX_REQUEST)
+        else:body = padded_json(envelope,MAX_REQUEST) if privacy_padding else encoded(envelope)
         if len(body) > MAX_REQUEST:
             raise ProtocolError("INVALID_REQUEST", "remote request exceeds budget")
         connection.request("POST", "/zfcp", body, {"Content-Type": "application/json"})
         response = connection.getresponse()
         raw = response.read(MAX_RESPONSE+1)
         result = strict_json(raw, MAX_RESPONSE)
+        if delivery_id is not None:
+            from .collectibles import unwrap_delivery
+            result,returned_id=unwrap_delivery(result,len(raw),response=True)
+            if returned_id!=delivery_id:raise ProtocolError('INVALID_RESPONSE','collectible delivery correlation rejected')
         if (not isinstance(result, dict) or type(result.get("ok")) is not bool or
                 "padding" in result and not valid_padding(result["padding"]) or
-                privacy_padding and "padding" not in result):
+                privacy_padding and delivery_id is None and "padding" not in result):
             raise ProtocolError("INVALID_RESPONSE", "typed remote response required")
         fields={"ok","result"} if result["ok"] else {"ok","error"}
         if set(result)-{"padding"} != fields:raise ProtocolError("INVALID_RESPONSE","exact typed remote response required")

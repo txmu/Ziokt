@@ -21,7 +21,80 @@ from ziokt.etp import EtpGateway, EtpRecordSocket
 from ziokt.protocol import ProtocolError
 
 
-def main(binary):
+def forum_smoke(binary, digest, root, required):
+    """Real native Forum instances, including same-address restart, never a fixture."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    keys = [X25519PrivateKey.generate() for _ in range(2)]
+    sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in keys]
+    for sock in sockets:sock.bind(('127.0.0.1', 0))
+    addresses = [f'127.0.0.1:{sock.getsockname()[1]}' for sock in sockets]
+    for sock in sockets:sock.close()
+    public = [key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex() for key in keys]
+    configs=[];workers=[]
+    from ziokt.application_router import ApplicationRouter
+    class RoutedNativeForum:
+        def __init__(self, path):self.router=ApplicationRouter(path)
+        def call(self, method, params):return self.router.call('etp',method,params)
+        def close(self):self.router.close()
+    def await_post(worker, identifier):
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            value=worker.call('etp.forum.get',{'id':identifier})['post']
+            if value is not None:return value
+            time.sleep(.05)
+        raise AssertionError('real Forum peer did not converge before deadline')
+    try:
+        for index,key in enumerate(keys):
+            config=root/f'forum-node-{index}.json'
+            config.write_text(json.dumps({'bind':addresses[index],'private_key':key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()).hex(),'peers':{addresses[1-index]:public[1-index]},'forum':{'database':str(root/f'forum-{index}.sled'),'identities':{'author':secrets.token_hex(32)},'subscriptions':['native-forum']}}))
+            config.chmod(0o600);configs.append(config)
+            if index == 0:
+                route=root/'forum-application-router.json'
+                route.write_text(json.dumps({'schema':'ziokt.application-router.v1','components':{'etp':{'binary':str(binary),'digest':digest,'config':str(config),'methods':['etp.stats','etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get']}}}));route.chmod(0o600)
+                worker=RoutedNativeForum(route)
+            else:worker=EtpGateway(binary,digest,config)
+            workers.append(worker)
+            assert worker.call('etp.stats',{})['schema']=='ziokt.etp-stats.v1'
+        if not required:
+            for worker in workers:
+                try:worker.call('etp.forum.identity',{'name':'author'})
+                except ProtocolError as error:assert error.code=='METHOD_UNSUPPORTED'
+                else:raise AssertionError('minimal binary advertised unsupported Forum')
+            assert not (root/'forum-0.sled').exists()
+            print('ETP minimal native gateway: Forum explicitly METHOD_UNSUPPORTED, no database created')
+            return
+        identity=workers[0].call('etp.forum.identity',{'name':'author'})
+        assert set(identity)=={'schema','name','author_id'}
+        content='native signed Forum '+'x'*32000
+        publication=workers[0].call('etp.forum.publish',{'topic':'native-forum','content':content,'author':'author','parent_id':None})
+        assert publication['stored'] and publication['state']=='stored_locally' and publication['delivery_confirmed'] is False and publication['dht_enqueued'] is False
+        post=await_post(workers[1],publication['id'])
+        body=b''.join(base64.b64decode(part,validate=True) for part in post['content_base64'])
+        assert body.decode()==content and post['author_id']==identity['author_id']
+        proof=base64.b64decode(post['signature_base64'],validate=True)
+        canonical=(b'ETP/FORUM/POST/v2\0'+bytes.fromhex(post['topic_hash'])+post['timestamp'].to_bytes(8,'big',signed=True)+b'\1'+bytes.fromhex(post['author_id'])+b'\0'+len(body).to_bytes(8,'big')+body)
+        Ed25519PublicKey.from_public_bytes(proof[:32]).verify(proof[32:],canonical)
+        # A dynamically added subscription must survive a real process restart
+        # with the same config (which intentionally does not list this topic).
+        assert workers[1].call('etp.forum.subscribe',{'topic':'retained-subscription'})['subscribed']
+        workers[1].close()
+        queued=workers[0].call('etp.forum.publish',{'topic':'retained-subscription','content':'published while peer stopped','author':None,'parent_id':None})
+        assert queued['stored'] and queued['delivery_confirmed'] is False
+        restarted=EtpGateway(binary,digest,configs[1]);workers[1]=restarted
+        assert restarted.call('etp.stats',{})['schema']=='ziokt.etp-stats.v1'
+        assert await_post(restarted,publication['id'])['author_id']==identity['author_id']
+        recovered=await_post(restarted,queued['id']);assert recovered['author_id'] is None and recovered['signature_base64']==''
+        response=restarted.call('etp.forum.publish',{'topic':'native-forum','content':'native return','author':'author','parent_id':publication['id']})
+        returned=await_post(workers[0],response['id']);assert returned['parent_status']=='available'
+        for invalid in ({'topic':'native-forum','content':'missing explicit author'},{'topic':'native-forum','content':'forbidden seed','author':'author','private_key':'00'*32}):
+            try:restarted.call('etp.forum.publish',invalid)
+            except ProtocolError:pass
+            else:raise AssertionError('invalid Forum publication accepted')
+        print('ETP integrated native Forum: signed fragmented post, actual Ed25519 proof, persisted subscription, same-address restart and bidirectional reply passed')
+    finally:
+        for worker in workers:worker.close()
+
+def main(binary, forum_required):
     binary = Path(binary).resolve()
     offline = subprocess.run([str(binary), '/nonexistent-airgap-config'],
         env={**os.environ, 'ZIOKT_AIRGAP': '1'}, capture_output=True, timeout=5)
@@ -80,6 +153,8 @@ def main(binary):
         finally:
             for worker in workers:
                 worker.close()
+        forum_smoke(binary, digest, Path(temporary), forum_required)
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    assert len(sys.argv)==3 and sys.argv[2] in ('--forum-required','--forum-unavailable'), 'explicit native Forum feature expectation required'
+    main(sys.argv[1],sys.argv[2]=='--forum-required')

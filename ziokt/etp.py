@@ -13,33 +13,109 @@ import tempfile
 import time
 from .protocol import ProtocolError,encoded,secure_read,strict_json
 
+FORUM_METHODS=frozenset({'etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get'})
+
+def _forum_text(value, maximum, *, empty=False):
+    try:valid=isinstance(value,str) and (empty or bool(value)) and len(value.encode('utf-8'))<=maximum
+    except UnicodeError:valid=False
+    if not valid:raise ProtocolError('INVALID_ETP','bounded UTF-8 Forum text required')
+    return value
+
+def _forum_id(value):
+    if not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdefABCDEF' for c in value):raise ProtocolError('INVALID_ETP','32-byte hexadecimal Forum ID required')
+    return value
+
+def _forum_name(value):
+    if not isinstance(value,str) or not 1<=len(value)<=64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in value):raise ProtocolError('INVALID_ETP','configured Forum identity name required')
+
+def _forum_params(method,params):
+    fields={'etp.forum.identity':{'name'},'etp.forum.subscribe':{'topic'},'etp.forum.get':{'id'}}
+    if method=='etp.forum.publish':
+        if set(params) not in ({'topic','content','author'},{'topic','content','author','parent_id'}):raise ProtocolError('INVALID_ETP','explicit named author or null and exact Forum fields required')
+        _forum_text(params['content'],32768)
+        if params['author'] is not None:_forum_name(params['author'])
+        if params.get('parent_id') is not None:_forum_id(params['parent_id'])
+    elif set(params)!=fields[method]:raise ProtocolError('INVALID_ETP','exact Forum query fields required')
+    if 'topic' in params:
+        value=_forum_text(params['topic'],256)
+        if any(ord(c)<32 or 127<=ord(c)<=159 for c in value):raise ProtocolError('INVALID_ETP','printable Forum topic required')
+    if 'name' in params:_forum_name(params['name'])
+    if 'id' in params:_forum_id(params['id'])
+
+def _forum_result(method,params,result):
+    if not isinstance(result,dict):raise ProtocolError('INVALID_RESPONSE','typed Forum response required')
+    try:
+        if method=='etp.forum.identity':
+            if set(result)!={'schema','name','author_id'} or result['schema']!='ziokt.etp-forum-identity.v1' or result['name']!=params['name']:raise ValueError()
+            _forum_id(result['author_id'])
+        elif method=='etp.forum.subscribe':
+            if set(result)!={'subscribed','topic_hash'} or result['subscribed'] is not True:raise ValueError()
+            _forum_id(result['topic_hash'])
+        elif method=='etp.forum.publish':
+            if set(result)!={'schema','id','stored','dht_enqueued','delivery_confirmed','state','gossip'} or result['schema']!='ziokt.etp-forum-publish.v1' or result['stored'] is not True or type(result['dht_enqueued']) is not bool or result['delivery_confirmed'] is not False or result['state']!='stored_locally' or result['gossip']!='best_effort':raise ValueError()
+            _forum_id(result['id'])
+        else:
+            if set(result)!={'post'}:raise ValueError()
+            post=result['post']
+            if post is None:return result
+            if not isinstance(post,dict) or set(post)!={'id','topic_hash','author_id','timestamp','content_base64','parent_id','signature_base64','parent_status'}:raise ValueError()
+            if post['id'].lower()!=params['id'].lower() or type(post['timestamp']) is not int or not 0<=post['timestamp']<(1<<53):raise ValueError()
+            for field in ('id','topic_hash'):_forum_id(post[field])
+            for field in ('author_id','parent_id'):
+                if post[field] is not None:_forum_id(post[field])
+            chunks=post['content_base64']
+            if not isinstance(chunks,list) or not 1<=len(chunks)<=11 or any(not isinstance(c,str) or not 1<=len(c)<=4096 for c in chunks):raise ValueError()
+            content=b''.join(base64.b64decode(c,validate=True) for c in chunks)
+            if not 1<=len(content)<=32768:raise ValueError()
+            content.decode('utf-8')
+            if not isinstance(post['signature_base64'],str) or len(post['signature_base64'])>128:raise ValueError()
+            signature=base64.b64decode(post['signature_base64'],validate=True)
+            if len(signature)!=(0 if post['author_id'] is None else 96):raise ValueError()
+            if post['parent_status'] not in ('not_reply','available','missing_or_expired') or (post['parent_id'] is None)!=(post['parent_status']=='not_reply'):raise ValueError()
+    except (ValueError,TypeError,KeyError,AttributeError,ProtocolError,UnicodeError):raise ProtocolError('INVALID_RESPONSE','native Forum response shape rejected')
+    return result
+
 class EtpGateway:
     def __init__(self,binary,digest,config):
         self.binary=Path(binary).absolute();self.config=Path(config).absolute();self.digest=digest;self.config_bytes=secure_read(self.config)
         if 'sha256:'+hashlib.sha256(secure_read(self.binary,128*1024*1024,private=False)).hexdigest()!=digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
         secure_read(self.config);self.process=None;self._snapshot=None;self.lock=threading.RLock();self.sequence=0
-    def close(self):
-        if self.process is not None:
-            self.process.terminate()
-            try:self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
-            if self.process.stdin is not None:self.process.stdin.close()
-            if self.process.stdout is not None:self.process.stdout.close()
-            self.process=None
-        if self._snapshot is not None:
-            self._snapshot.cleanup();self._snapshot=None
+    def close(self,*,graceful=True):
+        with self.lock:
+            if self.process is not None:
+                if graceful and self.process.poll() is None:
+                    try:
+                        self.sequence+=1
+                        self.process.stdin.write(encoded({'id':self.sequence,'method':'etp.shutdown','params':{}})+b'\n');self.process.stdin.flush()
+                        self.process.wait(timeout=1)
+                    except (OSError,ValueError,subprocess.TimeoutExpired):pass
+                if self.process.poll() is None:
+                    self.process.terminate()
+                    try:self.process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
+                for stream in (self.process.stdin,self.process.stdout):
+                    if stream is not None:
+                        try:stream.close()
+                        except OSError:pass
+                self.process=None
+            if self._snapshot is not None:
+                self._snapshot.cleanup();self._snapshot=None
     def call(self,method,params):
         from .runtime_policy import require_network
         require_network()
-        if method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown'} or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
+        if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown'}|FORUM_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
         if method=='etp.onion.send':
             if set(params)!={'hops','ciphertext'} or not isinstance(params['hops'],list) or not 2<=len(params['hops'])<=4:raise ProtocolError('INVALID_ETP','private 2..4-hop path required')
             try:data=base64.b64decode(params['ciphertext'],validate=True)
             except (ValueError,TypeError):raise ProtocolError('INVALID_ETP','sealed ETP packet required')
             if not 16384<=len(data)<=65536 or len(data)&(len(data)-1):raise ProtocolError('INVALID_ETP','power-of-two sealed ETP packet required')
+        elif method in FORUM_METHODS:_forum_params(method,params)
         elif params:raise ProtocolError('INVALID_ETP','exact native query required')
         with self.lock:
-            if secure_read(self.config)!=self.config_bytes:raise ProtocolError('STALE_PLAN','ETP node configuration changed')
+            try:current=secure_read(self.config)
+            except (OSError,ProtocolError):self.close(graceful=False);raise
+            if current!=self.config_bytes:
+                self.close(graceful=False);raise ProtocolError('STALE_PLAN','ETP node configuration changed')
             if self.process is None:
                 binary=secure_read(self.binary,128*1024*1024,private=False)
                 if 'sha256:'+hashlib.sha256(binary).hexdigest()!=self.digest:raise ProtocolError('ARTIFACT_DIGEST_MISMATCH','reviewed ETP binary changed')
@@ -52,7 +128,7 @@ class EtpGateway:
                     executable.chmod(0o700)
                     env={k:v for k,v in os.environ.items() if k in {'PATH','LANG','LC_ALL'}}
                     self.process=subprocess.Popen([str(executable),str(self.config)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env,start_new_session=True)
-                except BaseException:self.close();raise
+                except BaseException:self.close(graceful=False);raise
             self.sequence+=1;request=encoded({'id':self.sequence,'method':method,'params':params})+b'\n'
             if len(request)>131072:raise ProtocolError('REQUEST_LIMIT','native ETP request exceeds budget')
             try:
@@ -64,9 +140,13 @@ class EtpGateway:
                     if not byte or len(data)>=131072:raise ProtocolError('INVALID_RESPONSE','native ETP bounded response required')
                     data.extend(byte)
                 response=strict_json(bytes(data),131072)
-                if response.get('id')!=self.sequence or response.get('ok') is not True:raise ProtocolError('ETP_REJECTED','native ETP gateway rejected the operation')
-                return response['result']
-            except BaseException:self.close();raise
+                if not isinstance(response,dict) or response.get('id')!=self.sequence:raise ProtocolError('INVALID_RESPONSE','native ETP correlation rejected')
+                if response.get('ok') is not True:
+                    code='METHOD_UNSUPPORTED' if isinstance(response.get('error'),dict) and response['error'].get('code')=='METHOD_UNSUPPORTED' else 'ETP_REJECTED'
+                    raise ProtocolError(code,'native ETP gateway rejected the operation')
+                result=response.get('result')
+                return _forum_result(method,params,result) if method in FORUM_METHODS else result
+            except BaseException:self.close(graceful=False);raise
 
 class EtpRecordSocket:
     """Actual ETP message-boundary adapter for Corium's signed data channel.

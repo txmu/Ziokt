@@ -6,6 +6,8 @@ of untraceability against colluding relays or a global traffic observer.
 """
 import base64
 import hashlib
+import os
+import stat
 from pathlib import Path
 import re
 import secrets
@@ -25,6 +27,8 @@ HEX = re.compile('[a-f0-9]{64}\\Z')
 
 
 def _key(pem):
+    if not isinstance(pem,str) or len(pem)>8192:
+        raise ProtocolError('INVALID_ZKN', 'bounded native ownership key required')
     try:
         key = serialization.load_pem_private_key(pem.encode(), password=None)
         if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256K1): raise ValueError()
@@ -52,7 +56,8 @@ def receiver(network, lifetime=3600):
 def verify_receiver(offer, network):
     fields = {'schema', 'network_id', 'public_key', 'mailbox', 'nonce', 'expires', 'signature'}
     if (not isinstance(offer, dict) or set(offer) != fields or offer['schema'] != 'ziokt.zkn-receiver.v1' or
-            offer['network_id'] != network or not isinstance(offer['mailbox'], str) or not HEX.fullmatch(offer['mailbox']) or
+            offer['network_id'] != network or not isinstance(offer['public_key'],str) or len(offer['public_key'])>1024 or
+            not isinstance(offer['signature'],str) or len(offer['signature'])>160 or not isinstance(offer['mailbox'], str) or not HEX.fullmatch(offer['mailbox']) or
             not isinstance(offer['nonce'], str) or not re.fullmatch('[a-f0-9]{32}', offer['nonce']) or
             type(offer['expires']) is not int or not int(time.time()) < offer['expires'] <= int(time.time())+86400):
         raise ProtocolError('INVALID_ZKN', 'fresh scoped one-time receiver required')
@@ -61,10 +66,12 @@ def verify_receiver(offer, network):
 
 
 def verify_snapshot(snapshot, network):
-    if not isinstance(snapshot,dict) or set(snapshot)!={'manifest','public_key','signature'}: raise ProtocolError('INVALID_ZKN','signed collectible snapshot required')
+    if (not isinstance(snapshot,dict) or set(snapshot)!={'manifest','public_key','signature'} or
+            not isinstance(snapshot['public_key'],str) or len(snapshot['public_key'])>1024 or
+            not isinstance(snapshot['signature'],str) or len(snapshot['signature'])>160): raise ProtocolError('INVALID_ZKN','signed collectible snapshot required')
     value=snapshot['manifest']
     fields={'schema','network_id','token_id','block_hash','height','packer','packed_at','contents_digest','contents_size','zkt_score'}
-    if not isinstance(value,dict) or value.get('schema') not in {'ziokt.zkn-snapshot.v1','ziokt.zkn-snapshot.v2'}:
+    if not isinstance(value,dict) or not isinstance(value.get('schema'),str) or value['schema'] not in {'ziokt.zkn-snapshot.v1','ziokt.zkn-snapshot.v2'}:
         raise ProtocolError('INVALID_ZKN','known collectible snapshot version required')
     v2=value['schema'].endswith('.v2')
     if v2: fields|={'lucky_digit','relay_obligation'}
@@ -105,6 +112,8 @@ def accept_gift(wallet, snapshot, transaction, fact, *, confirmations=2):
         raise ProtocolError('INVALID_ZKN','private one-time wallet required')
     network=wallet['offer']['network_id'];value=verify_snapshot(snapshot,network)
     tx,tx_hash,_=_runtime.asset_signed_gift(transaction,network)
+    if tx['data']['token_id'] != value['token_id']:
+        raise ProtocolError('GIFT_REJECTED', 'gift transaction and collectible snapshot differ')
     # An expired invitation does not invalidate a gift already included.
     recipient=hashlib.sha256(public_pem(_key(wallet['owner_private'])).encode()).hexdigest()
     if tx['data']['recipient']!=recipient or public_pem(_key(wallet['owner_private']))!=wallet['offer']['public_key']:
@@ -126,18 +135,76 @@ def accept_gift(wallet, snapshot, transaction, fact, *, confirmations=2):
     return {**expected,'transaction_hash':tx_hash,'confirmed':True,'fee_required':False}
 
 
+DELIVERY_SIZE=32768
+
+
+def delivery_digest(request,delivery_id):
+    return 'sha256:'+hashlib.sha256(encoded({'schema':'ziokt.zkn-delivery.v2','delivery_id':delivery_id,'request':request})).hexdigest()
+
+
+def wrap_delivery(value,delivery_id,maximum,*,response=False):
+    """Fresh fixed-size transport capsule; existing end-to-end mTLS seals its bytes."""
+    from .remote import padded_json
+    if not isinstance(delivery_id,str) or not HEX.fullmatch(delivery_id) or delivery_id=='0'*64:
+        raise ProtocolError('INVALID_REQUEST','fresh bounded collectible delivery identifier required')
+    schema='ziokt.zkn-delivery-result.v2' if response else 'ziokt.zkn-delivery.v2'
+    return padded_json({'schema':schema,'delivery_id':delivery_id,'payload':base64.b64encode(encoded(value)).decode()},maximum,fixed_size=DELIVERY_SIZE)
+
+
+def unwrap_delivery(value,length,*,response=False):
+    from .remote import valid_padding
+    schema='ziokt.zkn-delivery-result.v2' if response else 'ziokt.zkn-delivery.v2'
+    if (not isinstance(value,dict) or set(value)!={'schema','delivery_id','payload','padding'} or value['schema']!=schema or
+            length!=DELIVERY_SIZE or not isinstance(value['delivery_id'],str) or not HEX.fullmatch(value['delivery_id']) or value['delivery_id']=='0'*64 or
+            not isinstance(value['payload'],str) or len(value['payload'])>DELIVERY_SIZE or not valid_padding(value['padding'])):
+        raise ProtocolError('INVALID_REQUEST','fixed versioned collectible delivery capsule required')
+    try:inner=strict_json(base64.b64decode(value['payload'],validate=True),DELIVERY_SIZE)
+    except (ValueError,TypeError):raise ProtocolError('INVALID_REQUEST','collectible capsule payload rejected')
+    if not isinstance(inner,dict) or not response and set(inner)!={'request','grant'}:
+        raise ProtocolError('INVALID_REQUEST','typed collectible capsule payload required')
+    return inner,value['delivery_id']
+
+
+MAX_OUTBOX_BYTES=256*1024*1024
+MAX_GIFT_BYTES=65536
+
+
 class GiftOutbox:
     """Encrypted durable signed bytes, bounded work, idempotent chain reconciliation."""
-    def __init__(self,path,key):
+    def __init__(self,path,key,*,privacy_mode='mixed',mix_window=(1,8)):
+        if not isinstance(privacy_mode,str) or privacy_mode not in {'mixed','legacy'} or not isinstance(mix_window,tuple) or len(mix_window)!=2 or any(type(n) is not int for n in mix_window) or not 0<=mix_window[0]<=mix_window[1]<=60:
+            raise ProtocolError('INVALID_ZKN','bounded explicit private delivery scheduling required')
+        self.privacy_mode,self.mix_window=privacy_mode,mix_window
         path=Path(path)
         if not isinstance(key,bytes) or len(key)!=32: raise ProtocolError('INVALID_ZKN','private 32-byte outbox key required')
         if path.is_symlink(): raise ProtocolError('UNSAFE_FILE','outbox cannot be a symlink')
         path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-        if path.exists(): secure_read(path,32*1024*1024)
+        if path.exists():
+            # Check metadata without reading the whole private database into RAM.
+            descriptor=os.open(path,os.O_RDONLY|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_NONBLOCK',0))
+            try:
+                info=os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or os.name!='nt' and (info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600):
+                    raise ProtocolError('UNSAFE_FILE','owner-private regular outbox database required')
+            finally:os.close(descriptor)
         self.key=key;self.lock=threading.RLock()
         self.db=sqlite3.connect(path,timeout=5,check_same_thread=False);make_private(path)
         self.db.execute('PRAGMA synchronous=FULL');self.db.execute('PRAGMA secure_delete=ON')
-        self.db.execute('CREATE TABLE IF NOT EXISTS gifts(id TEXT PRIMARY KEY,body BLOB,phase TEXT,attempts INTEGER,next_try INTEGER)');self.db.commit()
+        self.db.execute('PRAGMA cache_size=-2048');self.db.execute('PRAGMA mmap_size=0')
+        page_size=self.db.execute('PRAGMA page_size').fetchone()[0]
+        pages=self.db.execute('PRAGMA page_count').fetchone()[0]
+        # Preserve oversized legacy databases for reading/reconciliation, but do
+        # not permit them to grow. Newly created databases cap allocation at 256MiB.
+        self.db.execute('PRAGMA max_page_count='+str(max(pages,MAX_OUTBOX_BYTES//page_size)))
+        self.db.execute('CREATE TABLE IF NOT EXISTS gifts(id TEXT PRIMARY KEY,body BLOB,phase TEXT,attempts INTEGER,next_try INTEGER)')
+        columns={row[1] for row in self.db.execute('PRAGMA table_info(gifts)')}
+        with self.db:
+            if 'operation_id' not in columns:self.db.execute('ALTER TABLE gifts ADD COLUMN operation_id TEXT')
+            if 'delivery_mode' not in columns:self.db.execute("ALTER TABLE gifts ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'legacy'")
+            # Existing signed bodies and keys are untouched. Preserve the latest old
+            # operation intent when migrating a queue whose acknowledgement was lost.
+            for ident,attempts in self.db.execute('SELECT id,attempts FROM gifts WHERE operation_id IS NULL').fetchall():
+                self.db.execute('UPDATE gifts SET operation_id=? WHERE id=?',('gift-'+ident[:40]+'-'+str(max(0,attempts-1)),ident))
 
     def close(self): self.db.close()
 
@@ -148,9 +215,14 @@ class GiftOutbox:
             if old:
                 if self._open(tx_hash,old[0])!=tx: raise ProtocolError('IDEMPOTENCY_CONFLICT','queued gift changed')
                 return tx_hash
+            if len(encoded(tx))>MAX_GIFT_BYTES:raise ProtocolError('OUTBOX_LIMIT','signed gift exceeds durable row budget')
+            page_size=self.db.execute('PRAGMA page_size').fetchone()[0]
+            pages=self.db.execute('PRAGMA page_count').fetchone()[0]
+            if pages*page_size+len(encoded(tx))+1024*1024>MAX_OUTBOX_BYTES:raise ProtocolError('BACKPRESSURE','outbox byte budget requires archival')
             if self.db.execute('SELECT COUNT(*) FROM gifts').fetchone()[0]>=4096: raise ProtocolError('BACKPRESSURE','collectible outbox requires archival')
             nonce=secrets.token_bytes(12);body=nonce+AESGCM(self.key).encrypt(nonce,encoded(tx),tx_hash.encode())
-            self.db.execute('INSERT INTO gifts VALUES (?,?,\'queued\',0,0)',(tx_hash,body))
+            delay=0 if self.privacy_mode=='legacy' else self.mix_window[0]+secrets.randbelow(self.mix_window[1]-self.mix_window[0]+1)
+            self.db.execute('INSERT INTO gifts(id,body,phase,attempts,next_try,operation_id,delivery_mode) VALUES (?,?,\'queued\',0,?,?,?)',(tx_hash,body,int(time.time())+delay,'gift-'+secrets.token_hex(24),self.privacy_mode))
         return tx_hash
 
     def _open(self,tx_hash,body):
@@ -166,8 +238,19 @@ class GiftOutbox:
         if type(confirmations) is not int or not 1<=confirmations<=128 or type(maximum) is not int or not 1<=maximum<=16:
             raise ProtocolError('INVALID_ZKN','bounded gift work and confirmation policy required')
         with self.lock:
-            rows=self.db.execute("SELECT id,body,attempts FROM gifts WHERE phase!='conflict' AND next_try<=? ORDER BY next_try,id LIMIT ?",(int(time.time()),maximum)).fetchall()
-            for tx_hash,body,attempts in rows:
+            now=int(time.time())
+            rows=self.db.execute("SELECT id,attempts,operation_id,delivery_mode,next_try FROM gifts WHERE phase!='conflict' AND next_try<=? LIMIT 4096",(now,)).fetchall()
+            # Mix newly due entries, but give aged entries bounded-queue FIFO
+            # priority so random selection cannot starve an individual gift.
+            aged=sorted((row for row in rows if row[4]<=now-60),key=lambda row:row[4])[:maximum]
+            fresh=[row for row in rows if row not in aged]
+            secrets.SystemRandom().shuffle(fresh)
+            chosen=aged+fresh[:maximum-len(aged)]
+            secrets.SystemRandom().shuffle(chosen)
+            for tx_hash,attempts,operation_id,delivery_mode,_ in chosen:
+                row=self.db.execute('SELECT length(body),substr(body,1,?) FROM gifts WHERE id=?',(MAX_GIFT_BYTES+29,tx_hash)).fetchone()
+                if row[0]>MAX_GIFT_BYTES+28:raise ProtocolError('OUTBOX_LIMIT','stored gift exceeds row budget')
+                body=row[1]
                 if cancellation is not None and cancellation.is_set(): break
                 tx=self._open(tx_hash,body);phase='queued';route=None
                 try:
@@ -185,7 +268,7 @@ class GiftOutbox:
                         if fact.get('transaction')!=tx: raise ProtocolError('NATIVE_FACT_REJECTED','pending gift differs')
                         phase='waiting'
                     elif fact.get('phase')=='absent':
-                        op='gift-'+tx_hash[:40]+'-'+str(attempts)
+                        op=operation_id
                         plan=call('operation.prepare',{'operation_id':op,'action':'zkn.gift','resource':'zkn:'+tx['data']['token_id'],
                                   'arguments':{'transaction':tx},'expected_revision':None},route)
                         call('operation.commit',{'operation_id':op,'plan_digest':plan['plan_digest']},route)
@@ -196,13 +279,13 @@ class GiftOutbox:
                     failed=getattr(choose_route,'failed',None)
                     if failed is not None and route is not None: failed(route)
                 with self.db:
-                    self.db.execute('UPDATE gifts SET phase=?,attempts=?,next_try=? WHERE id=?',(phase,min(attempts+1,2**31-1),int(time.time())+(60 if phase=='confirmed' else min(300,2**min(attempts+1,8))+secrets.randbelow(4)),tx_hash))
+                    self.db.execute('UPDATE gifts SET phase=?,attempts=?,next_try=? WHERE id=?',(phase,min(attempts+1,2**31-1),int(time.time())+(45+secrets.randbelow(46) if phase=='confirmed' else secrets.randbelow(max(2,min(300,2**min(attempts+1,8))))+1),tx_hash))
         return self.status()
 
 
 def validate_edition(network,token,kind,serial,contents_digest):
     identifier(network,'network')
-    if (not isinstance(token,str) or not HEX.fullmatch(token) or kind not in {'repeat','unique'} or
+    if (not isinstance(token,str) or not HEX.fullmatch(token) or not isinstance(kind,str) or kind not in {'repeat','unique'} or
             not isinstance(serial,str) or not re.fullmatch('0|[1-9][0-9]{0,127}',serial) or
             kind=='repeat' and serial!='0' or kind=='unique' and serial=='0' or
             not isinstance(contents_digest,str) or not re.fullmatch('sha256:[a-f0-9]{64}',contents_digest)):
@@ -283,9 +366,9 @@ def unpack_editions(blob, wallet, *, publisher, query=None, confirmations=2):
         seen.add(eid)
         if query is not None:
             fact=query('zkc.fact',{'transaction_hash':tx_hash})
-            if (fact.get('phase')!='on-chain' or fact.get('transaction_hash')!=tx_hash or fact.get('transaction')!=tx or
+            if (not isinstance(fact,dict) or fact.get('phase')!='on-chain' or fact.get('transaction_hash')!=tx_hash or fact.get('transaction')!=tx or
                     type(fact.get('confirmations')) is not int or fact['confirmations']<confirmations or
-                    fact.get('inclusion',{}).get('assurance')!='native-signed-inclusion'):
+                    not isinstance(fact.get('inclusion'),dict) or fact['inclusion'].get('assurance')!='native-signed-inclusion'):
                 raise ProtocolError('EDITION_PENDING','edition needs fresh canonical inclusion')
         result.append({'edition_id':eid,**tx['data'],'transaction_hash':tx_hash})
     return {'schema':'ziokt.zkc-unpacked.v1','editions':result,'ledger_confirmed':query is not None,'fee_required':False}
@@ -323,7 +406,7 @@ class GiftRoutes:
         if self.excluded and time.time()>=self.excluded_until:self.excluded.clear()
         if self.directory is None:
             # Uniform initial route spread; subsequent attempts cycle approved paths.
-            result=self.candidates[(int(tx_hash[:8],16)+attempts)%len(self.candidates)]
+            result=secrets.choice([candidate for candidate in self.candidates if candidate is not self.last] or self.candidates)
         else:
             carrier=self.directory.build_route(self.config['hop_count'],self.config['client_tls'],(self.endpoint['host'],self.endpoint['port']),exclude=self.excluded,randomize=True)
             result={**self.endpoint,'carrier':carrier,'connection_policy':{'mode':'peer-multihop','allow_direct_fallback':False}}
@@ -341,7 +424,9 @@ class GiftRoutes:
 
 
 class GiftRPC:
-    def __init__(self,federation,provider,context,signing_key,*,cancellation=None):
+    def __init__(self,federation,provider,context,signing_key,*,cancellation=None,delivery_version=2):
+        if type(delivery_version) is not int or delivery_version not in {1,2}:raise ProtocolError('INVALID_ZKN','explicit supported collectible delivery version required')
+        self.delivery_version=delivery_version
         identifier(federation,'federation');identifier(provider,'provider')
         self.federation,self.provider,self.context,self.signing_key=federation,provider,context,signing_key
         self.cancellation=cancellation
@@ -349,8 +434,11 @@ class GiftRPC:
     def __call__(self,method,params,endpoint):
         from .remote import request_remote,resource_for
         from .security import grant
+        GiftRoutes._admit(endpoint.get('carrier'))
         request={'provider_id':self.provider,'method':method,'params':params}
+        delivery_id=secrets.token_hex(32) if self.delivery_version==2 else None
+        digest=delivery_digest(request,delivery_id) if delivery_id else 'sha256:'+hashlib.sha256(encoded(request)).hexdigest()
         return request_remote(endpoint['host'],endpoint['port'],self.context,request,
             lambda:grant(self.signing_key,audience=self.provider,action=method,resource=resource_for(method,params),
-                         federation=self.federation,request_digest='sha256:'+hashlib.sha256(encoded(request)).hexdigest()),
-            carrier=endpoint['carrier'],cancellation=self.cancellation,privacy_padding=True)
+                         federation=self.federation,request_digest=digest),
+            carrier=endpoint['carrier'],cancellation=self.cancellation,privacy_padding=True,delivery_id=delivery_id)

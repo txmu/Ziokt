@@ -1,0 +1,15 @@
+{
+  "bind": "127.0.0.1:41000",
+  "private_key": "REPLACE_WITH_64_HEX_NOISE_PRIVATE_KEY",
+  "peers": {
+    "127.0.0.1:41001": "REPLACE_WITH_64_HEX_APPROVED_PEER_NOISE_PUBLIC_KEY"
+  },
+  "relay": false,
+  "forum": {
+    "database": "/home/USER/.local/share/ziokt/forum",
+    "identities": {
+      "author": "REPLACE_WITH_64_HEX_ED25519_AUTHOR_SEED"
+    },
+    "subscriptions": ["native-forum"]
+  }
+}

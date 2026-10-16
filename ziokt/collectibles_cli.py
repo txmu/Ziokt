@@ -23,7 +23,7 @@ def register(sub):
     cmd=actions.add_parser('receiver');cmd.add_argument('--network',required=True);cmd.add_argument('--offer',type=Path,required=True);cmd.add_argument('--wallet',type=Path,required=True)
     cmd=actions.add_parser('gift')
     for name in ('snapshot','offer','owner-key','outbox','outbox-key'):cmd.add_argument('--'+name,type=Path,required=True)
-    cmd.add_argument('--nonce',type=int,required=True);cmd.add_argument('--extensions',type=Path)
+    cmd.add_argument('--nonce',type=int,required=True);cmd.add_argument('--extensions',type=Path);cmd.add_argument('--legacy-delivery',action='store_true')
     cmd=actions.add_parser('public-transfer',help='explicit legacy public ownership transfer')
     for name in ('config',):cmd.add_argument('--'+name,type=Path,required=True)
     for name in ('provider','token','recipient'):cmd.add_argument('--'+name,required=True)
@@ -31,7 +31,7 @@ def register(sub):
     for action in ('status','deliver'):
         cmd=actions.add_parser(action);cmd.add_argument('--outbox',type=Path,required=True);cmd.add_argument('--outbox-key',type=Path,required=True)
         if action=='deliver':
-            cmd.add_argument('--tls-config',type=Path,required=True);cmd.add_argument('--signing-key',type=Path,required=True)
+            cmd.add_argument('--tls-config',type=Path,required=True);cmd.add_argument('--signing-key',type=Path,required=True);cmd.add_argument('--legacy-delivery',action='store_true')
             cmd.add_argument('--federation',required=True);cmd.add_argument('--provider',required=True)
             cmd.add_argument('--confirmations',type=int,default=2);cmd.add_argument('--follow',action='store_true');cmd.add_argument('--interval',type=int,default=10)
     cmd=actions.add_parser('accept')
@@ -105,7 +105,7 @@ def execute(args):
             offer,wallet=receiver(args.network);write_exclusive(args.wallet,wallet);write_exclusive(args.offer,offer)
             return {'schema':'ziokt.zkn-receiver-created.v1','offer':str(args.offer),'wallet':str(args.wallet),'single_use':True}
         if action in ('gift','status','deliver'):
-            box=GiftOutbox(args.outbox,secure_read(args.outbox_key,32))
+            box=GiftOutbox(args.outbox,secure_read(args.outbox_key,32),privacy_mode='legacy' if getattr(args,'legacy_delivery',False) else 'mixed')
             try:
                 if action=='gift':
                     from .extensions import load_extensions
@@ -114,7 +114,7 @@ def execute(args):
                 if action=='status':return {'gifts':box.status()}
                 from .remote import load_remote,tls_context
                 endpoint=load_remote(args.tls_config);context=tls_context(endpoint['certificate'],endpoint['private_key'],endpoint['ca'])
-                routes=GiftRoutes(endpoint);cancel=threading.Event();rpc=GiftRPC(args.federation,args.provider,context,secure_read(args.signing_key,32),cancellation=cancel)
+                routes=GiftRoutes(endpoint);cancel=threading.Event();rpc=GiftRPC(args.federation,args.provider,context,secure_read(args.signing_key,32),cancellation=cancel,delivery_version=1 if args.legacy_delivery else 2)
                 if not 1<=args.interval<=300:raise ProtocolError('INVALID_CONFIG','bounded delivery polling interval required')
                 try:
                     while True:

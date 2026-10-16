@@ -21,7 +21,7 @@ class ApplicationRouterTests(NativeFixture):
         signing=secrets.token_bytes(32);public=sign({},signing,'test')['public_key'];policy=create_policy(signing,'apps',{public:sorted(RIGHTS)})
         policy_file=self.base/'policy.json';write_exclusive(policy_file,policy)
         federation=self.base/'federation.json';write_exclusive(federation,self.federation)
-        routes={};methods=['component.status','ano.evaluate','ano.laws','ano.calculate','ano.defence','vault.put','vault.get','tc16.run','tri.put','package.build','sim.reminders.replace','sim.reminders.pull']
+        routes={};methods=['component.status','ano.evaluate','ano.laws','ano.calculate','ano.defence','vault.put','vault.get','vault.publish','tc16.run','tri.put','tri.get','tri.publish','package.build','package.verify','package.publish','sim.reminders.replace','sim.reminders.pull']
         for component in COMPONENTS-{'shadow6','corium','etp'}:
             directory=self.base/component;directory.mkdir(mode=0o700);vault=directory/'vault';vault.mkdir(mode=0o700)
             for name,key in [('signing',signing),('encryption',secrets.token_bytes(32)),('application',secrets.token_bytes(32))]:write_binary_exclusive(directory/(name+'.key'),key)
@@ -31,7 +31,7 @@ class ApplicationRouterTests(NativeFixture):
         worker=self.base/'etp';worker.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n r=json.loads(line);print(json.dumps({"id":r["id"],"ok":True,"result":{"fixture":True}}),flush=True)\n');worker.chmod(0o700)
         config=self.base/'etp.json';write_exclusive(config,{})
         routes['etp']={'binary':str(worker),'digest':'sha256:'+hashlib.sha256(worker.read_bytes()).hexdigest(),'config':str(config),'methods':['etp.stats']}
-        path=self.base/'router.json';write_exclusive(path,{'schema':'ziokt.application-router.v1','components':routes});router=ApplicationRouter(path)
+        path=self.base/'router.json';write_exclusive(path,{'schema':'ziokt.application-router.v1','components':routes});router=ApplicationRouter(path);self.addCleanup(router.close)
         for component in sorted(COMPONENTS):
             result=router.call(component,'status.get' if component in {'shadow6','corium'} else 'etp.stats' if component=='etp' else 'component.status',{})
             if component in {'shadow6','corium'}:self.assertEqual(result['provider_id'],component+'-local')
@@ -44,11 +44,18 @@ class ApplicationRouterTests(NativeFixture):
         calculation={'kind':'zda','operation':'add','left':ZDANumber(1).document(),'right':ZDANumber(2).document()}
         self.assertEqual(router.call('zda','ano.calculate',calculation)['result'],ZDANumber(3).document())
         cpu=router.call('tc16','tc16.run',{'source':'int main() { return 65535 + 2; }','syntax':'tcc','cycles':1000});self.assertEqual(cpu['registers'][0],1)
-        self.assertIn('digest',router.call('tri','tri.put',{'program':'HALT','state':{'from':'native'}}))
+        project=router.call('tri','tri.put',{'program':'HALT','state':{'from':'native'}})
+        self.assertEqual(router.call('tri','tri.get',{'digest':project['digest']})['program'],'HALT')
+        self.assertIn('event',router.call('tri','tri.publish',{'digest':project['digest']}))
         for component in ('safefs','ufs','dcpm','watchat','sim-manager'):
             obj=router.call(component,'vault.put',{'name':'artifact.txt','data_base64':base64.b64encode(b'private payload').decode()})
             self.assertEqual(base64.b64decode(router.call(component,'vault.get',{'digest':obj['digest']})['data_base64']),b'private payload')
-            if component in {'ufs','dcpm'}:self.assertIn('digest',router.call(component,'package.build',{'name':'fixture','version':'1','files':{'artifact.txt':obj['digest']},'dependencies':[]}))
+            if component in {'ufs','dcpm'}:
+                package=router.call(component,'package.build',{'name':'fixture','version':'1','files':{'artifact.txt':obj['digest']},'dependencies':[]})
+                verified=router.call(component,'package.verify',{'digest':package['digest'],'authority':public})
+                self.assertEqual(verified['files_verified'],1);self.assertFalse(verified['installation_authorized'])
+                self.assertIn('event',router.call(component,'package.publish',{'digest':package['digest'],'authority':public}))
+                with self.assertRaises(ProtocolError):router.call(component,'package.verify',{'digest':package['digest'],'authority':'0'*64})
         user='12345678-1234-1234-1234-123456789abc';items=[{'id':'a'*64,'due':int(time.time()*1000)+60000,'webhook':False}]
         first=router.call('sim-manager','sim.reminders.replace',{'user':user,'items':items})
         self.assertTrue(router.call('sim-manager','sim.reminders.replace',{'user':user,'items':items})['duplicate'])

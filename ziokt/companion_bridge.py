@@ -119,7 +119,7 @@ class CompanionBridge:
     def call(self,method,params):
         if secure_read(self.path)!=self.config_bytes:raise ProtocolError('STALE_PLAN','application bridge configuration changed')
         if not isinstance(params,dict):raise ProtocolError('INVALID_BRIDGE','typed local parameters required')
-        if method in {'component.status','ano.laws','ano.calculate','ano.defence','tc16.run','vault.put','vault.get','tri.put','package.build','sim.reminders.replace','sim.reminders.pull'}:
+        if method in {'component.status','ano.laws','ano.calculate','ano.defence','tc16.run','vault.put','vault.get','vault.publish','tri.put','tri.get','tri.publish','package.build','package.verify','package.publish','sim.reminders.replace','sim.reminders.pull'}:
             from .companion_operations import execute
             return execute(self,method,params)
         if method in {'component.send','component.receive'}:
