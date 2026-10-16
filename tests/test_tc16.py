@@ -42,3 +42,10 @@ class TC16Tests(unittest.TestCase):
             cpu,result=self.execute(compiler.compile(source));self.assertTrue(result['halted']);self.assertEqual(cpu.registers[0],expected);self.assertEqual(cpu.stack_depth,0)
         for source in ('int main(){return missing;}','int main(){return unknown();}','int main(){int x=1;int x=2;return x;}','int main(){break;}'):
             with self.assertRaises(ProtocolError):compiler.compile(source)
+
+    def test_tcc_truncated_and_oversized_literals_reject_as_protocol_errors(self):
+        compiler=TCCCompiler()
+        for source in ('int main()', 'int main(', 'int main(){if(', 'int main(){return', 'int main(){x', 'int main(){return '+('9'*5000)+';}'):
+            with self.subTest(source=source[:40]),self.assertRaises(ProtocolError):compiler.compile(source)
+        cpu,result=self.execute(compiler.compile('int main(){return '+('0'*5000)+'1;}'))
+        self.assertEqual(cpu.registers[0],1);self.assertTrue(result['halted'])

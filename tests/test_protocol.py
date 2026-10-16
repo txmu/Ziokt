@@ -45,6 +45,19 @@ class ProtocolTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(runtime.ProtocolError):
                 runtime.validate_request(value, self.config)
 
+    def test_native_signature_rejects_untyped_or_oversized_inputs(self):
+        from ziokt import _runtime as native
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        private=ec.generate_private_key(ec.SECP256K1())
+        public=private.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        signature=native.native_ec_sign(private,b'scoped message')
+        native.native_ec_verify(public,signature,b'scoped message')
+        for key,sig,message in [(None,signature,b'scoped message'),([],signature,b'x'),(public,{},b'x'),(public,'0'*258,b'x'),('x'*4097,signature,b'x'),(public,signature,'not bytes'),(public,signature,b'tampered')]:
+            with self.subTest(key=type(key).__name__,signature=type(sig).__name__), self.assertRaises(native.ProtocolError) as raised:
+                native.native_ec_verify(key,sig,message)
+            self.assertEqual(raised.exception.code,'NATIVE_SIGNATURE_REJECTED')
+
     def test_disabled_provider_does_not_admit_requests(self):
         self.config["enabled"] = False
         with self.assertRaises(runtime.ProtocolError) as raised:

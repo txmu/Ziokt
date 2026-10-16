@@ -1,0 +1,20 @@
+// Real IndexedDB transactions and CryptoKey structured cloning across two browser tabs.
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),http=require('node:http'),path=require('node:path');
+let chromium;try{({chromium}=require('../ci/browser/node_modules/playwright'))}catch(_){({chromium}=require('../.runtime/browser/node_modules/playwright'))}
+const ts=require('../companions/sim-manager/src/node_modules/typescript');
+const source=fs.readFileSync(path.join(__dirname,'../companions/sim-manager/src/utils/stateStore.ts'),'utf8');
+const moduleBytes=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+(async()=>{const server=http.createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/state.js'?'text/javascript':'text/html');res.end(req.url==='/state.js'?moduleBytes:'<!doctype html><title>SIM storage isolation test</title>')});await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
+try{browser=await chromium.launch({headless:true});const context=await browser.newContext();const pages=await Promise.all([context.newPage(),context.newPage()]);const base=`http://127.0.0.1:${server.address().port}`;await Promise.all(pages.map(p=>p.goto(base)));
+await Promise.all(pages.map((page,index)=>page.evaluate(async index=>{window.state=await import('/state.js');const nativeGenerate=crypto.subtle.generateKey.bind(crypto.subtle),nativeEncrypt=crypto.subtle.encrypt.bind(crypto.subtle);crypto.subtle.generateKey=async(...args)=>{await new Promise(r=>setTimeout(r,index===0?50:150));return nativeGenerate(...args)};crypto.subtle.encrypt=async(...args)=>{if(index===0)await new Promise(r=>setTimeout(r,300));return nativeEncrypt(...args)}},index)));
+await Promise.all(pages.map((page,index)=>page.evaluate(index=>window.state.saveState({subscriptions:[],eSimChips:[],scripts:[],marker:index}),index)));
+const values=await Promise.all(pages.map(page=>page.evaluate(()=>window.state.loadState())));assert.equal(values[0].marker,0);assert.deepEqual(values[0],values[1]);
+// Missing keys are corruption, and must never silently generate a replacement.
+await pages[0].evaluate(()=>new Promise((resolve,reject)=>{const r=indexedDB.open('ziokt-sim-vault',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('vault','readwrite');tx.objectStore('vault').delete('key');tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}}));
+assert.equal(await pages[1].evaluate(()=>window.state.loadState().then(()=> 'unexpected success',e=>e.message)),'SIM_KEY_MISSING');
+// A rejected destination write must leave the original migration input intact.
+const migration=await pages[0].evaluate(async()=>{await new Promise((resolve,reject)=>{const r=indexedDB.open('ziokt-sim-vault',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('vault','readwrite');tx.objectStore('vault').clear();tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}});const legacy=JSON.stringify({subscriptions:[],eSimChips:[],scripts:[],marker:'migration'});localStorage.setItem('sim-manager-data-v3',legacy);const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(value,key){if(key==='state')throw new DOMException('test disk quota','QuotaExceededError');return put.call(this,value,key)};let error;try{await window.state.loadState()}catch(e){error=e.name}finally{IDBObjectStore.prototype.put=put}const preserved=localStorage.getItem('sim-manager-data-v3')===legacy;const restored=await window.state.loadState();return {error,preserved,marker:restored.marker,legacy:localStorage.getItem('sim-manager-data-v3')}});
+assert.deepEqual(migration,{error:'QuotaExceededError',preserved:true,marker:'migration',legacy:null});
+console.log('PASS: two-tab key race, authenticated persistence, missing-key rejection, migration failure preserves source');
+}finally{if(browser)await browser.close();await new Promise(r=>server.close(r))}})().catch(e=>{console.error(e);process.exitCode=1});

@@ -150,6 +150,97 @@ class CommunityTests(unittest.TestCase):
         again = subprocess.run([sys.executable, '-m', 'ziokt', 'community', 'init', '--root', str(self.root/'cli'), '--name', 'village'], capture_output=True)
         self.assertEqual(again.returncode, 2)
 
+    def test_signed_file_manifest_must_match_plaintext_before_admit_or_restore(self):
+        from ziokt.security import verify
+        from ziokt.protocol import strict_json
+        import struct
+        manifest = self.a.put_file(b'authenticated bytes')
+        with self.assertRaises(ProtocolError):
+            self.a.publish(self.private, 'files', 'bad-file', {'name': 'bad', **manifest, 'digest': 'sha256:'+'0'*64})
+        self.assertEqual(self.a.view('files')['events'], [])
+        self.a.publish(self.private, 'files', 'file', {'name': 'file', **manifest})
+        checkpoint = self.a._open(self.a.checkpoint(self.private), 'checkpoint')
+        size = struct.unpack('!I', checkpoint[:4])[0]
+        payload = verify(strict_json(checkpoint[4:4+size]), self.public, 'Ziokt/community-checkpoint/v1')
+        sealed = checkpoint[4+size:4+size+8192]
+        event = verify(strict_json(self.a._open(sealed, 'event')), self.public, 'Ziokt/community-event/v1')
+        event['body']['size'] += 1
+        bad_event = self.a._seal(encoded(sign(event, self.private, 'Ziokt/community-event/v1')), 'event', 8192)
+        payload['records'] = [content_id(bad_event)]
+        header = encoded(sign(payload, self.private, 'Ziokt/community-checkpoint/v1'))
+        bad_checkpoint = self.a._seal(struct.pack('!I', len(header))+header+bad_event+checkpoint[4+size+8192:], 'checkpoint')
+        b = self.node('bad-manifest')
+        with self.assertRaises(ProtocolError) as error: b.restore(bad_checkpoint, self.public)
+        self.assertEqual(error.exception.code, 'ARTIFACT_DIGEST_MISMATCH')
+        self.assertEqual(b.view('files')['events'], [])
+        self.assertEqual(list(b.store.root.iterdir()), [])
+        limited = create_policy(self.private, 'village', {self.public: sorted(RIGHTS)},
+            limits={'events': 10, 'objects': 10, 'file_bytes': 4, 'checkpoint_bytes': 100000}, privacy='private')
+        c = self.node('limited-file', limited)
+        with self.assertRaises(ProtocolError): c.publish(self.private, 'files', 'large', {'name': 'large', **manifest})
+        self.assertEqual(c.view('files')['events'], [])
+
+    def test_malformed_signed_parents_and_checkpoint_entries_fail_closed(self):
+        from ziokt.security import verify
+        import struct
+        self.a.publish(self.private, 'forum', 'safe', {'title': 'Safe', 'text': 'body', 'reply_to': ''})
+        sealed = self.a.db.execute('SELECT sealed FROM records').fetchone()[0]
+        envelope = __import__('ziokt.protocol', fromlist=['strict_json']).strict_json(self.a._open(sealed, 'event'))
+        event = verify(envelope, self.public, 'Ziokt/community-event/v1')
+        malformed_scope = {**event, 'policy': []}
+        bad_scope = self.a._seal(encoded(sign(malformed_scope, self.private, 'Ziokt/community-event/v1')), 'event', 8192)
+        with self.assertRaises(ProtocolError): self.a.admit([bad_scope])
+        event['parents'] = [{}]
+        malformed = self.a._seal(encoded(sign(event, self.private, 'Ziokt/community-event/v1')), 'event', 8192)
+        with self.assertRaises(ProtocolError): self.a.admit([malformed])
+        checkpoint = self.a._open(self.a.checkpoint(self.private), 'checkpoint')
+        size = struct.unpack('!I', checkpoint[:4])[0]
+        envelope = __import__('ziokt.protocol', fromlist=['strict_json']).strict_json(checkpoint[4:4+size])
+        manifest = verify(envelope, self.public, 'Ziokt/community-checkpoint/v1')
+        manifest['records'] = [{}]
+        import base64
+        ring = self.a._seal(encoded({'policy': self.a.policy_id, 'keys': [secrets.token_hex(32) for _ in range(15)]}), 'keyring', 4096)
+        manifest['keyring'] = base64.b64encode(ring).decode()
+        header = encoded(sign(manifest, self.private, 'Ziokt/community-checkpoint/v1'))
+        malformed = self.a._seal(struct.pack('!I', len(header))+header+checkpoint[4+size:], 'checkpoint')
+        b = self.node('malformed-receiver')
+        original_keys = list(b._key_material)
+        with self.assertRaises(ProtocolError): b.restore(malformed, self.public)
+        self.assertEqual(b._key_material, original_keys)
+        self.assertFalse(b._ring_path.exists())
+        self.assertEqual(b.view('forum')['events'], [])
+
+    def test_forum_moderation_is_authorized_and_concurrent_heads_survive(self):
+        writer, other, moderator = [secrets.token_bytes(32) for _ in range(3)]
+        writer_public, other_public, moderator_public = [sign({}, key, 'test')['public_key'] for key in (writer, other, moderator)]
+        policy = create_policy(self.private, 'village', {self.public: sorted(RIGHTS),
+            writer_public: ['forum'], other_public: ['forum'], moderator_public: ['forum', 'moderate']}, privacy='private')
+        c = self.node('forum-moderation', policy)
+        first = c.publish(writer, 'forum', 'thread', {'title': 'Thread', 'text': 'original', 'reply_to': ''})
+        with self.assertRaises(ProtocolError):
+            c.publish(other, 'forum', 'thread', {'title': 'Impostor', 'text': 'overwrite', 'reply_to': ''})
+        with self.assertRaises(ProtocolError):
+            c.publish(writer, 'forum', 'thread', {'reason': 'not a moderator'}, deleted=True)
+        removed = c.publish(moderator, 'forum', 'thread', {'reason': 'authorized moderation'}, deleted=True)
+        # A concurrent offline edit cannot erase the signed moderation head.
+        edited = c.publish(writer, 'forum', 'thread', {'title': 'Thread', 'text': 'offline edit', 'reply_to': ''}, parents=[first])
+        self.assertEqual(set(c.view('forum', 'thread')['heads']), {removed, edited})
+        self.assertEqual(len(c.view('forum', 'thread')['events']), 3)
+
+    def test_revoked_mailbox_binding_remains_history_but_is_not_a_recipient(self):
+        from ziokt.community_privacy import mailbox_public
+        member = secrets.token_bytes(32); public = sign({}, member, 'test')['public_key']
+        policy = create_policy(self.private, 'village', {self.public: sorted(RIGHTS), public: ['identity']}, privacy='private')
+        c = self.node('mailbox-revocation', policy)
+        mailbox = mailbox_public(secrets.token_bytes(32))
+        c.publish(member, 'identity', public, {'name': 'Former member', 'public_key': public, 'mailbox_public': mailbox})
+        self.assertEqual(c.mailbox_for(public), mailbox)
+        updated = create_policy(self.private, 'village', {self.public: sorted(RIGHTS)}, epoch=1, privacy='private')
+        current = self.node('mailbox-revocation', updated)
+        self.assertEqual(len(current.view('identity')['events']), 1)
+        with self.assertRaises(ProtocolError): current.mailbox_for(public)
+        with self.assertRaises(ProtocolError): c.mailbox_for(public)
+
     def test_secure_binary_read_preserves_crlf_and_dos_eof(self):
         from ziokt.protocol import secure_read, make_private
         path = self.root/'binary'

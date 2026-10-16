@@ -1,5 +1,6 @@
 """All eleven component targets execute through the same native application router."""
 import base64
+import json
 import hashlib
 import secrets
 import time
@@ -20,7 +21,7 @@ class ApplicationRouterTests(NativeFixture):
         signing=secrets.token_bytes(32);public=sign({},signing,'test')['public_key'];policy=create_policy(signing,'apps',{public:sorted(RIGHTS)})
         policy_file=self.base/'policy.json';write_exclusive(policy_file,policy)
         federation=self.base/'federation.json';write_exclusive(federation,self.federation)
-        routes={};methods=['component.status','ano.evaluate','ano.laws','vault.put','vault.get','tc16.run','tri.put','package.build','sim.reminders.replace','sim.reminders.pull']
+        routes={};methods=['component.status','ano.evaluate','ano.laws','ano.calculate','ano.defence','vault.put','vault.get','tc16.run','tri.put','package.build','sim.reminders.replace','sim.reminders.pull']
         for component in COMPONENTS-{'shadow6','corium','etp'}:
             directory=self.base/component;directory.mkdir(mode=0o700);vault=directory/'vault';vault.mkdir(mode=0o700)
             for name,key in [('signing',signing),('encryption',secrets.token_bytes(32)),('application',secrets.token_bytes(32))]:write_binary_exclusive(directory/(name+'.key'),key)
@@ -37,6 +38,11 @@ class ApplicationRouterTests(NativeFixture):
             elif component=='etp':self.assertTrue(result['fixture'])
             else:self.assertEqual(result['application'],component)
         self.assertEqual(router.call('zda','ano.evaluate',{'circuit':{'op':'merge','args':[True,False]}})['result'],'positive')
+        gate=router.call('zda','ano.defence',{'evidence':{'signature':True,'authorized':None},'required':['signature','authorized']})
+        self.assertEqual(gate['decision'],'hold');self.assertFalse(gate['cryptographic_proof'])
+        from ziokt.ano import ZDANumber
+        calculation={'kind':'zda','operation':'add','left':ZDANumber(1).document(),'right':ZDANumber(2).document()}
+        self.assertEqual(router.call('zda','ano.calculate',calculation)['result'],ZDANumber(3).document())
         cpu=router.call('tc16','tc16.run',{'source':'int main() { return 65535 + 2; }','syntax':'tcc','cycles':1000});self.assertEqual(cpu['registers'][0],1)
         self.assertIn('digest',router.call('tri','tri.put',{'program':'HALT','state':{'from':'native'}}))
         for component in ('safefs','ufs','dcpm','watchat','sim-manager'):
@@ -59,3 +65,10 @@ class ApplicationRouterTests(NativeFixture):
                 write_exclusive(request,{'target':target,'method':method,'params':{}})
                 result=subprocess.run([*entry,'companion','app','call','--bridge-config',str(path),'--request',str(request)],env={**os.environ,'PYTHONPATH':str(ROOT)},capture_output=True,text=True,timeout=15)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
+            request=self.base/'numeric-request.json'
+            if request.exists():request.unlink()
+            write_exclusive(request,{'target':'zda','method':'ano.calculate','params':calculation})
+            result=subprocess.run([*entry,'companion','app','call','--bridge-config',str(path),'--request',str(request)],env={**os.environ,'PYTHONPATH':str(ROOT)},capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout)['result'],ZDANumber(3).document())

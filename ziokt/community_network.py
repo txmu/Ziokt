@@ -172,8 +172,7 @@ def push_remote(community, endpoint, context, private, *, cancellation=None):
         community._current()
         community.db.execute('CREATE TABLE IF NOT EXISTS submitted_events (peer TEXT,event TEXT,PRIMARY KEY(peer,event))')
         events = community._events()
-        completed = {row[0] for row in community.db.execute('SELECT event FROM submitted_events WHERE peer=?', (peer,))}
-        selected = {d: e for d, e in events.items() if e['author'] == public and e['policy'] == community.policy_id and d not in completed}
+        selected = {d: e for d, e in events.items() if e['author'] == public and e['policy'] == community.policy_id}
         blobs = {d: community.db.execute('SELECT sealed FROM records WHERE id=?', (d,)).fetchone()[0] for d in selected}
     def call(method, params):
         if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'community submission cancelled')
@@ -181,6 +180,18 @@ def push_remote(community, endpoint, context, private, *, cancellation=None):
         token = lambda: grant(private, audience=community.community_id, action=method, resource=resource_for(method, params),
                       federation=community.community_id, request_digest=content_id(encoded(request)))
         return request_remote(endpoint['host'], endpoint['port'], context, request, token, carrier=endpoint.get('carrier'), cancellation=cancellation, privacy_padding=community.policy['privacy']!='standard')
+    # A saved receipt proves a past delivery, not retention after a peer's
+    # restart/backup restore. Only a freshly authenticated matching inventory
+    # can suppress retransmission. Writers without replication permission
+    # resend their bounded set; event admission is persistent and idempotent.
+    if 'replicate' in community.policy['members'][public]:
+        status = call('community.status', {})
+        exact(status, {'community_id', 'policy', 'records', 'publisher', 'runtime_ready', 'inventory_digest', 'origin'})
+        if status['community_id'] != community.community_id or status['policy'] != community.policy_id:
+            raise ProtocolError('SCOPE_MISMATCH', 'remote community policy differs')
+        hash_id(status['inventory_digest'])
+        if status['inventory_digest'] == community.inventory_digest():
+            return {'submitted': 0, 'uploaded_objects': 0}
     order, visited = [], set()
     def visit(d):
         if d in visited: return

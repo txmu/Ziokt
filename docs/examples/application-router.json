@@ -57,7 +57,9 @@
         "vault.put",
         "vault.get",
         "ano.evaluate",
-        "ano.laws"
+        "ano.laws",
+        "ano.calculate",
+        "ano.defence"
       ]
     },
     "ufs": {

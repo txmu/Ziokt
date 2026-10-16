@@ -1,7 +1,7 @@
 """Versioned Ano truth operations, bounded exact numbers and defence decisions.
 
-The boolean profile preserves the supplied refined implementation's truth
- tables. It is a decision vocabulary, not a substitute for cryptographic proof.
+The boolean profile preserves the supplied refined implementation's binary
+truth tables and explicitly defines propagation of the unknown state. It is a decision vocabulary, not a substitute for cryptographic proof.
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -67,7 +67,7 @@ def conjunction(*values):
 def defence(evidence,required):
     """Only ALL required verified claims may authorize; uncertainty holds."""
     if (not isinstance(evidence,dict) or not isinstance(required,(tuple,list)) or not 1<=len(required)<=32 or
-            len(set(required))!=len(required) or any(not isinstance(n,str) or n not in evidence for n in required)):
+            any(not isinstance(n,str) or n not in evidence for n in required) or len(set(required))!=len(required)):
         raise ProtocolError('INVALID_ANO','exact named independent defensive claims required')
     claims={name:signal(evidence[name]) for name in required}
     decision=conjunction(*claims.values())
@@ -107,6 +107,23 @@ def _fraction(value):
     return value
 
 
+def _ratio_document(value):
+    return {'numerator':str(value.numerator),'denominator':str(value.denominator)}
+
+
+def _read_ratio(value):
+    import re
+    if not isinstance(value,dict) or set(value)!={'numerator','denominator'}:
+        raise ProtocolError('INVALID_ZDA','exact rational descriptor required')
+    n,d=value['numerator'],value['denominator']
+    if (not isinstance(n,str) or not isinstance(d,str) or len(n)>1235 or len(d)>1234 or
+            not re.fullmatch(r'0|-?[1-9][0-9]*',n) or not re.fullmatch(r'[1-9][0-9]*',d)):
+        raise ProtocolError('INVALID_ZDA','bounded canonical rational required')
+    ratio=_fraction(Fraction(int(n),int(d)))
+    if _ratio_document(ratio)!=value:raise ProtocolError('INVALID_ZDA','reduced canonical rational required')
+    return ratio
+
+
 @dataclass(frozen=True)
 class ZDANumber:
     real:Fraction=Fraction(0)
@@ -114,9 +131,15 @@ class ZDANumber:
     state:str='finite'
 
     def __post_init__(self):
-        if self.state not in {'finite','infinity','bottom'}:raise ProtocolError('INVALID_ZDA','known tagged numeric state required')
+        if not isinstance(self.state,str) or self.state not in {'finite','infinity','bottom'}:raise ProtocolError('INVALID_ZDA','known tagged numeric state required')
         object.__setattr__(self,'real',_fraction(self.real));object.__setattr__(self,'imaginary',_fraction(self.imaginary))
         if self.state!='finite' and (self.real or self.imaginary):raise ProtocolError('INVALID_ZDA','special state carries no finite coefficient')
+
+    @classmethod
+    def from_document(cls,value):
+        if not isinstance(value,dict) or set(value)!={'schema','state','real','imaginary'} or value['schema']!='ziokt.zda-number.v1':
+            raise ProtocolError('INVALID_ZDA','versioned ZDA number required')
+        return cls(_read_ratio(value['real']),_read_ratio(value['imaginary']),value['state'])
 
     @classmethod
     def infinity(cls):return cls(state='infinity')
@@ -158,6 +181,13 @@ class AnoNumber:
     ano_part:Signal=Signal.NEGATIVE
     def __post_init__(self):
         object.__setattr__(self,'real',_fraction(self.real));object.__setattr__(self,'imaginary',_fraction(self.imaginary));object.__setattr__(self,'ano_part',signal(self.ano_part))
+    def document(self):
+        return {'schema':'ziokt.ano-number.v1','profile':PROFILE,'real':_ratio_document(self.real),'imaginary':_ratio_document(self.imaginary),'ano_part':self.ano_part.value}
+    @classmethod
+    def from_document(cls,value):
+        if not isinstance(value,dict) or set(value)!={'schema','profile','real','imaginary','ano_part'} or value['schema']!='ziokt.ano-number.v1' or value['profile']!=PROFILE:
+            raise ProtocolError('INVALID_ANO','versioned Ano number required')
+        return cls(_read_ratio(value['real']),_read_ratio(value['imaginary']),signal(value['ano_part']))
     def __add__(self,other):
         if not isinstance(other,AnoNumber):return NotImplemented
         return AnoNumber(self.real+other.real,self.imaginary+other.imaginary,merge(self.ano_part,other.ano_part))
@@ -173,6 +203,13 @@ class AnoVector:
     z:AnoNumber
     def __post_init__(self):
         if any(not isinstance(v,AnoNumber) for v in (self.x,self.y,self.z)):raise ProtocolError('INVALID_ANO','typed vector coefficients required')
+    def document(self):
+        return {'schema':'ziokt.ano-vector.v1','profile':PROFILE,'coefficients':[value.document() for value in (self.x,self.y,self.z)]}
+    @classmethod
+    def from_document(cls,value):
+        if not isinstance(value,dict) or set(value)!={'schema','profile','coefficients'} or value['schema']!='ziokt.ano-vector.v1' or value['profile']!=PROFILE or not isinstance(value['coefficients'],list) or len(value['coefficients'])!=3:
+            raise ProtocolError('INVALID_ANO','three versioned Ano coefficients required')
+        return cls(*(AnoNumber.from_document(item) for item in value['coefficients']))
     def __add__(self,other):return AnoVector(self.x+other.x,self.y+other.y,self.z+other.z)
     def dot(self,other):return self.x*other.x+self.y*other.y+self.z*other.z
 
@@ -211,3 +248,18 @@ def law_report(profile=PROFILE):
     }
     return {'schema':'ziokt.ano-laws.v1','profile':profile,'domain':[s.value for s in states],
             'method':'exhaustive finite enumeration','laws':laws,'numeric_field_proof':False,'security_policy_proof':False}
+
+
+def calculate(kind,operation,left,right):
+    """Expose existing exact operations without evaluating code or granting authority."""
+    types={'zda':ZDANumber,'ano':AnoNumber,'vector':AnoVector}
+    operations={'zda':{'add','sub','mul','div'},'ano':{'add','mul'},'vector':{'add','dot'}}
+    if not isinstance(kind,str) or kind not in types or not isinstance(operation,str) or operation not in operations[kind]:
+        raise ProtocolError('INVALID_ANO','existing typed algebra operation required')
+    a,b=types[kind].from_document(left),types[kind].from_document(right)
+    if operation=='add':result=a+b
+    elif operation=='sub':result=a-b
+    elif operation=='mul':result=a*b
+    elif operation=='div':result=a/b
+    else:result=a.dot(b)
+    return {'schema':'ziokt.ano-calculation.v1','result':result.document(),'cryptographic_proof':False}

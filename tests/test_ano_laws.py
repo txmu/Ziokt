@@ -29,3 +29,8 @@ class AnoFormalContracts(unittest.TestCase):
             self.assertFalse(law_report(profile)['security_policy_proof'])
         self.assertEqual(defence({'integrity':True,'authorized':None},('integrity','authorized'))['decision'],'hold')
         with self.assertRaises(ProtocolError):law_report('unknown')
+
+    def test_defence_malformed_claim_names_fail_with_protocol_error(self):
+        for required in ([[]], [{}], [1], ["authorized", "authorized"]):
+            with self.subTest(required=required), self.assertRaises(ProtocolError):
+                defence({"authorized": True}, required)

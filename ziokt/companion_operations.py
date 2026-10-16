@@ -13,6 +13,18 @@ def execute(bridge, method, params):
         exact([])
         from .ano import law_report
         return law_report()
+    if method=='ano.defence':
+        if bridge.app!='zda':raise ProtocolError('SCOPE_MISMATCH','ZDA application required')
+        exact(['evidence','required'])
+        if not isinstance(params['evidence'],dict) or len(params['evidence'])>64 or not isinstance(params['required'],list) or not 1<=len(params['required'])<=64:
+            raise ProtocolError('INVALID_PARAMS','bounded evidence and required claims required')
+        from .ano import defence
+        return {**defence(params['evidence'],params['required']),'evidence_trust':'caller-supplied','cryptographic_proof':False}
+    if method=='ano.calculate':
+        if bridge.app!='zda':raise ProtocolError('SCOPE_MISMATCH','ZDA application required')
+        exact(['kind','operation','left','right'])
+        from .ano import calculate
+        return calculate(params['kind'],params['operation'],params['left'],params['right'])
     if method=='tc16.run':
         if bridge.app!='tc16':raise ProtocolError('SCOPE_MISMATCH','TC-16 application required')
         exact(['source','syntax','cycles'])

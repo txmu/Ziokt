@@ -4,6 +4,7 @@
 
 import zlib
 import pickle
+from dcpm_safe import decompress_pickle
 from cryptography.fernet import Fernet
 import threading
 
@@ -244,7 +245,7 @@ class Memory:
         return zlib.compress(pickle.dumps(data))
 
     def decompress(self, data):
-        return pickle.loads(zlib.decompress(data))
+        return decompress_pickle(data)
 
     def encrypt(self, data):
         return self.fernet.encrypt(data)
@@ -389,16 +390,17 @@ def get_memory(size):
     return memory
 
 
-# 使用示例
-memory = get_memory(1024)
-memory.read(100)  # 触发缺页中断并映射
-memory.write(200, b"abc")  # 触发缺页中断并映射
+if __name__ == '__main__':
+    # 使用示例
+    memory = get_memory(1024)
+    memory.read(100)  # 触发缺页中断并映射
+    memory.write(200, b"abc")  # 触发缺页中断并映射
 
-# 初始化池对象
-pool = SharedMemoryPool(100, is_multithread=True)
+    # 初始化池对象
+    pool = SharedMemoryPool(100, is_multithread=True)
 
-# 使用示例
-seg1 = pool.allocate(1024)
-...
-pool.free(seg1)
-print(pool.get_usage())
+    # 使用示例
+    seg1 = pool.allocate(1024)
+    ...
+    pool.free(seg1)
+    print(pool.get_usage())

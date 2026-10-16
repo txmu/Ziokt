@@ -59,7 +59,7 @@ def policy_document(envelope, owner):
     if value['schema'] != 'ziokt.community-policy.v1' or type(value['epoch']) is not int or not 0 <= value['epoch'] < 2**53:
         raise ProtocolError('INVALID_COMMUNITY', 'bounded community policy epoch required')
     identifier(value['community_id'], 'community_id')
-    if not isinstance(owner, str) or not PUBLIC.fullmatch(owner) or value['privacy'] not in {'private', 'restricted'}:
+    if not isinstance(owner, str) or not PUBLIC.fullmatch(owner) or not isinstance(value['privacy'], str) or value['privacy'] not in {'private', 'restricted'}:
         raise ProtocolError('INVALID_COMMUNITY', 'pinned owner and explicit private policy required')
     if not isinstance(value['members'], dict) or not 1 <= len(value['members']) <= 64 or owner not in value['members']:
         raise ProtocolError('INVALID_COMMUNITY', 'bounded explicit community membership required')
@@ -301,6 +301,7 @@ class Community:
             raise ProtocolError('INVALID_COMMUNITY', 'signed community event required')
         event = verify(envelope, envelope['public_key'], 'Ziokt/community-event/v1')
         exact(event, {'schema', 'community_id', 'policy', 'domain', 'key', 'parents', 'nonce', 'deleted', 'body'})
+        hash_id(event['policy'])
         if event['schema'] != 'ziokt.community-event.v1' or event['community_id'] != self.community_id or event['policy'] not in policies:
             raise ProtocolError('SCOPE_MISMATCH', 'event scope or admitted policy mismatch')
         if not historical and event['policy'] != self.policy_id:
@@ -308,7 +309,7 @@ class Community:
         if not isinstance(event['domain'], str) or event['domain'] not in DOMAINS:
             raise ProtocolError('INVALID_APPLICATION', 'known community application required')
         identifier(event['key'], 'application key')
-        if not isinstance(event['parents'], list) or len(event['parents']) > 32 or len(set(event['parents'])) != len(event['parents']):
+        if not isinstance(event['parents'], list) or len(event['parents']) > 32 or any(not isinstance(p, str) for p in event['parents']) or len(set(event['parents'])) != len(event['parents']):
             raise ProtocolError('INVALID_COMMUNITY', 'bounded unique parent references required')
         for parent in event['parents']: hash_id(parent)
         if not isinstance(event['nonce'], str) or not re.fullmatch('[a-f0-9]{32}', event['nonce']):
@@ -317,6 +318,10 @@ class Community:
         if event['deleted']:
             self._member(envelope['public_key'], 'moderate', policies[event['policy']])
         self._validate_body(event['domain'], event['body'], event['deleted'])
+        if event['domain'] in {'files', 'packages'} and not event['deleted']:
+            limit = policies[event['policy']].get('limits', {}).get('file_bytes', MAX_FILE)
+            if event['body']['size'] > limit:
+                raise ProtocolError('COMMUNITY_LIMIT', 'file exceeds its signed policy resource budget')
         if event['domain'] == 'identity' and not event['deleted'] and event['body']['public_key'] != envelope['public_key']:
             raise ProtocolError('POLICY_DENIED', 'identity records must prove their own signing key')
         if event['domain'] == 'identity' and event['key'] != envelope['public_key']:
@@ -392,6 +397,10 @@ class Community:
                 events[event['id']] = event
             if len(events) > self.limits['events']: raise ProtocolError('COMMUNITY_LIMIT', 'event retention budget exhausted; archive first')
             self._check_graph(events, policies)
+            for event_id in pending:
+                event = events[event_id]
+                if event['domain'] in {'files', 'packages'} and not event['deleted']:
+                    self.get_file(event['body'])
             self.db.executemany('INSERT OR IGNORE INTO records VALUES (?,?)', pending.items())
             return {'events': [content_id(blob) for blob in blobs], 'added': len(pending)}
 
@@ -469,7 +478,8 @@ class Community:
             return self.store.put(blob, expected)
 
     def get_file(self, manifest):
-        if not isinstance(manifest, dict): raise ProtocolError('INVALID_APPLICATION', 'content manifest required')
+        if not isinstance(manifest, dict) or not {'chunks', 'size', 'digest'} <= set(manifest):
+            raise ProtocolError('INVALID_APPLICATION', 'complete content manifest required')
         self._validate_body('files', {'name': 'content', **{k: manifest[k] for k in ('chunks', 'size', 'digest')}}, False)
         leaves, _ = self._file_objects(manifest)
         data = b''.join(self._open(self.store.get(d), 'chunk') for d in leaves)
@@ -526,6 +536,9 @@ class Community:
             return content_id(encoded({'policy': self.policy_id, 'records': sorted(events), 'objects': objects}))
 
     def mailbox_for(self, recipient):
+        self._current()
+        if recipient not in self.policy['members']:
+            raise ProtocolError('POLICY_DENIED', 'recipient is not a current community member')
         result = self.view('identity', recipient)
         if len(result['heads']) != 1:
             raise ProtocolError('IDENTITY_UNRESOLVED', 'recipient needs one unambiguous signed mailbox binding')
@@ -558,6 +571,18 @@ class Community:
                 'execution_authorized': False, 'consensus_finality_verified': False}
 
     def restore(self, blob, publisher):
+        # Historical keys are needed to validate old events, but a rejected
+        # checkpoint must not consume the receiver's finite keyring budget.
+        with self.lock:
+            previous_keys = list(self._key_material)
+            try:
+                return self._restore(blob, publisher)
+            except BaseException:
+                self._key_material = previous_keys
+                self._read_ciphers = [AESGCM(key) for key in previous_keys]
+                raise
+
+    def _restore(self, blob, publisher):
         with self.lock:
             self._current(); self._member(publisher, 'recover')
             if not isinstance(blob, bytes) or len(blob) > self.limits['checkpoint_bytes']:
@@ -587,7 +612,7 @@ class Community:
             self._adopt_keys(keys)
             for name, limit in [('records', MAX_EVENTS), ('objects', MAX_BLOBS)]:
                 items = value[name]
-                if not isinstance(items, list) or len(items) > limit or len(set(items)) != len(items):
+                if not isinstance(items, list) or len(items) > limit or any(not isinstance(d, str) for d in items) or len(set(items)) != len(items):
                     raise ProtocolError('COMMUNITY_LIMIT', 'bounded unique checkpoint entries required')
                 for digest in items: hash_id(digest)
             if not isinstance(value['policies'], list) or not 1 <= len(value['policies']) <= 64:
@@ -612,6 +637,13 @@ class Community:
             required = {d for e in events.values() if not e['deleted'] and e['domain'] in {'files', 'packages'} for d in self._file_objects(e['body'], objects)[1]}
             if required != set(objects): raise ProtocolError('MISSING_CONTENT', 'checkpoint must include exactly referenced content')
             for data in objects.values(): self._open(data, 'chunk')
+            for event in events.values():
+                if event['deleted'] or event['domain'] not in {'files', 'packages'}: continue
+                manifest = event['body']
+                leaves, _ = self._file_objects(manifest, objects)
+                plain = b''.join(self._open(objects[d], 'chunk') for d in leaves)
+                if len(plain) != manifest['size'] or content_id(plain) != manifest['digest']:
+                    raise ProtocolError('ARTIFACT_DIGEST_MISMATCH', 'checkpoint plaintext differs from signed file manifest')
             # Authenticate everything before writing any application state. CAS
             # staging may leave harmless orphaned ciphertext if the DB fails.
             with self.db:

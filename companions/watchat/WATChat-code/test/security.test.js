@@ -29,10 +29,30 @@ test('real gateway sessions, ciphertext dedup, media ACL and encrypted storage',
  socket.send(JSON.stringify({...frame,ciphertext:crypto.randomBytes(2048).toString('base64')}));await delay(50);assert.ok(events.some(x=>x.error==='IDEMPOTENCY_CONFLICT'));
  socket.send(JSON.stringify({action:'history',peerId:bob.user.id}));await delay(50);assert.equal(events.find(x=>x.type==='history').messages.length,1);
  assert.equal((await request(media,{cookie:bob.cookie})).status,200);assert.equal((await request(media,{cookie:carol.cookie})).status,404);
+ // Force a real filesystem failure after validation; retries must not acknowledge memory-only data.
+ const retry={...frame,id:crypto.randomUUID(),attachments:[]},moved=dir+'.unavailable';
+ fs.renameSync(dir,moved);
+ try{socket.send(JSON.stringify(retry));await delay(100);assert.equal(events.filter(x=>x.type==='ack'&&x.id===retry.id).length,0)}finally{fs.renameSync(moved,dir)}
+ socket.send(JSON.stringify({action:'history',peerId:bob.user.id}));await delay(50);
+ assert.equal(events.filter(x=>x.type==='history').at(-1).messages.some(x=>x.id===retry.id),false);
+ socket.send(JSON.stringify(retry));await delay(100);assert.equal(events.filter(x=>x.type==='ack'&&x.id===retry.id).length,1);
+ const encrypted=fs.readFileSync(path.join(dir,'store.aead')),decipher=crypto.createDecipheriv('aes-256-gcm',fs.readFileSync(path.join(dir,'store.key')),encrypted.subarray(0,12));
+ decipher.setAAD(Buffer.from('Ziokt/WATChat/v2/store'));decipher.setAuthTag(encrypted.subarray(-16));
+ const recovered=JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(12,-16)),decipher.final()]));
+ assert.equal(recovered.messages.filter(x=>x.id===retry.id).length,1);
  const disk=fs.readFileSync(path.join(dir,'store.aead'));assert.ok(!disk.includes(Buffer.from(frame.ciphertext)));assert.equal(fs.statSync(path.join(dir,'store.aead')).mode&0o777,0o600);
  const manifest=await(await request('/manifest.webmanifest')).json();assert.equal(manifest.display,'standalone');for(const icon of manifest.icons)assert.equal((await request(icon.src)).status,200);
  assert.ok((await(await request('/sw.js')).text()).includes("addEventListener('push'"));socket.close();
  const bad=new WebSocket(base.replace('http:','ws:')+'/ws?token=secret',{headers:{Cookie:admin.cookie,Origin:base}});await new Promise(resolve=>{bad.once('unexpected-response',(_,r)=>{assert.equal(r.statusCode,403);r.resume();resolve()});bad.once('error',resolve)});
+ // Re-open the actual encrypted database in a fresh server process.
+ const exited=new Promise(resolve=>child.once('exit',resolve));child.kill();await exited;
+ const restarted=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ZIOKT_STANDALONE:'1'},stdio:['ignore','pipe','pipe']});restarted.stderr.resume();
+ t.after(async()=>{restarted.kill();await delay(50)});
+ let recoveredReady=false;for(let i=0;i<100;i++){try{if((await fetch(base)).ok){recoveredReady=true;break}}catch(_){}await delay(20)}assert.ok(recoveredReady);
+ const resumed=await login('admin','test-password-very-strong');
+ const resumedSocket=new WebSocket(base.replace('http:','ws:')+'/ws',{headers:{Cookie:resumed.cookie,Origin:base}});t.after(()=>resumedSocket.close());
+ const history=new Promise((resolve,reject)=>{resumedSocket.on('message',raw=>{const item=JSON.parse(raw);if(item.type==='ready')resumedSocket.send(JSON.stringify({action:'history',peerId:bob.user.id}));if(item.type==='history')resolve(item.messages)});resumedSocket.once('error',reject)});
+ assert.deepEqual((await history).map(x=>x.id).sort(),[frame.id,retry.id].sort());resumedSocket.close();
 });
 test('durable reminders retry failed delivery and reject private payload fields',async()=>{
  const {ReminderScheduler}=require('../backend/reminders'),store={},calls=[];let failing=true;

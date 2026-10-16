@@ -1,7 +1,7 @@
 """Real TLS sockets, opaque range sync and a SOCKS5 proxy with no onion DNS."""
 import datetime
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import hashlib
 import ipaddress
 from pathlib import Path
@@ -52,7 +52,7 @@ def onion_proxy(destination, upstream_port, observed, *, reject=False):
                 return bytes(data)
             try:
                 if read(3) != b'\x05\x01\x02': raise OSError('method')
-                if reject:
+                if (reject() if callable(reject) else reject):
                     observed.append(('rejected', destination))
                     stream.sendall(b'\x05\x00')
                     return
@@ -119,8 +119,9 @@ class CommunityNetworkTests(unittest.TestCase):
             'public_key': self.public, 'methods': ['community.status', 'community.checkpoint.create', 'community.checkpoint.get', 'community.checkpoint.release', 'community.event.put', 'community.blob.put'], 'providers': ['village']}}
         self.trusted = trusted
         self.backend = CommunityEndpoint(self.source, self.private)
+        self.server_context = tls_context(*pairs['server'][:2], ca, server=True)
         self.server = remote_server({'enabled': True, 'federation_id': 'village', 'providers': []},
-            tls_context(*pairs['server'][:2], ca, server=True), self.root/'replay.sqlite', trusted,
+            self.server_context, self.root/'replay.sqlite', trusted,
             allow_mutations=True, community=self.backend)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
         self.addCleanup(self.stop)
@@ -204,6 +205,136 @@ class CommunityNetworkTests(unittest.TestCase):
         self.assertEqual(self.source.get_file(materials), b'member-owned file')
         self.assertEqual(self.source.view('forum')['events'][0]['author'], writer_public)
         self.assertEqual(push_remote(self.target, endpoint, self.context, writer)['submitted'], 0)
+
+    def test_push_recovers_peer_data_loss_and_lost_ack_over_real_tls(self):
+        from ziokt.community_network import push_remote
+        from ziokt import remote
+        endpoint = {'host': '127.0.0.1', 'port': self.server.server_port}
+        with self.source.db:
+            self.source.db.execute('DELETE FROM records')
+        event = self.target.publish(self.private, 'forum', 'recovery',
+            {'title': 'Recover', 'text': 'durable source copy', 'reply_to': ''})
+        original = remote.request_remote
+        dropped = []
+        def lose_saved_ack(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if args[3]['method'] == 'community.event.put' and not dropped:
+                dropped.append(True)
+                raise ProtocolError('CARRIER_UNAVAILABLE', 'acknowledgement lost after durable admission')
+            return result
+        with patch('ziokt.remote.request_remote', side_effect=lose_saved_ack):
+            with self.assertRaises(ProtocolError):
+                push_remote(self.target, endpoint, self.context, self.private)
+        self.assertEqual(self.source.view('forum')['heads'], [event])
+        self.assertEqual(push_remote(self.target, endpoint, self.context, self.private)['submitted'], 0)
+        # Successful receipts survive locally, while the peer restores an older
+        # database. Even an unchanged node origin must not hide lost records.
+        with self.source.db:
+            self.source.db.execute('DELETE FROM records')
+        self.source.close()
+        self.source = Community(self.root/'source', self.policy, self.public, self.key)
+        self.addCleanup(self.source.close)
+        self.backend.community = self.source
+        self.assertEqual(push_remote(self.target, endpoint, self.context, self.private)['submitted'], 1)
+        self.assertEqual(self.source.view('forum')['heads'], [event])
+        self.assertEqual(self.source.db.execute('SELECT COUNT(*) FROM records').fetchone()[0], 1)
+
+    def test_three_node_fault_matrix_partition_reorder_restart_and_checkpoint(self):
+        from ziokt.community_network import push_remote
+        from ziokt.remote import request_remote, resource_for
+        from ziokt.security import grant
+        from ziokt.protocol import encoded
+        third = Community(self.root/'third', self.policy, self.public, self.key)
+        self.addCleanup(third.close)
+        context = self.server_context
+        servers = []
+        def stop_service(state):
+            if state['running']:
+                state['server'].shutdown(); state['server'].server_close()
+                state['thread'].join(5); state['running'] = False
+        def start_service(node, replay, port=0):
+            backend = CommunityEndpoint(node, self.private)
+            server = remote_server({'enabled': True, 'federation_id': 'village', 'providers': []},
+                context, replay, self.trusted, port=port, allow_mutations=True, community=backend)
+            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+            state = {'server': server, 'thread': thread, 'running': True}
+            servers.append(state); self.addCleanup(stop_service, state)
+            return state
+        middle = start_service(self.target, self.root/'middle-replay.sqlite')
+        last = start_service(third, self.root/'third-replay.sqlite')
+        nodes = [self.source, self.target, third]
+        ports = [self.server.server_port, middle['server'].server_port, last['server'].server_port]
+        blocked = threading.Event()
+        with ExitStack() as stack:
+            # Controlled forwarding sockets carry actual end-to-end mTLS.
+            # This is an isolated fault injector, not a Tor network test.
+            endpoints = []
+            for port in ports:
+                proxy = stack.enter_context(onion_proxy(ONION, port, [], reject=blocked.is_set))
+                endpoints.append({'host': ONION, 'port': 443, 'carrier':
+                    {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': proxy}})
+            first = self.source.publish(self.private, 'forum', 'matrix',
+                {'title': 'Matrix', 'text': 'shared ancestor', 'reply_to': ''})
+            for node in nodes[1:]:
+                sync_remote(node, endpoints[0], self.context, self.private, publisher=self.public)
+            # All approved paths now fail even though each application remains
+            # live. Verify every directed edge reports failure, not success.
+            blocked.set()
+            failures = 0
+            for i, node in enumerate(nodes):
+                for j, endpoint in enumerate(endpoints):
+                    if i == j: continue
+                    with self.assertRaises((ProtocolError, OSError)):
+                        sync_remote(node, endpoint, self.context, self.private, publisher=self.public)
+                    failures += 1
+            self.assertEqual(failures, 6)
+            edits = [node.publish(self.private, 'forum', 'matrix',
+                {'title': 'Matrix', 'text': 'offline-'+str(i), 'reply_to': ''}) for i, node in enumerate(nodes)]
+            child = self.target.publish(self.private, 'forum', 'matrix',
+                {'title': 'Matrix', 'text': 'offline child', 'reply_to': ''})
+            blocked.clear()
+            def deliver_event(node, event, endpoint):
+                blob = node.db.execute('SELECT sealed FROM records WHERE id=?', (event,)).fetchone()[0]
+                params = {'digest': event, 'parts': [base64.b64encode(blob[:4096]).decode(), base64.b64encode(blob[4096:]).decode()]}
+                method = 'community.event.put'
+                request = {'provider_id': 'village', 'method': method, 'params': params}
+                token = lambda: grant(self.private, audience='village', action=method,
+                    resource=resource_for(method, params), federation='village', request_digest=content_id(encoded(request)))
+                return request_remote(endpoint['host'], endpoint['port'], self.context, request, token,
+                    carrier=endpoint['carrier'], privacy_padding=True)
+            # A child arriving before its offline parent is rejected atomically.
+            with self.assertRaises(ProtocolError) as missing:
+                deliver_event(self.target, child, endpoints[2])
+            self.assertEqual(missing.exception.code, 'MISSING_PARENT')
+            self.assertEqual(third.view('forum', 'matrix')['heads'], [edits[2]])
+            push_remote(self.target, endpoints[2], self.context, self.private)
+            self.assertEqual(deliver_event(self.target, child, endpoints[2])['added'], 0)
+            sync_remote(self.source, endpoints[2], self.context, self.private, publisher=self.public)
+            push_remote(self.source, endpoints[1], self.context, self.private)
+            push_remote(self.source, endpoints[2], self.context, self.private)
+            expected = {edits[0], child, edits[2]}
+            for node in nodes:
+                self.assertEqual(set(node.view('forum', 'matrix')['heads']), expected)
+                self.assertEqual(node.inventory_digest(), self.source.inventory_digest())
+                self.assertIn(first, {e['id'] for e in node.view('forum')['events']})
+            # Actual peer service and database restart at the same endpoint;
+            # retained checkpoint history and origin remain usable afterwards.
+            stop_service(last); third.close()
+            with self.assertRaises((ProtocolError, OSError)):
+                sync_remote(self.target, endpoints[2], self.context, self.private, publisher=self.public)
+            third = Community(self.root/'third', self.policy, self.public, self.key)
+            self.addCleanup(third.close)
+            last = start_service(third, self.root/'third-replay.sqlite', port=ports[2])
+            self.assertTrue(sync_remote(self.target, endpoints[2], self.context, self.private, publisher=self.public)['unchanged'])
+            cold = Community(self.root/'cold-checkpoint', self.policy, self.public, self.key)
+            self.addCleanup(cold.close)
+            restored = cold.restore(third.checkpoint(self.private), self.public)
+            self.assertFalse(restored['runtime_ready'])
+            self.assertEqual(cold.inventory_digest(), self.source.inventory_digest())
+            self.assertEqual(cold.get_file(self.manifest), b'real network content'*800)
+            # Community synchronization has no authority to assert chain
+            # finality: native application/consensus remains a separate step.
+            self.assertTrue(restored['native_apply_required'])
 
     def test_socks5_actual_stream_remote_dns_and_isolation(self):
         observed = []

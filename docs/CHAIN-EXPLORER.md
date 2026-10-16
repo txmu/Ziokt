@@ -1,0 +1,52 @@
+# Local canonical chain explorer
+
+Set `"explorer": true` in the owner-private `ziokt.effort-web.v1` configuration.
+The existing HTTPS service then serves `/explorer/`, with Chinese and English
+UI, twenty-block pages, height/hash lookup, transaction lookup and shareable
+fragment links. The effort landing page retains its single computation button.
+The explorer page does not start workers or request mining jobs.
+
+The database is selected from the configured Corium provider's state root and
+network. Browser input cannot select a path, RPC, SQL query or signing identity.
+Connections use SQLite `mode=ro`, `query_only`, a consistent read transaction,
+two-second busy timeout and a bounded progress handler. The HTTP service limits
+parallel requests and applies a separate 600/minute explorer query budget. The
+worker job/proof budget remains separate. Behind a reverse proxy, the budget
+currently aggregates requests at its backend address.
+
+Fixed GET endpoints:
+
+- `/api/explorer/summary`
+- `/api/explorer/blocks?before=HEIGHT` (twenty rows)
+- `/api/explorer/block/HEIGHT_OR_HASH` (at most 100 transaction summaries)
+- `/api/explorer/transaction/HASH`
+
+Responses show network, local tip, block references, timestamps, transaction
+kind, payload length, inclusion and confirmation depth. They omit transaction
+bodies, encrypted gift receipts, public signing keys and signatures. No sender
+or receiver address search index is created. `view=local-canonical` and
+`irreversible_finality=false` are explicit: a local database view is not an
+independent inclusion proof, and confirmation depth may decrease after a fork.
+The native authenticated fact interfaces remain available for proof verification.
+Missing or corrupt data produces a real error, never an empty successful chain.
+
+For large existing databases, operators should add the native additive index:
+
+```sql
+CREATE INDEX IF NOT EXISTS transactions_block_height_hash ON transactions(block_height, hash);
+```
+
+The explorer itself never creates the index. Native fresh database initialization
+includes it. No signed record, payload or existing schema version is rewritten.
+
+Verification executed: `python3 -m unittest discover -s tests -p test_explorer.py -v`
+— **2 passed, 0 failed, 0 skipped**, 4.876 seconds. Tests use a real native Corium
+fixture, signed transaction and block production, real HTTP listener, invalid
+queries, database damage, readonly state comparison and payload nondisclosure.
+Affected effort regression: **4 passed**, 4.428 seconds.
+
+Public deployment also passed real Chromium checks in Chinese/English at a
+360px viewport: trusted HTTPS, block and transaction navigation, fragment links,
+48px controls, no horizontal scroll, no browser errors, no external requests and
+no computation requests. The actual public URL and service details are recorded
+in `/home/admin/fendou.txt` on the deployment host.

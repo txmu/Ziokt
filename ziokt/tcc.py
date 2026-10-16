@@ -54,8 +54,12 @@ class TCCCompiler:
         if len(self.lines)>16000:self.fail('generated program budget exceeded')
         return '\n'.join(self.lines)+'\n'
     def fail(self,message):raise ProtocolError('INVALID_TCC',message)
-    def peek(self):return self.tokens[self.pos]
-    def take(self):v=self.peek();self.pos+=1;return v
+    def peek(self):return self.tokens[self.pos] if self.pos<len(self.tokens) else '<eof>'
+    def take(self):
+        value=self.peek()
+        if value=='<eof>':self.fail('unexpected end of source')
+        self.pos+=1
+        return value
     def expect(self,value):
         if self.take()!=value:self.fail('expected '+value)
     def name(self):
@@ -88,7 +92,7 @@ class TCCCompiler:
             if value in {'break','continue'}:self.expect(';');return (value,)
             if value==';':return ('block',[])
             self.pos-=1
-            if self.tokens[self.pos+1]=='=':
+            if self.pos+1<len(self.tokens) and self.tokens[self.pos+1]=='=':
                 name=self.name();self.expect('=');expr=self.expression();self.expect(';');return ('assign',name,expr)
             expr=self.expression();self.expect(';');return ('expr',expr)
         finally:self.depth-=1
@@ -98,7 +102,9 @@ class TCCCompiler:
         if value in {'-','!','+'}:left=('unary',value,self.expression(10,depth+1))
         elif value=='(':left=self.expression(0,depth+1);self.expect(')')
         elif re.fullmatch(r'0[xX][0-9a-fA-F]+|\d+',value):
-            n=int(value,16 if value.lower().startswith('0x') else 10)
+            hexadecimal=value.lower().startswith('0x');digits=(value[2:] if hexadecimal else value).lstrip('0') or '0'
+            if len(digits)>(4 if hexadecimal else 5):self.fail('16-bit integer required')
+            n=int(digits,16 if hexadecimal else 10)
             if n>65535:self.fail('16-bit integer required')
             left=('number',n)
         elif value in {'true','false'}:left=('number',int(value=='true'))

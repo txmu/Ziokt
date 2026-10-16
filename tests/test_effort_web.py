@@ -88,8 +88,35 @@ class EffortWebTests(unittest.TestCase):
         client=NativeClient('effort',{'native_project':'corium','provider_id':'corium-local','root':str(C),'native_config':str(config),'entrypoint_digest':fingerprint(C/'corix_v108.sh'),'network_id':'default','state_root':str(fixture.root)})
         pool=EffortPool(client,fixture.identity,fixture.root/'effort');self.addCleanup(pool.close)
         job=pool.issue();self.assertEqual(job['submitter_id'],fixture.identity);nonce=solve(job)
-        receipt=pool.submit(job['token'],nonce);self.assertTrue(receipt['accepted']);self.assertFalse(receipt['confirmed'])
-        self.assertEqual(pool.submit(job['token'],nonce)['transaction_hash'],receipt['transaction_hash'])
+        native_call=client.call
+        def expires_before_commit(method,params):
+            if method=='operation.prepare':return native_call(method,{**params,'lease_ms':250})
+            if method=='operation.commit':raise ProtocolError('RESULT_UNKNOWN','process stopped before native commit')
+            return native_call(method,params)
+        client.call=expires_before_commit
+        with self.assertRaises(ProtocolError):pool.submit(job['token'],nonce)
+        client.call=native_call
+        time.sleep(.3)
+        job=pool.issue();nonce=solve(job)
+        self.assertEqual(pool.db.execute('SELECT count(*) FROM submissions').fetchone()[0],0)
+        with sqlite3.connect(fixture.chain) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM transactions WHERE type='submit_math_proof'").fetchone()[0],0)
+        # Crash at the actual prepare/commit boundary, leaving a genuine native
+        # prepared journal row and the durable web intent, then restart both clients.
+        native_call=client.call
+        def interrupted(method,params):
+            if method=='operation.commit':raise ProtocolError('RESULT_UNKNOWN','simulated process loss before commit')
+            return native_call(method,params)
+        client.call=interrupted
+        with self.assertRaises(ProtocolError):pool.submit(job['token'],nonce)
+        client.call=native_call
+        pool.close();self._cleanups.pop()
+        pool=EffortPool(client,fixture.identity,fixture.root/'effort');self.addCleanup(pool.close)
+        pool.issue()
+        row=pool.db.execute('SELECT result FROM submissions').fetchone()
+        receipt=json.loads(row[0]);self.assertTrue(receipt['accepted']);self.assertFalse(receipt['confirmed'])
+        # The original job token is intentionally lost across restart.
+        with self.assertRaises(ProtocolError):pool.submit(job['token'],nonce)
         with sqlite3.connect(fixture.chain) as db:
             tx=db.execute("SELECT data FROM transactions WHERE type='submit_math_proof'").fetchall();self.assertEqual(len(tx),1);self.assertEqual(json.loads(tx[0][0])['proof_data']['nonce'],nonce)
         self.assertFalse(pool.issue()['available'])

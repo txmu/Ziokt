@@ -3,6 +3,7 @@
   "origin": "https://effort.example.org",
   "listen": "127.0.0.1",
   "port": 8081,
+  "explorer": true,
   "federation_config": "/srv/ziokt/federation.json",
   "provider": "corium-local",
   "submitter": "0000000000000000000000000000000000000000000000000000000000000000",
