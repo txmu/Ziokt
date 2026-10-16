@@ -25,15 +25,28 @@ bash /path/to/Corium/corix_v108.sh ziokt companion app call --bridge-config /srv
 | Shadow6 | `status.get`、`capabilities.get`、`objects.list`、`service.binding`；已有原生操作仍由提供者授权 |
 | Corium | 原生状态、P2P 对象清单、链事实与 `compute.challenge`；链写入保留 prepare/commit/reconcile |
 | WATChat | `chat.append/pull/ack`、`file.publish/read`，浏览器密文保持不解密 |
-| SafeFS | `vault.put/get`、`safefs.publish/read`，按应用密钥隔离 |
-| ZDA/Ano | `ano.evaluate`、`ano.laws`；数学性质与授权决策分开 |
-| UFS、DCPM | 各自作用域中的 `vault.put/get`、`package.build`，保留签名包与存储结合 |
+| SafeFS | `vault.put/get/publish`、`safefs.publish/read`，按应用密钥隔离 |
+| ZDA/Ano | `ano.evaluate`、`ano.laws`、`ano.calculate`、`ano.defence`；数学性质与授权决策分开 |
+| UFS、DCPM | 各自作用域中的 `vault.put/get`、`package.build/verify/publish`，保留签名包与存储结合 |
 | TC-16/TCC | `tc16.run`，显式源码、语法和指令预算 |
-| ETP | `etp.stats`、`etp.onion.send`、`etp.receive`；固定批准路径与二进制 |
+| ETP | `etp.stats`、`etp.onion.send`、`etp.receive`、显式启用的 `etp.forum.identities/subscribe/publish/get`；固定批准路径与二进制 |
 | SIM Manager | `sim.reminders.replace/pull`、加密状态文件交换 |
-| Tri | `tri.put`、加密项目与签名文件发布 |
+| Tri | `tri.put/get/publish`、加密项目与签名文件发布 |
 
 `vault.put` 接收 `name` 与 `data_base64`；`vault.get` 接收 `digest`。小 RPC 的明文数据上限为 32 KiB，大文件使用已有加密不可变对象引用。`package.build` 的 `files` 为路径到本应用 vault 摘要的映射；`tri.put` 接收 `program`、`state`。所有组件还共享配置了固定收件密钥的 `component.send/receive`。
+
+连续调用可使用同一配置的有界 JSONL 入口，ETP 后端跨请求保留会话：
+
+```sh
+python3 -m ziokt companion app serve --bridge-config /srv/ziokt/router.json
+```
+
+每行仍是上述 `{target,method,params}` JSON；EOF 释放子进程。路由配置变更后必须重启。
+`ano.calculate` 处理版本化精确数值文档，`ano.defence` 只评估显式证据，不替代签名验证。
+`package.verify` 校验现有签名包与指定发布者；`package.publish` 发布经验证的社区包事件，
+不执行安装脚本。原生 UFS/DCPM 同样读取这一签名包格式，其实际 HTTP/TLS 产品接口和
+配置见 [UFS 原生接口](UFS-NATIVE-HTTP-2026-10.md)；应用桥不自动启动这些监听器。
+ETP Forum 的私有库、作者密钥及订阅配置见 [原生论坛网关](ETP-FORUM-GATEWAY.md)。
 
 ## SIM Manager 提醒的实际调度
 
@@ -68,6 +81,6 @@ AirGap 模式拒绝启动该网页或网络后端；离线代数、TC-16、加�
 
 ## 验证范围
 
-本地不执行重量级原生编译。Python 回归使用临时状态和已有六核心产物；真实 Corium 提交测试仅在自有临时链上运行。ETP 原生构建在 CI 中进行，最小和集成配置均执行四进程多跳收发。浏览器测试实际计算 SHA-256，验证点击前不取任务及停止/后台终止。手机系统推送和公网实际部署需在目标设备/服务器完成，当前不把它们记为已验证。
+本地不执行重量级原生编译。Python 回归使用临时状态和已有六核心产物；真实 Corium 提交测试仅在自有临时链上运行。ETP 原生构建在 CI 中进行，最小和集成配置均执行四进程多跳收发。浏览器测试实际计算 SHA-256，验证点击前不取任务及停止/后台终止。手机系统推送仍需目标设备验证；本机创世链、公开奋斗页和只读区块链浏览器已经部署，访问与服务信息记录在家目录 fendou.txt。
 
 联合包收录当前成功 CI 的原生产物、ETP 网关、协调器 `.pyz` 与 SIM/Tri PWA；原生 Core 的复用来源和本次 Nim 重建结果分别记录在校验报告中。原生二进制针对 Linux x86_64，三平台通过的是可移植协调层测试。`MANIFEST.json` 为每个包内文件记录 SHA-256。源码与验证报告可用于复核，历史原始参考目录不作为部署入口。

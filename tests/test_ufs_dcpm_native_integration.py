@@ -74,7 +74,7 @@ class NativeUFSDCPMIntegration(unittest.IsolatedAsyncioTestCase):
         import subprocess
         result=await asyncio.to_thread(subprocess.run,[sys.executable,str(ROOT/'companions/ufsdcpm/src/dcpm_ufs_integration.py'),
             '--config',str(config_path),'package','publish',str(source_file),'--redundancy','1'],
-            cwd=ROOT,capture_output=True,text=True,timeout=15)
+            cwd=ROOT,env=dict(os.environ,PYTHONPATH=str(ROOT)),capture_output=True,text=True,timeout=15)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertIn('durably_stored',result.stdout)
         source={'url':'http://127.0.0.1:'+str(self.port),'username':'admin','password':self.password}

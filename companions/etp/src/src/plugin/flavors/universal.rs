@@ -937,6 +937,13 @@ impl UniversalMessengerFlavor {
 
 // --- Plugin Interface ---
 
+impl std::fmt::Debug for UniversalMessengerFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UniversalMessengerFlavor")
+            .finish_non_exhaustive()
+    }
+}
+
 impl CapabilityProvider for UniversalMessengerFlavor {
     fn capability_id(&self) -> String {
         "etp.flavor.universal.v3".into()
@@ -1091,6 +1098,26 @@ impl Flavor for UniversalMessengerFlavor {
 mod tests {
     use super::*;
     use crate::plugin::SystemContext;
+    struct Directory(std::path::PathBuf);
+    impl Directory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "etp-universal-{}-{}",
+                std::process::id(),
+                rand::random::<u128>()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     struct ContextImpl;
     impl SystemContext for ContextImpl {
         fn lookup_peer(&self, _: &NodeID) -> Option<SocketAddr> {
@@ -1121,7 +1148,7 @@ mod tests {
     }
     #[tokio::test]
     async fn signed_broadcast_real_udp_storage_and_invalid_replay_do_not_poison() {
-        let root = tempfile::tempdir().unwrap();
+        let root = Directory::new();
         let (tx, mut rx) = mpsc::channel(16);
         let sender = instance(root.path().join("a").to_str().unwrap(), 1, tx);
         let (tx, _) = mpsc::channel(16);
@@ -1175,7 +1202,7 @@ mod tests {
     }
     #[tokio::test]
     async fn invalid_bloom_unknown_route_and_read_deadline_are_explicit() {
-        let root = tempfile::tempdir().unwrap();
+        let root = Directory::new();
         let (tx, _) = mpsc::channel(16);
         let sender = instance(root.path().join("a").to_str().unwrap(), 3, tx);
         assert!(sender
