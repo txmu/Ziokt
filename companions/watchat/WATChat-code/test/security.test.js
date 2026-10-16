@@ -20,6 +20,17 @@ test('real gateway sessions, ciphertext dedup, media ACL and encrypted storage',
  assert.equal((await request('/api/users',{cookie:admin.cookie,data:{username:'bob',name:'Bob',password:'1234'}})).status,400);
  for(const name of ['bob','carol'])assert.equal((await request('/api/users',{cookie:admin.cookie,data:{username:name,name,password:'test-password-'+name+'-strong'}})).status,201);
  const bob=await login('bob','test-password-bob-strong'),carol=await login('carol','test-password-carol-strong');
+ assert.equal((await (await request('/app-config')).json()).title,'网页管理');
+ assert.equal((await request('/api/settings',{data:{title:'Changed'}})).status,401);
+ assert.equal((await request('/api/settings',{cookie:bob.cookie,data:{title:'Changed'}})).status,403);
+ assert.equal((await request('/api/settings',{cookie:admin.cookie,data:{title:'bad\nvalue'}})).status,400);
+ assert.equal((await request('/api/settings',{cookie:admin.cookie,data:{title:'私人管理'}})).status,200);
+ assert.equal((await (await request('/app-config')).json()).title,'私人管理');
+ assert.equal((await (await request('/manifest.webmanifest')).json()).name,'私人管理');
+ const integration=await (await request('/api/integration',{cookie:admin.cookie})).json();
+ assert.equal(integration.chat_federation_configured,false);assert.equal(integration.sim_federation_configured,false);
+ assert.ok(!JSON.stringify(integration).includes(dir));
+
  assert.equal((await request('/api/contacts',{cookie:admin.cookie,data:{id:bob.user.id},origin:'https://attacker.invalid'})).status,403);
  assert.equal((await request('/api/contacts',{cookie:admin.cookie,data:{id:bob.user.id}})).status,200);
  const upload=await fetch(base+'/api/upload',{method:'POST',headers:{Cookie:admin.cookie,Origin:base},body:crypto.randomBytes(256)});assert.equal(upload.status,201);const media=(await upload.json()).url;

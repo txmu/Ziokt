@@ -29,6 +29,7 @@ jobs:
           python -m unittest discover -s tests -p test_ano_numeric_rpc.py -v
           python -m unittest discover -s tests -p test_component_links.py -v
           python -m unittest discover -s tests -p test_application_workflow.py -v
+          python -m unittest discover -s tests -p test_web_deployment.py -v
           python -m unittest discover -s tests -p test_ufsdcpm.py -v
           python -m unittest discover -s tests -p test_dcpm_native_security.py -v
           python -m unittest discover -s tests -p 'test_ufs_*native*.py' -v
@@ -105,10 +106,10 @@ jobs:
           ETP_PROFILE: ${{ matrix.profile }}
         run: |
           if [ "$ETP_PROFILE" = minimal ]; then
-            cargo test --locked --no-default-features --lib
+            timeout 8m cargo test --locked --no-default-features --lib
             cargo build --locked --no-default-features --example ziokt_gateway
           else
-            cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --lib
+            timeout 8m cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --lib
             cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway
           fi
           strip target/debug/examples/ziokt_gateway

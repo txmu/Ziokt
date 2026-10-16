@@ -63,9 +63,14 @@ class ExplorerTests(unittest.TestCase):
         server=effort_server(pool,'http://127.0.0.1:0',explorer=self.explorer)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         self.addCleanup(server.server_close);self.addCleanup(thread.join,2);self.addCleanup(server.shutdown)
-        def get(path,host='127.0.0.1:0'):
+        def get(path,host='127.0.0.1:0',headers=None):
             conn=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5)
-            conn.request('GET',path,headers={'Host':host});response=conn.getresponse();data=response.read();conn.close();return response.status,data
+            conn.request('GET',path,headers={'Host':host,**(headers or {})});response=conn.getresponse();data=response.read();conn.close();return response.status,data
+        for path in ['/', '/explorer/', '/api/explorer/summary']:
+            self.assertEqual(get(path,headers={'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document','User-Agent':'MicroMessenger/8.0'})[0],200)
+        conn=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5)
+        conn.request('POST','/api/job',body='{}',headers={'Host':'127.0.0.1:0','Origin':'http://127.0.0.1:0','Sec-Fetch-Site':'cross-site','Content-Type':'application/json'})
+        response=conn.getresponse();self.assertEqual(response.status,409);self.assertEqual(json.loads(response.read())['error'],'ORIGIN_REJECTED');conn.close()
         self.assertEqual(get('/explorer/')[0],200);self.assertIn(b'textContent',get('/explorer/app.js')[1])
         self.assertEqual(json.loads(get('/api/explorer/summary')[1])['tip_height'],0)
         self.assertEqual(get('/api/explorer/summary','evil.invalid')[0],403)

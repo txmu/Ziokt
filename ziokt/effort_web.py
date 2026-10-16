@@ -120,7 +120,12 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
             for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
             self.end_headers();self.wfile.write(data)
         def valid_origin(self,post=False):
-            if self.headers.get('Host')!=parsed.netloc or self.headers.get('Sec-Fetch-Site') not in {None,'none','same-origin'} or (post and self.headers.get('Origin')!=origin):raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')
+            # Public GETs are read-only, including navigation from WeChat or an
+            # external site. Fetch Metadata describes the navigation initiator,
+            # not permission to view a public document. Host pinning, CSP, CORP
+            # and absence of CORS remain in force; writes require exact origin.
+            if self.headers.get_all('Host')!=[parsed.netloc]:raise ProtocolError('ORIGIN_REJECTED','configured public host required')
+            if post and (self.headers.get_all('Origin')!=[origin] or self.headers.get('Sec-Fetch-Site') not in {None,'none','same-origin'}):raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')
         def rate(self,scope,maximum):
             with rate_lock:
                 now=int(time.time()//60);key=(scope,self.client_address[0])
@@ -137,7 +142,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
                 if explorer is not None and self.path in {'/explorer','/explorer/','/explorer/app.js','/explorer/style.css'}:
                     name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/explorer','/explorer/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
                     return self.send_value(200,files_resource('ziokt').joinpath('explorer',name).read_bytes(),kind)
-                files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/style.css':('style.css','text/css')}
+                files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
                 if self.path not in files:return self.send_value(404,{'error':'NOT_FOUND'})
                 name,kind=files[self.path];self.send_value(200,assets.joinpath(name).read_bytes(),kind)
             except ProtocolError as exc:self.send_value(404 if exc.code=='NOT_FOUND' else 429 if exc.code=='BACKPRESSURE' else 503 if exc.code=='CHAIN_UNAVAILABLE' else 403 if exc.code=='ORIGIN_REJECTED' else 400,{'error':exc.code})

@@ -1,3 +1,4 @@
+import GatewayPanel from './GatewayPanel';
 import { t } from '../locales';
 import { enableNotifications, notifyGeneric } from '../utils/notifications';
 import React, { useState, useEffect } from 'react';
@@ -330,6 +331,7 @@ const handleSetupBiometric = async () => {
                 </div>
               </div>
 
+               <GatewayPanel />
                {/* Notification & Data */}
                 <div>
                    <label className="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">

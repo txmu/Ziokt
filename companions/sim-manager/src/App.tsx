@@ -125,7 +125,7 @@ const App: React.FC = () => {
       } catch(e) {addLog("Encrypted local state could not be opened: "+String(e));}
     };void initialize();
     
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sim/sw.js', {scope:'/sim/'}).catch(() => addLog('PWA service worker unavailable'));
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register(import.meta.env.BASE_URL+'sw.js', {scope:import.meta.env.BASE_URL}).catch(() => addLog('PWA service worker unavailable'));
     return()=>{cancelled=true};
   }, []);
 

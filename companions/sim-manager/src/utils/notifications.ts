@@ -23,7 +23,7 @@ export async function notifyGeneric(settings:NotificationSettings):Promise<void>
  if(!('Notification'in window)||Notification.permission!=='granted'||!('serviceWorker'in navigator))throw Error('NOTIFICATION_PERMISSION_REQUIRED');
  const registration=await navigator.serviceWorker.ready;
  const chinese=document.documentElement.lang==='zh-CN';
- await registration.showNotification('SIM Manager',{body:chinese?'有套餐需要关注':'A subscription needs attention',tag:'ziokt-sim-reminder',icon:'/sim/icon-192.png',silent:!settings.soundEnabled,data:{url:'/sim/'}});
+ await registration.showNotification('SIM Manager',{body:chinese?'有套餐需要关注':'A subscription needs attention',tag:'ziokt-sim-reminder',icon:import.meta.env.BASE_URL+'icon-192.png',silent:!settings.soundEnabled,data:{url:import.meta.env.BASE_URL}});
 }
 export async function runReminders(items:Reminder[],settings:NotificationSettings,now=Date.now()):Promise<void>{
  if(!settings.enabled)return;

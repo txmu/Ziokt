@@ -58,6 +58,7 @@ function revoke(id){for(const [token,s]of sessions)if(s.id===id)sessions.delete(
 const staticFiles={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/sw.js':['sw.js','text/javascript'],'/manifest.webmanifest':['manifest.webmanifest','application/manifest+json'],'/icon-192.png':['icon-192.png','image/png'],'/icon-512.png':['icon-512.png','image/png']};
 const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost');
+ if(url.pathname==='/app-config'&&req.method==='GET')return json(res,200,{title:store.settings?.title||'网页管理',mode:bridge||simBridge?'federated':'standalone'});
  if(req.method==='POST'&&!originOK(req)&&!req.headers.authorization)return json(res,403,{error:'ORIGIN_REJECTED'});
  if(url.pathname==='/api/login'&&req.method==='POST'){
   const ip=req.socket.remoteAddress,now=Date.now();let attempt=attempts.get(ip)||{n:0,until:now+60000};if(attempt.until<now)attempt={n:0,until:now+60000};attempt.n++;attempts.set(ip,attempt);if(attempt.n>12)return json(res,429,{error:'RATE_LIMIT'});
@@ -74,6 +75,13 @@ const server=http.createServer(async(req,res)=>{try{
   if(url.pathname==='/api/push-key'&&req.method==='GET')return json(res,200,{enabled:!!notifier,publicKey:notifier?.publicKey||null});
   if(url.pathname==='/api/push-subscription'&&req.method==='POST'){if(!notifier)return json(res,503,{error:'PUSH_NOT_CONFIGURED'});const x=JSON.parse(await body(req));try{return json(res,200,{id:notifier.register(me.id,x)})}catch(e){return json(res,400,{error:e.message})}}
   if(url.pathname==='/api/push-subscription'&&req.method==='DELETE'){notifier?.unregister(me.id);return json(res,200,{ok:true})}
+  if(url.pathname==='/api/integration'&&req.method==='GET')return json(res,200,{chat_federation_configured:!!bridge,sim_federation_configured:!!simBridge,pending_messages:store.pending.length,pending_reminders:!!store.simPending?.[me.id],background_push_configured:!!notifier,webhook_configured:!!webhook,account:me.username});
+  if(url.pathname==='/api/settings'&&req.method==='POST'){
+   if(!me.admin)return json(res,403,{error:'FORBIDDEN'});
+   const x=JSON.parse(await body(req));
+   if(!x||Object.keys(x).length!==1||typeof x.title!=='string'||x.title!==x.title.trim()||!x.title||[...x.title].length>80||/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(x.title))return json(res,400,{error:'INVALID_TITLE'});
+   const previous=store.settings;store.settings={title:x.title.normalize('NFC')};try{save()}catch(error){store.settings=previous;throw error}return json(res,200,{title:store.settings.title});
+  }
   if(url.pathname==='/api/me'&&req.method==='GET')return json(res,200,{user:pub(me)});
   if(url.pathname==='/api/logout'&&req.method==='POST'){revoke(me.id);return json(res,200,{ok:true},{'Set-Cookie':'ziokt_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'})}
   if(url.pathname==='/api/users'&&req.method==='GET')return json(res,200,{users:store.users.filter(u=>me.admin||me.contacts.includes(u.id)||u.id===me.id).map(pub)});
@@ -86,6 +94,7 @@ const server=http.createServer(async(req,res)=>{try{
   if(url.pathname.startsWith('/uploads/')&&req.method==='GET'){const id=url.pathname.slice(9),upload=store.uploads[id];if(!/^[a-f0-9]{32}\.bin$/.test(id)||!upload||!(upload.owner===me.id||store.messages.some(m=>(m.from===me.id||m.to===me.id)&&m.attachments.includes('/uploads/'+id))))return json(res,404,{error:'NOT_FOUND'});const data=open(privateRead(path.join(DATA,id)),'upload/'+id);res.writeHead(200,{'Content-Type':'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(data)}
   return json(res,404,{error:'NOT_FOUND'});
  }
+ if(req.method==='GET'&&url.pathname==='/manifest.webmanifest'){const manifest=JSON.parse(fs.readFileSync(path.join(FRONTEND,'manifest.webmanifest'),'utf8'));manifest.name=store.settings?.title||'网页管理';manifest.short_name=manifest.name.slice(0,24);return json(res,200,manifest)}
  if(req.method==='GET'&&staticFiles[url.pathname]){const [name,mime]=staticFiles[url.pathname];res.writeHead(200,{'Content-Type':mime+'; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff'});return res.end(fs.readFileSync(path.join(FRONTEND,name)))}
  return json(res,404,{error:'NOT_FOUND'});
 }catch(e){if(!res.headersSent)json(res,['PASSWORD_POLICY','INVALID_USER'].includes(e.message)?400:500,{error:['PASSWORD_POLICY','INVALID_USER','BUSY'].includes(e.message)?e.message:'REQUEST_REJECTED'})}});
@@ -100,7 +109,7 @@ wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws
  if(store.messages.length>=10000||store.pending.length>=1000)return send(ws,{type:'error',error:'LIMIT'});
  const m={id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,time:Date.now()};store.messages.push(m);if(process.env.ZIOKT_BRIDGE_CONFIG)store.pending.push(m.id);try{save()}catch(error){store.messages.pop();store.pending=store.pending.filter(id=>id!==m.id);throw error}notifier?.enqueue(m.to);push([m.from,m.to],{type:'message',message:m});send(ws,{type:'ack',id:m.id});flushBridge();
  }catch(_){send(ws,{type:'error',error:'INVALID_FRAME'})}})});
-const bridge=process.env.ZIOKT_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(__dirname,'../../../..')):null;
+const bridge=process.env.ZIOKT_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(process.env.ZIOKT_PROJECT_ROOT||path.join(__dirname,'../../../..'))):null;
 let bridgeBusy=false,bridgePollAt=0,bridgePollCursor=0;store.fileBackoff??={};
 function bridgePairs(){const pairs=[],seen=new Set();for(const user of store.users)for(const peer of user.contacts||[]){if(!can(user,peer)||!can(byId(peer),user.id))continue;const key=[user.id,peer].sort().join('/');if(seen.has(key))continue;seen.add(key);pairs.push({from:user.id,to:peer})}return pairs}
 async function pullBridgePair(){const pairs=bridgePairs();if(!pairs.length)return;const pair=pairs[bridgePollCursor++%pairs.length],reply=await bridge.call('chat.pull',pair);if(!reply||!Array.isArray(reply.messages)||reply.messages.length>12)throw Error('BRIDGE_PULL_INVALID');const ack=[];
@@ -129,4 +138,4 @@ async function flushBridge(){
 
 const heartbeat=setInterval(()=>{const now=Date.now();for(const [token,s]of sessions)if(s.expires<now){sessions.delete(token);revoke(s.id)}for(const ws of wss.clients){if(!ws.alive)ws.terminate();else{ws.alive=false;ws.ping()}}flushBridge();simFederation?.flush();reminderScheduler.tick()},30000);
 server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close();simBridge?.close()});
-(async()=>{if(!store.users.length){const password=process.env.ADMIN_PASSWORD;if(!password||password.length<12)throw Error('ADMIN_PASSWORD_REQUIRED');store.users.push(await makeUser('admin','Administrator',password,true));save()}if(!process.env.ZIOKT_BRIDGE_CONFIG&&process.env.ZIOKT_STANDALONE!=='1')throw Error('FEDERATION_CONFIG_REQUIRED');server.listen(PORT,'127.0.0.1',()=>console.log('WATChat ready on loopback'))})().catch(e=>{clearInterval(heartbeat);console.error(e.message);process.exit(1)});
+(async()=>{if(!store.users.length){const password=process.env.ADMIN_PASSWORD;if(!password||password.length<12)throw Error('ADMIN_PASSWORD_REQUIRED');store.users.push(await makeUser('admin','Administrator',password,true));save()}if(!process.env.ZIOKT_BRIDGE_CONFIG&&!simBridge&&process.env.ZIOKT_STANDALONE!=='1')throw Error('FEDERATION_CONFIG_REQUIRED');server.listen(PORT,'127.0.0.1',()=>console.log('WATChat ready on loopback'))})().catch(e=>{clearInterval(heartbeat);console.error(e.message);process.exit(1)});
