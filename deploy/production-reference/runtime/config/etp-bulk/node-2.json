@@ -1,0 +1,10 @@
+{
+  "bind": "127.0.0.1:9262",
+  "private_key": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>",
+  "peers": {
+    "127.0.0.1:9260": "58e513634d08f947f75711f711c518000a7a5e56826a3a1fb2cf368be90bcc79",
+    "127.0.0.1:9261": "a9d92710f60ed0c6bbe8ba304103aa330d789d037eac731b0feda0051987dc78",
+    "127.0.0.1:9263": "51ffbc73b782dca1c93333e3688e2a34ed6226fd7f725d20b76882fc2f0cec77"
+  },
+  "relay": true
+}

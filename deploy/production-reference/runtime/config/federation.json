@@ -1,0 +1,25 @@
+{
+  "schema": "ziokt.federation.v1",
+  "enabled": true,
+  "federation_id": "ziokt-main",
+  "providers": [
+    {
+      "native_project": "corium",
+      "provider_id": "corium-production",
+      "root": "/home/admin/.local/share/ziokt-production/bin",
+      "native_config": "/home/admin/.local/share/ziokt-production/corium/etc/corix/networks/ziokt-main/corix.conf",
+      "entrypoint_digest": "sha256:33ec563bcb612ed3d8c657f0cc4ddda194e23a659e99bb5df780fa3b38be1007",
+      "network_id": "ziokt-main",
+      "state_root": "/home/admin/.local/share/ziokt-production/corium"
+    },
+    {
+      "native_project": "shadow6",
+      "provider_id": "shadow6-production",
+      "root": "/home/admin/Shadow6",
+      "native_config": "/home/admin/.local/share/ziokt-production/config/shadow6-production.json",
+      "entrypoint_digest": "sha256:7281c8ad2ed4832890ef1204d1a5c638bd3bc49d8ce64d848dd7ebeb3322fb77",
+      "network_id": null,
+      "state_root": null
+    }
+  ]
+}

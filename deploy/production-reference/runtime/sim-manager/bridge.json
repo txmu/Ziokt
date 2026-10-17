@@ -1,0 +1,11 @@
+{
+  "application": "sim-manager",
+  "application_key": "/home/admin/.local/share/ziokt-production/sim-manager/application.key",
+  "community_root": "/home/admin/.local/share/ziokt-production/sim-manager/community",
+  "encryption_key": "/home/admin/.local/share/ziokt-production/sim-manager/community.key",
+  "owner": "a7d010183b43d10e07f7701fe3ceb12136f9137132fc6285c2e2ac74e4d11d16",
+  "policy": "/home/admin/.local/share/ziokt-production/sim-manager/policy.json",
+  "schema": "ziokt.companion-bridge.v1",
+  "signing_key": "/home/admin/.local/share/ziokt-production/sim-manager/signing.key",
+  "vault_root": "/home/admin/.local/share/ziokt-production/sim-manager/vault"
+}

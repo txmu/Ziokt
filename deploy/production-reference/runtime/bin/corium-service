@@ -1,0 +1,12 @@
+#!/bin/bash
+umask 077
+export CORIUM_ROOT=/home/admin/.local/share/ziokt-production/corium
+export CORIUM_NETWORK_ID_OVERRIDE=ziokt-main
+source /home/admin/.local/share/ziokt-production/bin/corix_v108.sh
+load_config
+case "$1" in
+ p2p) dht_server_daemon; wait ;;
+ consensus) _consensus_daemon_loop ;;
+ relayer) _internal_relayer_daemon; wait ;;
+ *) exit 2 ;;
+esac

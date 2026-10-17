@@ -1,0 +1,164 @@
+{
+  "application": "tri",
+  "application_key": "/home/admin/.local/share/ziokt-production/mcp/tri/application.key",
+  "community_root": "/home/admin/.local/share/ziokt-production/mcp/community",
+  "component_peers": {
+    "corium": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "60eb4dd41170d8f5b9d4c1e4263b501dfbdf62cc3e9a1604d9ea3706c2b01279",
+      "signing_public": "b86100f99d0aecc5fb04668597cec8bfb0b764754ecdedacf7f8adb23fa7a4f4"
+    },
+    "dcpm": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "0e3aeb0303fcc10ea7012d0f0a7b7cd56910a218623ffaab3245899f4cc4b710",
+      "signing_public": "0d2c13968a11cc2eba53783dbdb5a12104f612c781c5a30cd988bdd1c994f9f6"
+    },
+    "etp": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "0cba268ff885c057848aad62e868ff5b966bda4fc31c50712d89fd7981863b04",
+      "signing_public": "2386599daaabcd5b6ac912195b6332372d9c31d65d9871ddbba6c318cb6d2749"
+    },
+    "safefs": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "54109f8e8fb6308ebb12bcb126830288a2735a6fcfae2d3e1bde8ed06ee81c61",
+      "signing_public": "deb2673576a0018a711a5dfcc8260ceb89888089af1699b2195227a29078b074"
+    },
+    "shadow6": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "c7cc006fa1df836748aae0d17b865556cd4fee0a883dcc62a67e066e5e5c5a6c",
+      "signing_public": "0f95ab4b244fce9908238b578ac44d12b83addc738ad7ba4577ebc4471969678"
+    },
+    "sim-manager": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "b1cb809753ae36511150f90c1880337738c94f9ff93c4e99714ba3c0d9569946",
+      "signing_public": "a7d010183b43d10e07f7701fe3ceb12136f9137132fc6285c2e2ac74e4d11d16"
+    },
+    "tc16": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "3cc56dd1222371b9a9dd32645b79d6d6edc340ec37a0eea890ac9ee435ead51a",
+      "signing_public": "85cef0b0b4d63eeeb31696e43a039723f9001ddb5c3abf5258106289fb99523a"
+    },
+    "ufs": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "442d8c7167a55f14241b59ab7c24cfe7f0ea91a05fe39d6d4ae27ac6a029b841",
+      "signing_public": "e93178f787e6a2e442c02c963d29aadf9b6fa0955bef6b6bff14c36796113f58"
+    },
+    "watchat": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "0e6de8603769a9f2cfa1df631e18cb3b7082d484d003d5a65c799ab1b776ed6c",
+      "signing_public": "ccf70857c8aa91fc45d706c4cb3d69edc2a67d78c27454b5e2071a8be957d467"
+    },
+    "zda": {
+      "kinds": [
+        "chat-attachment",
+        "compute-result",
+        "extension",
+        "file",
+        "ledger-proof",
+        "notification",
+        "package",
+        "profile",
+        "simulation"
+      ],
+      "mailbox_public": "a4315213fd63ddb1e2911a82a5b46a5719950d31b47c70c502ca94bc9c768a3a",
+      "signing_public": "563e982693326de03c322c6e4ef25ccc0d05e149bc9ff1a8265e70d4fbacf79a"
+    }
+  },
+  "encryption_key": "/home/admin/.local/share/ziokt-production/mcp/community.key",
+  "exchange_key": "/home/admin/.local/share/ziokt-production/mcp/tri/exchange.key",
+  "owner": "4668b5796de4b5e86e9c68fb77d3eea55ebbe5b7edb4aa8fa16750956613218c",
+  "policy": "/home/admin/.local/share/ziokt-production/mcp/policy.json",
+  "schema": "ziokt.companion-bridge.v1",
+  "signing_key": "/home/admin/.local/share/ziokt-production/mcp/tri/signing.key",
+  "vault_root": "/home/admin/.local/share/ziokt-production/mcp/tri/vault"
+}

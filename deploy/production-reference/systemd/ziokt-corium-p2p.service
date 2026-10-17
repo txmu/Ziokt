@@ -1,0 +1,20 @@
+[Unit]
+Description=Ziokt production corium-p2p
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/.local/share/ziokt-production
+ExecStart=/home/admin/.local/share/ziokt-production/bin/corium-service p2p
+Environment=XDG_DATA_HOME=/home/admin/.local/share/ziokt-production/caddy-data
+Environment=XDG_CONFIG_HOME=/home/admin/.local/share/ziokt-production/caddy-config
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target

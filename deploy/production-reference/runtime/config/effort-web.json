@@ -1,0 +1,11 @@
+{
+  "schema": "ziokt.effort-web.v1",
+  "origin": "https://ziokt-effort-43-207-75-185.sslip.io",
+  "listen": "127.0.0.1",
+  "port": 8081,
+  "federation_config": "/home/admin/.local/share/ziokt-production/config/federation.json",
+  "provider": "corium-production",
+  "submitter": "f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415",
+  "state_root": "/home/admin/.local/share/ziokt-production/web-state",
+  "explorer": true
+}

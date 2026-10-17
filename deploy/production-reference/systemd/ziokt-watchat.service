@@ -1,0 +1,22 @@
+[Unit]
+Description=Ziokt watchat web application gateway
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/.local/share/ziokt-production/apps/watchat
+EnvironmentFile=/home/admin/.local/share/ziokt-production/watchat/service.env
+ExecStart=/home/admin/.local/share/ziokt-production/bin/node24 /home/admin/.local/share/ziokt-production/apps/watchat/backend/server.js
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/admin/.local/share/ziokt-production/watchat
+ProtectHome=read-only
+TimeoutStopSec=15
+[Install]
+WantedBy=multi-user.target

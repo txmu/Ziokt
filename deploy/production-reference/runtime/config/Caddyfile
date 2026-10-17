@@ -1,0 +1,124 @@
+{
+	admin off
+}
+ziokt-effort-43-207-75-185.sslip.io {
+	reverse_proxy 127.0.0.1:8081
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+ziokt-chat-43-207-75-185.sslip.io {
+	reverse_proxy 127.0.0.1:8182
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+ziokt-sim-43-207-75-185.sslip.io {
+	redir / /sim/ 302
+	@gateway path /api/* /app-config
+	handle @gateway {
+		reverse_proxy 127.0.0.1:8183
+	}
+	handle /sim/* {
+		root * /home/admin/.local/share/ziokt-production/apps/sim-manager
+		try_files {path} /sim/index.html
+		file_server
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+			Cache-Control no-cache
+		}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+ziokt-tri-43-207-75-185.sslip.io {
+	redir / /tri/ 302
+	handle /tri/* {
+		root * /home/admin/.local/share/ziokt-production/apps/tri
+		try_files {path} /tri/index.html
+		file_server
+		header Cache-Control no-cache
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+	}
+}
+
+ziokt-gateway-43-207-75-185.sslip.io, ziokt-dapp-43-207-75-185.sslip.io {
+	@zioktNative path /api/gateway/* /gateway-assets/* /stream/*
+	handle @zioktNative {
+		reverse_proxy 127.0.0.1:8185 {
+			header_up X-Ziokt-Client-IP {remote_host}
+		}
+	}
+	@zioktMcp path /mcp /oauth/* /.well-known/oauth-protected-resource* /.well-known/oauth-authorization-server
+	handle @zioktMcp {
+		reverse_proxy 127.0.0.1:8186
+	}
+
+	redir / /app/explorer 302
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+cor-web.ziokt.com {
+	@zioktNative path /api/gateway/* /gateway-assets/* /stream/*
+	handle @zioktNative {
+		reverse_proxy 127.0.0.1:8185 {
+			header_up X-Ziokt-Client-IP {remote_host}
+		}
+	}
+	@zioktMcp path /mcp /oauth/* /.well-known/oauth-protected-resource* /.well-known/oauth-authorization-server
+	handle @zioktMcp {
+		reverse_proxy 127.0.0.1:8186
+	}
+
+	@root path / /index.html
+	rewrite @root /nns/corium
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+ziokt-ufs-43-207-75-185.sslip.io {
+	reverse_proxy 127.0.0.1:8184
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+mcp.ziokt.com {
+	@root path /
+	handle @root {
+		respond "Ziokt MCP: connect https://mcp.ziokt.com/mcp using OAuth (CIMD)." 200
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8186
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}

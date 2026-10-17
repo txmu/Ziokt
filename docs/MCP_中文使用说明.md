@@ -87,3 +87,5 @@ python3 -m ziokt gateway publish-file \
 校验文件：同路径 `.zip.sha256`。按源码交换约定，包内文件均增加 `.txt` 后缀；它是源码归档，不是携带生产凭据的安装镜像。
 
 最新提交：Ziokt `cddcfb7`，Corium `6e00bd4`。上一版 Gateway/MCP、组件、原生联合回归均成功；最后跨域修复已提交新 CI，按你的要求不等待。Corium 独立仓库仍有账户付款/限额阻塞，但对应源码已通过 Ziokt 联合回归。本轮本地没有重量级编译。
+
+部署相关配置已随源码提供：`deploy/production-reference/`。请先阅读其中 `README_部署配置说明.md`；该目录保留实际部署关系，但凭据以占位符替代，不是携带私钥和业务数据的完整恢复备份。

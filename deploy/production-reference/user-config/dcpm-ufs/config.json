@@ -1,0 +1,72 @@
+{
+  "node": {
+    "id": null,
+    "type": "hybrid",
+    "name": "dcpm-ufs-node"
+  },
+  "p2p": {
+    "host": "127.0.0.1",
+    "enabled": false,
+    "port": 9000,
+    "bootstrap_nodes": [],
+    "enable_relay": true,
+    "enable_dht": true,
+    "enable_pubsub": true
+  },
+  "ufs": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "ssl": false,
+    "upload": true,
+    "legacy_file_chain": false,
+    "port": 8184,
+    "root_dir": "/home/admin/.config/dcpm-ufs/ufs-storage",
+    "max_upload": 67108864,
+    "max_download": 0,
+    "auth": {
+      "enabled": true,
+      "users": {
+        "admin": {
+          "password": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>",
+          "role": "admin"
+        }
+      }
+    }
+  },
+  "packages": {
+    "trusted_publishers": [],
+    "http_sources": []
+  },
+  "storage": {
+    "cache": "/home/admin/.config/dcpm-ufs/dcpm-cache",
+    "ufs_root": "/home/admin/.config/dcpm-ufs/ufs-storage",
+    "max_size": 107374182400,
+    "block_size": 1048576,
+    "retention_days": 30
+  },
+  "ipfs": {
+    "enabled": false,
+    "gateway": "/ip4/127.0.0.1/tcp/5001"
+  },
+  "bittorrent": {
+    "enabled": false,
+    "listen_port": 6881,
+    "max_upload_rate": 1048576,
+    "max_download_rate": 5242880
+  },
+  "network": {
+    "prefer_ufs": true,
+    "fallback_order": [
+      "ufs",
+      "ipfs",
+      "bittorrent"
+    ],
+    "max_connections": 100
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "/home/admin/.config/dcpm-ufs/dcpm-ufs.log",
+    "max_size": 10485760,
+    "backup_count": 5
+  }
+}

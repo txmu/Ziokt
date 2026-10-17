@@ -1,0 +1,16 @@
+{
+  "bind": "127.0.0.1:9182",
+  "private_key": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>",
+  "peers": {
+    "127.0.0.1:9181": "5a2282ff146ed0a85f5a09256ec0a82dec0163d396c2215b8713946ce88fc74e"
+  },
+  "forum": {
+    "database": "/var/lib/ziokt-etp/mcp/forum-1",
+    "identities": {
+      "operator": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>"
+    },
+    "subscriptions": [
+      "ziokt-main"
+    ]
+  }
+}

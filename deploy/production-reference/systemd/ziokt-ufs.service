@@ -1,0 +1,18 @@
+[Unit]
+Description=Ziokt UFS and DCPM storage and package manager gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/Ziokt
+Environment=PYTHONPATH=/home/admin/Ziokt:/home/admin/Ziokt/companions/ufsdcpm/src
+ExecStart=/usr/bin/python3 /home/admin/Ziokt/companions/ufsdcpm/src/dcpm_ufs_integration.py system start --config /home/admin/.config/dcpm-ufs/config.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

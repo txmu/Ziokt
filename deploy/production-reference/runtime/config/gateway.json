@@ -1,0 +1,48 @@
+{
+  "schema": "ziokt.gateway.v1",
+  "network": "ziokt-main",
+  "state_root": "/home/admin/.local/share/ziokt-production/corium",
+  "corix": "/home/admin/.local/share/ziokt-production/bin/corix_v108.sh",
+  "objects": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/p2p/objects",
+  "dht_db": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/p2p/dht.db",
+  "forum_db": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/networks/ziokt-main/forum/forum.db",
+  "admin_token": "/home/admin/.local/share/ziokt-production/config/admin_token.key",
+  "port": 8185,
+  "peers": [],
+  "etp_bulk": {
+    "binary": "/home/admin/.local/share/ziokt-production/ci-etp/ziokt_gateway",
+    "digest": "sha256:110675f322129e4ed536bfe2e3182d36ea15358c781912398f8d03d1144d5784",
+    "nodes": [
+      "/home/admin/.local/share/ziokt-production/config/etp-bulk/node-0.json",
+      "/home/admin/.local/share/ziokt-production/config/etp-bulk/node-1.json",
+      "/home/admin/.local/share/ziokt-production/config/etp-bulk/node-2.json",
+      "/home/admin/.local/share/ziokt-production/config/etp-bulk/node-3.json"
+    ],
+    "clients": [
+      {
+        "node": 0,
+        "hops": [
+          "127.0.0.1:9261",
+          "127.0.0.1:9262",
+          "127.0.0.1:9263"
+        ],
+        "key": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>",
+        "scope": "gateway-bulk"
+      }
+    ],
+    "sources": [
+      {
+        "node": 3,
+        "hops": [
+          "127.0.0.1:9262",
+          "127.0.0.1:9261",
+          "127.0.0.1:9260"
+        ],
+        "key": "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>",
+        "scope": "gateway-bulk"
+      }
+    ]
+  },
+  "corix_digest": "sha256:33ec563bcb612ed3d8c657f0cc4ddda194e23a659e99bb5df780fa3b38be1007",
+  "registry_db": "/home/admin/.local/share/ziokt-production/config/registry.db"
+}

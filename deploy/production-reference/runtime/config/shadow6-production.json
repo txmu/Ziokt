@@ -1,0 +1,18 @@
+{
+  "schema": "ziokt.provider.v1",
+  "enabled": true,
+  "federation_id": "ziokt-main",
+  "provider_id": "shadow6-production",
+  "allow_mutations": true,
+  "allowed_operations": [
+    "package.activate",
+    "package.install",
+    "recovery.checkpoint",
+    "recovery.restore",
+    "service.run",
+    "service.stop"
+  ],
+  "allowed_resources": [
+    "*"
+  ]
+}

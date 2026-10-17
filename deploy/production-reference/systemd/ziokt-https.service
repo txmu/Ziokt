@@ -1,0 +1,23 @@
+[Unit]
+Description=Ziokt production https
+After=network-online.target
+Wants=network-online.target
+After=ziokt-effort.service
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/.local/share/ziokt-production
+ExecStart=/home/admin/.local/share/ziokt-production/bin/caddy run --config /home/admin/.local/share/ziokt-production/config/Caddyfile --adapter caddyfile
+Environment=XDG_DATA_HOME=/home/admin/.local/share/ziokt-production/caddy-data
+Environment=XDG_CONFIG_HOME=/home/admin/.local/share/ziokt-production/caddy-config
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+[Install]
+WantedBy=multi-user.target
