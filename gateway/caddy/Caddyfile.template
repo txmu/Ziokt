@@ -1,0 +1,13 @@
+# Merge these routes into the existing TLS site; Caddy owns public TLS.
+{$ZIOKT_DOMAIN} {
+ @native path /api/gateway/* /gateway-assets/* /stream/*
+ handle @native {
+  reverse_proxy 127.0.0.1:8185 {
+   header_up X-Ziokt-Client-IP {remote_host}
+  }
+ }
+ handle {
+  rewrite / /nns/corium
+  reverse_proxy 127.0.0.1:8080
+ }
+}

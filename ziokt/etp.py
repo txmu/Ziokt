@@ -154,13 +154,15 @@ class EtpRecordSocket:
     Native onion transport wraps independent, direction-keyed AEAD records.
     This is a message carrier; it does not pretend to be a TCP/mTLS stream.
     """
-    def __init__(self,gateway,hops,key,scope,*,server=False):
+    def __init__(self,gateway,hops,key,scope,*,server=False,max_record=4096):
         from .protocol import identifier
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         from cryptography.hazmat.primitives import hashes
         identifier(scope,'ETP scope')
         if not isinstance(key,bytes) or len(key)!=32 or not isinstance(hops,list) or not 2<=len(hops)<=4 or len(set(hops))!=len(hops):raise ProtocolError('INVALID_ETP','independent key and distinct approved 2..4-hop path required')
+        if type(max_record) is not int or not 1<=max_record<=60000:raise ProtocolError('INVALID_ETP','bounded record size required')
+        self.max_record=max_record
         self.gateway=gateway;self.hops=list(hops);self.timeout=10;self.aad=('Ziokt/ETP/record/v1/'+scope).encode()
         keys=[HKDF(hashes.SHA256(),32,None,self.aad+b'/'+direction).derive(key) for direction in (b'client-to-server',b'server-to-client')]
         self.sender=AESGCM(keys[1 if server else 0]);self.receiver=AESGCM(keys[0 if server else 1])
@@ -170,8 +172,9 @@ class EtpRecordSocket:
         if type(value) not in {int,float} or not 0<value<=30:raise ProtocolError('INVALID_ETP','bounded ETP timeout required')
         self.timeout=value
     def send(self,data):
-        if not isinstance(data,bytes) or not 1<=len(data)<=4096:raise ProtocolError('DATA_FRAME_LIMIT','bounded native Corium record required')
-        nonce=os.urandom(12);plain=len(data).to_bytes(4,'big')+data+os.urandom(16384-28-4-len(data));packet=nonce+self.sender.encrypt(nonce,plain,self.aad)
+        if not isinstance(data,bytes) or not 1<=len(data)<=self.max_record:raise ProtocolError('DATA_FRAME_LIMIT','bounded native Corium record required')
+        budget=max(16384,1<<(len(data)+31).bit_length())
+        nonce=os.urandom(12);plain=len(data).to_bytes(4,'big')+data+os.urandom(budget-28-4-len(data));packet=nonce+self.sender.encrypt(nonce,plain,self.aad)
         result=self.gateway.call('etp.onion.send',{'hops':self.hops,'ciphertext':base64.b64encode(packet).decode()})
         if result.get('accepted') is not True:raise ProtocolError('ETP_REJECTED','native onion submission denied')
         return len(data)
@@ -184,9 +187,9 @@ class EtpRecordSocket:
         if not isinstance(value,list) or len(value)>22 or any(not isinstance(chunk,str) or len(chunk)>4096 for chunk in value):raise ProtocolError('INVALID_RESPONSE','bounded ETP encoded chunks required')
         try:
             data=b''.join(base64.b64decode(chunk,validate=True) for chunk in value)
-            if len(data)!=16384:raise ValueError()
+            if len(data) not in (16384,32768,65536) or (self.max_record==4096 and len(data)!=16384):raise ValueError()
             plain=self.receiver.decrypt(data[:12],data[12:],self.aad);size=int.from_bytes(plain[:4],'big')
-            if not 1<=size<=min(maximum,4096):raise ValueError()
+            if not 1<=size<=min(maximum,self.max_record):raise ValueError()
             return plain[4:4+size]
         except (ValueError,InvalidTag):raise ProtocolError('DATA_AUTH_REJECTED','ETP frame authentication, scope or budget rejected')
     def close(self):self.gateway.close()

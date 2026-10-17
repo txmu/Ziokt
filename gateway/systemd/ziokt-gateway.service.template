@@ -1,0 +1,21 @@
+[Unit]
+Description=Ziokt native authenticated gateway
+After=network-online.target ziokt-corium-p2p.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@REPO@
+ExecStart=@PYTHON@ -m ziokt gateway serve --config @CONFIG@
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+LimitNOFILE=1024
+MemoryMax=768M
+TasksMax=128
+TimeoutStopSec=20
+[Install]
+WantedBy=multi-user.target

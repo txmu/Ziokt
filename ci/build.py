@@ -12,6 +12,7 @@ output.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="ziokt-build-") as directory:
     stage = Path(directory)
     shutil.copytree(root / "ziokt", stage / "ziokt", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(root / "gateway", stage / "gateway")
     (stage / "__main__.py").write_text("from ziokt.cli import main\nraise SystemExit(main())\n")
     zipapp.create_archive(stage, output / "ziokt.pyz", compressed=True)
 subprocess.run([sys.executable, str(output / "ziokt.pyz"), "--help"], check=True)

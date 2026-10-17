@@ -147,6 +147,22 @@ def main(binary, forum_required):
                 raise AssertionError('unapproved route accepted')
             except ProtocolError:
                 pass
+            # FileShare v2 uses the same real native three-hop transport; no
+            # v1 manifest ceiling, and no download temporary file.
+            import io,threading
+            from ziokt.etp_bulk import BulkPeer,serve_objects
+            from ziokt.gateway_store import Store
+            source=Store(Path(temporary)/'bulk-source');data=secrets.token_bytes(2*1024*1024+19)
+            object_hash=source.put(data)
+            sender=EtpRecordSocket(workers[0],addresses[1:],transport_key,'bulk-smoke',max_record=60000)
+            receiver=EtpRecordSocket(workers[3],list(reversed(addresses[:3])),transport_key,'bulk-smoke',server=True,max_record=60000)
+            stop=threading.Event();thread=threading.Thread(target=serve_objects,args=(receiver,source,stop),daemon=True);thread.start()
+            try:
+                remote=Store(Path(temporary)/'bulk-download',fetchers=[BulkPeer(sender).fetch])
+                assert remote.get(object_hash)==data
+                assert list((Path(temporary)/'bulk-download').iterdir())==[]
+            finally:stop.set();thread.join(timeout=12)
+            print('ETP FileShare v2: actual three-hop 2 MiB verified object, segment window and zero download disk writes passed')
             for worker in workers[1:]:
                 assert worker.call('etp.shutdown', {})['stopped']
             print('ETP real native gateway: three-hop AEAD bidirectional records, 64 KiB fragmentation and route rejection passed')

@@ -97,6 +97,10 @@ def main(argv=None):
     register_collectibles(sub)
     from .companion_cli import register as register_companion
     register_companion(sub)
+    from .gateway_bootstrap import register as register_gateway
+    register_gateway(sub)
+    from .mcp import register as register_mcp
+    register_mcp(sub)
     sub.add_parser("airgap", help="activate and report local offline policy")
     effort=sub.add_parser("effort-web", help="serve opt-in public Engine Zero browser workers")
     effort.add_argument("--config", type=Path, required=True)
@@ -202,6 +206,13 @@ def main(argv=None):
             activate_airgap()
         if args.action == 'airgap':
             result = network_status()
+        elif args.action=='mcp':
+            from .mcp import execute as execute_mcp
+            result=execute_mcp(args)
+            if result is None: return 0
+        elif args.action=='gateway':
+            from .gateway_bootstrap import execute as execute_gateway
+            result=execute_gateway(args)
         elif args.action=='effort-web':
             from .effort_web import main as effort_main
             effort_main(['--config',str(args.config)])

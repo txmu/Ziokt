@@ -1,0 +1,19 @@
+'use strict';
+const assert=require('node:assert/strict'),cp=require('node:child_process'),readline=require('node:readline');
+let pw;try{pw=require('../ci/browser/node_modules/playwright')}catch(_){pw=require('../.runtime/browser/node_modules/playwright')}
+(async()=>{let browser;const child=cp.spawn(process.env.PYTHON||'python3',['ci/gateway_browser_fixture.py'],{stdio:['ignore','pipe','inherit']});
+try{
+ const lines=readline.createInterface({input:child.stdout});const fixture=await new Promise((resolve,reject)=>{lines.once('line',line=>resolve(JSON.parse(line)));child.once('exit',code=>reject(new Error('Fixture exited '+code)));});
+ const engine=process.env.BROWSER||'chromium';browser=await pw[engine].launch({headless:true});const page=await browser.newPage({viewport:{width:375,height:812}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(fixture.origin+'/app/forum?lang=en-US');await page.locator('select[aria-label="Language / 语言"]').waitFor();
+ assert.equal(await page.locator('h1').innerText(),'Native Forum');await page.locator('input[name="topic"]').fill('Browser signed <script>alert(1)</script>');await page.locator('textarea[name="content"]').first().fill('Actual WebCrypto signature — 世界');
+ await page.locator('form button[type="submit"]').first().click();await page.waitForURL('**/app/forum');await page.getByRole('heading',{name:'Browser signed <script>alert(1)</script>'}).waitFor();
+ assert.equal(await page.locator('article script').count(),0);const author=await page.locator('article .meta').innerText();assert.match(author,/^[a-f0-9]{64}/);
+ await page.locator('select[aria-label="Language / 语言"]').selectOption('zh-CN');await page.waitForURL('**lang=zh-CN');assert.equal(await page.locator('h1').innerText(),'原生论坛');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.locator('#mcp-connect').click();await page.waitForURL('**/oauth/authorize?**');await page.locator('input[name="admin_token"]').fill(fixture.admin_token);await page.getByRole('button',{name:'Approve scopes'}).click();await page.waitForURL('**/app/forum?lang=zh-CN');await page.locator('#mcp-form').waitFor();
+ await page.locator('#mcp-tool').selectOption('gateway_status');await page.locator('#mcp-form button').click();await page.waitForFunction(()=>document.querySelector('#mcp-result').textContent.includes('browser-test'));
+ await page.locator('#mcp-disconnect').click();await page.locator('#mcp-connect').waitFor();assert.deepEqual(errors,[]);
+ await page.goto(fixture.origin+'/gateway-assets/registry.html');await page.locator('#registration[data-ready="true"]').waitFor();await page.locator('#entry').fill(JSON.stringify({kind:'external_chain',target:'browser-chain',description:'Actual WebCrypto registration',weight:100,genesis_hash:'a'.repeat(64),verifier_hash:'b'.repeat(64)}));await page.locator('#registration button').click();await page.waitForFunction(()=>document.querySelector('#result').textContent.trim().length>0);assert.match(await page.locator('#result').innerText(),/pending/);assert.match(await page.locator('#approved').innerText(),/"registrations": \[\]/);
+ console.log('PASS '+engine+': actual browser Ed25519 -> native SQLite, escaped forum, bilingual mobile, OAuth PKCE callback -> authenticated MCP tool -> revoke');
+}finally{if(browser)await browser.close();child.kill('SIGTERM');}})().catch(e=>{console.error(e);process.exitCode=1});

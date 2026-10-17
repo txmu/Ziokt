@@ -165,6 +165,51 @@ r.operation_dispatch("corium",root,"default",config,"operation.commit",{"operati
         self.assertEqual(client.call("operation.reconcile", {"operation_id": "crash-test"}), done)
         self.assertEqual(len(client.call("events.list")["events"]), 1)
 
+    def test_mcp_native_read_plan_apply_and_scope_boundary(self):
+        from ziokt.mcp import Service
+        self.enable_writes()
+        federation=self.base/'mcp-federation.json'
+        federation.write_text(json.dumps(self.federation));federation.chmod(0o600)
+        scopes=['ziokt:read','ziokt:apply','corium:read','corium:artifact.stage:plan']
+        config={'state':str(self.base/'mcp-state'),'issuer':'https://test.example','clients':{'operator':{'scopes':scopes,'redirect_uris':[]}},'writes_enabled':True,'federation':str(federation)}
+        service=Service(config);principal={'client':'operator','scopes':set(scopes),'expires':int(time.time())+300}
+        status=service.call(principal,'corium_local_status_get',{'params':{}})
+        self.assertFalse(status['isError'],status)
+        data=b'actual MCP to native artifact';resource='sha256:'+hashlib.sha256(data).hexdigest()
+        plan=service.call(principal,'corium_local_artifact_stage_plan',{'resource':resource,'arguments':{'data_base64':base64.b64encode(data).decode()},'expected_revision':None,'operation_id':'mcp-stage'},'plan-operation-key')
+        self.assertFalse(plan['isError'],plan);plan=plan['structuredContent']
+        done=service.call(principal,'ziokt_workflow_apply',{'workflow_id':plan['workflow_id'],'plan_digest':plan['plan_digest'],'confirm':True},'apply-operation-key')
+        self.assertFalse(done['isError'],done);self.assertEqual(done['structuredContent']['state'],'committed')
+        with closing(sqlite3.connect(self.state/'var/lib/corix/p2p/dht.db')) as db:
+            stored=db.execute('SELECT file_path FROM local_chunks WHERE hash=?',(resource[7:],)).fetchone()[0]
+        self.assertEqual(Path(stored).read_bytes(),data)
+
+    def test_mcp_cbb_uses_real_native_signature_verifier_and_database(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from ziokt.mcp_corium import CoriumProtocol
+        self.enable_writes()
+        from test_gateway import schema
+        key=ec.generate_private_key(ec.SECP256K1())
+        public=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
+        identity=hashlib.sha256(public.encode()).hexdigest()
+        keys=self.state/'etc/corix/networks/default'
+        private=keys/'identity.key';private.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));private.chmod(0o600)
+        (keys/'identity.key.pub').write_text(public+'\n')
+        chain=self.state/'var/lib/corix/networks/default/blockchain/chain.db';chain.parent.mkdir(parents=True)
+        forum=self.state/'var/lib/corix/networks/default/forum/forum.db';forum.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(chain)) as db:
+            db.executescript(schema('_init_blockchain_db'));db.execute('INSERT INTO validators(public_key,public_key_hash,stake) VALUES (?,?,?)',(public,identity,1000));db.commit()
+        with closing(sqlite3.connect(forum)) as db:db.executescript(schema('_init_app_db'))
+        from unittest.mock import patch
+        with patch.dict(os.environ,{'CORIUM_ROOT':str(self.state),'CORIUM_NETWORK_ID':'default'}):
+            native=CoriumProtocol(self.providers[1]);result=native.publish_cbb('Actual MCP emergency bulletin 世界')
+            self.assertTrue(result['native_verified'])
+            messages=native.call('CBB_SYNC_REQUEST','')['data']
+            self.assertEqual(messages[0]['message'],'Actual MCP emergency bulletin 世界')
+            with closing(sqlite3.connect(forum)) as db:db.execute("UPDATE cbb_messages SET signature='00'");db.commit()
+            with self.assertRaises(ProtocolError):native.call('CBB_SYNC_REQUEST','')
+
 
 if __name__ == "__main__":
     unittest.main()

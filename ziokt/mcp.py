@@ -1,0 +1,564 @@
+"""Scoped MCP 2026-07-28 / 2025-11-25 bridge over existing native contracts.
+
+No command strings, arbitrary URLs, SQL, or host file paths are accepted as tools.
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import sys
+import threading
+import time
+from urllib.parse import parse_qs, urlencode, urlsplit
+from .gateway_store import database, encoded
+from .mcp_schemas import BRIDGE, ETP
+from .gateway import Server, unique, read_token
+from .protocol import ProtocolError, secure_read, strict_json
+
+LATEST='2026-07-28'
+VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
+BRIDGE_READ={'component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
+BRIDGE_WRITE={'file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
+READ_NATIVE={'capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
+
+
+def schema(properties=None,required=()):
+    return {'type':'object','properties':properties or {},'required':list(required),'additionalProperties':False}
+STRING={'type':'string','maxLength':65536}
+PARAMS={'type':'object','maxProperties':64}
+
+
+class McpError(Exception):
+    def __init__(self,code,message,status=400,data=None):self.code,self.message,self.status,self.data=code,message,status,data
+
+
+class Service:
+    def __init__(self,config):
+        self.config=config
+        self.root=Path(config['state']);self.root.mkdir(parents=True,mode=0o700,exist_ok=True);self.root.chmod(0o700)
+        self.db=self.root/'mcp.db'
+        self.lock=threading.RLock()
+        with database(self.db) as db:
+            db.executescript('CREATE TABLE IF NOT EXISTS codes(hash TEXT PRIMARY KEY,client TEXT,redirect TEXT,challenge TEXT,scopes TEXT,expires INT); CREATE TABLE IF NOT EXISTS tokens(hash TEXT PRIMARY KEY,client TEXT,scopes TEXT,expires INT,refresh INT); CREATE TABLE IF NOT EXISTS calls(client TEXT,key TEXT,tool TEXT,digest TEXT,result BLOB,state TEXT,PRIMARY KEY(client,key)); CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,at INT,client TEXT,tool TEXT,digest TEXT,outcome TEXT); CREATE TABLE IF NOT EXISTS rates(client TEXT PRIMARY KEY,window INT,count INT); CREATE TABLE IF NOT EXISTS cimd(client TEXT PRIMARY KEY,metadata BLOB,expires INT); CREATE TABLE IF NOT EXISTS revoked_clients(client TEXT PRIMARY KEY,at INT);')
+        self.db.chmod(0o600)
+        self.tools={}
+        self.dispatch={}
+        self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
+        if config.get('federation'):
+            from .config import load
+            from ._runtime import OPERATIONS
+            federation=load(config['federation'])
+            for provider in federation['providers']:
+                project=provider['native_project'];pid=provider['provider_id']
+                for method in sorted(READ_NATIVE):
+                    if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge'}):continue
+                    if project=='corium' and method=='service.binding':continue
+                    self.add(pid.replace('-','_')+'_'+method.replace('.','_'),f'{pid}: native {method}. Parameters follow the pinned native contract.',schema({'params':PARAMS},('params',)),False,project+':read',('native',pid,method))
+                for action in sorted(OPERATIONS[project]):
+                    self.add(pid.replace('-','_')+'_'+action.replace('.','_')+'_plan',f'Create a reviewable {pid} {action} workflow; does not execute it.',schema({'resource':STRING,'arguments':PARAMS,'expected_revision':{'type':['string','null']},'operation_id':{'type':'string','maxLength':64}},('resource','arguments','expected_revision','operation_id')),True,project+':'+action+':plan',('plan',pid,action))
+        if config.get('federation'):
+            from .mcp_corium import READ,WRITE
+            for provider in federation['providers']:
+                if provider['native_project']!='corium':continue
+                for method,wire in {**READ,**WRITE}.items():
+                    fields={} if method in {'ping','chain_state','cbb_messages'} else {'payload':STRING if method not in {'block_announce','phoenix_propose','phoenix_notarize','cbb_relay'} else PARAMS}
+                    self.add('corium_'+method,'Call the original signed Corium '+wire+' verifier. CBB expires after 24 hours and does not imply consensus finality.',schema(fields,tuple(fields)),method in WRITE,'corium:protocol:'+('write' if method in WRITE else 'read'),('corium-protocol',provider['provider_id'],wire))
+                self.add('corium_cbb_publish','Publish a native node-signed CBB emergency bulletin, valid for 24 hours. Requires administrator write scope.',schema({'message':{'type':'string','minLength':1,'maxLength':65536}},('message',)),True,'corium:cbb:write',('corium-cbb',provider['provider_id']))
+                self.add('corium_cbb_sync','Synchronize and verify signed native emergency bulletins from approved native peers.',schema(),True,'corium:cbb:write',('corium-cbb-sync',))
+                for action in ('new','join','move','forfeit'):
+                    fields={'invite':{'type':'string','pattern':'^$|^[a-f0-9]{64}$'}} if action=='new' else {'game_id':{'type':'string','maxLength':80,'pattern':'^game-[A-Za-z0-9_-]+$'}}
+                    if action=='move':fields['position']={'type':'integer','minimum':1,'maximum':9}
+                    self.add('corium_cbb_game_'+action,'Native signed CBB tic-tac-toe '+action+'. Game state is verified by the native CBB engine.',schema(fields,tuple(fields)),True,'corium:cbb:write',('corium-cbb-game',action))
+                self.add('corium_cbb_games','List signed, unexpired native CBB game invitations and moves.',schema(),False,'corium:protocol:read',('corium-protocol',provider['provider_id'],'CBB_SYNC_REQUEST'))
+                self.add('corium_cbb_game_state','Verify and read a native CBB game state.',schema({'game_id':{'type':'string','pattern':'^game-[A-Za-z0-9_-]+$','maxLength':80}},('game_id',)),False,'corium:protocol:read',('corium-cbb-game-state',))
+        for app in config.get('bridges',{}):
+            if not re.fullmatch('[a-z0-9-]{1,64}',app):raise ValueError('invalid bridge name')
+            for method in sorted(BRIDGE_READ|BRIDGE_WRITE):
+                settings=strict_json(secure_read(config['bridges'][app]))
+                if method.startswith('file.') and not settings.get('inbox'):continue
+                if method.startswith('ano.') and method!='ano.laws' and app!='zda':continue
+                if method=='tc16.run' and app!='tc16':continue
+                if method.startswith('tri.') and app!='tri':continue
+                if method.startswith('sim.') and app!='sim-manager':continue
+                if method.startswith('chat.') and app!='watchat':continue
+                if method.startswith('package.') and app not in {'ufs','dcpm'}:continue
+                self.add(app.replace('-','_')+'_'+method.replace('.','_'),f'{app}: {method} through its authenticated application bridge.',schema({'params':BRIDGE.get(method,PARAMS)},('params',)),method in BRIDGE_WRITE,app+(':write' if method in BRIDGE_WRITE else ':read'),('bridge',app,method))
+        self.add('ziokt_workflow_status','Read the caller-owned workflow.',schema({'workflow_id':STRING},('workflow_id',)),False,'ziokt:read',('workflow-status',))
+        self.add('ziokt_workflow_apply','Execute a caller-owned reviewed plan with exact digest and explicit confirmation.',schema({'workflow_id':STRING,'plan_digest':STRING,'confirm':{'type':'boolean','const':True}},('workflow_id','plan_digest','confirm')),True,'ziokt:apply',('workflow-apply',))
+        if config.get('gateway'):
+            for method,write,props,required in [
+                ('status',False,{},()),('forum_list',False,{'limit':{'type':'integer','minimum':1,'maximum':100}},('limit',)),
+                ('forum_publish',True,{'payload':PARAMS},('payload',)),('manifest',False,{'root':STRING},('root',)),
+                ('file_publish',True,{'name':STRING,'data_base64':STRING},('name','data_base64'))]:
+                self.add('gateway_'+method,'Native gateway '+method,schema(props,required),write,'gateway:'+('write' if write else 'read'),('gateway',method))
+        for item in config.get('etp',{}):
+            for method,write in [('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
+                self.add(item.replace('-','_')+'_'+method.replace('.','_'),'Pinned native ETP '+method,schema({'params':ETP.get(method,PARAMS)},('params',)),write,'etp:'+('write' if write else 'read'),('etp',item,method))
+        self.add('ziokt_audit_read','Administrator: inspect recent tool names, request digests and outcomes without exposing payloads or tokens.',schema({'limit':{'type':'integer','minimum':1,'maximum':100}},('limit',)),False,'ziokt:admin',('admin','audit'))
+        for action in ('revoke','restore'):
+            self.add('ziokt_client_'+action,'Administrator: '+action+' an OAuth client and its current access tokens.',schema({'client_id':{'type':'string','maxLength':256}},('client_id',)),True,'ziokt:admin',('admin',action))
+        if config.get('gateway'):
+            self.add('corium_registration_submit','Apply for external_chain or pouw_engine whitelist membership. Only owner approval makes an entry eligible.',schema({'entry':schema({'kind':{'type':'string','enum':['external_chain','pouw_engine']},'target':{'type':'string','pattern':'^[a-z0-9][a-z0-9_-]{0,63}$'},'description':{'type':'string','minLength':1,'maxLength':2048},'weight':{'type':'integer','minimum':1,'maximum':1000000},'genesis_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'verifier_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'pkg_id':{'type':'string','maxLength':160},'compute_program_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'verifier_script_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('kind','target','description','weight'))},('entry',)),True,'corium:registry:submit',('registry','submit'))
+            self.add('corium_registration_list','Read approved registrations or your own applications; administrator can inspect all pending applications.',schema({'status':{'type':'string','enum':['approved','pending','rejected','revoked','submitting','all']}},('status',)),False,'corium:registry:read',('registry','list'))
+            self.add('corium_registration_decide','Owner only: approve, reject or revoke an immutable application using its exact digest. PoUW approval submits native governance, not instant consensus activation.',schema({'registration_id':{'type':'string','pattern':'^[a-f0-9]{32}$'},'digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'decision':{'type':'string','enum':['approve','reject','revoke']},'confirm':{'type':'boolean','const':True}},('registration_id','digest','decision','confirm')),True,'ziokt:admin',('registry','decide'))
+        self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
+        self.etp={}
+
+    def add(self,name,description,input_schema,write,scope,route):
+        if name in self.tools:raise ValueError('tool name collision')
+        if write:
+            input_schema={**input_schema,'properties':{**input_schema['properties'],'idempotency_key':{'type':'string','minLength':16,'maxLength':128,'pattern':'^[A-Za-z0-9_-]{16,128}$','description':'Unique operation key; reuse the same value only when retrying identical arguments.'}},'required':input_schema['required']}
+            description+=' Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.'
+        schemes=[{'type':'oauth2','scopes':[scope]}]
+        self.tools[name]={'securitySchemes':schemes,'_meta':{'securitySchemes':schemes},'name':name,'description':description,'inputSchema':input_schema,'annotations':{'readOnlyHint':not write,'destructiveHint':write,'idempotentHint':False,'openWorldHint':True},'scope':scope}
+        self.dispatch[name]=route
+
+    def token_digest(self,token):
+        return hashlib.sha256((self.config['issuer']+'/mcp\n'+token).encode()).hexdigest()
+
+    def current(self):
+        return strict_json(secure_read(self.config['config_path'])) if self.config.get('config_path') else self.config
+
+    def client(self,client_id):
+        current=self.current()
+        if client_id in current.get('revoked_clients',[]):return None
+        with database(self.db) as db:
+            if db.execute('SELECT 1 FROM revoked_clients WHERE client=?',(client_id,)).fetchone():return None
+        if client_id in current['clients']:return current['clients'][client_id]
+        if not current.get('cimd_enabled') or not isinstance(client_id,str) or not re.fullmatch(r'https://chatgpt\.com/oauth/(?:[A-Za-z0-9_-]{1,128}/)?client\.json',client_id):return None
+        with database(self.db) as db:row=db.execute('SELECT metadata,expires FROM cimd WHERE client=?',(client_id,)).fetchone()
+        if row and row[1]>time.time():metadata=json.loads(row[0])
+        else:
+            import urllib.request
+            from .gateway_store import NoRedirect
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+            with opener.open(client_id,timeout=10) as response:raw=response.read(16385)
+            if len(raw)>16384:raise ValueError('CIMD metadata budget')
+            metadata=json.loads(raw,object_pairs_hook=unique)
+            if metadata.get('client_id')!=client_id:raise ValueError('CIMD identifier mismatch')
+            redirects=metadata.get('redirect_uris',[])
+            if not isinstance(redirects,list) or not 1<=len(redirects)<=8 or any(not isinstance(uri,str) or not re.fullmatch(r'https://chatgpt\.com/(?:connector_platform_oauth_redirect|connector/oauth/[A-Za-z0-9_-]{1,128})',uri) for uri in redirects):raise ValueError('CIMD redirect rejected')
+            methods=metadata.get('token_endpoint_auth_methods_supported',[metadata.get('token_endpoint_auth_method')])
+            if 'none' not in methods:raise ValueError('public PKCE client method unavailable')
+            with database(self.db) as db:db.execute('INSERT OR REPLACE INTO cimd VALUES (?,?,?)',(client_id,encoded(metadata),int(time.time())+3600))
+        return {'redirect_uris':metadata['redirect_uris'],'scopes':current.get('cimd_scopes',self.scopes)}
+
+    def auth(self,header):
+        if not isinstance(header,str) or not header.startswith('Bearer ') or len(header)>256:raise McpError(-32001,'authentication required',401)
+        digest=self.token_digest(header[7:]);now=int(time.time())
+        with database(self.db) as db:
+            row=db.execute('SELECT client,scopes,expires FROM tokens WHERE hash=? AND refresh=0',(digest,)).fetchone()
+            if not row or row[2]<=now:raise McpError(-32001,'invalid or expired access token',401)
+            client=self.client(row[0])
+            if not client:raise McpError(-32001,'client revoked',401)
+            scopes=set(json.loads(row[1]))&set(client['scopes'])
+            old=db.execute('SELECT window,count FROM rates WHERE client=?',(row[0],)).fetchone()
+            window=now//60
+            count=old[1]+1 if old and old[0]==window else 1
+            if count>120:raise McpError(-32001,'rate limit',429)
+            db.execute('INSERT OR REPLACE INTO rates VALUES (?,?,?)',(row[0],window,count))
+        return {'client':row[0],'scopes':scopes,'expires':row[2],'token_id':digest}
+
+    def issue(self,client,scopes):
+        access,refresh=secrets.token_urlsafe(48),secrets.token_urlsafe(48);now=int(time.time())
+        with database(self.db) as db:
+            db.execute('DELETE FROM tokens WHERE expires<?',(now,));db.execute('DELETE FROM codes WHERE expires<?',(now,))
+            for token,ttl,is_refresh in [(access,900,0),(refresh,86400,1)]:
+                db.execute('INSERT INTO tokens VALUES (?,?,?,?,?)',(self.token_digest(token),client,json.dumps(sorted(scopes)),now+ttl,is_refresh))
+        return {'access_token':access,'token_type':'Bearer','expires_in':900,'refresh_token':refresh,'scope':' '.join(sorted(scopes))}
+
+    def validate(self,args,spec):
+        if not isinstance(args,dict) or set(args)-set(spec['properties']) or not set(spec['required'])<=set(args):raise ValueError('exact tool arguments required')
+        for key,value in args.items():
+            field=spec['properties'][key];kind=field['type'];kinds=kind if isinstance(kind,list) else [kind]
+            actual='null' if value is None else 'boolean' if type(value) is bool else 'integer' if type(value) is int else 'string' if isinstance(value,str) else 'object' if isinstance(value,dict) else 'array'
+            if actual not in kinds:raise ValueError('invalid '+key)
+            if actual=='object' and 'properties' in field:self.validate(value,field)
+            if actual=='array' and len(value)>field.get('maxItems',128):raise ValueError('array budget exceeded')
+            if 'enum' in field and value not in field['enum']:raise ValueError('invalid enum')
+            if actual=='string' and 'pattern' in field and not re.fullmatch(field['pattern'],value):raise ValueError('invalid identifier')
+            if 'const' in field and value!=field['const']:raise ValueError('invalid confirmation')
+            if actual=='string' and len(value)>field.get('maxLength',65536):raise ValueError('argument too large')
+            if actual=='integer' and not field.get('minimum',-2**53+1)<=value<=field.get('maximum',2**53-1):raise ValueError('integer out of bounds')
+
+    def permitted(self,principal,tool):
+        return tool['scope'] in principal['scopes'] and (not tool['annotations']['destructiveHint'] or self.config.get('writes_enabled') is True)
+
+    def call(self,principal,name,args,key=None):
+        if principal.get('expires',2**63)<=time.time():raise McpError(-32001,'token expired',401)
+        tool=self.tools.get(name)
+        if tool is None:raise McpError(-32602,'unknown tool')
+        if not self.permitted(principal,tool):raise McpError(-32001,'insufficient scope',403,{'scope':tool['scope']})
+        if isinstance(args,dict):
+            args=dict(args)
+            if tool['annotations']['destructiveHint'] and key:args.setdefault('idempotency_key',key)
+        self.validate(args,tool['inputSchema'])
+        if tool['annotations']['destructiveHint']:key=args.pop('idempotency_key',key)
+        if tool['annotations']['destructiveHint']:self.guard(principal)
+        write=tool['annotations']['destructiveHint'];digest=hashlib.sha256(encoded({'name':name,'arguments':args})).hexdigest()
+        if write and (not isinstance(key,str) or not re.fullmatch('[A-Za-z0-9_-]{16,128}',key)):raise ValueError('write requires _meta.ziokt/idempotencyKey (16..128 safe characters)')
+        with self.lock:
+            if write:
+                with database(self.db) as db:
+                    old=db.execute('SELECT tool,digest,result,state FROM calls WHERE client=? AND key=?',(principal['client'],key)).fetchone()
+                    if old:
+                        if old[:2]!=(name,digest):raise ValueError('idempotency conflict')
+                        if old[3]!='complete':raise ValueError('operation outcome requires reconciliation; never blindly replay')
+                        return json.loads(old[2])
+                    db.execute('INSERT INTO calls VALUES (?,?,?,?,NULL,?)',(principal['client'],key,name,digest,'pending'))
+            try:
+                if principal.get('expires',2**63)<=time.time():raise McpError(-32001,'access token expired',401)
+                result=self.execute(principal,name,args)
+                if len(encoded(result))>512000:raise ValueError('result budget exceeded; use pagination or content references')
+                output={'resultType':'complete','content':[{'type':'text','text':encoded(result).decode()}],'structuredContent':result if isinstance(result,dict) else {'items':result},'isError':False}
+            except Exception as exc:
+                # Secrets and application payloads never appear in error/audit text.
+                output={'resultType':'complete','content':[{'type':'text','text':str(getattr(exc,'code','EXECUTION_REJECTED'))+': operation rejected; inspect native state before retry'}],'isError':True}
+            with database(self.db) as db:
+                db.execute('INSERT INTO audit(at,client,tool,digest,outcome) VALUES (?,?,?,?,?)',(int(time.time()),principal['client'],name,digest,'error' if output['isError'] else 'complete'))
+                if write:db.execute('UPDATE calls SET result=?,state=? WHERE client=? AND key=?',(encoded(output),'complete',principal['client'],key))
+            return output
+
+    def execute(self,principal,name,args):
+        route=self.dispatch[name];kind=route[0]
+        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False)}
+        if kind=='registry':
+            from .registry import Registry
+            from .gateway import Gateway
+            gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
+            registry=Registry(gateway.config.get('registry_db',self.root/'registry.db'),gateway.config['network'])
+            if route[1]=='submit':return registry.submit(principal['client'],args['entry'])
+            if route[1]=='list':return registry.list(args['status'],None if 'ziokt:admin' in principal['scopes'] or args['status']=='approved' else principal['client'])
+            return registry.decide(principal['client'],args['registration_id'],args['digest'],args['decision'],gateway.native_text)
+        if kind=='admin':
+            with database(self.db) as db:
+                if route[1]=='audit':
+                    rows=db.execute('SELECT at,client,tool,digest,outcome FROM audit ORDER BY id DESC LIMIT ?',(args['limit'],)).fetchall()
+                    return {'audit':[dict(zip(('at','client','tool','request_digest','outcome'),row)) for row in rows]}
+                if route[1]=='revoke':
+                    db.execute('INSERT OR REPLACE INTO revoked_clients VALUES (?,?)',(args['client_id'],int(time.time())))
+                    db.execute('DELETE FROM tokens WHERE client=?',(args['client_id'],))
+                    db.execute('DELETE FROM codes WHERE client=?',(args['client_id'],))
+                else:db.execute('DELETE FROM revoked_clients WHERE client=?',(args['client_id'],))
+            return {'client':args['client_id'],'state':'revoked' if route[1]=='revoke' else 'restored'}
+        if kind in {'native','plan','workflow-status','workflow-apply'}:
+            from .config import load
+            from .client import NativeClient
+            from .workflow import WorkflowJournal as Journal
+            federation=load(self.config['federation']);providers={p['provider_id']:p for p in federation['providers']}
+            if kind=='native':return NativeClient(federation['federation_id'],providers[route[1]]).call(route[2],args['params'])
+            # Caller ownership is encoded in the workflow ID; no cross-client plan access.
+            prefix=hashlib.sha256(principal['client'].encode()).hexdigest()[:12]+'-'
+            with Journal(self.root/'workflows.db') as journal:
+                if kind=='plan':
+                    workflow=prefix+args['operation_id'][:48]
+                    manifest={'schema':'ziokt.workflow.v1','workflow_id':workflow,'steps':[{'step_id':'apply','provider_id':route[1],'action':route[2],'resource':args['resource'],'arguments':args['arguments'],'expected_revision':args['expected_revision'],'depends_on':[]}]}
+                    return journal.plan(manifest,federation)
+                if not args['workflow_id'].startswith(prefix):raise ValueError('workflow belongs to another client')
+                if kind=='workflow-status':return journal.status(args['workflow_id'])
+                row=journal.db.execute('SELECT manifest FROM workflows WHERE id=?',(args['workflow_id'],)).fetchone()
+                if not row:raise ValueError('unknown workflow')
+                manifest=json.loads(row[0])['manifest']
+                for step in manifest['steps']:
+                    project=providers[step['provider_id']]['native_project']
+                    if project+':'+step['action']+':plan' not in principal['scopes']:raise ValueError('native write scope revoked')
+                return journal.apply(args['workflow_id'],federation,args['plan_digest'],confirmed=args['confirm'],guard=lambda: self.guard(principal))
+        if kind in {'corium-protocol','corium-cbb'}:
+            from .config import load
+            from .mcp_corium import CoriumProtocol
+            federation=load(self.config['federation'])
+            provider=next(p for p in federation['providers'] if p['provider_id']==route[1])
+            if not federation['enabled']:raise ValueError('federation disabled')
+            protocol=CoriumProtocol(provider)
+            if kind=='corium-cbb':
+                from .gateway import Gateway
+                gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
+                gateway.native('cbb-post',args['message'])
+                return {'published':True,'native_identity':protocol.identity,'expires_after_seconds':86400,'consensus_confirmed':False}
+            payload=args.get('payload','')
+            if isinstance(payload,dict):payload=json.dumps(payload)
+            result=protocol.call(route[2],payload)
+            if name=='corium_cbb_games':result['data']=[row for row in result['data'] if row.get('message','').startswith('GAME:TICTACTOE|')]
+            return result
+        if kind in {'corium-cbb-sync','corium-cbb-game','corium-cbb-game-state'}:
+            from .gateway import Gateway
+            gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
+            if kind=='corium-cbb-sync':gateway.native('cbb-sync');return {'synchronized':True}
+            if kind=='corium-cbb-game-state':
+                text=gateway.native_text('cbb-state',args['game_id'])
+                values=text.strip().split('|')
+                if len(values)!=5:raise ValueError('invalid native game state')
+                return dict(zip(('player_x','player_o','board','turn','state'),values))
+            action=route[1]
+            values=[args.get('game_id','')]
+            if action=='move':values.append(str(args['position']))
+            if action=='new':values=['--invite',args['invite']] if args['invite'] else []
+            text=gateway.native_text('cbb-game',action,*values)
+            return {'action':action,'native_result':text,'consensus_confirmed':False}
+        if kind=='bridge':
+            from .companion_bridge import CompanionBridge
+            bridge=CompanionBridge(self.config.get('exchanges',{}).get(route[1],self.config['bridges'][route[1]]) if route[2].startswith('component.') and route[2]!='component.status' else self.config['bridges'][route[1]])
+            try:return bridge.call(route[2],args['params'])
+            finally:bridge.close()
+        if kind=='gateway':
+            from .gateway import Gateway
+            gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
+            method=route[1]
+            if method=='status':return {'network':gateway.config['network'],'authenticated_writes':True}
+            if method=='forum_publish':return {'id':gateway.submit(args['payload'],'mcp:'+principal['client'])}
+            if method=='forum_list':
+                with database(gateway.config['forum_db']) as db:
+                    rows=db.execute('SELECT id,title,author,timestamp,content_hash FROM topics ORDER BY timestamp DESC LIMIT ?',(args['limit'],)).fetchall()
+                return {'topics':[dict(zip(('id','title','author','timestamp','content_hash'),r)) for r in rows]}
+            if method=='manifest':return gateway.store.manifest(args['root'])
+            if method=='file_publish':
+                import io
+                data=base64.b64decode(args['data_base64'],validate=True)
+                if len(data)>32768:raise ValueError('use local publish-file CLI for larger payloads')
+                return {'root':gateway.store.publish(io.BytesIO(data),args['name'])}
+        if kind=='etp':
+            from .etp import EtpGateway
+            settings=self.config['etp'][route[1]]
+            if route[1] not in self.etp:self.etp[route[1]]=EtpGateway(settings['binary'],settings['digest'],settings['config'])
+            return self.etp[route[1]].call(route[2],args['params'])
+        raise ValueError('unsupported component')
+
+    def guard(self,principal):
+        if time.time()>=principal.get('expires',2**63):raise ValueError('access token expired')
+        current=strict_json(secure_read(self.config['config_path'])) if self.config.get('config_path') else self.config
+        if not current.get('writes_enabled') or not self.client(principal['client']):raise ValueError('grant revoked')
+        if not principal['scopes']<=set(self.client(principal['client'])['scopes']):raise ValueError('scopes revoked')
+
+    def rpc(self,request,principal,headers=None):
+        result=self._rpc(request,principal,headers)
+        version=headers.get('MCP-Protocol-Version') if headers is not None else request.get('params',{}).get('_meta',{}).get('io.modelcontextprotocol/protocolVersion',LATEST)
+        if isinstance(result,dict) and version==LATEST:result.setdefault('resultType','complete')
+        return result
+
+    def _rpc(self,request,principal,headers=None):
+        if not isinstance(request,dict) or request.get('jsonrpc')!='2.0' or set(request)-{'jsonrpc','id','method','params'}:raise McpError(-32600,'invalid JSON-RPC request')
+        if 'id' in request and (type(request['id']) not in (str,int) or isinstance(request['id'],str) and len(request['id'])>256):raise McpError(-32600,'invalid request id')
+        method=request.get('method');params=request.get('params',{})
+        if not isinstance(method,str) or not isinstance(params,dict):raise McpError(-32600,'invalid method/params')
+        meta=params.get('_meta',{})
+        if not isinstance(meta,dict):raise McpError(-32602,'invalid metadata')
+        version=(headers.get('MCP-Protocol-Version') or (params.get('protocolVersion','2025-03-26') if method=='initialize' else '2025-03-26')) if headers is not None else meta.get('io.modelcontextprotocol/protocolVersion',params.get('protocolVersion',LATEST))
+        if version not in VERSIONS:raise McpError(-32022,'Unsupported protocol version',data={'supported':list(VERSIONS),'requested':version})
+        if headers is not None and version==LATEST:
+            expected={'MCP-Protocol-Version':meta.get('io.modelcontextprotocol/protocolVersion'),'Mcp-Method':method}
+            if method in {'tools/call','resources/read','prompts/get'}:expected['Mcp-Name']=params.get('name',params.get('uri'))
+            for field,value in expected.items():
+                actual=headers.get(field)
+                if isinstance(actual,str) and actual.startswith('=?base64?') and actual.endswith('?='):
+                    try:actual=base64.b64decode(actual[9:-2],validate=True).decode()
+                    except Exception:raise McpError(-32020,'Malformed mirrored header')
+                if actual is None or actual!=value:raise McpError(-32020,'Header mismatch')
+            if not isinstance(meta.get('io.modelcontextprotocol/clientCapabilities'),dict):raise McpError(-32602,'clientCapabilities metadata required')
+        if principal.get('expires',2**63)<=time.time():raise McpError(-32001,'token expired',401)
+        if method=='initialize':
+            if version==LATEST:raise McpError(-32601,'initialize is retired in 2026-07-28',404)
+            return {'protocolVersion':version,'capabilities':{'tools':{},'resources':{}},'serverInfo':{'name':'ziokt-native','version':'2.0.0'}}
+        if method=='notifications/initialized' and version!=LATEST:return None
+        if method=='server/discover':return {'supportedVersions':list(VERSIONS),'capabilities':{'tools':{},'resources':{}},'instructions':'Scoped native tools. Writes deduplicate automatically; review native plan digests before apply. Administrator-approved tools retain native identity and consensus checks.'}
+        if method=='ping':return {}
+        if method=='tools/list':
+            tools=[{k:v for k,v in tool.items() if k!='scope'} for tool in self.tools.values() if self.permitted({'scopes':set(self.client(principal['client'])['scopes'])},tool)]
+            return {'tools':tools}
+        if method=='tools/call':
+            try:
+                args=params.get('arguments',{})
+                key=meta.get('ziokt/idempotencyKey')
+                if not key and isinstance(args,dict):key=args.get('idempotency_key')
+                if not key:
+                    key=hashlib.sha256(encoded({'client':principal['client'],'token':principal.get('token_id','stdio'),'request':request.get('id'),'tool':params.get('name'),'arguments':args})).hexdigest()
+                result=self.call(principal,params.get('name'),args,key)
+            except ValueError:result={'resultType':'complete','content':[{'type':'text','text':'Invalid tool arguments or idempotency key'}],'isError':True}
+            if version!=LATEST:result.pop('resultType',None)
+            return result
+        if method=='resources/list':
+            return {'resources':[{'uri':'ziokt://components','name':'Configured native components','mimeType':'application/json'},{'uri':'ziokt://tools','name':'Scoped function catalog','mimeType':'application/json'}]}
+        if method=='resources/read':
+            if params.get('uri')=='ziokt://tools':
+                if 'ziokt:read' not in principal['scopes']:raise McpError(-32602,'resource unavailable')
+                tools=[{k:v for k,v in tool.items() if k!='scope'} for tool in self.tools.values() if self.permitted({'scopes':set(self.client(principal['client'])['scopes'])},tool)]
+                return {'contents':[{'uri':'ziokt://tools','mimeType':'application/json','text':encoded({'tools':tools}).decode()}]}
+            if params.get('uri')!='ziokt://components' or 'ziokt:read' not in principal['scopes']:raise McpError(-32602,'resource unavailable')
+            return {'contents':[{'uri':'ziokt://components','mimeType':'application/json','text':encoded(self.execute(principal,'ziokt_components',{})).decode()}]}
+        raise McpError(-32601,'method not found',404)
+
+
+def http_handler(service):
+    from http.server import BaseHTTPRequestHandler
+    import html
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version='HTTP/1.1'
+        def setup(self):super().setup();self.connection.settimeout(15)
+        def log_message(self,*args):pass
+        def reply(self,status,value,extra=None,mime='application/json'):
+            raw=value if isinstance(value,bytes) else encoded(value)
+            self.send_response(status)
+            if self.headers.get('Origin') in service.config.get('origins',[]):
+                self.send_header('Access-Control-Allow-Origin',self.headers['Origin']);self.send_header('Vary','Origin')
+                self.send_header('Access-Control-Expose-Headers','WWW-Authenticate')
+            self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)))
+            self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+            for key,val in (extra or {}).items():self.send_header(key,val)
+            self.end_headers();self.wfile.write(raw)
+        def error(self,error,request_id=None):
+            body={'jsonrpc':'2.0','id':request_id,'error':{'code':error.code,'message':error.message}}
+            if error.data is not None:body['error']['data']=error.data
+            extra={}
+            if error.status in (401,403):
+                challenge='Bearer resource_metadata="'+service.config['issuer']+'/.well-known/oauth-protected-resource", scope="'+(error.data or {}).get('scope','ziokt:read')+'"'
+                if error.status==403:challenge+=', error="insufficient_scope"'
+                extra['WWW-Authenticate']=challenge
+            self.reply(error.status,body,extra)
+        def validate_origin(self):
+            origin=self.headers.get('Origin')
+            if origin is not None and origin not in service.config.get('origins',[]):raise McpError(-32001,'origin rejected',403)
+            host=self.headers.get('Host','')
+            allowed=service.config.get('hosts',[urlsplit(service.config['issuer']).netloc,'127.0.0.1:'+str(self.server.server_port)])
+            if host not in allowed:raise McpError(-32001,'host rejected',403)
+        def body(self):
+            lengths=self.headers.get_all('Content-Length',[])
+            if len(lengths)!=1 or not lengths[0].isdigit() or not 0<int(lengths[0])<=262144 or self.headers.get('Transfer-Encoding'):
+                self.close_connection=True;raise McpError(-32600,'invalid framing',413)
+            data=self.rfile.read(int(lengths[0]))
+            if len(data)!=int(lengths[0]):raise McpError(-32600,'truncated body')
+            return data
+        def do_GET(self):
+            try:
+                self.validate_origin();path=urlsplit(self.path).path;issuer=service.config['issuer']
+                if path in {'/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'}:return self.reply(200,{'resource':issuer+'/mcp','authorization_servers':[issuer],'scopes_supported':service.scopes,'bearer_methods_supported':['header']})
+                if path=='/.well-known/oauth-authorization-server':return self.reply(200,{'issuer':issuer,'authorization_endpoint':issuer+'/oauth/authorize','token_endpoint':issuer+'/oauth/token','revocation_endpoint':issuer+'/oauth/revoke','response_types_supported':['code'],'grant_types_supported':['authorization_code','refresh_token'],'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],'scopes_supported':service.scopes,'authorization_response_iss_parameter_supported':True,'client_id_metadata_document_supported':service.config.get('cimd_enabled',False)})
+                if path=='/oauth/authorize':
+                    q=parse_qs(urlsplit(self.path).query,strict_parsing=True)
+                    if any(len(v)!=1 for v in q.values()):raise ValueError('duplicate OAuth field')
+                    params={k:v[0] for k,v in q.items()};self.check_authorization(params)
+                    # Explicit operator consent grants only the registered client's scopes.
+                    fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items())
+                    page='<html lang="en"><meta name="viewport" content="width=device-width"><title>Ziokt authorization</title><h1>Authorize '+html.escape(params['client_id'])+'</h1><p>Requested scopes: '+html.escape(params['scope'])+'</p><form method="post" action="/oauth/authorize">'+fields+'<label>Node administrator token <input type="password" name="admin_token" required autocomplete="off"></label><button type="submit">Approve scopes</button></form></html>'
+                    return self.reply(200,page.encode(),{'Content-Security-Policy':"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"},'text/html; charset=utf-8')
+                if path=='/mcp':return self.reply(405,{'error':'POST required'},{'Allow':'POST'})
+                return self.reply(404,{'error':'not found'})
+            except McpError as exc:self.error(exc)
+            except (ValueError,KeyError):self.reply(400,{'error':'invalid_request'})
+        def check_authorization(self,params):
+            required={'client_id','redirect_uri','response_type','code_challenge','code_challenge_method','scope','state','resource'}
+            if set(params)!=required or params['response_type']!='code' or params['code_challenge_method']!='S256' or not re.fullmatch('[A-Za-z0-9_-]{43}',params['code_challenge']):raise ValueError('PKCE S256 required')
+            client=service.client(params['client_id'])
+            if not client or params['redirect_uri'] not in client['redirect_uris'] or not params['state'] or len(params['state'])>512:raise ValueError('unregistered client')
+            if params['resource']!=service.config['issuer']+'/mcp':raise ValueError('wrong resource audience')
+            scopes=set(params['scope'].split())
+            if not scopes or not scopes<=set(client['scopes']):raise ValueError('scope not granted')
+            return scopes
+        def do_POST(self):
+            request_id=None
+            try:
+                self.validate_origin();path=urlsplit(self.path).path;raw=self.body()
+                if path.startswith('/oauth/'):
+                    if self.headers.get_content_type()!='application/x-www-form-urlencoded':raise ValueError('form encoding required')
+                    form=parse_qs(raw.decode(),strict_parsing=True)
+                    if any(len(v)!=1 for v in form.values()):raise ValueError('duplicate OAuth field')
+                    params={k:v[0] for k,v in form.items()}
+                    if path=='/oauth/authorize':
+                        token=params.pop('admin_token','');scopes=self.check_authorization(params)
+                        if not hmac.compare_digest(token,read_token(service.config['admin_token'])):raise McpError(-32001,'administrator authentication required',403)
+                        code=secrets.token_urlsafe(48)
+                        with database(service.db) as db:
+                            db.execute('DELETE FROM codes WHERE expires<?',(int(time.time()),))
+                            db.execute('INSERT INTO codes VALUES (?,?,?,?,?,?)',(hashlib.sha256(code.encode()).hexdigest(),params['client_id'],params['redirect_uri'],params['code_challenge'],json.dumps(sorted(scopes)),int(time.time())+120))
+                        location=params['redirect_uri']+('&' if '?' in params['redirect_uri'] else '?')+urlencode({'code':code,'state':params['state'],'iss':service.config['issuer']})
+                        return self.reply(303,b'',{'Location':location})
+                    if path=='/oauth/token':
+                        if params.get('resource')!=service.config['issuer']+'/mcp':return self.reply(400,{'error':'invalid_target'})
+                        client_id=params.get('client_id');client=service.client(client_id)
+                        if not client:return self.reply(400,{'error':'invalid_client'})
+                        with service.lock, database(service.db) as db:
+                            if params.get('grant_type')=='authorization_code':
+                                verifier=params.get('code_verifier','')
+                                if not re.fullmatch('[A-Za-z0-9._~-]{43,128}',verifier):raise ValueError('invalid verifier')
+                                digest=hashlib.sha256(params.get('code','').encode()).hexdigest()
+                                row=db.execute('SELECT client,redirect,challenge,scopes,expires FROM codes WHERE hash=?',(digest,)).fetchone()
+                                challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+                                if not row or row[0]!=client_id or row[1]!=params.get('redirect_uri') or not hmac.compare_digest(row[2],challenge) or row[4]<=time.time():return self.reply(400,{'error':'invalid_grant'})
+                                scopes=set(json.loads(row[3]));db.execute('DELETE FROM codes WHERE hash=?',(digest,))
+                            elif params.get('grant_type')=='refresh_token':
+                                digest=service.token_digest(params.get('refresh_token',''))
+                                row=db.execute('SELECT client,scopes,expires FROM tokens WHERE hash=? AND refresh=1',(digest,)).fetchone()
+                                if not row or row[0]!=client_id or row[2]<=time.time():return self.reply(400,{'error':'invalid_grant'})
+                                scopes=set(json.loads(row[1]));db.execute('DELETE FROM tokens WHERE hash=?',(digest,))
+                                if 'scope' in params:
+                                    if not set(params['scope'].split())<=scopes:raise ValueError('cannot expand scopes')
+                                    scopes=set(params['scope'].split())
+                            else:return self.reply(400,{'error':'unsupported_grant_type'})
+                        return self.reply(200,service.issue(client_id,scopes&set(client['scopes'])))
+                    if path=='/oauth/revoke':
+                        principal=service.auth(self.headers.get('Authorization'))
+                        with database(service.db) as db:db.execute('DELETE FROM tokens WHERE hash=? AND client=?',(service.token_digest(params.get('token','')),principal['client']))
+                        return self.reply(200,b'')
+                    return self.reply(404,{'error':'not found'})
+                if path!='/mcp':return self.reply(404,{'error':'not found'})
+                principal=service.auth(self.headers.get('Authorization'))
+                if self.headers.get_content_type()!='application/json':raise McpError(-32600,'JSON required',415)
+                accept=self.headers.get('Accept','')
+                if not all(t in accept for t in ('application/json','text/event-stream')):raise McpError(-32600,'Accept must list JSON and SSE',406)
+                request=json.loads(raw,object_pairs_hook=unique);request_id=request.get('id') if isinstance(request,dict) else None
+                result=service.rpc(request,principal,self.headers)
+                if 'id' not in request:return self.reply(202,b'')
+                return self.reply(200,{'jsonrpc':'2.0','id':request_id,'result':result})
+            except McpError as exc:self.error(exc,request_id)
+            except (ValueError,KeyError,UnicodeError):self.reply(400,{'error':'invalid_request'})
+            except Exception:self.reply(503,{'error':'component_unavailable'})
+        def do_OPTIONS(self):
+            try:
+                self.validate_origin()
+                self.reply(204,b'',{'Access-Control-Allow-Methods':'POST, GET, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name','Access-Control-Max-Age':'600'})
+            except McpError as exc:self.error(exc)
+        def do_DELETE(self):self.reply(405,b'',{'Allow':'POST'})
+    return Handler
+
+
+def register(sub):
+    parser=sub.add_parser('mcp',help='authenticated native MCP tools and resources')
+    actions=parser.add_subparsers(dest='mcp_action',required=True)
+    for name in ('serve','stdio','catalog'):
+        action=actions.add_parser(name);action.add_argument('--config',type=Path,required=True)
+    token=actions.add_parser('issue-token');token.add_argument('--config',type=Path,required=True);token.add_argument('--client',required=True)
+
+
+def execute(args):
+    config=strict_json(secure_read(args.config));config['config_path']=str(args.config.resolve())
+    if config.get('schema')!='ziokt.mcp.v1':raise ValueError('invalid MCP configuration')
+    if not re.fullmatch(r'https://[a-z0-9.-]+(?::[0-9]+)?',config['issuer']):raise ValueError('public HTTPS issuer required')
+    service=Service(config)
+    if args.mcp_action=='catalog':return {'tools':list(service.tools.values()),'scopes':service.scopes,'protocols':VERSIONS}
+    if args.mcp_action=='issue-token':
+        client=config['clients'][args.client]
+        # Local owner-only administration command; credentials must go into a 0600 file.
+        return service.issue(args.client,set(client['scopes']))
+    if args.mcp_action=='serve':
+        Server(('127.0.0.1',config.get('port',8186)),http_handler(service)).serve_forever();return {}
+    client=os.environ.get('ZIOKT_MCP_CLIENT')
+    if client not in config['clients']:raise ValueError('explicit ZIOKT_MCP_CLIENT required')
+    principal=service.auth('Bearer '+os.environ.get('ZIOKT_MCP_TOKEN',''))
+    if principal['client']!=client:raise ValueError('MCP client token mismatch')
+    for _ in range(4096):
+        line=sys.stdin.buffer.readline(262145)
+        if not line:break
+        principal=service.auth('Bearer '+os.environ.get('ZIOKT_MCP_TOKEN',''))
+        if len(line)>262144:raise ValueError('message budget exceeded')
+        request_id=None
+        try:
+            request=json.loads(line,object_pairs_hook=unique);request_id=request.get('id')
+            result=service.rpc(request,principal)
+            if 'id' not in request:continue
+            response={'jsonrpc':'2.0','id':request_id,'result':result}
+        except McpError as exc:response={'jsonrpc':'2.0','id':request_id,'error':{'code':exc.code,'message':exc.message}}
+        except Exception:response={'jsonrpc':'2.0','id':request_id,'error':{'code':-32600,'message':'invalid request'}}
+        sys.stdout.buffer.write(encoded(response)+b'\n');sys.stdout.buffer.flush()
+    return None

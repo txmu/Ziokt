@@ -1,0 +1,43 @@
+name: Native gateway and MCP end-to-end
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gateway-mcp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - run: python -m pip install -r requirements.txt
+      - name: Actual HTTP, SQLite, Merkle Range, signatures, OAuth and scoped component exchange
+        run: |
+          python -m unittest discover -s tests -p test_gateway_native.py -v
+          python -m unittest discover -s tests -p test_mcp.py -v
+          python -m unittest discover -s tests -p test_registry.py -v
+          python -m unittest discover -s tests -p test_etp_adapter.py -v
+      - name: Browser runtime only; no local application build
+        run: |
+          npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
+          node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
+          node tools/gateway_browser_smoke.cjs
+      - name: Verify gateway assets in portable delivery
+        run: python ci/build.py
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ziokt-native-gateway-mcp
+          path: |
+            gateway/
+            dist/ziokt.pyz
+          if-no-files-found: error
