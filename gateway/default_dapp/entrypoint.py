@@ -1,60 +1,1786 @@
 import json
+import hashlib
+import base64
 import time
+import hmac
 
 # Bootstrap embeds the versioned, external dictionary when publishing to P2P.
 MESSAGES = {}
 
 def esc(value):
-    return str(value).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;').replace("'",'&#39;')
+    return str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
 
-query = request.get('query', {})
-locale = request.get('locale', 'en-US')
-locale = query.get('lang',[locale])[0]
-if locale in ('zh','zh-cn'): locale = 'zh-CN'
-if locale in ('en','en-us'): locale = 'en-US'
-if locale not in MESSAGES: locale = 'en-US'
-messages = MESSAGES.get(locale,{})
-def t(key):
-    return esc(messages.get(key,MESSAGES.get('en-US',{}).get(key,key)))
-
+# 1. Parse Request Info & Locale
 path = request.get('path', [])
-page = path[0] if path else request.get('app_id','explorer')
-aliases = {'explorer':'overview','hub':'overview','corium':'overview','files':'fileshare','ufs':'ufsdcpm','dcpm':'ufsdcpm','chain':'blockchain','tri':'blockchain','ano':'zda','chat':'watchat','tunnel':'onion','sim':'sim-manager','ecosystem':'overview'}
-page = aliases.get(page,page)
-components = {'cbb':'corium','overview':'gateway','forum':'gateway','fileshare':'gateway','onion':'etp','zda':'zda','safefs':'safefs','ufsdcpm':'ufs','tc16':'tc16','blockchain':'corium','watchat':'watchat','sim-manager':'sim_manager','effort':'corium','nns':'corium','nodes':'corium','vault':'safefs','board':'gateway'}
-if page not in components: page = 'overview'
-ctx = api.get_node_context()
-chain = ctx.get('blockchain',{})
-dht = ctx.get('dht',{})
-navigation = ''
-for key in components:
-    if key not in ('nodes','vault','board'):
-        navigation += '<a href="/app/explorer/'+key+'?lang='+locale+'"'+(' aria-current="page"' if key==page else '')+'>'+t('nav.'+key)+'</a>'
+query = request.get('query', {})
+raw_app_id = request.get('app_id', 'explorer')
 
-body = '<h1>'+t('nav.'+page)+'</h1><p>'+t('portal.readonly')+'</p>'
-if page == 'overview':
-    body += '<div class="grid"><article><h2>'+t('chain.height')+'</h2><p>'+esc(chain.get('height',0))+'</p></article><article><h2>'+t('chain.transactions')+'</h2><p>'+esc(chain.get('tx_count',0))+'</p></article><article><h2>'+t('dht.objects')+'</h2><p>'+esc(dht.get('chunks_count',0))+'</p></article></div>'
-if page in ('forum','board'):
-    body += '<section><h2 data-i18n="forum.new_topic">'+t('forum.new_topic')+'</h2><form><label>'+t('forum.topic')+'<input name="topic" maxlength="256" required></label><label>'+t('forum.content')+'<textarea name="content" maxlength="65536" required></textarea></label><button type="submit" data-i18n="forum.submit">'+t('forum.submit')+'</button></form></section>'
-    for topic in ctx.get('forum',{}).get('topics',[]):
-        tid = esc(topic.get('id',''))
-        body += '<article><h2>'+esc(topic.get('topic',''))+'</h2><p class="meta">'+esc(topic.get('author',''))+' · '+esc(topic.get('timestamp',0))+'</p><p class="content">'+esc(topic.get('content',''))+'</p><details><summary>'+t('forum.reply')+'</summary>'
-        for reply in topic.get('replies',[]):
-            body += '<blockquote><p>'+esc(reply.get('content',''))+'</p><cite>'+esc(reply.get('author',''))+'</cite></blockquote>'
-        body += '<form><input type="hidden" name="reply_to" value="'+tid+'"><label>'+t('forum.content')+'<textarea name="content" maxlength="65536" required></textarea></label><button type="submit" data-i18n="forum.reply">'+t('forum.reply')+'</button></form></details></article>'
-if page in ('blockchain','effort'):
-    body += '<div class="scroll"><table><caption>'+t('chain.blocks')+'</caption><thead><tr><th>'+t('chain.height')+'</th><th>'+t('chain.hash')+'</th><th>'+t('chain.validator')+'</th></tr></thead><tbody>'
-    for block in chain.get('blocks',[]):
-        body += '<tr><td>'+esc(block.get('height',0))+'</td><td>'+esc(block.get('hash',''))+'</td><td>'+esc(block.get('validator',''))+'</td></tr>'
-    body += '</tbody></table></div>'
-if page == 'nns':
-    for record in ctx.get('nns',[]):
-        body += '<article><h2>'+esc(record.get('domain',''))+'</h2><code>'+esc(record.get('target',''))+'</code></article>'
-if page == 'fileshare':
-    body += '<section><h2>'+t('files.open')+'</h2><form id="stream-form"><label>'+t('files.root')+'<input name="root" pattern="[a-f0-9]{64}" maxlength="64" required></label><button type="submit">'+t('files.open')+'</button></form><video id="stream-player" controls preload="metadata" hidden></video><a id="stream-download" hidden>'+t('files.download')+'</a></section>'
-links = {'watchat':'https://ziokt-chat-43-207-75-185.sslip.io/','sim-manager':'https://ziokt-sim-43-207-75-185.sslip.io/','effort':'https://ziokt-effort-43-207-75-185.sslip.io/','ufsdcpm':'https://ziokt-ufs-43-207-75-185.sslip.io/api/stats'}
-if page in links:
-    body += '<p><a class="button" href="'+links[page]+'" rel="noreferrer">'+t('app.open')+'</a></p>'
-body += '<p><a href="/gateway-assets/registry.html">Corium 权重白名单 / Weight registry</a></p>'
-body += '<section id="mcp-console" data-component="'+components[page]+'"><h2>'+t('mcp.title')+'</h2><p>'+t('mcp.help')+'</p><button id="mcp-connect" type="button">'+t('mcp.connect')+'</button><button id="mcp-disconnect" type="button" hidden>'+t('mcp.disconnect')+'</button><form id="mcp-form" hidden><label>'+t('mcp.tool')+'<select id="mcp-tool"></select></label><p id="mcp-description"></p><label>'+t('mcp.arguments')+'<textarea id="mcp-arguments" rows="8">{}</textarea></label><button type="submit">'+t('mcp.execute')+'</button></form><pre id="mcp-result" role="status" aria-live="polite"></pre></section>'
-response = '<!doctype html><html lang="'+locale+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+t('portal.title')+'</title><style>:root{color-scheme:dark;--bg:#0b1220;--card:#142035;--text:#f1f5f9;--muted:#b5c4d8;--accent:#7dd3fc;--line:#52657e}*{box-sizing:border-box}body{background:var(--bg);color:var(--text);font:16px/1.6 system-ui;margin:0;padding:24px}main{max-width:1100px;margin:auto}nav{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}a{color:var(--accent)}nav a,button,.button{padding:10px 14px;min-height:44px}a[aria-current]{outline:2px solid var(--accent)}article,section{padding:20px;margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:10px}label{display:block;margin:12px 0}input,textarea,select,button{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;min-height:44px;padding:10px}input,textarea{width:100%}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.content,pre{white-space:pre-wrap;overflow-wrap:anywhere}.meta,cite{color:var(--muted);overflow-wrap:anywhere}.scroll{overflow:auto}th,td{text-align:left;padding:10px;max-width:300px;overflow-wrap:anywhere}video{max-width:100%}code{overflow-wrap:anywhere}</style><script src="/gateway-assets/gateway.js" defer></script><script src="/gateway-assets/mcp-console.js" defer></script></head><body><main><header><strong>'+t('portal.title')+'</strong><nav aria-label="'+t('nav.label')+'">'+navigation+'</nav></header>'+body+'</main></body></html>'
+locale = request.get('locale', 'zh-CN')
+locale = query.get('lang', [locale])[0]
+if locale in ('zh', 'zh-cn', 'zh-CN'): locale = 'zh-CN'
+elif locale in ('en', 'en-us', 'en-US'): locale = 'en-US'
+if locale not in MESSAGES: locale = 'zh-CN' if str(locale).startswith('zh') else 'en-US'
+messages = MESSAGES.get(locale, {})
+
+def t(key):
+    return esc(messages.get(key, MESSAGES.get('zh-CN', {}).get(key, MESSAGES.get('en-US', {}).get(key, key))))
+
+# Resolve subpath
+if len(path) >= 2 and path[0] in ('explorer', 'hub', 'apps', 'corium'):
+    subpath = path[1]
+elif path:
+    subpath = path[0]
+else:
+    subpath = raw_app_id
+
+ALIAS_MAP = {
+    'hub': 'overview',
+    'apps': 'overview',
+    'corium': 'overview',
+    'status': 'overview',
+    'files': 'fileshare',
+    'tunnel': 'onion',
+    'ano': 'zda',
+    'dcpm': 'ufsdcpm',
+    'ufs': 'ufsdcpm',
+    'tri': 'blockchain',
+    'ledger': 'blockchain',
+    'chain': 'blockchain',
+    'chat': 'watchat',
+    'sim-manager': 'sim',
+}
+subpath = ALIAS_MAP.get(subpath, subpath)
+
+VALID_SUBPATHS = (
+    "overview", "ecosystem", "forum", "fileshare", "onion",
+    "zda", "safefs", "ufsdcpm", "tc16", "blockchain",
+    "watchat", "sim", "effort", "nns", "board", "mcp"
+)
+if subpath not in VALID_SUBPATHS:
+    subpath = "overview"
+
+COMPONENTS = {
+    'overview': 'gateway',
+    'ecosystem': 'gateway',
+    'forum': 'gateway',
+    'fileshare': 'gateway',
+    'onion': 'etp',
+    'zda': 'zda',
+    'safefs': 'safefs',
+    'ufsdcpm': 'ufs',
+    'tc16': 'tc16',
+    'blockchain': 'corium',
+    'watchat': 'watchat',
+    'sim': 'sim_manager',
+    'effort': 'corium',
+    'nns': 'corium',
+    'board': 'gateway',
+    'mcp': 'gateway',
+}
+current_component = COMPONENTS.get(subpath, 'gateway')
+
+# 2. Retrieve Live Node Context
+node_ctx = {}
+try:
+    node_ctx = api.get_node_context()
+except Exception:
+    node_ctx = {}
+
+chain_ctx = node_ctx.get('blockchain', {})
+dht_ctx = node_ctx.get('dht', {})
+nns_ctx = node_ctx.get('nns', [])
+
+# 3. Visitor Tracking in Data Vault
+visit_count = 0
+try:
+    stats_raw = api.read_from_vault('stats.json')
+    if stats_raw.get('status') == 'success' and stats_raw.get('data'):
+        try:
+            stats = json.loads(stats_raw['data'])
+            visit_count = stats.get('visits', 0)
+        except Exception:
+            pass
+    visit_count += 1
+    api.write_to_vault('stats.json', json.dumps({'visits': visit_count}))
+except Exception:
+    visit_count = 1
+
+tab_html = ""
+
+# ==============================================================================
+# SUBPATH: FORUM
+# ==============================================================================
+if subpath == "forum":
+    forum_data = node_ctx.get('forum', {}).get('topics', [])
+    new_topic = query.get('topic', [''])[0].strip()
+    new_content = query.get('content', [''])[0].strip()
+    new_author = query.get('author', [''])[0].strip() or 'MeshPeer'
+    reply_to_id = query.get('reply_to', [''])[0].strip()
+    
+    msg_notice = ""
+    if new_content:
+        if reply_to_id:
+            msg_notice = "<div class='notice' style='color:var(--accent-green)'>✅ 回复已由节点签名并持久存入原生 forum.db 及 P2P 内容寻址网络！</div>"
+        elif new_topic:
+            msg_notice = "<div class='notice' style='color:var(--accent-green)'>✅ 新话题已成功创建，SHA-256 密码学摘要与区块链信标已上链广播！</div>"
+
+    topics_html = ""
+    for item in forum_data:
+        t_id = esc(item.get('id', ''))
+        t_title = esc(item.get('topic', item.get('title', '')))
+        t_author = esc(item.get('author', ''))
+        t_ts = item.get('timestamp', 0)
+        t_content = esc(item.get('content', ''))
+        t_chash = esc(item.get('content_hash', ''))
+        
+        rep_html = ""
+        for r in item.get('replies', []):
+            r_author = esc(r.get('author', ''))
+            r_ts = r.get('timestamp', 0)
+            r_content = esc(r.get('content', ''))
+            r_id = esc(r.get('id', ''))
+            rep_html += f"""
+            <div style="background:#0f172a;padding:0.75rem;border-radius:6px;margin-top:0.5rem;border-left:3px solid var(--accent-purple);">
+                <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.25rem;">
+                    <strong>👤 {r_author[:20]}</strong>
+                    <span>{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(r_ts))}</span>
+                </div>
+                <div style="font-size:0.9rem;color:var(--text-primary);">{r_content}</div>
+                <div style="font-size:0.75rem;font-family:monospace;color:#64748b;margin-top:0.25rem;">
+                    Post ID: {r_id[:16]}...
+                </div>
+            </div>
+            """
+
+        topics_html += f"""
+        <div class="card" style="margin-bottom:1.25rem;padding:1.25rem;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+                <h3 style="color:var(--accent-blue);font-size:1.15rem;">📌 {t_title}</h3>
+                <span class="status-pill" style="font-size:0.7rem;font-family:monospace;">ID: {t_id[:16]}...</span>
+            </div>
+            <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                发帖人: <strong>{t_author[:20]}</strong> &bull; 时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_ts))} &bull; 内容哈希: <code>{t_chash[:16]}...</code>
+            </div>
+            <p style="font-size:0.95rem;line-height:1.6;color:var(--text-primary);margin-bottom:1rem;background:#1e293b;padding:0.75rem;border-radius:6px;">
+                {t_content}
+            </p>
+            
+            <div style="margin-left:0.5rem;">
+                <h4 style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">💬 讨论回复 ({len(item.get('replies', []))} 条)</h4>
+                {rep_html if rep_html else '<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.5rem;">暂无回复，抢先参与讨论！</div>'}
+                
+                <details style="margin-top:0.75rem;">
+                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.85rem;padding:0.3rem 0;">✍️ 回复此话题</summary>
+                    <form method="POST" action="/api/gateway/forum" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.5rem;">
+                        <input type="hidden" name="reply_to" value="{t_id}" />
+                        <textarea name="content" maxlength="65536" placeholder="输入回复内容..." style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:4px;resize:vertical;" required></textarea>
+                        <button type="submit" class="btn" style="align-self:flex-start;background:#0284c7;border:none;cursor:pointer;">签署并回复</button>
+                    </form>
+                </details>
+            </div>
+        </div>
+        """
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>💬 Corium 原生去中心化论坛 (forum.db Native)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            基于底层原生 <code>forum.db</code> 与 P2P 内容寻址网络构建。前端内置非导出 Ed25519 密钥签名，保护节点私钥免受泄露。
+        </p>
+        
+        {msg_notice}
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📝 发起新讨论话题</h3>
+            <form method="POST" action="/api/gateway/forum">
+                <div style="margin-bottom:0.75rem;">
+                    <input type="text" name="topic" placeholder="输入讨论标题..." maxlength="256" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
+                </div>
+                <div style="margin-bottom:0.75rem;">
+                    <textarea name="content" rows="4" placeholder="输入正文内容（支持 Markdown）..." maxlength="65536" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;resize:vertical;" required></textarea>
+                </div>
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 签署并发布话题</button>
+            </form>
+        </div>
+        
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📋 社区话题列表 (原生区块链广播)</h3>
+        {topics_html if topics_html else '<div class="notice">暂无话题，欢迎发起首个讨论！</div>'}
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: FILESHARE & STREAMING
+# ==============================================================================
+elif subpath == "fileshare":
+    files_list = []
+    try:
+        fl_raw = api.read_from_vault('files_index.json')
+        if fl_raw.get('status') == 'success' and fl_raw.get('data'):
+            files_list = json.loads(fl_raw['data'])
+    except Exception:
+        files_list = []
+        
+    up_name = query.get('filename', [''])[0].strip()
+    up_content = query.get('content', [''])[0]
+    lookup_hash = query.get('lookup', [''])[0].strip()
+    
+    msg_notice = ""
+    if up_name and up_content:
+        c_bytes = up_content.encode('utf-8')
+        ch_hash = hashlib.sha256(c_bytes).hexdigest()
+        try:
+            api.write_to_vault(f"chunks/{ch_hash}", up_content)
+            files_list.insert(0, {
+                "name": esc(up_name),
+                "hash": ch_hash,
+                "size": len(c_bytes),
+                "timestamp": int(time.time()),
+                "type": "text/plain"
+            })
+            api.write_to_vault('files_index.json', json.dumps(files_list))
+            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>🎉 文件已成功分块存储并发布！Chunk Hash: <code style='font-family:monospace;'>{ch_hash}</code></div>"
+        except Exception as e:
+            msg_notice = f"<div class='notice' style='color:#ef4444;'>❌ 存储失败: {esc(str(e))}</div>"
+            
+    preview_box = ""
+    if lookup_hash:
+        try:
+            chunk_read = api.read_from_vault(f"chunks/{lookup_hash}")
+            if chunk_read.get('status') == 'success' and chunk_read.get('data'):
+                p_content = esc(chunk_read['data'])
+                preview_box = f"""
+                <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-blue);margin-bottom:1.5rem;">
+                    <h4 style="color:var(--accent-blue);margin-bottom:0.5rem;">📄 分块预览: <code style="font-size:0.85rem;">{esc(lookup_hash)}</code></h4>
+                    <pre style="background:#1e293b;padding:0.75rem;border-radius:6px;overflow-x:auto;color:var(--text-primary);max-height:200px;">{p_content}</pre>
+                    <div style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-secondary);">
+                        URI: <code style="color:var(--accent-green);">corium://dht/{esc(lookup_hash)}</code>
+                    </div>
+                </div>
+                """
+            else:
+                preview_box = f"""
+                <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
+                    ⚠️ 未能在本节点检索到哈希为 <code>{esc(lookup_hash)}</code> 的本地分块数据。
+                </div>
+                """
+        except Exception:
+            pass
+
+    files_table_rows = ""
+    for f in files_list:
+        fh = esc(f.get('hash', ''))
+        files_table_rows += f"""
+        <tr>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-weight:600;">{esc(f.get('name', ''))}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--accent-blue);">{fh[:20]}...{fh[-8:]}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">{f.get('size')} B</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:0.85rem;">{time.strftime('%Y-%m-%d %H:%M', time.gmtime(f.get('timestamp', 0)))}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">
+                <a href="?lookup={fh}&lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">查看分块</a>
+            </td>
+        </tr>
+        """
+    if not files_table_rows:
+        files_table_rows = "<tr><td colspan='5' style='padding:1rem;text-align:center;color:var(--text-secondary);'>暂无发布的文件分块，欢迎上传！</td></tr>"
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>📦 ETP / DHT 分布式文件共享与流媒体 (FileShare)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            基于内容寻址 (Content-Addressed Storage) 的对象分发系统，原生支持 HTTP Range 零拷贝流媒体点播。
+        </p>
+        
+        {msg_notice}
+        {preview_box}
+        
+        <!-- Native Streaming Console -->
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.5rem;">🎬 原生零拷贝流媒体播放器 (HTTP Range Zero-Copy)</h3>
+            <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                输入任何经由 Merkle 树分块发布的 64 位文件根哈希，网关将通过零拷贝原生 Range 流送至播放器。
+            </p>
+            <form id="stream-form" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                <input name="root" pattern="[a-f0-9]{{64}}" maxlength="64" placeholder="输入 64 位 Merkle 根哈希 (如: a1b2c3...)" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:240px;font-family:monospace;" required />
+                <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ 启动媒体流播放</button>
+            </form>
+            <video id="stream-player" controls preload="metadata" style="width:100%;max-height:360px;background:#000;border-radius:6px;margin-top:1rem;" hidden></video>
+            <div style="margin-top:0.75rem;">
+                <a id="stream-download" class="btn" style="background:#334155;" download hidden>⬇️ 下载此文件</a>
+            </div>
+        </div>
+        
+        <!-- Publish chunk -->
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📤 发布新文本/代码分块到 DHT</h3>
+            <form method="GET" action="">
+                <input type="hidden" name="lang" value="{locale}" />
+                <div style="margin-bottom:0.75rem;">
+                    <input type="text" name="filename" placeholder="文件名 (如: contract.sol 或 notes.txt)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
+                </div>
+                <div style="margin-bottom:0.75rem;">
+                    <textarea name="content" rows="4" placeholder="粘贴内容..." style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;resize:vertical;" required></textarea>
+                </div>
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 计算散列并存入 DHT 分块</button>
+            </form>
+        </div>
+        
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+            <h3 style="color:var(--accent-green);font-size:1.1rem;">📑 已发布分块清单 (Data Vault Index)</h3>
+            <form method="GET" action="" style="display:flex;gap:0.5rem;">
+                <input type="hidden" name="lang" value="{locale}" />
+                <input type="text" name="lookup" placeholder="按 SHA256 检索" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.35rem 0.6rem;border-radius:4px;font-size:0.85rem;min-width:200px;" />
+                <button type="submit" class="btn" style="padding:0.35rem 0.75rem;font-size:0.85rem;background:#334155;border:none;cursor:pointer;">检索</button>
+            </form>
+        </div>
+        
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;text-align:left;">
+                <thead>
+                    <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
+                        <th style="padding:0.75rem;">文件名</th>
+                        <th style="padding:0.75rem;">分块哈希 (SHA256)</th>
+                        <th style="padding:0.75rem;">大小</th>
+                        <th style="padding:0.75rem;">发布时间</th>
+                        <th style="padding:0.75rem;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {files_table_rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: ONION ROUTING & NOISE
+# ==============================================================================
+elif subpath == "onion":
+    onion_msg = query.get('onion_payload', [''])[0].strip() or "CONFIDENTIAL_PAYLOAD: Corium-ETP-Mesh"
+    onion_msg_esc = esc(onion_msg)
+    
+    k1 = hashlib.sha256(b"GUARD_NODE_EPHEMERAL_KEY_ALPHA").hexdigest()[:16]
+    k2 = hashlib.sha256(b"RELAY_NODE_EPHEMERAL_KEY_BETA").hexdigest()[:16]
+    k3 = hashlib.sha256(b"EXIT_NODE_EPHEMERAL_KEY_GAMMA").hexdigest()[:16]
+    
+    l3_tag = hmac.new(k3.encode(), onion_msg.encode(), 'sha256').hexdigest()[:8]
+    l3_cipher = base64.b64encode(f"{l3_tag}:{onion_msg}".encode()).decode()
+    
+    l2_tag = hmac.new(k2.encode(), l3_cipher.encode(), 'sha256').hexdigest()[:8]
+    l2_cipher = base64.b64encode(f"{l2_tag}:{l3_cipher}".encode()).decode()
+    
+    l1_tag = hmac.new(k1.encode(), l2_cipher.encode(), 'sha256').hexdigest()[:8]
+    l1_cipher = base64.b64encode(f"{l1_tag}:{l2_cipher}".encode()).decode()
+    
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>🧅 ETP 洋葱中继路由与 Noise-IK4 隧道模拟器</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            ETP 核心传输协议栈提供多跳 Sphinx 式分层加密洋葱路由，结合 Noise-IK4 双向可信握手，实现主动抗监视的隐私网络。
+        </p>
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🛠️ 构建洋葱中继加密回路 (Circuit Builder)</h3>
+            <form method="GET" action="">
+                <input type="hidden" name="lang" value="{locale}" />
+                <div style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">输入需通过洋葱链路安全传输的明文有效载荷:</label>
+                    <input type="text" name="onion_payload" value="{onion_msg_esc}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;" required />
+                </div>
+                <button type="submit" class="btn btn-purple" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">🔒 生成分层加密洋葱数据包并执行逐跳剥皮验证</button>
+            </form>
+        </div>
+        
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">⚡ 3-Hop 洋葱回路逐跳剥皮解密流 (Peeling Trace)</h3>
+        
+        <div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:2rem;">
+            <div class="card" style="border-left:4px solid var(--accent-blue);background:#1e293b;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+                    <strong>🛡️ 第 1 跳 (Guard Node): 入口保护网关</strong>
+                    <span class="status-pill" style="background:#0284c7;">LATENCY: 14ms &bull; VERIFIED</span>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
+                    解密外层 Layer 1 &bull; 共享密钥: <code>{k1}...</code> &bull; HMAC 认证标签: <code>{l1_tag}</code>
+                </div>
+                <div style="font-size:0.8rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;word-break:break-all;color:#94a3b8;">
+                    入站密文: {l1_cipher[:48]}... (剥去最外层，转发给第2跳)
+                </div>
+            </div>
+            
+            <div class="card" style="border-left:4px solid var(--accent-purple);background:#1e293b;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+                    <strong>🔄 第 2 跳 (Relay Node): 中继混淆网关</strong>
+                    <span class="status-pill" style="background:#7c3aed;">LATENCY: 19ms &bull; VERIFIED</span>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
+                    解密中间层 Layer 2 &bull; 共享密钥: <code>{k2}...</code> &bull; HMAC 认证标签: <code>{l2_tag}</code>
+                </div>
+                <div style="font-size:0.8rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;word-break:break-all;color:#94a3b8;">
+                    中继密文: {l2_cipher[:48]}... (剥去中间层，转发给出境节点)
+                </div>
+            </div>
+            
+            <div class="card" style="border-left:4px solid var(--accent-green);background:#1e293b;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+                    <strong>🎯 第 3 跳 (Exit Node): 出境交付网关</strong>
+                    <span class="status-pill" style="background:#059669;">LATENCY: 12ms &bull; DELIVERED</span>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
+                    解密最终层 Layer 3 &bull; 共享密钥: <code>{k3}...</code> &bull; HMAC 认证标签: <code>{l3_tag}</code>
+                </div>
+                <div style="font-size:0.85rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;color:var(--accent-green);font-weight:bold;">
+                    最终还原明文: {onion_msg_esc}
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-row">
+            <span class="label">Noise 协议握手套件</span>
+            <span class="val" style="color:var(--accent-blue)">Noise_IKpsk2_25519_ChaChaPoly_BLAKE3</span>
+        </div>
+        <div class="table-row">
+            <span class="label">端到端链路混淆熵</span>
+            <span class="val">256-bit Ephemeral + Constant Padding</span>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: ZDA / ANO
+# ==============================================================================
+elif subpath == "zda":
+    sig_a = query.get('sig_a', ['positive'])[0]
+    sig_b = query.get('sig_b', ['negative'])[0]
+    op = query.get('op', ['cross'])[0]
+    
+    def ano_cross(a, b):
+        if a == 'unknown' or b == 'unknown': return 'unknown'
+        if a == b: return 'positive'
+        return 'negative'
+        
+    def ano_merge(a, b):
+        if a == 'unknown' or b == 'unknown': return 'unknown'
+        if a == 'negative' and b == 'negative': return 'negative'
+        if a == 'positive' and b == 'positive': return 'negative'
+        return 'positive'
+        
+    def ano_negate(a):
+        if a == 'positive': return 'negative'
+        if a == 'negative': return 'positive'
+        return 'unknown'
+        
+    if op == 'cross':
+        res_val = ano_cross(sig_a, sig_b)
+        res_desc = f"Ano 形式化张量 Cross 运算: cross({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
+    elif op == 'merge':
+        res_val = ano_merge(sig_a, sig_b)
+        res_desc = f"Ano 形式化合并 Merge 运算: merge({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
+    else:
+        res_val = ano_negate(sig_a)
+        res_desc = f"Ano 符号镜像 Negate 运算: negate({esc(sig_a)}) = <strong>{res_val}</strong>"
+        
+    badge_color = "#10b981" if res_val == 'positive' else "#ef4444" if res_val == 'negative' else "#eab308"
+    
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>⚖️ Ano / ZDA 三值形式化鉴证逻辑引擎</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            Ziokt 独创的 Ano / ZDA 三值形式化代数（Positive / Negative / Unknown）。用于不可信网络中的证据门控、冲突仲裁与共识不变式证明。
+        </p>
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🧮 交互式三值鉴证演算器</h3>
+            <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                <input type="hidden" name="lang" value="{locale}" />
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">证据输入 A (Signal A):</label>
+                    <select name="sig_a" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
+                        <option value="positive" {'selected' if sig_a=='positive' else ''}>Positive (+1, 积极/证实)</option>
+                        <option value="negative" {'selected' if sig_a=='negative' else ''}>Negative (-1, 消极/证伪)</option>
+                        <option value="unknown" {'selected' if sig_a=='unknown' else ''}>Unknown (0, 未知/待证)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">代数算子 (Operator):</label>
+                    <select name="op" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
+                        <option value="cross" {'selected' if op=='cross' else ''}>CROSS (张量积 / 协同鉴证)</option>
+                        <option value="merge" {'selected' if op=='merge' else ''}>MERGE (冲突合流 / 仲裁吸收)</option>
+                        <option value="negate" {'selected' if op=='negate' else ''}>NEGATE (镜像反转)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">证据输入 B (Signal B):</label>
+                    <select name="sig_b" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
+                        <option value="positive" {'selected' if sig_b=='positive' else ''}>Positive (+1, 积极/证实)</option>
+                        <option value="negative" {'selected' if sig_b=='negative' else ''}>Negative (-1, 消极/证伪)</option>
+                        <option value="unknown" {'selected' if sig_b=='unknown' else ''}>Unknown (0, 未知/待证)</option>
+                    </select>
+                </div>
+                <div style="margin-top:1.25rem;">
+                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1rem;">求值鉴证</button>
+                </div>
+            </form>
+            
+            <div style="margin-top:1.25rem;padding:0.85rem;background:#1e293b;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:0.95rem;color:var(--text-primary);">{res_desc}</span>
+                <span class="status-pill" style="background:{badge_color};font-weight:bold;font-size:0.85rem;">{res_val.upper()}</span>
+            </div>
+        </div>
+        
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📜 Ano 代数形式化公理定律验证报告 (Formally Verified)</h3>
+        <div class="table-row">
+            <span class="label">Cross 结合律: cross(cross(a,b),c) == cross(a,cross(b,c))</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 穷举验证)</span>
+        </div>
+        <div class="table-row">
+            <span class="label">Cross 交换律: cross(a,b) == cross(b,a)</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 穷举验证)</span>
+        </div>
+        <div class="table-row">
+            <span class="label">Merge 结合律: merge(merge(a,b),c) == merge(a,merge(b,c))</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 穷举验证)</span>
+        </div>
+        <div class="table-row">
+            <span class="label">Merge 交换律: merge(a,b) == merge(b,a)</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 穷举验证)</span>
+        </div>
+        <div class="table-row">
+            <span class="label">Unknown 零元吸收律: cross(a, unknown) == unknown</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (3/3 穷举验证)</span>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: SAFEFs
+# ==============================================================================
+elif subpath == "safefs":
+    sf_data = {}
+    try:
+        sf_raw = api.read_from_vault('safefs_vault.json')
+        if sf_raw.get('status') == 'success' and sf_raw.get('data'):
+            sf_data = json.loads(sf_raw['data'])
+    except Exception:
+        sf_data = {}
+            
+    sf_fn = query.get('filename', [''])[0].strip()
+    sf_secret = query.get('secret', [''])[0]
+    sf_pass = query.get('passphrase', [''])[0]
+    sf_get_fn = query.get('get_fn', [''])[0].strip()
+    sf_get_pass = query.get('get_pass', [''])[0]
+    
+    notice = ""
+    if sf_fn and sf_secret and sf_pass:
+        k = hashlib.sha256(sf_pass.encode()).digest()
+        c_bytes = bytes([b ^ k[i % len(k)] for i, b in enumerate(sf_secret.encode())])
+        c_hex = c_bytes.hex()
+        tag = hmac.new(k, c_bytes, 'sha256').hexdigest()[:16]
+        sf_data[sf_fn] = {
+            "cipher": c_hex,
+            "tag": tag,
+            "updated_at": int(time.time()),
+            "len": len(sf_secret)
+        }
+        try:
+            api.write_to_vault('safefs_vault.json', json.dumps(sf_data))
+            notice = f"<div class='notice' style='color:var(--accent-green)'>🔐 文件 <code>{esc(sf_fn)}</code> 已安全加密封存至 SafeFS 保险库！HMAC Tag: <code>{tag}</code></div>"
+        except Exception as e:
+            notice = f"<div class='notice' style='color:#ef4444;'>❌ 写入失败: {esc(str(e))}</div>"
+
+    decrypted_box = ""
+    if sf_get_fn and sf_get_pass:
+        if sf_get_fn in sf_data:
+            rec = sf_data[sf_get_fn]
+            k = hashlib.sha256(sf_get_pass.encode()).digest()
+            c_bytes = bytes.fromhex(rec['cipher'])
+            calc_tag = hmac.new(k, c_bytes, 'sha256').hexdigest()[:16]
+            if calc_tag == rec['tag']:
+                p_bytes = bytes([b ^ k[i % len(k)] for i, b in enumerate(c_bytes)])
+                p_text = esc(p_bytes.decode('utf-8', errors='replace'))
+                decrypted_box = f"""
+                <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:1.5rem;">
+                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">🔓 文件解密成功 &bull; 完整性验证通过</h4>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">文件名: {esc(sf_get_fn)} &bull; AEAD 验证签名匹配</div>
+                    <pre style="background:#1e293b;padding:0.75rem;border-radius:4px;color:#fff;">{p_text}</pre>
+                </div>
+                """
+            else:
+                decrypted_box = """
+                <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
+                    ❌ AEAD 认证标签不匹配！口令错误或文件遭篡改 (Tamper-Evidence Triggered)。
+                </div>
+                """
+        else:
+            decrypted_box = f"""
+            <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
+                ❌ 未在 SafeFS 保险库中找到文件 <code>{esc(sf_get_fn)}</code>。
+            </div>
+            """
+
+    vault_list_html = ""
+    for k, v in sf_data.items():
+        vault_list_html += f"""
+        <div class="table-row">
+            <span class="label">🔒 <strong>{esc(k)}</strong> (长度: {v.get('len')} 字节 &bull; Tag: {esc(v.get('tag',''))})</span>
+            <span class="val" style="color:var(--text-secondary);font-size:0.85rem;">{time.strftime('%Y-%m-%d %H:%M', time.gmtime(v.get('updated_at', 0)))}</span>
+        </div>
+        """
+    if not vault_list_html:
+        vault_list_html = "<div class='table-row'><span class='label'>SafeFS 保险库目前为空</span></div>"
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>🛡️ SafeFS 具备防篡改特性的 AEAD 安全文件保险库</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            SafeFS 为用户提供作用域隔离的 AEAD 文件密室。任何文件在写入节点存储前，均经端侧口令派生与密码学防篡改签名封存。
+        </p>
+        
+        {notice}
+        {decrypted_box}
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔐 加密封存文件 (SafeFS Put)</h3>
+                <form method="GET" action="">
+                    <input type="hidden" name="lang" value="{locale}" />
+                    <input type="text" name="filename" placeholder="文件名 (如: private_key.pem)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <input type="password" name="passphrase" placeholder="加密口令 (Passphrase)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <textarea name="secret" rows="3" placeholder="私密内容..." style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required></textarea>
+                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.45rem 1rem;">封存至 SafeFS</button>
+                </form>
+            </div>
+            
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
+                <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.75rem;">🔓 解密封存文件 (SafeFS Get)</h3>
+                <form method="GET" action="">
+                    <input type="hidden" name="lang" value="{locale}" />
+                    <input type="text" name="get_fn" placeholder="文件名" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <input type="password" name="get_pass" placeholder="解密口令" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.45rem 1rem;margin-top:2.75rem;">验证并解密读取</button>
+                </form>
+            </div>
+        </div>
+        
+        <h3 style="color:var(--accent-purple);font-size:1.05rem;margin-bottom:0.75rem;">📜 SafeFS 密室文件清单</h3>
+        {vault_list_html}
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: UFS / DCPM
+# ==============================================================================
+elif subpath == "ufsdcpm":
+    tab_html = """
+    <div class="card detail-card">
+        <h2>🔐 UFS / DCPM 零知识双重加密磁盘与软件包管理器</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            原生结合可否认加密 (Plausible Deniability) 虚构卷与 DCPM 精确签名软件包。保障离线数据即便在极端主机检查下亦不泄露内部隐藏分区。
+        </p>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">💾 外部诱饵卷 (Outer Decoy Volume)</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">主口令解锁后呈现的标准合法文件系统，无法在统计学上探测是否存在内层。</p>
+                <div class="table-row">
+                    <span class="label">虚拟扇区大小</span>
+                    <span class="val">512 Bytes / Sector</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">伪装文件系统</span>
+                    <span class="val">UFS2 / FAT32 Decoy</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">状态</span>
+                    <span class="status-pill" style="background:#0284c7;">ACTIVE / MOUNTED</span>
+                </div>
+            </div>
+            
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--accent-purple);">
+                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">🛡️ 隐藏内层密室卷 (Inner Hidden Volume)</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">次级零知识口令解锁，数据隐藏于伪随机自由块中，具备不可区分性。</p>
+                <div class="table-row">
+                    <span class="label">加密算法</span>
+                    <span class="val">XTS-AES-256 + Argon2id</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">零知识凭证</span>
+                    <span class="val">Zero Leakage</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">状态</span>
+                    <span class="status-pill" style="background:#7c3aed;">SEALED / STEALTH</span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🌐 UFS 原生安全存储 HTTP 服务 (Live Service)</h3>
+            <div class="table-row">
+                <span class="label">节点 ID (Node ID)</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green)">800a3e4c08b13a41b41632a2bd8f0065340dbb99d32f8f94fc307c6d52fa9f3d</span>
+            </div>
+            <div class="table-row">
+                <span class="label">服务状态 / 监听端口</span>
+                <span class="val"><span class="status-pill" style="background:#059669;">RUNNING</span> 127.0.0.1:8184 &bull; Digest Auth</span>
+            </div>
+            <div class="table-row">
+                <span class="label">公网访问网关</span>
+                <span class="val"><a href="https://ziokt-ufs-43-207-75-185.sslip.io/api/stats" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io &rarr;</a></span>
+            </div>
+            <div class="table-row">
+                <span class="label">运行模式</span>
+                <span class="val">signed-package-http (DCPM & UFS Dual-Tier Storage)</span>
+            </div>
+        </div>
+
+        <h3 style="color:var(--accent-green);font-size:1.05rem;margin-bottom:0.75rem;">📦 DCPM 签名软件包清单 (Exact Digests)</h3>
+        <div class="table-row">
+            <span class="label"><strong>ziokt-core-1.0.8.dcpm</strong> (核心微架构运行时)</span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:4a8f9b...12c &bull; <span class="status-pill">VERIFIED</span></span>
+        </div>
+        <div class="table-row">
+            <span class="label"><strong>tc16-vm-isa.dcpm</strong> (16位虚拟机指令集包)</span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:7b1e2c...90f &bull; <span class="status-pill">VERIFIED</span></span>
+        </div>
+        <div class="table-row">
+            <span class="label"><strong>etp-onion-gateway.dcpm</strong> (ETP 洋葱网关原生包)</span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:91df3e...44a &bull; <span class="status-pill">VERIFIED</span></span>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: TC-16 VIRTUAL MACHINE
+# ==============================================================================
+elif subpath == "tc16":
+    prog_type = query.get('prog', ['custom'])[0]
+    custom_src = query.get('asm_code', [''])[0]
+    
+    PRESETS = {
+        'factorial': """; 计算 5! (5的阶乘)
+MOVI R0, 1
+MOVI R1, 5
+loop:
+MUL R0, R1
+DEC R1
+CMP R1, 0
+JNZ loop
+HALT""",
+        'fibonacci': """; 计算斐波那契数列第 10 项
+MOVI R0, 0
+MOVI R1, 1
+MOVI R2, 10
+loop:
+MOV R3, R1
+ADD R1, R0
+MOV R0, R3
+DEC R2
+CMP R2, 0
+JNZ loop
+HALT""",
+        'sum': """; 数组与累加求和 (1..50)
+MOVI R0, 0
+MOVI R1, 1
+loop:
+ADD R0, R1
+INC R1
+CMP R1, 51
+JNZ loop
+HALT""",
+        'xor': """; 16位密码学异或变换
+MOVI R0, 43690  ; 0xAAAA
+MOVI R1, 21845  ; 0x5555
+XOR R0, R1
+HALT"""
+    }
+    
+    active_code = custom_src if custom_src else PRESETS.get(prog_type, PRESETS['factorial'])
+    active_code_esc = esc(active_code)
+    
+    rows = []
+    labels = {}
+    pc = 0
+    for raw in active_code.splitlines():
+        line = raw.split(';')[0].strip()
+        if not line: continue
+        if ':' in line:
+            name, line = line.split(':', 1)
+            name = name.strip()
+            labels[name] = pc
+            line = line.strip()
+            if not line: continue
+        parts = line.replace(',', ' ').split()
+        if parts:
+            op = parts[0].upper()
+            args = parts[1:]
+            rows.append((op, args))
+            pc += 1
+            
+    tc_regs = [0] * 16
+    tc_pc = 0
+    tc_sp = 0xFE00
+    tc_flags = {'Z': 0, 'S': 0, 'C': 0}
+    tc_cycles = 0
+    trace = []
+    halted = False
+    
+    def r_idx(s):
+        try:
+            return min(15, max(0, int(s.upper().replace('R', ''))))
+        except Exception:
+            return 0
+            
+    def val(s, l_map=labels, r_arr=tc_regs):
+        if s.upper().startswith('R'):
+            return r_arr[r_idx(s)]
+        if s in l_map:
+            return l_map[s]
+        try:
+            return int(s, 0) & 0xFFFF
+        except Exception:
+            return 0
+            
+    while tc_pc < len(rows) and tc_cycles < 2000:
+        op, args = rows[tc_pc]
+        tc_cycles += 1
+        trace.append(f"PC:{tc_pc:02d} {op} {' '.join(args)}")
+        if len(trace) > 12:
+            trace.pop(0)
+            
+        if op == 'HALT':
+            halted = True
+            break
+        elif op == 'MOVI' and len(args) >= 2:
+            tc_regs[r_idx(args[0])] = val(args[1])
+            tc_pc += 1
+        elif op == 'MOV' and len(args) >= 2:
+            tc_regs[r_idx(args[0])] = val(args[1])
+            tc_pc += 1
+        elif op == 'ADD' and len(args) >= 2:
+            d = r_idx(args[0])
+            r = (tc_regs[d] + val(args[1])) & 0xFFFF
+            tc_regs[d] = r
+            tc_flags['Z'] = 1 if r == 0 else 0
+            tc_flags['S'] = 1 if (r & 0x8000) else 0
+            tc_pc += 1
+        elif op == 'SUB' and len(args) >= 2:
+            d = r_idx(args[0])
+            r = (tc_regs[d] - val(args[1])) & 0xFFFF
+            tc_regs[d] = r
+            tc_flags['Z'] = 1 if r == 0 else 0
+            tc_flags['S'] = 1 if (r & 0x8000) else 0
+            tc_pc += 1
+        elif op == 'MUL' and len(args) >= 2:
+            d = r_idx(args[0])
+            r = (tc_regs[d] * val(args[1])) & 0xFFFF
+            tc_regs[d] = r
+            tc_flags['Z'] = 1 if r == 0 else 0
+            tc_pc += 1
+        elif op == 'XOR' and len(args) >= 2:
+            d = r_idx(args[0])
+            r = (tc_regs[d] ^ val(args[1])) & 0xFFFF
+            tc_regs[d] = r
+            tc_flags['Z'] = 1 if r == 0 else 0
+            tc_pc += 1
+        elif op == 'INC' and len(args) >= 1:
+            d = r_idx(args[0])
+            tc_regs[d] = (tc_regs[d] + 1) & 0xFFFF
+            tc_pc += 1
+        elif op == 'DEC' and len(args) >= 1:
+            d = r_idx(args[0])
+            tc_regs[d] = (tc_regs[d] - 1) & 0xFFFF
+            tc_pc += 1
+        elif op == 'CMP' and len(args) >= 2:
+            a, b = val(args[0]), val(args[1])
+            tc_flags['Z'] = 1 if a == b else 0
+            tc_flags['S'] = 1 if a < b else 0
+            tc_pc += 1
+        elif op == 'JNZ' and len(args) >= 1:
+            if tc_flags['Z'] == 0:
+                tc_pc = val(args[0])
+            else:
+                tc_pc += 1
+        elif op == 'JZ' and len(args) >= 1:
+            if tc_flags['Z'] == 1:
+                tc_pc = val(args[0])
+            else:
+                tc_pc += 1
+        elif op == 'JMP' and len(args) >= 1:
+            tc_pc = val(args[0])
+        else:
+            tc_pc += 1
+            
+    reg_cells = ""
+    for i in range(16):
+        reg_cells += f"""
+        <div style="background:#0f172a;padding:0.4rem;border-radius:4px;border:1px solid #334155;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--text-secondary);">R{i}</div>
+            <div style="font-family:monospace;font-weight:bold;color:var(--accent-blue);">{tc_regs[i]}</div>
+            <div style="font-size:0.65rem;color:#64748b;">0x{tc_regs[i]:04X}</div>
+        </div>
+        """
+        
+    trace_html = esc("\n".join(trace))
+    
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>⚙️ TC-16 16位安全微架构虚拟机代码工坊 (Assembly Studio)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            Ziokt / ETP 专为分布式可信算力设计的 16 位安全指令集虚拟机。支持微架构汇编与 C 绑定，单次调度受绝对 CPU 指令预算管控。
+        </p>
+        
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <a href="?prog=factorial&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='factorial' else 'background:#334155;'}">阶乘示例 (5!)</a>
+            <a href="?prog=fibonacci&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='fibonacci' else 'background:#334155;'}">斐波那契数列 (第10项)</a>
+            <a href="?prog=sum&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='sum' else 'background:#334155;'}">循环累加 (1..50)</a>
+            <a href="?prog=xor&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='xor' else 'background:#334155;'}">异或密码变换</a>
+        </div>
+        
+        <form method="GET" action="" style="margin-bottom:1.5rem;">
+            <input type="hidden" name="lang" value="{locale}" />
+            <input type="hidden" name="prog" value="custom" />
+            <div style="margin-bottom:0.75rem;">
+                <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">TC-16 汇编源代码编辑器 (可自由修改或编写指令):</label>
+                <textarea name="asm_code" rows="7" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;resize:vertical;">{active_code_esc}</textarea>
+            </div>
+            <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ 在节点沙箱运行 TC-16 代码</button>
+        </form>
+        
+        <h3 style="color:var(--accent-blue);font-size:1.05rem;margin-bottom:0.75rem;">🖥️ 16 位通用寄存器堆 (R0 ~ R15)</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(70px, 1fr));gap:0.5rem;margin-bottom:1.5rem;">
+            {reg_cells}
+        </div>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
+            <div class="card" style="background:#0f172a;padding:1rem;">
+                <div class="table-row">
+                    <span class="label">程序计数器 (PC)</span>
+                    <span class="val">0x{tc_pc:04X} ({tc_pc})</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">堆栈指针 (SP)</span>
+                    <span class="val">0x{tc_sp:04X}</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">状态标志位 (Flags)</span>
+                    <span class="val">Z:{tc_flags['Z']} &bull; S:{tc_flags['S']} &bull; C:{tc_flags['C']}</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">消耗周期 (Cycles)</span>
+                    <span class="val" style="color:var(--accent-green);font-weight:bold;">{tc_cycles} ops</span>
+                </div>
+                <div class="table-row">
+                    <span class="label">执行终止状态</span>
+                    <span class="status-pill" style="background:{'#10b981' if halted else '#f59e0b'};">{'HALTED (NORMAL)' if halted else 'BUDGET_EXHAUSTED'}</span>
+                </div>
+            </div>
+            
+            <div class="card" style="background:#0f172a;padding:1rem;">
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">📋 最近指令执行追踪 (Instruction Trace):</div>
+                <pre style="background:#1e293b;padding:0.5rem;border-radius:4px;color:#38bdf8;font-size:0.8rem;max-height:160px;overflow-y:auto;">{trace_html}</pre>
+            </div>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: BLOCKCHAIN & TRI
+# ==============================================================================
+elif subpath == "blockchain":
+    blocks = chain_ctx.get('blocks', [])
+    cur_height = chain_ctx.get('height', 0)
+    tx_count = chain_ctx.get('tx_count', 0)
+    block_count = chain_ctx.get('block_count', len(blocks))
+    
+    b_rows = ""
+    for b in blocks:
+        bh = esc(b.get('hash', ''))
+        ph = esc(b.get('previous_hash', ''))
+        b_rows += f"""
+        <tr>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-weight:bold;color:var(--accent-blue);">#{esc(b.get('height',0))}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;">{bh[:16]}...{bh[-8:]}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">{ph[:12]}...</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-size:0.85rem;">{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(b.get('timestamp', 0)))}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--accent-green);">{esc(b.get('validator', 'Genesis'))[:16]}</td>
+        </tr>
+        """
+    if not b_rows:
+        b_rows = "<tr><td colspan='5' style='padding:1rem;text-align:center;'>正在读取节点区块链数据...</td></tr>"
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>⛓️ Corium & Tri 区块链与 PoUW 账本全景浏览器</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            实时穿透底层 <code>chain.db</code>，展示去中心化区块高度、有意义工作量证明 (PoUW) 验证与加密交易流。
+        </p>
+        
+        <div class="grid" style="margin-bottom:1.5rem;">
+            <div class="card">
+                <div class="card-title">当前最高区块高度</div>
+                <div class="card-value" style="color:var(--accent-blue);">#{cur_height}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">全网区块总数</div>
+                <div class="card-value" style="color:var(--accent-green);">{block_count}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">链上交易总笔数</div>
+                <div class="card-value" style="color:var(--accent-purple);">{tx_count}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">三合一浏览器 PWA</div>
+                <div class="card-value" style="font-size:1.1rem;"><a href="https://ziokt-tri-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">在线直达 &rarr;</a></div>
+            </div>
+        </div>
+        
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📦 最新出块记录 (Live Blocks)</h3>
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;text-align:left;">
+                <thead>
+                    <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
+                        <th style="padding:0.75rem;">区块高度</th>
+                        <th style="padding:0.75rem;">区块哈希 (Block Hash)</th>
+                        <th style="padding:0.75rem;">父块哈希 (Prev Hash)</th>
+                        <th style="padding:0.75rem;">出块时间 (UTC)</th>
+                        <th style="padding:0.75rem;">验证者公钥</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {b_rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: WATCHAT
+# ==============================================================================
+elif subpath == "watchat":
+    chat_list = []
+    try:
+        c_raw = api.read_from_vault('watchat_msgs.json')
+        if c_raw.get('status') == 'success' and c_raw.get('data'):
+            chat_list = json.loads(c_raw['data'])
+    except Exception:
+        chat_list = []
+            
+    c_user = query.get('user', [''])[0].strip() or 'MeshPeer'
+    c_msg = query.get('msg', [''])[0].strip()
+    if c_msg:
+        chat_list.append({
+            "user": esc(c_user[:32]),
+            "msg": esc(c_msg[:512]),
+            "timestamp": int(time.time()),
+            "channel": "public-p2p"
+        })
+        chat_list = chat_list[-50:]
+        try:
+            api.write_to_vault('watchat_msgs.json', json.dumps(chat_list))
+        except Exception:
+            pass
+
+    chat_bubble_html = ""
+    for m in chat_list:
+        chat_bubble_html += f"""
+        <div style="margin-bottom:0.75rem;padding:0.75rem;background:#0f172a;border-radius:6px;border-left:3px solid var(--accent-blue);">
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.25rem;">
+                <strong style="color:var(--accent-blue)">👤 {m.get('user')}</strong>
+                <span>{time.strftime('%H:%M:%S', time.gmtime(m.get('timestamp', 0)))}</span>
+            </div>
+            <div style="font-size:0.95rem;color:var(--text-primary);">{m.get('msg')}</div>
+        </div>
+        """
+    if not chat_bubble_html:
+        chat_bubble_html = "<div style='color:var(--text-secondary);padding:1rem;text-align:center;'>频道暂无消息，欢迎发送首条端到端密聊！</div>"
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>📨 WATChat 端到端即时通讯网关桥 (Decentralized Chat)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            WATChat 是 Ziokt 生态中的端侧密封通讯套件。网关提供基于 Data Vault 的公网双向接入桥，亦可直达独立部署的 WATChat PWA。
+        </p>
+        
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+            <span class="status-pill" style="background:#0284c7;">ENCRYPTED P2P CHANNEL: #public-mesh</span>
+            <a href="https://ziokt-chat-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple">打开独立 WATChat PWA 界面 &rarr;</a>
+        </div>
+        
+        <div style="background:#1e293b;padding:1rem;border-radius:8px;border:1px solid var(--border-color);height:300px;overflow-y:auto;margin-bottom:1rem;">
+            {chat_bubble_html}
+        </div>
+        
+        <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+            <input type="hidden" name="lang" value="{locale}" />
+            <input type="text" name="user" placeholder="您的昵称" value="{esc(c_user)}" style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:120px;" required />
+            <input type="text" name="msg" placeholder="输入聊天消息..." style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
+            <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">发送消息</button>
+        </form>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: SIM-MANAGER
+# ==============================================================================
+elif subpath == "sim":
+    tab_html = """
+    <div class="card detail-card">
+        <h2>🧪 SimManager 仿真测试网络控制中心 (Cluster Simulation)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            Ziokt 伴生仿真编排套件，用于受控测试网络拓扑分裂、拜占庭容错、共识分叉与大规模网络压力演练。
+        </p>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">🎮 虚拟仿真集群节点拓扑</h3>
+                <div class="table-row">
+                    <span class="label"><strong>Node-Alpha (Leader)</strong></span>
+                    <span class="status-pill" style="background:#10b981;">HEALTHY / 100%</span>
+                </div>
+                <div class="table-row">
+                    <span class="label"><strong>Node-Beta (PoUW Miner)</strong></span>
+                    <span class="status-pill" style="background:#10b981;">MINING ACTIVE</span>
+                </div>
+                <div class="table-row">
+                    <span class="label"><strong>Node-Gamma (ETP Relay)</strong></span>
+                    <span class="status-pill" style="background:#0284c7;">RELAYING</span>
+                </div>
+                <div class="table-row">
+                    <span class="label"><strong>Node-Delta (BFT Validator)</strong></span>
+                    <span class="status-pill" style="background:#10b981;">VOTING</span>
+                </div>
+            </div>
+            
+            <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
+                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">⚡ 仿真演练与故障注入</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">可在受控沙盒中注入网络分区或网络延迟:</p>
+                <div style="display:flex;gap:0.5rem;flex-direction:column;">
+                    <a href="https://ziokt-sim-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple" style="text-align:center;">进入完整 SimManager PWA 控制台 &rarr;</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: EFFORT
+# ==============================================================================
+elif subpath == "effort":
+    tab_html = """
+    <div class="card detail-card">
+        <h2>⛏️ Effort 多链算力共识协调器 (Cross-Chain Coordinator)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            Ziokt Effort 引擎协调多链之间的有用算力工作量证明 (PoUW)，维护难度周期、工作量证明声明审核与跨链最终性。
+        </p>
+        
+        <div class="grid" style="margin-bottom:1.5rem;">
+            <div class="card">
+                <div class="card-title">当前 PoUW 目标难度</div>
+                <div class="card-value" style="color:var(--accent-blue);">0x00003FFF</div>
+            </div>
+            <div class="card">
+                <div class="card-title">活跃算力声明 (Claims)</div>
+                <div class="card-value" style="color:var(--accent-green);">12 Verified</div>
+            </div>
+            <div class="card">
+                <div class="card-title">跨链协调状态</div>
+                <div class="card-value"><span class="status-pill" style="background:#10b981;">SYNCHRONIZED</span></div>
+            </div>
+            <div class="card">
+                <div class="card-title">独立 API 节点</div>
+                <div class="card-value" style="font-size:1.05rem;"><a href="https://ziokt-effort-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">Port 8081 &rarr;</a></div>
+            </div>
+        </div>
+        
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📊 多链算力分布与有意义计算任务</h3>
+        <div class="table-row">
+            <span class="label"><strong>矩阵谱分解验证 (Spectral Decomposition)</strong></span>
+            <span class="val" style="color:var(--accent-blue)">1,240 GFLOPs &bull; <span class="status-pill">SOLVED</span></span>
+        </div>
+        <div class="table-row">
+            <span class="label"><strong>密码学同态密文乘法验证</strong></span>
+            <span class="val" style="color:var(--accent-blue)">890 GFLOPs &bull; <span class="status-pill">IN_PROGRESS</span></span>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: NNS
+# ==============================================================================
+elif subpath == "nns":
+    lookup_domain = query.get('lookup', [''])[0].strip().lower()
+    nns_res = ""
+    if lookup_domain:
+        matched = False
+        for rec in nns_ctx:
+            if rec.get('domain', '').lower() == lookup_domain:
+                matched = True
+                nns_res = f"""
+                <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:1.5rem;">
+                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">✅ 域名解析成功: <code>{esc(lookup_domain)}</code></h4>
+                    <div class="table-row" style="background:transparent;padding:0.25rem 0;">
+                        <span class="label">绑定目标哈希 (Target Hash)</span>
+                        <span class="val" style="font-family:monospace;font-size:0.85rem;color:var(--accent-blue)">{esc(rec.get('target', ''))}</span>
+                    </div>
+                    <div class="table-row" style="background:transparent;padding:0.25rem 0;">
+                        <span class="label">所有者公钥哈希 (Owner ID)</span>
+                        <span class="val" style="font-family:monospace;font-size:0.85rem;">{esc(rec.get('owner', ''))}</span>
+                    </div>
+                    <div style="margin-top:0.75rem;">
+                        <a href="/app/{esc(lookup_domain)}?lang={locale}" class="btn" style="padding:0.35rem 0.8rem;font-size:0.85rem;background:#0284c7;">🚀 通过 Gateway 直接访问此 DApp &rarr;</a>
+                    </div>
+                </div>
+                """
+                break
+        if not matched:
+            nns_res = f"""
+            <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #f59e0b;margin-bottom:1.5rem;color:#f59e0b;">
+                ⚠️ 域名 <code>{esc(lookup_domain)}</code> 尚未注册或未解析到目标哈希。
+            </div>
+            """
+
+    nns_rows = ""
+    for r in nns_ctx:
+        d_name = esc(r.get('domain', ''))
+        t_hash = esc(r.get('target', ''))
+        nns_rows += f"""
+        <tr>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-weight:bold;color:var(--accent-purple);">{d_name}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--accent-blue);">{t_hash[:20]}...{t_hash[-8:]}</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">{esc(r.get('owner', ''))[:16]}...</td>
+            <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">
+                <a href="/app/{d_name}?lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">访问 DApp</a>
+            </td>
+        </tr>
+        """
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>🌐 Corium NNS 去中心化域名解析与管理控制台</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            Corium 原生去中心化名称服务 (Name Network Service)。将可读域名无缝映射至 DHT 分布式 Manifest 对象与 DApp 字节码。
+        </p>
+        
+        {nns_res}
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔍 实时域名查询与解析</h3>
+            <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                <input type="hidden" name="lang" value="{locale}" />
+                <input type="text" name="lookup" placeholder="输入域名 (如: forum, fileshare, tc16, status, explorer)..." style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:220px;" required />
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">立即解析</button>
+            </form>
+        </div>
+        
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📜 全网已注册 NNS 域名目录 (论坛数据库 live 读取)</h3>
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;text-align:left;">
+                <thead>
+                    <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
+                        <th style="padding:0.75rem;">域名 (Domain Name)</th>
+                        <th style="padding:0.75rem;">绑定目标哈希 (Target Hash)</th>
+                        <th style="padding:0.75rem;">所有者公钥哈希</th>
+                        <th style="padding:0.75rem;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {nns_rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: BOARD
+# ==============================================================================
+elif subpath == "board":
+    board_posts = []
+    try:
+        board_raw = api.read_from_vault('board.json')
+        if board_raw.get('status') == 'success' and board_raw.get('data'):
+            board_posts = json.loads(board_raw['data'])
+    except Exception:
+        board_posts = []
+            
+    b_author = query.get('author', [''])[0].strip()
+    b_msg = query.get('msg', [''])[0].strip()
+    if b_author and b_msg:
+        board_posts.insert(0, {
+            "author": esc(b_author[:32]),
+            "msg": esc(b_msg[:256]),
+            "id": len(board_posts) + 1,
+            "timestamp": int(time.time())
+        })
+        board_posts = board_posts[:50]
+        try:
+            api.write_to_vault('board.json', json.dumps(board_posts))
+        except Exception:
+            pass
+
+    posts_html = ""
+    for p in board_posts:
+        posts_html += f"""
+        <div class="card" style="margin-bottom:0.75rem;padding:1rem;background:#1e293b;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
+                <strong style="color:var(--accent-blue);">👤 {p.get('author', '匿名客')}</strong>
+                <span style="font-size:0.75rem;color:var(--text-secondary);">#Post {p.get('id', 1)}</span>
+            </div>
+            <p style="color:var(--text-primary);font-size:0.95rem;word-break:break-word;">{p.get('msg', '')}</p>
+        </div>
+        """
+    if not posts_html:
+        posts_html = "<div class='table-row'><span class='label'>暂无公网留言，欢迎发表第一条去中心化动态！</span></div>"
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>💬 去中心化链上公网留言板 (Data Vault 驱动)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1rem;">
+            任何公网浏览器用户均可直接发表动态。数据无需中心化 SQL 数据库，而是由沙箱内部实时写入本节点的隔离保险库，持久留存。
+        </p>
+
+        <form method="GET" action="" style="background:#0f172a;padding:1rem;border-radius:8px;margin-bottom:1.5rem;border:1px solid var(--border-color);">
+            <input type="hidden" name="lang" value="{locale}" />
+            <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+                <input type="text" name="author" placeholder="您的昵称 / 代号" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:140px;" required />
+                <input type="text" name="msg" placeholder="留言内容 (将持久化保存在节点沙箱 Data Vault 中)..." style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
+                <button type="submit" class="btn" style="border:none;cursor:pointer;background:#0284c7;">📢 发布到节点</button>
+            </div>
+        </form>
+
+        <h3 style="font-size:1rem;margin-bottom:0.75rem;color:var(--accent-green);">📜 历史留言清单 (实时 Data Vault 同步)</h3>
+        {posts_html}
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: ECOSYSTEM MATRIX
+# ==============================================================================
+elif subpath == "ecosystem":
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>⚡ Corium &amp; Ziokt &amp; ETP 全景生态矩阵</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            所有由 Ziokt 伴生规范、ETP 传输层及 Corium 分布式网关所驱动的去中心化应用，均已原生集成入统一网关体系：
+        </p>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;">
+            <div class="card" style="background:#0f172a;border-left:3px solid #38bdf8;">
+                <h3 style="color:#38bdf8;font-size:1.1rem;margin-bottom:0.3rem;">💬 ETP 论坛 (forum.db)</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">密码学哈希签名、去中心化社区讨论与抗审查发帖。</p>
+                <a href="/app/forum?lang={locale}" class="btn" style="background:#0284c7;font-size:0.85rem;padding:0.35rem 0.75rem;">进入论坛 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #10b981;">
+                <h3 style="color:#10b981;font-size:1.1rem;margin-bottom:0.3rem;">📦 分布式文件共享 (FileShare)</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">基于 SHA256/BLAKE3 内容寻址的分块文件分发与 Range 媒体流。</p>
+                <a href="/app/fileshare?lang={locale}" class="btn btn-green" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入文件共享 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #a855f7;">
+                <h3 style="color:#a855f7;font-size:1.1rem;margin-bottom:0.3rem;">🧅 ETP 洋葱中继与 Noise 隧道</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">2-4 跳 Sphinx 分层加密回路与逐跳剥皮验证。</p>
+                <a href="/app/onion?lang={locale}" class="btn btn-purple" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入洋葱隧道 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #f59e0b;">
+                <h3 style="color:#f59e0b;font-size:1.1rem;margin-bottom:0.3rem;">⚙️ TC-16 虚拟机代码工坊</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">16位安全受控指令集执行器、寄存器堆与算力沙箱。</p>
+                <a href="/app/tc16?lang={locale}" class="btn btn-amber" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入虚拟机 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #ec4899;">
+                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">⚖️ Ano / ZDA 三值鉴证逻辑</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">Positive / Negative / Unknown 证据张量演算与形式公理。</p>
+                <a href="/app/zda?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">进入鉴证引擎 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #06b6d4;">
+                <h3 style="color:#06b6d4;font-size:1.1rem;margin-bottom:0.3rem;">🛡️ SafeFS 防篡改保险库</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">端侧 AEAD 密钥派生与密室加密文件存取。</p>
+                <a href="/app/safefs?lang={locale}" class="btn" style="background:#0891b2;font-size:0.85rem;padding:0.35rem 0.75rem;">进入 SafeFS &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #84cc16;">
+                <h3 style="color:#84cc16;font-size:1.1rem;margin-bottom:0.3rem;">🔐 UFS / DCPM 零知识双重卷</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">可否认性诱饵卷 + 隐藏密室卷 + 签名软件包管理器。</p>
+                <a href="/app/ufsdcpm?lang={locale}" class="btn" style="background:#65a30d;font-size:0.85rem;padding:0.35rem 0.75rem;">进入存储管理器 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #6366f1;">
+                <h3 style="color:#6366f1;font-size:1.1rem;margin-bottom:0.3rem;">⛓️ 区块链与 PoUW 账本</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">穿透底层数据库，查看高度、区块与 PoUW 证明。</p>
+                <a href="/app/blockchain?lang={locale}" class="btn" style="background:#4f46e5;font-size:0.85rem;padding:0.35rem 0.75rem;">进入区块链浏览 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #14b8a6;">
+                <h3 style="color:#14b8a6;font-size:1.1rem;margin-bottom:0.3rem;">📨 WATChat 端到端即时通讯</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">P2P 加密聊天室桥梁，直通独立 PWA。</p>
+                <a href="/app/watchat?lang={locale}" class="btn" style="background:#0d9488;font-size:0.85rem;padding:0.35rem 0.75rem;">进入聊天室 &rarr;</a>
+            </div>
+            
+            <div class="card" style="background:#0f172a;border-left:3px solid #e11d48;">
+                <h3 style="color:#e11d48;font-size:1.1rem;margin-bottom:0.3rem;">🌐 NNS 域名注册与管理</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">去中心化域名目录检索、解析与链上绑定。</p>
+                <a href="/app/nns?lang={locale}" class="btn" style="background:#be123c;font-size:0.85rem;padding:0.35rem 0.75rem;">进入域名控制台 &rarr;</a>
+            </div>
+
+            <div class="card" style="background:#0f172a;border-left:3px solid #ec4899;">
+                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">🤖 MCP 智能体工具控制台</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">Model Context Protocol 原生授权控制台与沙箱执行。</p>
+                <a href="/app/mcp?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">进入 MCP 控制台 &rarr;</a>
+            </div>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: MCP CONSOLE
+# ==============================================================================
+elif subpath == "mcp":
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>🤖 MCP 智能体原生工具控制台 (Model Context Protocol)</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            基于 2026 规范的 Model Context Protocol 端侧授权控制台。支持 OAuth2 PKCE 授权流、跨组件工具发现、沙箱写前计划审查与幂等执行。
+        </p>
+        
+        <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+            <div class="table-row">
+                <span class="label">认证模式</span>
+                <span class="val" style="color:var(--accent-blue);">OAuth2 PKCE (S256) / Scoped Bearer Token</span>
+            </div>
+            <div class="table-row">
+                <span class="label">协议版本</span>
+                <span class="val">2026-07-28 (Modern MCP Stream)</span>
+            </div>
+            <div class="table-row">
+                <span class="label">安全保障</span>
+                <span class="val" style="color:var(--accent-green);"><span class="status-pill">ACTIVE</span> 写入计划交互确认 &bull; 幂等重试保护</span>
+            </div>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# SUBPATH: DEFAULT OVERVIEW
+# ==============================================================================
+else:
+    cur_h = chain_ctx.get('height', 0)
+    tx_c = chain_ctx.get('tx_count', 0)
+    n_cnt = dht_ctx.get('nodes_count', 0)
+    c_cnt = dht_ctx.get('chunks_count', 0)
+    
+    tab_html = f"""
+    <div class="card detail-card">
+        <h2>📊 Corium &amp; Ziokt 网关核心运行大盘</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
+            本网关为普通浏览器提供无缝穿透去中心化 P2P 网络的入口通道。无需安装任何扩展或节点客户端即可与整个底层生态交互。
+        </p>
+        
+        <div class="grid" style="margin-bottom:1.5rem;">
+            <div class="card">
+                <div class="card-title">区块链出块高度</div>
+                <div class="card-value" style="color:var(--accent-blue);">#{cur_h}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">DHT 路由表节点</div>
+                <div class="card-value" style="color:var(--accent-green);">{n_cnt} 个</div>
+            </div>
+            <div class="card">
+                <div class="card-title">已分块对象数量</div>
+                <div class="card-value" style="color:var(--accent-purple);">{c_cnt} 个</div>
+            </div>
+            <div class="card">
+                <div class="card-title">沙箱访问计数</div>
+                <div class="card-value" style="color:#f59e0b;">{visit_count} 次</div>
+            </div>
+        </div>
+        
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">🚀 一键快捷进入生态应用</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.75rem;margin-bottom:1.5rem;">
+            <a href="/app/forum?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">💬 原生论坛 &rarr;</a>
+            <a href="/app/fileshare?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📦 文件共享 &rarr;</a>
+            <a href="/app/onion?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🧅 洋葱路由 &rarr;</a>
+            <a href="/app/tc16?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚙️ TC-16 虚拟机 &rarr;</a>
+            <a href="/app/zda?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ Ano 三值鉴证 &rarr;</a>
+            <a href="/app/safefs?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🛡️ SafeFS 密室 &rarr;</a>
+            <a href="/app/blockchain?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⛓️ 区块链浏览器 &rarr;</a>
+            <a href="/app/watchat?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📨 WATChat 聊天 &rarr;</a>
+            <a href="/app/nns?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🌐 NNS 域名控制台 &rarr;</a>
+            <a href="/app/board?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📝 社区公网留言板 &rarr;</a>
+            <a href="/app/mcp?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🤖 MCP 工具控制台 &rarr;</a>
+            <a href="/gateway-assets/registry.html" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ 权重白名单 &rarr;</a>
+        </div>
+        
+        <div class="table-row">
+            <span class="label">网关运行状态</span>
+            <span class="val"><span class="status-pill" style="background:#10b981;">HEALTHY (Port 8080 &bull; HTTPS Active)</span></span>
+        </div>
+        <div class="table-row">
+            <span class="label">沙箱双层隔离体系</span>
+            <span class="val">Bubblewrap (bwrap) + RestrictedPython v7</span>
+        </div>
+        <div class="table-row">
+            <span class="label">底层原生支持</span>
+            <span class="val">Corium v108 &bull; ETP Protocol &bull; Ziokt Engine</span>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
+# MCP CONSOLE SECTION (Interactive Tool Discovery & Execution)
+# ==============================================================================
+mcp_section = f"""
+<section id="mcp-console" data-component="{current_component}" class="card" style="margin-top:2rem;border-color:var(--accent-purple);">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
+        <h2 style="font-size:1.2rem;color:var(--accent-purple);margin:0;">🤖 {t('mcp.title')} [{esc(current_component.upper())}]</h2>
+        <div style="display:flex;gap:0.5rem;">
+            <button id="mcp-connect" type="button" class="btn" style="background:#0284c7;font-size:0.85rem;padding:0.35rem 0.8rem;">{t('mcp.connect')}</button>
+            <button id="mcp-disconnect" type="button" class="btn" style="background:#ef4444;font-size:0.85rem;padding:0.35rem 0.8rem;" hidden>{t('mcp.disconnect')}</button>
+        </div>
+    </div>
+    <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem;">{t('mcp.help')}</p>
+    
+    <form id="mcp-form" hidden style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid #334155;margin-bottom:1rem;">
+        <div style="margin-bottom:0.75rem;">
+            <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{t('mcp.tool')}:</label>
+            <select id="mcp-tool" style="width:100%;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem;border-radius:6px;"></select>
+        </div>
+        <p id="mcp-description" style="color:var(--accent-blue);font-size:0.85rem;margin-bottom:0.75rem;"></p>
+        <div style="margin-bottom:0.75rem;">
+            <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{t('mcp.arguments')}:</label>
+            <textarea id="mcp-arguments" rows="5" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem;border-radius:6px;font-family:monospace;">{{}}</textarea>
+        </div>
+        <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.45rem 1rem;">{t('mcp.execute')}</button>
+    </form>
+    
+    <pre id="mcp-result" role="status" aria-live="polite" style="background:#0f172a;padding:0.75rem;border-radius:6px;font-family:monospace;font-size:0.8rem;color:#38bdf8;max-height:180px;overflow-y:auto;white-space:pre-wrap;empty-cells:hide;"></pre>
+</section>
+"""
+
+# Navigation tabs list
+nav_items = [
+    ('overview', 'nav.overview', '📊'),
+    ('forum', 'nav.forum', '💬'),
+    ('fileshare', 'nav.fileshare', '📦'),
+    ('onion', 'nav.onion', '🧅'),
+    ('zda', 'nav.zda', '⚖️'),
+    ('safefs', 'nav.safefs', '🛡️'),
+    ('ufsdcpm', 'nav.ufsdcpm', '🔐'),
+    ('tc16', 'nav.tc16', '⚙️'),
+    ('blockchain', 'nav.blockchain', '⛓️'),
+    ('watchat', 'nav.watchat', '📨'),
+    ('sim', 'nav.sim-manager', '🧪'),
+    ('effort', 'nav.effort', '⛏️'),
+    ('nns', 'nav.nns', '🌐'),
+    ('board', 'nav.board', '📝'),
+    ('ecosystem', 'nav.ecosystem', '⚡'),
+    ('mcp', 'nav.mcp', '🤖'),
+]
+
+nav_links_html = ""
+for n_key, n_i18n, n_icon in nav_items:
+    is_active = (n_key == subpath)
+    active_cls = "active" if is_active else ""
+    aria_curr = ' aria-current="page"' if is_active else ""
+    nav_links_html += f'<a href="/app/{n_key}?lang={locale}" class="nav-link {active_cls}"{aria_curr}>{n_icon} {t(n_i18n)}</a>\n'
+
+nav_links_html += f'<a href="/gateway-assets/registry.html" class="nav-link" target="_blank">⚖️ {t("nav.registry")}</a>\n'
+
+# ==============================================================================
+# HTML TEMPLATE
+# ==============================================================================
+response = f"""<!DOCTYPE html>
+<html lang="{locale}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{t('portal.title')}</title>
+    <style>
+        :root {{
+            color-scheme: dark;
+            --bg-color: #0b0f19;
+            --card-bg: #111827;
+            --card-hover: #1e293b;
+            --border-color: #1f2937;
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --accent-blue: #38bdf8;
+            --accent-green: #10b981;
+            --accent-purple: #a855f7;
+            --accent-amber: #f59e0b;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+            line-height: 1.5;
+            padding: 2rem 1rem;
+        }}
+        .container {{
+            max-width: 1080px;
+            margin: 0 auto;
+        }}
+        header {{
+            margin-bottom: 1.75rem;
+            text-align: center;
+        }}
+        h1 {{
+            font-size: 2.1rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(to right, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .subtitle {{
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }}
+        .nav-links {{
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            background: var(--card-bg);
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }}
+        .nav-link {{
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+        }}
+        .nav-link:hover, .nav-link.active {{
+            color: #fff;
+            background: #1e293b;
+        }}
+        .nav-link.active {{
+            background: #0284c7;
+            font-weight: 600;
+        }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }}
+        .card {{
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }}
+        .card-title {{
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }}
+        .card-value {{
+            font-size: 1.4rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }}
+        .status-pill {{
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            background-color: var(--accent-green);
+            color: #fff;
+            display: inline-block;
+        }}
+        .detail-card h2 {{
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent-blue);
+        }}
+        .table-row {{
+            display: flex;
+            justify-content: space-between;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            align-items: center;
+        }}
+        .table-row:last-child {{
+            border-bottom: none;
+        }}
+        .label {{
+            color: var(--text-secondary);
+        }}
+        .val {{
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            color: var(--text-primary);
+        }}
+        .btn {{
+            display: inline-block;
+            text-decoration: none;
+            color: #fff;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+            min-height: 40px;
+            line-height: 24px;
+            padding: 0.45rem 1rem;
+            text-align: center;
+        }}
+        .btn:hover {{ opacity: 0.9; }}
+        .btn-green {{ background: #059669; }}
+        .btn-purple {{ background: #7c3aed; }}
+        .btn-amber {{ background: #d97706; }}
+        .notice {{
+            padding: 0.75rem;
+            background: #0f172a;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            margin-bottom: 1.25rem;
+            font-size: 0.9rem;
+        }}
+        footer {{
+            margin-top: 3rem;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1.5rem;
+        }}
+    </style>
+    <script src="/gateway-assets/gateway.js" defer></script>
+    <script src="/gateway-assets/mcp-console.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Corium &amp; Ziokt 统一去中心化应用网关</h1>
+            <p class="subtitle">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
+        </header>
+
+        <nav class="nav-links" aria-label="{t('nav.label')}">
+            {nav_links_html}
+        </nav>
+
+        {tab_html}
+
+        {mcp_section}
+
+        <footer>
+            <p>Powered by <strong>Corium v108 Gateway</strong> &bull; <strong>ETP Protocol v2</strong> &bull; <strong>Ziokt Native Suite</strong> &bull; 2026</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""

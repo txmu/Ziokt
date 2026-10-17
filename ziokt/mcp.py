@@ -651,7 +651,7 @@ def http_handler(service):
                 phase='mcp_rpc'
                 if self.headers.get_content_type()!='application/json':raise McpError(-32600,'JSON required',415)
                 accept=self.headers.get('Accept','')
-                if not all(t in accept for t in ('application/json','text/event-stream')):raise McpError(-32600,'Accept must list JSON and SSE',406)
+                if accept and not all(t in accept for t in ('application/json','text/event-stream')):raise McpError(-32600,'Accept must list JSON and SSE',406)
                 request=json.loads(raw,object_pairs_hook=unique);request_id=request.get('id') if isinstance(request,dict) else None
                 # ChatGPT deliberately bootstraps MCP without credentials, then applies
                 # per-tool OAuth schemes from tools/list before authenticating tool calls.
