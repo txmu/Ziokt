@@ -22,6 +22,7 @@
   }catch(error){output.textContent=error.message;sessionStorage.removeItem('ziokt_mcp_access');token=null;}
  }
  connect.onclick=async()=>{
+  connect.disabled=true;try{
   const verifier=b64(crypto.getRandomValues(new Uint8Array(48))),state=b64(crypto.getRandomValues(new Uint8Array(32)));
   sessionStorage.setItem('ziokt_oauth_verifier',verifier);sessionStorage.setItem('ziokt_oauth_state',state);sessionStorage.setItem('ziokt_oauth_return',location.pathname+location.search);
   const challenge=b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier)));
@@ -30,6 +31,7 @@
   if(metadata.resource!==resource||metadata.authorization_servers?.[0]!==issuer||(!issuer.startsWith('https://')&&!issuer.startsWith('http://127.0.0.1:')))throw new Error('Issuer mismatch');
   sessionStorage.setItem('ziokt_oauth_issuer',issuer);
   location.assign(issuer+'/oauth/authorize?'+new URLSearchParams({client_id:'ziokt-browser',redirect_uri:location.origin+'/gateway-assets/oauth-callback.html',response_type:'code',code_challenge:challenge,code_challenge_method:'S256',scope:metadata.scopes_supported.join(' '),state,resource}));
+  }catch(error){output.textContent=error.message;}finally{connect.disabled=false;}
  };
  disconnect.onclick=async()=>{
   try{await fetch(issuer+'/oauth/revoke',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token})});}finally{sessionStorage.removeItem('ziokt_mcp_access');token=null;form.hidden=true;disconnect.hidden=true;connect.hidden=false;output.textContent='';}

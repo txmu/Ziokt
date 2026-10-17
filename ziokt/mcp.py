@@ -13,7 +13,7 @@ import secrets
 import sys
 import threading
 import time
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from .gateway_store import database, encoded
 from .mcp_schemas import BRIDGE, ETP
 from .gateway import Server, unique, read_token
@@ -405,7 +405,7 @@ def http_handler(service):
                 self.send_header('Access-Control-Allow-Origin',self.headers['Origin']);self.send_header('Vary','Origin')
                 self.send_header('Access-Control-Expose-Headers','WWW-Authenticate')
             self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)))
-            self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+            self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
             for key,val in (extra or {}).items():self.send_header(key,val)
             self.end_headers();self.wfile.write(raw)
         def error(self,error,request_id=None):
@@ -441,8 +441,10 @@ def http_handler(service):
                     params={k:v[0] for k,v in q.items()};self.check_authorization(params)
                     # Explicit operator consent grants only the registered client's scopes.
                     fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items())
-                    page='<html lang="en"><meta name="viewport" content="width=device-width"><title>Ziokt authorization</title><h1>Authorize '+html.escape(params['client_id'])+'</h1><p>Requested scopes: '+html.escape(params['scope'])+'</p><form method="post" action="/oauth/authorize">'+fields+'<label>Node administrator token <input type="password" name="admin_token" required autocomplete="off"></label><button type="submit">Approve scopes</button></form></html>'
-                    return self.reply(200,page.encode(),{'Content-Security-Policy':"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"},'text/html; charset=utf-8')
+                    page='<html lang="en"><meta name="referrer" content="same-origin"><meta name="viewport" content="width=device-width"><title>Ziokt authorization</title><h1>Authorize '+html.escape(params['client_id'])+'</h1><p>Requested scopes: '+html.escape(params['scope'])+'</p><form method="post" action="/oauth/authorize">'+fields+'<label>Node administrator token <input type="password" name="admin_token" required autocomplete="off"></label><button type="submit">Approve scopes</button></form></html>'
+                    # Chromium applies form-action to the 303 callback as well as the POST.
+                    callback=quote(params['redirect_uri'].split('?',1)[0],safe=':/.-_~%[]')
+                    return self.reply(200,page.encode(),{'Content-Security-Policy':"default-src 'none'; form-action 'self' "+callback+"; frame-ancestors 'none'; base-uri 'none'"},'text/html; charset=utf-8')
                 if path=='/mcp':return self.reply(405,{'error':'POST required'},{'Allow':'POST'})
                 return self.reply(404,{'error':'not found'})
             except McpError as exc:self.error(exc)

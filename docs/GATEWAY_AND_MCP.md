@@ -153,8 +153,15 @@ Completing authorization in the user's ChatGPT account remains an account action
 Public deployment verification tests TLS, the real ChatGPT metadata document,
 PKCE authorization, native tools, writes, deduplication and token revocation.
 
+Provision separate domains with `--portal-origin https://cor-web.ziokt.com`.
+Both exact hosts are pinned while the MCP issuer stays canonical.
 The browser portal uses an exact registered callback on the portal origin and
-explicit CORS with the canonical MCP issuer. Owner-approved OAuth grants include
+explicit CORS with the canonical MCP issuer. The authorization document preserves
+a same-origin form Origin and its CSP permits only the exact registered callback
+in addition to the issuer, including Chromium redirect enforcement. The CI browser
+fixture runs portal and issuer on separate origins; the operator-only
+`tools/gateway_public_browser_smoke.cjs PORTAL_ORIGIN MCP_ORIGIN TOKEN_FILE`
+validates the actual public HTTPS cross-origin flow without printing credentials. Owner-approved OAuth grants include
 all enabled tools. Production native Corium and Shadow6 provider mutation policy
 is explicitly enabled for that owner; distributed default builds keep their
 original least-privilege policy. `ziokt_audit_read`, `ziokt_client_revoke` and

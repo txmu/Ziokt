@@ -33,6 +33,8 @@ with tempfile.TemporaryDirectory(prefix='ziokt-browser-') as directory:
    if self.path.startswith(('/mcp','/oauth/')):return MCP.do_POST(self)
    return GW.do_POST(self)
  server=Server(('127.0.0.1',0),Combined);origin='http://127.0.0.1:'+str(server.server_port)
- settings['issuer']=origin;settings['origins']=[origin];settings['clients']['ziokt-browser']['redirect_uris']=[origin+'/gateway-assets/oauth-callback.html']
+ mcp_server=Server(('127.0.0.1',0),MCP);mcp_origin='http://127.0.0.1:'+str(mcp_server.server_port)
+ settings['issuer']=mcp_origin;settings['origins']=[origin,mcp_origin];settings['hosts']=[origin.split('//',1)[1],mcp_origin.split('//',1)[1]];settings['clients']['ziokt-browser']['redirect_uris']=[origin+'/gateway-assets/oauth-callback.html']
+ threading.Thread(target=mcp_server.serve_forever,daemon=True).start()
  print(json.dumps({'origin':origin,'admin_token':'browser-test-token'}),flush=True)
  server.serve_forever()

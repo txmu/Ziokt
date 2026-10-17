@@ -165,7 +165,7 @@ def handler(gateway):
             raw = encoded(data) if not isinstance(data, bytes) else data
             self.send_response(status); self.send_header('Content-Type',mime)
             self.send_header('Content-Length',str(len(raw))); self.send_header('Cache-Control','no-store')
-            self.send_header('X-Content-Type-Options','nosniff'); self.end_headers()
+            self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Referrer-Policy','no-referrer'); self.end_headers()
             if self.command != 'HEAD': self.wfile.write(raw)
         def do_HEAD(self): self.do_GET()
         def do_GET(self):

@@ -55,7 +55,7 @@ class McpTests(unittest.TestCase):
  def test_oauth_pkce_rotation_revocation(self):
   verifier=secrets.token_urlsafe(48);challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
   auth={'client_id':'reader','redirect_uri':'http://127.0.0.1:8765/callback','response_type':'code','code_challenge':challenge,'code_challenge_method':'S256','scope':'ziokt:read','state':'random-state','resource':'https://gateway.test/mcp'}
-  self.assertEqual(self.request('GET','/oauth/authorize?'+urlencode(auth))[0],200)
+  status,headers,body=self.request('GET','/oauth/authorize?'+urlencode(auth));self.assertEqual(status,200);self.assertIn(auth['redirect_uri'],headers['Content-Security-Policy']);self.assertIn(b'name="referrer" content="same-origin"',body)
   status,headers,_=self.request('POST','/oauth/authorize',urlencode({**auth,'admin_token':'a'*64}),{'Content-Type':'application/x-www-form-urlencoded'});self.assertEqual(status,303)
   code=parse_qs(urlsplit(headers['Location']).query)['code'][0]
   params={'grant_type':'authorization_code','code':code,'code_verifier':verifier,'client_id':'reader','redirect_uri':auth['redirect_uri'],'resource':auth['resource']}
@@ -77,7 +77,7 @@ class ComponentMcpTests(unittest.TestCase):
    gateway=root/'gateway.json';gateway.write_bytes(encoded({'admin_token':str(admin)}));gateway.chmod(0o600)
    # Provision the actual pairwise identities, then test real SafeFS + mail + recipient vault.
    federation=root/'federation.json';federation.write_bytes(encoded({'schema':'ziokt.federation.v1','enabled':False,'federation_id':'test','providers':[{'native_project':'corium','provider_id':'corium-test','root':str(root),'native_config':str(root/'etc/corix/networks/test/corix.conf'),'state_root':str(root),'network_id':'test','entrypoint_digest':'sha256:'+'a'*64}]}));federation.chmod(0o600)
-   path,count=provision(root/'mcp','https://test.example',federation,gateway);config=json.loads(path.read_bytes());config.pop('gateway');service=Service(config)
+   path,count=provision(root/'mcp','https://test.example',federation,gateway,portal_origin='https://portal.example');config=json.loads(path.read_bytes());self.assertIn('portal.example',config['hosts']);self.assertIn('https://portal.example',config['origins']);self.assertEqual(config['clients']['ziokt-browser']['redirect_uris'],['https://portal.example/gateway-assets/oauth-callback.html']);config.pop('gateway');service=Service(config)
    principal={'client':'ziokt-operator','scopes':set(service.scopes),'expires':int(time.time())+900}
    self.assertGreater(count,150)
    def call(name,args,key):
