@@ -30,6 +30,50 @@ def schema(properties=None,required=()):
     return {'type':'object','properties':properties or {},'required':list(required),'additionalProperties':False}
 STRING={'type':'string','maxLength':65536}
 PARAMS={'type':'object','maxProperties':64}
+TELEGRAM_INBOX_MAX_HISTORY=2000
+
+
+def ensure_telegram_schema(db):
+    db.executescript('''
+      CREATE TABLE IF NOT EXISTS telegram_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS telegram_inbox (
+        update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        message_id INTEGER NOT NULL, text TEXT NOT NULL, payload BLOB NOT NULL,
+        received_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+        received_at_ms INTEGER NOT NULL DEFAULT 0,
+        last_accessed_at_ms INTEGER NOT NULL DEFAULT 0,
+        finished_at_ms INTEGER,
+        reply_duration_ms INTEGER,
+        processing_duration_ms INTEGER);
+      CREATE TABLE IF NOT EXISTS telegram_confirmations (
+        code_hash TEXT PRIMARY KEY, update_id INTEGER NOT NULL, chat_id TEXT NOT NULL,
+        user_id TEXT NOT NULL, tool TEXT NOT NULL, arguments BLOB NOT NULL,
+        created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+        state TEXT NOT NULL, result BLOB);
+    ''')
+    columns={row[1] for row in db.execute('PRAGMA table_info(telegram_inbox)')}
+    additions={
+        'received_at_ms':'INTEGER NOT NULL DEFAULT 0',
+        'last_accessed_at_ms':'INTEGER NOT NULL DEFAULT 0',
+        'finished_at_ms':'INTEGER',
+        'reply_duration_ms':'INTEGER',
+        'processing_duration_ms':'INTEGER',
+    }
+    for name,definition in additions.items():
+        if name not in columns:
+            db.execute('ALTER TABLE telegram_inbox ADD COLUMN '+name+' '+definition)
+    db.execute('UPDATE telegram_inbox SET received_at_ms=received_at*1000 WHERE received_at_ms=0')
+    db.execute('UPDATE telegram_inbox SET last_accessed_at_ms=received_at_ms WHERE last_accessed_at_ms=0')
+
+
+def prune_telegram_inbox(db, now_ms=None):
+    now_ms=now_ms if now_ms is not None else time.time_ns()//1_000_000
+    db.execute("DELETE FROM telegram_inbox WHERE status!='pending' AND received_at<?",(now_ms//1000-30*86400,))
+    db.execute('''DELETE FROM telegram_inbox
+      WHERE status!='pending' AND update_id NOT IN (
+        SELECT update_id FROM telegram_inbox WHERE status!='pending'
+        ORDER BY last_accessed_at_ms DESC, received_at_ms DESC, update_id DESC
+        LIMIT ?)''',(TELEGRAM_INBOX_MAX_HISTORY,))
 
 
 class McpError(Exception):
@@ -47,18 +91,7 @@ class Service:
         self.db.chmod(0o600)
         if config.get('telegram',{}).get('worker_enabled') is True:
             with database(self.db) as db:
-                db.executescript('''
-                  CREATE TABLE IF NOT EXISTS telegram_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                  CREATE TABLE IF NOT EXISTS telegram_inbox (
-                    update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, user_id TEXT NOT NULL,
-                    message_id INTEGER NOT NULL, text TEXT NOT NULL, payload BLOB NOT NULL,
-                    received_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
-                  CREATE TABLE IF NOT EXISTS telegram_confirmations (
-                    code_hash TEXT PRIMARY KEY, update_id INTEGER NOT NULL, chat_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL, tool TEXT NOT NULL, arguments BLOB NOT NULL,
-                    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-                    state TEXT NOT NULL, result BLOB);
-                ''')
+                ensure_telegram_schema(db)
         self.tools={}
         self.dispatch={}
         self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
@@ -382,8 +415,14 @@ class Service:
                 if self.current().get('telegram',{}).get('worker_enabled') is True:
                     with database(self.db) as db:
                         offset=args.get('offset',0)
-                        rows=db.execute('SELECT payload FROM telegram_inbox WHERE update_id>=? ORDER BY update_id LIMIT 100',(offset,)).fetchall()
-                    return {'updates':[json.loads(row[0]) for row in rows],'count':len(rows),'source':'durable worker inbox'}
+                        now_ms=time.time_ns()//1_000_000
+                        rows=db.execute('''SELECT update_id,payload,status,received_at_ms,finished_at_ms,reply_duration_ms,processing_duration_ms
+                          FROM telegram_inbox WHERE update_id>=? ORDER BY update_id LIMIT 100''',(offset,)).fetchall()
+                        db.executemany('UPDATE telegram_inbox SET last_accessed_at_ms=? WHERE update_id=?',((now_ms,row[0]) for row in rows))
+                    return {'updates':[json.loads(row[1]) for row in rows],'count':len(rows),'source':'durable worker inbox',
+                            'reply_metrics':[{'update_id':row[0],'status':row[2],'received_at_ms':row[3],
+                              'finished_at_ms':row[4],'reply_duration_ms':row[5],
+                              'processing_duration_ms':row[6]} for row in rows]}
                 return bot.updates(args.get('offset'))
             if route[1]=='send':return bot.send(args['chat_id'],args['text'])
             if route[1]=='get-chat':return bot.chat(args['chat_id'])

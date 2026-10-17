@@ -7,7 +7,7 @@ import secrets
 import time
 
 from .gateway_store import database, encoded
-from .mcp import Service
+from .mcp import Service, ensure_telegram_schema, prune_telegram_inbox
 from .protocol import secure_read, strict_json
 from .telegram import TelegramBot
 
@@ -36,18 +36,7 @@ class TelegramWorker:
         self.principal = {'client':self.client_id,'scopes':set(client['scopes']),'expires':2**63-1,'token_id':'telegram-owner'}
         self.commands = self._commands()
         with database(self.service.db) as db:
-            db.executescript('''
-              CREATE TABLE IF NOT EXISTS telegram_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-              CREATE TABLE IF NOT EXISTS telegram_inbox (
-                update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, user_id TEXT NOT NULL,
-                message_id INTEGER NOT NULL, text TEXT NOT NULL, payload BLOB NOT NULL,
-                received_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
-              CREATE TABLE IF NOT EXISTS telegram_confirmations (
-                code_hash TEXT PRIMARY KEY, update_id INTEGER NOT NULL, chat_id TEXT NOT NULL,
-                user_id TEXT NOT NULL, tool TEXT NOT NULL, arguments BLOB NOT NULL,
-                created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-                state TEXT NOT NULL, result BLOB);
-            ''')
+            ensure_telegram_schema(db)
         self.service.db.chmod(0o600)
         log.info('Telegram command worker initialized; %d MCP tools available', len(self.service.tools))
 
@@ -92,12 +81,15 @@ class TelegramWorker:
                             chat_id=str(chat.get('id',''));user_id=str(sender.get('id',''))
                             if type(update_id) is not int:continue
                             if chat_id in self.bot.allowed and user_id in self.allowed_users and type(message.get('message_id')) is int:
-                                db.execute('INSERT OR IGNORE INTO telegram_inbox(update_id,chat_id,user_id,message_id,text,payload,received_at,status) VALUES (?,?,?,?,?,?,?,?)',
-                                    (update_id,chat_id,user_id,message['message_id'],message.get('text','')[:4096],encoded(update),int(time.time()),'pending'))
+                                received_at_ms=time.time_ns()//1_000_000
+                                db.execute('''INSERT OR IGNORE INTO telegram_inbox
+                                  (update_id,chat_id,user_id,message_id,text,payload,received_at,status,received_at_ms,last_accessed_at_ms)
+                                  VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                                    (update_id,chat_id,user_id,message['message_id'],message.get('text','')[:4096],encoded(update),received_at_ms//1000,'pending',received_at_ms,received_at_ms))
                                 accepted += 1
                         offset=max(u['update_id'] for u in updates if type(u.get('update_id')) is int)+1
                         db.execute("INSERT OR REPLACE INTO telegram_state VALUES ('next_offset',?)",(str(offset),))
-                        db.execute('DELETE FROM telegram_inbox WHERE received_at<?',(int(time.time())-30*86400,))
+                        prune_telegram_inbox(db)
                     if accepted:
                         log.info('Received %d allowlisted Telegram update(s)', accepted)
                     if len(updates) > accepted:
@@ -112,18 +104,27 @@ class TelegramWorker:
 
     def process_pending(self):
         with database(self.service.db) as db:
-            rows=db.execute("SELECT update_id,chat_id,user_id,message_id,text FROM telegram_inbox WHERE status='pending' ORDER BY update_id LIMIT 50").fetchall()
-        for update_id,chat_id,user_id,message_id,text in rows:
+            prune_telegram_inbox(db)
+            rows=db.execute("SELECT update_id,chat_id,user_id,message_id,text,received_at_ms FROM telegram_inbox WHERE status='pending' ORDER BY update_id LIMIT 50").fetchall()
+        for update_id,chat_id,user_id,message_id,text,received_at_ms in rows:
             try:
                 reply=self.handle(chat_id,user_id,update_id,text)
                 if reply:
                     self.send_chunks(chat_id,message_id,reply)
+                finished_at_ms=time.time_ns()//1_000_000
+                duration_ms=max(0,finished_at_ms-(received_at_ms or finished_at_ms))
                 with database(self.service.db) as db:
-                    db.execute("UPDATE telegram_inbox SET status='processed' WHERE update_id=? AND status='pending'",(update_id,))
+                    db.execute("UPDATE telegram_inbox SET status='processed',finished_at_ms=?,reply_duration_ms=?,processing_duration_ms=?,last_accessed_at_ms=? WHERE update_id=? AND status='pending'",
+                               (finished_at_ms,duration_ms if reply else None,duration_ms,finished_at_ms,update_id))
+                    prune_telegram_inbox(db,finished_at_ms)
             except Exception as exc:
                 # Keep failures from one update from terminating the polling service.
+                finished_at_ms=time.time_ns()//1_000_000
+                duration_ms=max(0,finished_at_ms-(received_at_ms or finished_at_ms))
                 with database(self.service.db) as db:
-                    db.execute("UPDATE telegram_inbox SET status='error' WHERE update_id=?",(update_id,))
+                    db.execute("UPDATE telegram_inbox SET status='error',finished_at_ms=?,reply_duration_ms=NULL,processing_duration_ms=?,last_accessed_at_ms=? WHERE update_id=?",
+                               (finished_at_ms,duration_ms,finished_at_ms,update_id))
+                    prune_telegram_inbox(db,finished_at_ms)
                 log.error('Telegram reply failed for update %s (%s)', update_id, type(exc).__name__)
 
     def handle(self,chat_id,user_id,update_id,text):
