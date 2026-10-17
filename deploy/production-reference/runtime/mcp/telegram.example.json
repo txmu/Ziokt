@@ -1,5 +1,7 @@
 {
   "enabled": false,
+  "worker_enabled": false,
   "token_file": "/home/admin/.local/share/ziokt-production/mcp/telegram/bot.token",
-  "allowed_chat_ids": []
+  "allowed_chat_ids": [],
+  "allowed_user_ids": []
 }

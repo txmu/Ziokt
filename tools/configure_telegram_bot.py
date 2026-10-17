@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ziokt.telegram import TelegramBot
 
 
-def configure(config_path, chat_ids, restart=True):
+def configure(config_path, chat_ids, user_ids=(), restart=True):
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text())
     root = config_path.parent / 'telegram'
@@ -26,6 +26,12 @@ def configure(config_path, chat_ids, restart=True):
     ids = sorted(set(chat_ids))
     if not ids or any(not re.fullmatch(r'-?[0-9]{1,20}', item) for item in ids):
         raise ValueError('Provide one or more numeric --chat-id values')
+    users=set(user_ids)
+    if any(not re.fullmatch(r'[0-9]{1,20}', item) for item in users):
+        raise ValueError('User IDs must be positive numeric Telegram IDs')
+    users.update(item for item in ids if int(item)>0)  # Private-chat owner ID equals the chat ID.
+    if not users:
+        raise ValueError('Group chats require at least one explicit --user-id owner')
     token_path = root / 'bot.token'
     fd, temp_name = tempfile.mkstemp(prefix='.bot-token-', dir=root)
     try:
@@ -35,7 +41,7 @@ def configure(config_path, chat_ids, restart=True):
         os.replace(temp_name, token_path)
     finally:
         if os.path.exists(temp_name):os.unlink(temp_name)
-    telegram = {'enabled': True, 'token_file': str(token_path), 'allowed_chat_ids': ids}
+    telegram = {'enabled': True, 'worker_enabled':True, 'token_file': str(token_path), 'allowed_chat_ids': ids,'allowed_user_ids':sorted(users)}
     try:
         TelegramBot(telegram).status()  # Validate the token against Telegram before enabling tools.
     except Exception:
@@ -55,15 +61,22 @@ def configure(config_path, chat_ids, restart=True):
     finally:
         if os.path.exists(temp_name):os.unlink(temp_name)
     if restart:
-        subprocess.run(['systemctl','restart','ziokt-mcp'],check=True)
-        subprocess.run(['systemctl','is-active','--quiet','ziokt-mcp'],check=True)
-    return {'enabled':True,'chat_ids':ids,'token_printed':False,'service_restarted':restart}
+        unit=Path(__file__).resolve().parents[1]/'gateway/systemd/ziokt-telegram-bot.service.template'
+        subprocess.run(['sudo','-n','install','-m','0644',str(unit),'/etc/systemd/system/ziokt-telegram-bot.service'],check=True)
+        subprocess.run(['sudo','-n','systemctl','daemon-reload'],check=True)
+        subprocess.run(['sudo','-n','systemctl','restart','ziokt-mcp'],check=True)
+        subprocess.run(['sudo','-n','systemctl','enable','ziokt-telegram-bot'],check=True)
+        subprocess.run(['sudo','-n','systemctl','restart','ziokt-telegram-bot'],check=True)
+        for service in ('ziokt-mcp','ziokt-telegram-bot'):
+            subprocess.run(['systemctl','is-active','--quiet',service],check=True)
+    return {'enabled':True,'worker_enabled':True,'chat_count':len(ids),'owner_user_count':len(users),'token_printed':False,'service_restarted':restart}
 
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=Path('/home/admin/.local/share/ziokt-production/mcp/mcp.json'))
     parser.add_argument('--chat-id',action='append',default=[],help='Numeric Telegram chat ID; repeat for each allowed chat')
+    parser.add_argument('--user-id',action='append',default=[],help='Allowed Telegram sender ID (required for group chats); repeat per owner')
     parser.add_argument('--no-restart',action='store_true')
     args=parser.parse_args()
-    print(json.dumps(configure(args.config,args.chat_id,not args.no_restart)))
+    print(json.dumps(configure(args.config,args.chat_id,args.user_id,not args.no_restart)))

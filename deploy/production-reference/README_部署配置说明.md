@@ -7,7 +7,7 @@
 | 位置 | 内容 |
 |---|---|
 | `runtime/config/Caddyfile` | 当前完整 HTTPS 站点和反向代理，包括 mcp.ziokt.com、门户、各组件站点 |
-| `systemd/*.service` | 当前 Corium P2P/共识/中继、Gateway、MCP、HTTPS、WATChat、SIM、UFS、Effort 服务定义 |
+| `systemd/*.service` | 当前 Corium P2P/共识/中继、Gateway、MCP、Telegram Bot、HTTPS、WATChat、SIM、UFS、Effort 服务定义 |
 | `runtime/config/gateway.json` | Gateway 对象、论坛、注册数据库路径，ETP bulk 线路和固定摘要；线路密钥已替换 |
 | `runtime/mcp/mcp.json` | OAuth/CIMD、明确 Host/Origin/回调、客户端授权范围、桥接和原生 ETP 配置引用 |
 | `runtime/mcp/telegram.example.json` | Telegram Bot 可选配置模板；默认关闭、无 Token、无 Chat ID。生产 Token 单独保存在 mode-0600 文件，不进入源码包 |
@@ -48,7 +48,7 @@ python3 -m ziokt gateway bootstrap \
 
 新建 MCP 配置时使用 `tools/configure_mcp_gateway.py` 的 `--issuer https://mcp.ziokt.com` 和 `--portal-origin https://cor-web.ziokt.com`，并提供实际的 `--root`、`--federation`、`--gateway`。已有应用通过 `--bridge watchat=配置路径 --bridge sim-manager=配置路径` 接入；已存在的配置不会被该工具自动覆盖。迁移已有配置时需人工核对 Host/Origin、回调和授权范围。
 
-Telegram Bot 是显式 opt-in。取得 BotFather Token 并确定允许操作的数字 Chat ID 后，运行 `python3 tools/configure_telegram_bot.py --config /home/admin/.local/share/ziokt-production/mcp/mcp.json --chat-id CHAT_ID`；多个会话可重复参数。脚本隐藏读取 Token、调用 Telegram 验证、保存到私有 token 文件并重启 MCP。轮询模式不能与已配置的 webhook 并用。Chat ID 白名单同时约束消息读取和发送/管理目标。
+Telegram Bot 由 `ziokt-telegram-bot.service` 常驻长轮询。取得 BotFather Token 并确定允许操作的数字 Chat ID 后，运行 `python3 tools/configure_telegram_bot.py --config /home/admin/.local/share/ziokt-production/mcp/mcp.json --chat-id CHAT_ID`；多个会话可重复参数。私人会话会自动将正数 Chat ID 作为发送者 User ID；群组必须额外提供 `--user-id OWNER_ID`。脚本隐藏读取 Token、调用 Telegram 验证、保存到私有 token 文件并启用 MCP 与 Bot 服务。写命令需要 `/confirm` 一次性确认。轮询模式不能与已配置的 webhook 并用。
 
 配置 bulk ETP 使用 `tools/configure_etp_bulk.py --config Gateway配置路径 --binary CI二进制路径 --digest SHA256`。它会生成相互匹配的新节点与线路材料，不能拿来覆盖需要保留的旧身份。
 

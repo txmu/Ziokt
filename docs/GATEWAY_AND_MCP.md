@@ -10,6 +10,7 @@ Corium/Python and exact-digest native ETP products from a successful CI run.
 - `python -m ziokt gateway publish-file --config RUNTIME/config/gateway.json FILE`
 - `python tools/configure_mcp_gateway.py --root RUNTIME/mcp --issuer https://DOMAIN --federation RUNTIME/config/federation.json --gateway RUNTIME/config/gateway.json --bridge watchat=EXISTING_BRIDGE --bridge sim-manager=EXISTING_BRIDGE`
 - `python -m ziokt mcp serve --config RUNTIME/mcp/mcp.json`
+- `python -m ziokt mcp telegram-worker --config RUNTIME/mcp/mcp.json`
 - `python -m ziokt mcp stdio --config RUNTIME/mcp/mcp.json` with an explicit
   `ZIOKT_MCP_CLIENT` and `ZIOKT_MCP_TOKEN` in the process environment.
 - `python -m ziokt mcp catalog --config RUNTIME/mcp/mcp.json`
@@ -228,8 +229,19 @@ python3 tools/configure_telegram_bot.py \
   --chat-id YOUR_NUMERIC_CHAT_ID
 ```
 
-The script reads the token without echo, verifies the bot with Telegram, stores it in `mcp/telegram/bot.token` with mode `0600`, adds `telegram:read` and `telegram:write` only to the operator/browser grants, restarts `ziokt-mcp`, and checks that the service is active. Add one `--chat-id` for every allowed private chat or group. The token file and Telegram configuration are runtime secrets and are excluded from source packages; the sanitized configuration reference has no live bot credential. Do not configure a Telegram webhook for this polling integration; `telegram_bot_status` reports whether an existing webhook prevents polling.
+The script reads the token without echo, verifies the bot with Telegram, stores it in `mcp/telegram/bot.token` with mode `0600`, adds `telegram:read` and `telegram:write` only to the operator/browser grants, installs and starts `ziokt-telegram-bot`, restarts `ziokt-mcp`, and checks both services. Add one `--chat-id` for every allowed private chat or group; groups also need explicit `--user-id` sender grants. The token file and Telegram configuration are runtime secrets and are excluded from source packages; the sanitized configuration reference has no live bot credential. Do not configure a Telegram webhook for this polling integration; `telegram_bot_status` reports whether an existing webhook prevents polling.
 
 The MCP catalog provides bot/webhook status, filtered updates, chat and member reads, text send/edit/delete, allowlisted forwarding/copying, Telegram `file_id` photo/document sending, location and poll sending, callback answers, pin/unpin, and group title/description changes. The API host and method set are fixed; there is no arbitrary URL, file path, token, or Bot API method input. Read tools require `telegram:read`; all remote writes require `telegram:write`, normal MCP write enablement, and idempotency. Every source and destination chat is checked against the allowlist. Media tools accept Telegram `file_id` values and do not upload arbitrary local files or fetch user-supplied URLs.
 
 Telegram Bot API reference: https://core.telegram.org/bots/api
+
+The owner can also use Telegram as a live command surface. `ziokt-telegram-bot`
+long-polls only configured chats and allowed sender IDs, persists accepted updates
+for the MCP inbox, and replies to `/start`, `/help`, `/status`, and `/tools`.
+Common short tool names are installed in Telegram's command menu; every catalog
+tool remains callable as `/mcp TOOL_NAME {JSON}` (or directly as `/TOOL_NAME`
+when its name fits Telegram's command rules). `/tools`
+paginates the full catalog and `/help TOOL_NAME` shows its schema. Mutating tool
+calls return a one-time confirmation code and execute only after `/confirm CODE`.
+For private chats the numeric chat ID is also the owner user ID; group deployments
+must separately configure `allowed_user_ids`. Other senders receive no response.

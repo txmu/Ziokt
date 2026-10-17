@@ -263,6 +263,10 @@
     "token_file": "/home/admin/.local/share/ziokt-production/mcp/telegram/bot.token",
     "allowed_chat_ids": [
       "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>"
+    ],
+    "worker_enabled": true,
+    "allowed_user_ids": [
+      "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>"
     ]
   }
 }

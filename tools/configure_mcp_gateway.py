@@ -43,7 +43,7 @@ def provision(root,issuer,federation,gateway,existing=None,portal_origin=None):
   source['component_peers']={name:value for name,value in identities.items() if name!=app}
   target=root/app/'exchange.json';write(target,encoded(source));exchanges[app]=str(target)
   if app not in bridges:bridges[app]=str(target)
- config={'schema':'ziokt.mcp.v1','cimd_enabled':True,'issuer':issuer,'origins':sorted({issuer,portal_origin}),'hosts':sorted({urlsplit(issuer).netloc,urlsplit(portal_origin).netloc,'127.0.0.1:8186'}),'state':str(root/'state'),'port':8186,'federation':str(Path(federation).resolve()),'gateway':str(Path(gateway).resolve()),'admin_token':strict_json(secure_read(gateway))['admin_token'],'bridges':bridges,'exchanges':exchanges,'telegram':{'enabled':False,'token_file':str(root/'telegram/bot.token'),'allowed_chat_ids':[]},'clients':{},'writes_enabled':True}
+ config={'schema':'ziokt.mcp.v1','cimd_enabled':True,'issuer':issuer,'origins':sorted({issuer,portal_origin}),'hosts':sorted({urlsplit(issuer).netloc,urlsplit(portal_origin).netloc,'127.0.0.1:8186'}),'state':str(root/'state'),'port':8186,'federation':str(Path(federation).resolve()),'gateway':str(Path(gateway).resolve()),'admin_token':strict_json(secure_read(gateway))['admin_token'],'bridges':bridges,'exchanges':exchanges,'telegram':{'enabled':False,'worker_enabled':False,'token_file':str(root/'telegram/bot.token'),'allowed_chat_ids':[],'allowed_user_ids':[]},'clients':{},'writes_enabled':True}
  service=Service(config)
  readonly=[s for s in service.scopes if s.endswith(':read')]
  config['clients']={'ziokt-reader':{'redirect_uris':['http://127.0.0.1:8765/callback'],'scopes':readonly},'ziokt-operator':{'redirect_uris':['http://127.0.0.1:8765/callback'],'scopes':service.scopes}}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Ziokt Telegram to MCP command bridge
+After=network-online.target ziokt-mcp.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/Ziokt
+ExecStart=/usr/bin/python3 -m ziokt mcp telegram-worker --config /home/admin/.local/share/ziokt-production/mcp/mcp.json
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=512
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

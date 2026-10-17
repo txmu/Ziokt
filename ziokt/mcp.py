@@ -45,6 +45,20 @@ class Service:
         with database(self.db) as db:
             db.executescript('CREATE TABLE IF NOT EXISTS codes(hash TEXT PRIMARY KEY,client TEXT,redirect TEXT,challenge TEXT,scopes TEXT,expires INT); CREATE TABLE IF NOT EXISTS tokens(hash TEXT PRIMARY KEY,client TEXT,scopes TEXT,expires INT,refresh INT); CREATE TABLE IF NOT EXISTS calls(client TEXT,key TEXT,tool TEXT,digest TEXT,result BLOB,state TEXT,PRIMARY KEY(client,key)); CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,at INT,client TEXT,tool TEXT,digest TEXT,outcome TEXT); CREATE TABLE IF NOT EXISTS rates(client TEXT PRIMARY KEY,window INT,count INT); CREATE TABLE IF NOT EXISTS cimd(client TEXT PRIMARY KEY,metadata BLOB,expires INT); CREATE TABLE IF NOT EXISTS revoked_clients(client TEXT PRIMARY KEY,at INT);')
         self.db.chmod(0o600)
+        if config.get('telegram',{}).get('worker_enabled') is True:
+            with database(self.db) as db:
+                db.executescript('''
+                  CREATE TABLE IF NOT EXISTS telegram_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                  CREATE TABLE IF NOT EXISTS telegram_inbox (
+                    update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, user_id TEXT NOT NULL,
+                    message_id INTEGER NOT NULL, text TEXT NOT NULL, payload BLOB NOT NULL,
+                    received_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
+                  CREATE TABLE IF NOT EXISTS telegram_confirmations (
+                    code_hash TEXT PRIMARY KEY, update_id INTEGER NOT NULL, chat_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL, tool TEXT NOT NULL, arguments BLOB NOT NULL,
+                    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+                    state TEXT NOT NULL, result BLOB);
+                ''')
         self.tools={}
         self.dispatch={}
         self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
@@ -364,7 +378,13 @@ class Service:
             from .telegram import TelegramBot
             bot=TelegramBot(self.current()['telegram'])
             if route[1]=='status':return bot.status()
-            if route[1]=='updates':return bot.updates(args.get('offset'))
+            if route[1]=='updates':
+                if self.current().get('telegram',{}).get('worker_enabled') is True:
+                    with database(self.db) as db:
+                        offset=args.get('offset',0)
+                        rows=db.execute('SELECT payload FROM telegram_inbox WHERE update_id>=? ORDER BY update_id LIMIT 100',(offset,)).fetchall()
+                    return {'updates':[json.loads(row[0]) for row in rows],'count':len(rows),'source':'durable worker inbox'}
+                return bot.updates(args.get('offset'))
             if route[1]=='send':return bot.send(args['chat_id'],args['text'])
             if route[1]=='get-chat':return bot.chat(args['chat_id'])
             if route[1]=='get-member':return bot.member(args['chat_id'],args['user_id'])
@@ -600,7 +620,7 @@ def http_handler(service):
 def register(sub):
     parser=sub.add_parser('mcp',help='authenticated native MCP tools and resources')
     actions=parser.add_subparsers(dest='mcp_action',required=True)
-    for name in ('serve','stdio','catalog'):
+    for name in ('serve','stdio','catalog','telegram-worker'):
         action=actions.add_parser(name);action.add_argument('--config',type=Path,required=True)
     token=actions.add_parser('issue-token');token.add_argument('--config',type=Path,required=True);token.add_argument('--client',required=True)
 
@@ -609,6 +629,9 @@ def execute(args):
     config=strict_json(secure_read(args.config));config['config_path']=str(args.config.resolve())
     if config.get('schema')!='ziokt.mcp.v1':raise ValueError('invalid MCP configuration')
     if not re.fullmatch(r'https://[a-z0-9.-]+(?::[0-9]+)?',config['issuer']):raise ValueError('public HTTPS issuer required')
+    if args.mcp_action=='telegram-worker':
+        from .telegram_worker import TelegramWorker
+        TelegramWorker(args.config).run();return {}
     service=Service(config)
     if args.mcp_action=='catalog':return {'tools':list(service.tools.values()),'scopes':service.scopes,'protocols':VERSIONS}
     if args.mcp_action=='issue-token':

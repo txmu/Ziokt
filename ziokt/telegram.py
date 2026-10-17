@@ -23,8 +23,8 @@ class TelegramBot:
             raise ValueError('Telegram chat allowlist is invalid')
         self.allowed = {str(item) for item in ids}
 
-    def call(self, method, values=None):
-        if method not in {'getMe','getWebhookInfo','getUpdates','getChat','getChatMember','sendMessage','editMessageText','deleteMessage','forwardMessage','copyMessage','sendPhoto','sendDocument','sendLocation','sendPoll','answerCallbackQuery','pinChatMessage','unpinChatMessage','setChatTitle','setChatDescription'}:
+    def call(self, method, values=None, timeout=20):
+        if method not in {'getMe','getWebhookInfo','getUpdates','getChat','getChatMember','sendMessage','editMessageText','deleteMessage','forwardMessage','copyMessage','sendPhoto','sendDocument','sendLocation','sendPoll','answerCallbackQuery','pinChatMessage','unpinChatMessage','setChatTitle','setChatDescription','setMyCommands','getMyCommands'}:
             raise ValueError('Telegram method is not enabled')
         url = 'https://api.telegram.org/bot' + self.token + '/' + method
         data = json.dumps(values or {}, separators=(',', ':')).encode()
@@ -32,8 +32,10 @@ class TelegramBot:
         from .gateway_store import NoRedirect
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         try:
-            with opener.open(request, timeout=20) as response:
+            with opener.open(request, timeout=timeout) as response:
                 raw = response.read(1_048_577)
+        except urllib.error.HTTPError as exc:
+            raise ValueError('Telegram API rejected the operation (HTTP '+str(exc.code)+')') from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise ValueError('Telegram API request failed; check service connectivity and Bot API status') from None
         if len(raw) > 1_048_576:
@@ -65,6 +67,11 @@ class TelegramBot:
             safe.append(row)
         return {'updates':safe,'count':len(safe),'filtered':len(rows)-len(safe)}
 
+    def poll(self, offset, timeout=45):
+        values={'limit':100,'timeout':timeout,'allowed_updates':['message']}
+        if offset is not None:values['offset']=offset
+        return self.call('getUpdates',values,timeout=timeout+10)
+
     def chat_id(self, value):
         chat_id = str(value)
         if chat_id not in self.allowed: raise ValueError('Telegram chat is outside the configured allowlist')
@@ -73,3 +80,9 @@ class TelegramBot:
     def chat(self, chat_id): return self.call('getChat',{'chat_id':self.chat_id(chat_id)})
     def member(self, chat_id, user_id): return self.call('getChatMember',{'chat_id':self.chat_id(chat_id),'user_id':user_id})
     def send(self, chat_id, text): return self.call('sendMessage',{'chat_id':self.chat_id(chat_id),'text':text})
+
+    def send_reply(self, chat_id, reply_to, text):
+        return self.call('sendMessage',{'chat_id':self.chat_id(chat_id),'reply_parameters':{'message_id':reply_to,'allow_sending_without_reply':True},'text':text})
+
+    def set_commands(self, commands):
+        return self.call('setMyCommands',{'commands':commands})

@@ -86,17 +86,17 @@ python3 -m ziokt gateway publish-file \
 联合源码：`/home/admin/Ziokt-Corium-Shadow6-source-2026-10-17.zip`。
 校验文件：同路径 `.zip.sha256`。按源码交换约定，包内文件均增加 `.txt` 后缀；它是源码归档，不是携带生产凭据的安装镜像。
 
-最新源码提交：Ziokt `c34554e`（Telegram 接入 `e6e4a78`），Corium `6e00bd4`。Gateway/MCP 已部署；Telegram 已启用，Bot API 凭据验证通过，白名单已配置，18 个 Telegram 工具已出现在 MCP 目录。本地没有重量级编译。
+代码提交、仓库修订及联合打包来源以 ZIP 内 `SOURCE_PROVENANCE.json` 为准。Gateway/MCP 已部署；Telegram Bot API 凭据验证通过，长轮询服务已启动，18 个 Telegram MCP 工具和完整工具命令入口已接入。本地没有重量级编译。
 
 部署相关配置已随源码提供：`deploy/production-reference/`。请先阅读其中 `README_部署配置说明.md`；该目录保留实际部署关系，但凭据以占位符替代，不是携带私钥和业务数据的完整恢复备份。
 
-## Telegram Bot（新增，等待所有者凭据启用）
+## Telegram Bot 使用与命令
 
 ChatGPT 添加时会先匿名执行 MCP 握手和工具列表读取，再按每个工具声明启动 OAuth。服务端已开放这两个只读引导请求；工具执行仍要求有效授权。
 
-MCP 已包含 Telegram Bot 工具。当前生产端已启用，Bot API 验证通过，轮询兼容，白名单已配置。以后新节点准备一个由 [@BotFather](https://t.me/BotFather) 创建的 Bot Token，并先在 Telegram 中打开机器人发送 `/start`。还需要允许机器人操作的数字 Chat ID（私人会话或群组 ID；群组通常为负数）。只提供你要授权的会话 ID，未列入白名单的会话不能读取更新、收发消息或执行管理操作。
+MCP 已包含 Telegram Bot 工具，当前生产端由常驻长轮询服务接收指令并自动回复。以后新节点准备一个由 [@BotFather](https://t.me/BotFather) 创建的 Bot Token，并先在 Telegram 中打开机器人发送 `/start`。还需要允许机器人操作的数字 Chat ID（私人会话或群组 ID；群组通常为负数）。私人会话会将 Chat ID 同时作为所有者 User ID；群组必须额外明确 `--user-id`，其他成员的消息会被忽略。
 
-完成启用后，工具会包含：Bot/webhook 状态、白名单内更新读取、会话和成员查询、文本发送/编辑/删除、白名单间转发/复制、通过 Telegram `file_id` 发送图片/文件、发送位置和投票、回复回调，以及置顶/取消置顶和设置群组标题/描述。
+Bot 提供 `/start`、`/help`、`/status`、`/tools`、`/mcp`、`/confirm`、`/cancel`，并把常用短工具名加入 Telegram 命令菜单。Telegram 对命令菜单数量有限制；完整的 229 个 MCP 工具都能用 `/mcp 工具名 {JSON参数}` 调用，符合命名规则的工具也可直接用 `/工具名`；`/tools 2` 分页列出目录，`/help 工具名` 查看参数。写操作会返回一次性确认码，只有发送 `/confirm 确认码` 后才执行。MCP 的 Telegram 工具还包括会话/成员查询、消息编辑删除、白名单间转发复制、`file_id` 图片/文件、位置、投票、回调和群组管理。
 
 在服务器上运行配置命令时，Token 会通过隐藏输入读取，不要把它写进命令参数、Shell 历史、工单或源码。配置后刷新 ChatGPT 插件工具或重新授权一次，以取得新增的 scope：
 
@@ -107,6 +107,6 @@ python3 tools/configure_telegram_bot.py \
   --chat-id 你的数字ChatID
 ```
 
-多个会话重复添加 `--chat-id 数字ID`。脚本会先调用 Telegram 验证 Token，再将其保存到权限为 `0600` 的 `mcp/telegram/bot.token`，只向 operator/browser MCP 授予 `telegram:read`、`telegram:write`，重启并检查 `ziokt-mcp`。若机器人已设置 webhook，状态工具会显示轮询不兼容；当前集成使用 Bot API 长轮询，不会擅自更改 webhook。
+多个会话重复添加 `--chat-id 数字ID`。群组需额外添加 `--user-id 你的数字用户ID`。脚本会先调用 Telegram 验证 Token，再将其保存到权限为 `0600` 的 `mcp/telegram/bot.token`，只向 operator/browser MCP 授予 `telegram:read`、`telegram:write`，安装并启动 `ziokt-telegram-bot` 常驻服务。该服务与 MCP 共用持久化更新收件箱；不会与 MCP 的 `telegram_get_updates` 抢占 Telegram 长轮询。若机器人已设置 webhook，worker 会停止并提示先移除 webhook，不会擅自更改。
 
 媒体发送只接受 Telegram 已有的 `file_id`，不接受服务器路径或外部 URL。Telegram 写操作受 MCP 写入开关、OAuth scope、幂等保护和 Chat ID 白名单共同约束。Bot Token 属于最高敏感凭据；如果曾公开发送，应立即在 BotFather 撤销并重新生成。
