@@ -60,6 +60,8 @@
         "sim-manager:write",
         "tc16:read",
         "tc16:write",
+        "telegram:read",
+        "telegram:write",
         "tri:read",
         "tri:write",
         "ufs:read",
@@ -141,6 +143,8 @@
         "sim-manager:write",
         "tc16:read",
         "tc16:write",
+        "telegram:read",
+        "telegram:write",
         "tri:read",
         "tri:write",
         "ufs:read",
@@ -234,6 +238,8 @@
     "sim-manager:write",
     "tc16:read",
     "tc16:write",
+    "telegram:read",
+    "telegram:write",
     "tri:read",
     "tri:write",
     "ufs:read",
@@ -253,8 +259,10 @@
     "127.0.0.1:8186"
   ],
   "telegram": {
-    "enabled": false,
+    "enabled": true,
     "token_file": "/home/admin/.local/share/ziokt-production/mcp/telegram/bot.token",
-    "allowed_chat_ids": []
+    "allowed_chat_ids": [
+      "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>"
+    ]
   }
 }

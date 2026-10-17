@@ -86,7 +86,7 @@ python3 -m ziokt gateway publish-file \
 联合源码：`/home/admin/Ziokt-Corium-Shadow6-source-2026-10-17.zip`。
 校验文件：同路径 `.zip.sha256`。按源码交换约定，包内文件均增加 `.txt` 后缀；它是源码归档，不是携带生产凭据的安装镜像。
 
-最新源码提交：Ziokt `e6e4a78`，Corium `6e00bd4`。Gateway/MCP 已部署；Telegram 工具已进入 MCP，生产启用等待所有者提供 Bot Token 和 Chat ID。本地没有重量级编译。
+最新源码提交：Ziokt `c34554e`（Telegram 接入 `e6e4a78`），Corium `6e00bd4`。Gateway/MCP 已部署；Telegram 已启用，Bot API 凭据验证通过，白名单已配置，18 个 Telegram 工具已出现在 MCP 目录。本地没有重量级编译。
 
 部署相关配置已随源码提供：`deploy/production-reference/`。请先阅读其中 `README_部署配置说明.md`；该目录保留实际部署关系，但凭据以占位符替代，不是携带私钥和业务数据的完整恢复备份。
 
@@ -94,7 +94,7 @@ python3 -m ziokt gateway publish-file \
 
 ChatGPT 添加时会先匿名执行 MCP 握手和工具列表读取，再按每个工具声明启动 OAuth。服务端已开放这两个只读引导请求；工具执行仍要求有效授权。
 
-MCP 已包含 Telegram Bot 工具，但生产端默认关闭。准备一个由 [@BotFather](https://t.me/BotFather) 创建的 Bot Token，并先在 Telegram 中打开机器人发送 `/start`。还需要允许机器人操作的数字 Chat ID（私人会话或群组 ID；群组通常为负数）。只提供你要授权的会话 ID，未列入白名单的会话不能读取更新、收发消息或执行管理操作。
+MCP 已包含 Telegram Bot 工具。当前生产端已启用，Bot API 验证通过，轮询兼容，白名单已配置。以后新节点准备一个由 [@BotFather](https://t.me/BotFather) 创建的 Bot Token，并先在 Telegram 中打开机器人发送 `/start`。还需要允许机器人操作的数字 Chat ID（私人会话或群组 ID；群组通常为负数）。只提供你要授权的会话 ID，未列入白名单的会话不能读取更新、收发消息或执行管理操作。
 
 完成启用后，工具会包含：Bot/webhook 状态、白名单内更新读取、会话和成员查询、文本发送/编辑/删除、白名单间转发/复制、通过 Telegram `file_id` 发送图片/文件、发送位置和投票、回复回调，以及置顶/取消置顶和设置群组标题/描述。
 

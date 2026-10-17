@@ -8,7 +8,7 @@
     "runtime/config/shadow6-production.json": "e115ed4d96283bf98d8934c1d2502c3b0efd2f88d664ce327e0e1f6ee93921f8",
     "runtime/config/effort-web.json": "e90f8c2b5ec151cd1922f9abeb6657ff840d472d59b886ccdfdf4e0562651f8c",
     "runtime/config/runtime-digests.json": "b0eeeba55496693b12d47318770d75ef08c0b7018433c838014440a409952afd",
-    "runtime/mcp/mcp.json": "eefdfbd352c76a2a0745f4f857cdce97835abddb7f5f3e15059d98dd011229d1",
+    "runtime/mcp/mcp.json": "29ce5e0b3209a4ed2d7a42ab506118c409507a2fcdfaacef7aa84c4d5b0ff58c",
     "runtime/config/etp-bulk/node-0.json": "5df8a2e4c97b8533214b951b96878c31780ac347ac43d1681491366b07831101",
     "runtime/config/etp-bulk/node-1.json": "3b107219fb050600baacb8d6e55a02646047f4e094f4d67bbfca5589eaa8b015",
     "runtime/config/etp-bulk/node-2.json": "d40bb0be6693c57694c0ea29c6015117f463bef5b13fb0758f8475ac9aba665b",
@@ -50,6 +50,7 @@
   "redacted_fields": [
     "runtime/config/gateway.json.etp_bulk.clients.0.key",
     "runtime/config/gateway.json.etp_bulk.sources.0.key",
+    "runtime/mcp/mcp.json.telegram.allowed_chat_ids.0",
     "runtime/config/etp-bulk/node-0.json.private_key",
     "runtime/config/etp-bulk/node-1.json.private_key",
     "runtime/config/etp-bulk/node-2.json.private_key",
