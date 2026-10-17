@@ -742,12 +742,12 @@ elif subpath == "ufsdcpm":
                 <span class="val" style="color:var(--accent-amber);">HTTP Digest Auth (SHA-256, Realm: UltraFileServer)</span>
             </div>
             <div class="table-row">
-                <span class="label">鉴权账号 (Username)</span>
-                <span class="val" style="font-family:monospace;font-weight:bold;color:#f8fafc;">admin</span>
+                <span class="label">鉴权凭据存储</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green);"><span class="status-pill" style="background:#059669;">PROTECTED (0600)</span> 本地 ~/.config/dcpm-ufs/config.json</span>
             </div>
             <div class="table-row">
-                <span class="label">鉴权密码 (Password)</span>
-                <span class="val" style="font-family:monospace;font-weight:bold;color:var(--accent-green);">A5Dxtn33xmDBPiMpl6xqKvT510yglrjO</span>
+                <span class="label">安全凭据说明</span>
+                <span class="val" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6;">出于去中心化原生安全与防泄露规范，访问口令仅持久化于本地受保护配置文件中，绝不在前端公开渲染。可在本地终端执行 <code style="color:var(--accent-blue);">cat ~/.config/dcpm-ufs/config.json</code> 查看或配置您的私有账号密码。</span>
             </div>
             <div class="table-row">
                 <span class="label">配置文件位置</span>
@@ -2138,9 +2138,9 @@ if subpath == 'ufsdcpm':
         <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary);">
             <div>&bull; <strong>公网网关</strong>: <a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io/</a></div>
             <div>&bull; <strong>认证协议</strong>: HTTP Digest Auth (SHA-256)</div>
-            <div>&bull; <strong>登录账号</strong>: <code style="color:#fff;font-weight:bold;">admin</code></div>
-            <div>&bull; <strong>登录密码</strong>: <code style="color:var(--accent-green);font-weight:bold;">A5Dxtn33xmDBPiMpl6xqKvT510yglrjO</code></div>
-            <div>&bull; <strong>配置文件</strong>: <code>/home/admin/.config/dcpm-ufs/config.json</code></div>
+            <div>&bull; <strong>凭据存储</strong>: <code>~/.config/dcpm-ufs/config.json</code> (受本地 0600 权限保护，不向公网暴露)</div>
+            <div>&bull; <strong>安全说明</strong>: 口令持久化保存在节点主机配置文件中，可在终端执行 <code>cat ~/.config/dcpm-ufs/config.json</code> 查看或配置。</div>
+            <div>&bull; <strong>存储路径</strong>: <code>~/.config/dcpm-ufs/ufs-storage</code></div>
         </div>
     </div>
     """

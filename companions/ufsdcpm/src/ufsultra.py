@@ -773,7 +773,10 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
-        self.send_header('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'")
+        if getattr(self, '_is_dashboard', False):
+            self.send_header('Content-Security-Policy', "default-src 'self' 'unsafe-inline' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;")
+        else:
+            self.send_header('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'")
         super().end_headers()
 
     def check_ip_whitelist(self):
@@ -844,12 +847,10 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
             parts = self.server.files.parts(self.path)
             info = self.server.files.info(parts)
             if stat.S_ISDIR(info.st_mode):
+                self._is_dashboard = True
                 entries = self.server.files.entries(parts, self.cfg['max_listing'])
-                listing = '<!doctype html><meta charset="utf-8"><title>UFS</title><ul>'
-                for name, meta in entries:
-                    suffix = '/' if stat.S_ISDIR(meta.st_mode) else ''
-                    listing += '<li><a href="'+quote(name)+suffix+'">'+html.escape(name)+suffix+'</a></li>'
-                data = (listing+'</ul>').encode()
+                dashboard = self.render_dashboard(parts, entries)
+                data = dashboard.encode('utf-8')
                 source, kind = io.BytesIO(data), 'text/html; charset=utf-8'
             else:
                 source = self.server.files.open(parts)
@@ -865,6 +866,763 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers(); return source
         except (OSError, ValueError, UnicodeError) as error:
             self._error(error); return None
+
+    def render_dashboard(self, parts, entries):
+        integrated = getattr(self.server, 'integrated_system', None)
+        node_id = getattr(integrated, 'node_id', '') if integrated else '800a3e4c08b13a41b41632a2bd8f0065340dbb99d32f8f94fc307c6d52fa9f3d'
+        dcpm_packages = integrated.package_store.list() if (integrated and hasattr(integrated, 'package_store')) else []
+        downloads = self.server.stats.get('downloads', 0)
+        uploads = self.server.stats.get('uploads', 0)
+        max_upload = self.cfg.get('max_upload', 67108864)
+        max_upload_str = f"{max_upload // (1024 * 1024)} MB" if max_upload else "不限"
+        root_dir = self.cfg.get('root_dir', '/home/admin/.config/dcpm-ufs/ufs-storage')
+        user = getattr(self, 'username', 'admin') or 'admin'
+        role = getattr(self, 'user_role', 'admin') or 'admin'
+
+        def fmt_sz(size):
+            s = float(size)
+            for u in ['B', 'KB', 'MB', 'GB', 'TB']:
+                if s < 1024:
+                    return f"{s:.1f} {u}" if u != 'B' else f"{int(s)} B"
+                s /= 1024
+            return f"{s:.1f} PB"
+
+        total_files = len(entries)
+        total_bytes = sum(m.st_size for _, m in entries if stat.S_ISREG(m.st_mode))
+        total_bytes_str = fmt_sz(total_bytes)
+
+        crumb_html = '<a href="/" style="color:#38bdf8;text-decoration:none;font-weight:600;">root</a>'
+        accum = ''
+        for p in parts:
+            accum += '/' + quote(p)
+            crumb_html += f' <span style="color:#64748b;">/</span> <a href="{accum}/" style="color:#38bdf8;text-decoration:none;font-weight:600;">{html.escape(p)}</a>'
+
+        file_rows = []
+        if parts:
+            parent_href = '/' + '/'.join(quote(p) for p in parts[:-1]) + ('/' if len(parts) > 1 else '')
+            file_rows.append(f"""
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:12px 14px;"><a href="{parent_href}" style="color:#38bdf8;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;"><span>📁</span> <span>.. (返回上一级目录)</span></a></td>
+                <td style="padding:12px 14px;color:#64748b;font-size:0.85rem;">目录</td>
+                <td style="padding:12px 14px;color:#64748b;font-size:0.85rem;">-</td>
+                <td style="padding:12px 14px;color:#64748b;font-size:0.85rem;">-</td>
+                <td style="padding:12px 14px;"></td>
+            </tr>
+            """)
+
+        for name, meta in entries:
+            is_dir = stat.S_ISDIR(meta.st_mode)
+            icon = '📁' if is_dir else '📄'
+            href = quote(name) + ('/' if is_dir else '')
+            fsize = '-' if is_dir else fmt_sz(meta.st_size)
+            mtime = datetime.fromtimestamp(meta.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            action_btn = f'<a href="{href}" download class="btn-sm btn-cyan">📥 下载</a>' if not is_dir else f'<a href="{href}" class="btn-sm btn-cyan">📂 打开</a>'
+            delete_btn = f'<button type="button" onclick="deleteItem(\'{html.escape(name)}\')" class="btn-sm btn-red">🗑️ 删除</button>'
+            file_rows.append(f"""
+            <tr style="border-bottom:1px solid #1e293b;" class="table-hover-row">
+                <td style="padding:12px 14px;"><a href="{href}" style="color:#f8fafc;font-weight:500;text-decoration:none;display:flex;align-items:center;gap:8px;"><span>{icon}</span> <span>{html.escape(name)}</span></a></td>
+                <td style="padding:12px 14px;color:#94a3b8;font-size:0.85rem;">{"目录" if is_dir else "文件"}</td>
+                <td style="padding:12px 14px;font-family:monospace;font-size:0.85rem;color:#cbd5e1;">{fsize}</td>
+                <td style="padding:12px 14px;font-family:monospace;font-size:0.82rem;color:#94a3b8;">{mtime}</td>
+                <td style="padding:12px 14px;text-align:right;">
+                    <div style="display:inline-flex;gap:6px;">{action_btn} {delete_btn}</div>
+                </td>
+            </tr>
+            """)
+
+        files_tbody = "".join(file_rows)
+
+        pkg_rows = []
+        for pkg in dcpm_packages:
+            p_id = html.escape(str(pkg.get('package_id', '')))
+            p_name = html.escape(str(pkg.get('name', '')))
+            p_ver = html.escape(str(pkg.get('version', '')))
+            p_pub = html.escape(str(pkg.get('publisher', '')))
+            if len(p_pub) > 16: p_pub = p_pub[:16] + '...'
+            p_size = fmt_sz(pkg.get('size', 0)) if 'size' in pkg else '-'
+            p_dl = f'/api/dcpm/package?package_id={quote(p_id)}'
+            pkg_rows.append(f"""
+            <tr style="border-bottom:1px solid #1e293b;" class="table-hover-row">
+                <td style="padding:10px 14px;font-family:monospace;font-weight:bold;color:#38bdf8;">{p_id} ({p_name})</td>
+                <td style="padding:10px 14px;color:#10b981;font-weight:600;">{p_ver}</td>
+                <td style="padding:10px 14px;font-family:monospace;font-size:0.8rem;color:#94a3b8;">{p_pub}</td>
+                <td style="padding:10px 14px;color:#cbd5e1;font-size:0.85rem;">{p_size}</td>
+                <td style="padding:10px 14px;text-align:right;"><a href="{p_dl}" download class="btn-sm btn-cyan">📥 下载 .dcpm</a></td>
+            </tr>
+            """)
+        packages_tbody = "".join(pkg_rows)
+
+        empty_banner = """
+        <div style="padding:36px 20px;text-align:center;color:#94a3b8;background:#0b0f19;border-radius:8px;border:1px dashed #334155;margin:12px 0;">
+            <div style="font-size:2.5rem;margin-bottom:8px;">📂</div>
+            <div style="font-size:1.05rem;font-weight:600;color:#f8fafc;margin-bottom:4px;">当前存储目录为空</div>
+            <div style="font-size:0.85rem;color:#94a3b8;max-width:480px;margin:0 auto 12px;">此存储空间受 O_NOFOLLOW 描述符严格隔离保护。可通过下方拖拽区域或“上传文件”按钮写入数据。</div>
+        </div>
+        """ if not entries else ""
+
+        dcpm_empty_banner = """
+        <div style="padding:24px 20px;text-align:center;color:#94a3b8;background:#0b0f19;border-radius:8px;border:1px dashed #334155;margin-top:10px;">
+            <p style="margin:0 0 6px 0;font-weight:600;color:#cbd5e1;">📦 暂无已缓存的 DCPM 签名软件包</p>
+            <p style="margin:0;font-size:0.85rem;">可通过下方“上传 .dcpm 软件包”接口或在节点终端执行 <code>dcpm publish</code> 命令发布签名包。</p>
+        </div>
+        """ if not dcpm_packages else ""
+
+        html_out = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UFS &amp; DCPM 原生去中心化存储控制台</title>
+<style>
+:root {{
+    --bg: #090d16;
+    --card-bg: #111827;
+    --card-sub: #1e293b;
+    --border: #1f2937;
+    --border-bright: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent-cyan: #38bdf8;
+    --accent-green: #10b981;
+    --accent-purple: #818cf8;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+}}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+    padding: 0;
+}}
+.container {{
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 24px 20px;
+}}
+header {{
+    background: #0f172a;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+}}
+.nav-wrap {{
+    max-width: 1240px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}}
+.logo-title {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}}
+.logo-icon {{
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #0284c7, #38bdf8);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+}}
+.title-text h1 {{
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+}}
+.title-text p {{
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}}
+.top-links {{
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}}
+.nav-link {{
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: var(--card-sub);
+    border: 1px solid var(--border-bright);
+    transition: all 0.2s;
+}}
+.nav-link:hover {{
+    color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+}}
+.status-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}}
+.status-dot {{
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 6px var(--accent-green);
+}}
+.grid-4 {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+}}
+.metric-title {{
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}}
+.metric-value {{
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    word-break: break-all;
+}}
+.metric-sub {{
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}}
+.section-card {{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+}}
+.section-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}}
+.section-title {{
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+.btn {{
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}}
+.btn-primary {{
+    background: #0284c7;
+    color: #fff;
+}}
+.btn-primary:hover {{
+    background: #0369a1;
+}}
+.btn-secondary {{
+    background: var(--card-sub);
+    color: var(--text-primary);
+    border-color: var(--border-bright);
+}}
+.btn-secondary:hover {{
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}}
+.btn-sm {{
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid transparent;
+}}
+.btn-cyan {{
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent-cyan);
+    border-color: rgba(56, 189, 248, 0.3);
+}}
+.btn-cyan:hover {{
+    background: rgba(56, 189, 248, 0.25);
+}}
+.btn-red {{
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-red);
+    border-color: rgba(239, 68, 68, 0.3);
+}}
+.btn-red:hover {{
+    background: rgba(239, 68, 68, 0.25);
+}}
+.table-wrap {{
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}}
+table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    background: #0b0f19;
+}}
+thead tr {{
+    background: #0f172a;
+    border-bottom: 1px solid var(--border-bright);
+    color: var(--text-secondary);
+    text-align: left;
+}}
+th {{
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}}
+.table-hover-row:hover {{
+    background: rgba(30, 41, 59, 0.6);
+}}
+.dropzone {{
+    border: 2px dashed var(--border-bright);
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    background: #0b0f19;
+    margin-top: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}}
+.dropzone.dragover {{
+    border-color: var(--accent-cyan);
+    background: rgba(56, 189, 248, 0.05);
+}}
+.notice-box {{
+    background: rgba(14, 165, 233, 0.08);
+    border: 1px solid rgba(14, 165, 233, 0.25);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 0.82rem;
+    color: #bae6fd;
+    line-height: 1.6;
+    margin-bottom: 24px;
+}}
+#toast {{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #1e293b;
+    border: 1px solid var(--border-bright);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+    font-size: 0.85rem;
+    display: none;
+    z-index: 9999;
+}}
+#modal-json {{
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}}
+.modal-content {{
+    background: #111827;
+    border: 1px solid var(--border-bright);
+    border-radius: 10px;
+    max-width: 720px;
+    width: 100%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}}
+</style>
+</head>
+<body>
+
+<header>
+    <div class="nav-wrap">
+        <div class="logo-title">
+            <div class="logo-icon">⚡</div>
+            <div class="title-text">
+                <h1>Ziokt UFS &amp; DCPM 原生去中心化存储控制台</h1>
+                <p>UltraFileServer Storage Engine &amp; Decentralized Package Manager</p>
+            </div>
+        </div>
+        <div class="top-links">
+            <span class="status-pill"><span class="status-dot"></span> RUNNING &bull; 8184</span>
+            <span class="status-pill" style="color:var(--accent-cyan);border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.15);">Digest Auth: {html.escape(user)}</span>
+            <a href="https://cor-web.ziokt.com/app/ufsdcpm" target="_blank" class="nav-link">🌐 Ziokt DApp</a>
+            <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" class="nav-link">🪐 Shadow6 UI</a>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <div class="notice-box">
+        🔒 <strong>原生安全存储就绪</strong>：UFS 服务由 <code>O_NOFOLLOW</code> 目录描述符与 SHA-256 Digest 鉴权双重保护。访问凭据妥善存储于本地受保护配置文件 <code>~/.config/dcpm-ufs/config.json</code> (0600 权限) 中，绝不向公网暴露明文密钥。
+    </div>
+
+    <!-- Telemetry Cards -->
+    <div class="grid-4">
+        <div class="metric-card">
+            <div class="metric-title">
+                <span>节点标识 (Node ID)</span>
+                <button type="button" onclick="copyText('{node_id}')" class="btn-sm btn-cyan">复制</button>
+            </div>
+            <div class="metric-value" style="font-family:monospace;font-size:0.85rem;color:var(--accent-cyan);">{node_id[:16]}...{node_id[-8:]}</div>
+            <div class="metric-sub">模式: Signed-Package HTTP / P2P Hybrid</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-title">
+                <span>存储空间利用率</span>
+                <span style="color:var(--accent-green);font-weight:600;">HEALTHY</span>
+            </div>
+            <div class="metric-value">{total_bytes_str} <span style="font-size:0.85rem;color:var(--text-secondary);font-weight:normal;">/ 100 GB</span></div>
+            <div class="metric-sub">当前目录含 {total_files} 项 &bull; 单文件上限 {max_upload_str}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-title">
+                <span>隐蔽安全卷状态</span>
+                <span style="color:var(--accent-purple);font-weight:600;">ACTIVE</span>
+            </div>
+            <div class="metric-value" style="font-size:1rem;color:var(--accent-purple);">双层可抵赖存储就绪</div>
+            <div class="metric-sub">物理路径: {html.escape(root_dir)}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-title">
+                <span>传输吞吐与活动</span>
+                <span style="color:var(--accent-amber);font-weight:600;">LIVE</span>
+            </div>
+            <div class="metric-value" style="font-size:1.05rem;">📥 {downloads} <span style="font-size:0.85rem;color:var(--text-secondary);font-weight:normal;">下载</span> &bull; 📤 {uploads} <span style="font-size:0.85rem;color:var(--text-secondary);font-weight:normal;">上传</span></div>
+            <div class="metric-sub">活跃协程/线程: {threading.active_count()}</div>
+        </div>
+    </div>
+
+    <!-- Storage File Explorer -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>📁 原生存储文件浏览器</span>
+                <span style="font-family:monospace;font-size:0.85rem;color:var(--text-secondary);">{crumb_html}</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <input type="file" id="ufs-file-input" style="display:none;" onchange="if(this.files.length) uploadFile(this.files[0])">
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('ufs-file-input').click()">📁 上传文件</button>
+                <button type="button" class="btn btn-secondary" onclick="createNewFile()">📝 新建文件</button>
+                <button type="button" class="btn btn-secondary" onclick="createFolder()">➕ 新建目录</button>
+                <button type="button" class="btn btn-secondary" onclick="location.reload()">🔄 刷新</button>
+            </div>
+        </div>
+
+        <div id="progress-bar" style="display:none;width:100%;height:4px;background:#1e293b;border-radius:2px;overflow:hidden;margin-bottom:12px;">
+            <div id="progress-fill" style="width:0%;height:100%;background:linear-gradient(90deg,#0284c7,#38bdf8);transition:width 0.3s;"></div>
+        </div>
+
+        {empty_banner}
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="min-width:240px;">文件 / 目录名称</th>
+                        <th style="width:100px;">类型</th>
+                        <th style="width:120px;">大小</th>
+                        <th style="width:180px;">修改时间</th>
+                        <th style="width:140px;text-align:right;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {files_tbody}
+                </tbody>
+            </table>
+        </div>
+
+        <div id="dropzone" class="dropzone" onclick="document.getElementById('ufs-file-input').click()">
+            <div style="font-size:1.8rem;margin-bottom:6px;">📥</div>
+            <div style="font-weight:600;font-size:0.95rem;color:#f8fafc;margin-bottom:4px;">拖拽文件至此处即可自动上传</div>
+            <div style="font-size:0.8rem;color:var(--text-secondary);">或点击直接浏览本地文件进行存储。支持任意类型原生文件分块持久化。</div>
+        </div>
+    </div>
+
+    <!-- DCPM Package Manager -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>📦 DCPM 签名软件包管理器 (Decentralized Packages)</span>
+            </div>
+            <div>
+                <input type="file" id="dcpm-file-input" style="display:none;" accept=".dcpm,application/octet-stream" onchange="if(this.files.length) uploadDcpmPackage(this.files[0])">
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('dcpm-file-input').click()">📤 发布 / 上传 .dcpm 软件包</button>
+            </div>
+        </div>
+
+        {dcpm_empty_banner}
+
+        <div class="table-wrap" style="{'display:none;' if not dcpm_packages else ''}">
+            <table>
+                <thead>
+                    <tr>
+                        <th>软件包标识 (Package ID)</th>
+                        <th>版本 (Version)</th>
+                        <th>发布者公钥 (Publisher)</th>
+                        <th>体积</th>
+                        <th style="text-align:right;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {packages_tbody}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Live Diagnostics Drawer / API Tester -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>⚡ 原生 API 实时诊断与监控端点</span>
+            </div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;">点击下方接口按钮可立即执行安全带鉴权的原生 API 查询，实时审查节点内部状态：</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary" onclick="inspectApi('/api/stats')">📊 节点状态 (/api/stats)</button>
+            <button type="button" class="btn btn-secondary" onclick="inspectApi('/api/config')">⚙️ 服务配置 (/api/config)</button>
+            <button type="button" class="btn btn-secondary" onclick="inspectApi('/api/files')">📑 文件索引 (/api/files)</button>
+            <button type="button" class="btn btn-secondary" onclick="inspectApi('/api/dcpm/packages')">📦 软件包列表 (/api/dcpm/packages)</button>
+            <button type="button" class="btn btn-secondary" onclick="inspectApi('/api/transfers')">🔄 活跃传输 (/api/transfers)</button>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal for JSON Inspection -->
+<div id="modal-json" onclick="if(event.target===this) closeModal()">
+    <div class="modal-content">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border-bright);background:#0f172a;">
+            <div id="modal-title" style="font-weight:600;font-size:0.92rem;color:var(--accent-cyan);">API 实时诊断</div>
+            <button type="button" onclick="closeModal()" class="btn-sm btn-secondary" style="font-size:0.9rem;padding:2px 8px;">✕</button>
+        </div>
+        <pre id="modal-code" style="padding:16px;background:#06080f;color:#38bdf8;font-family:monospace;font-size:0.82rem;overflow:auto;max-height:60vh;white-space:pre-wrap;line-height:1.45;"></pre>
+        <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:#0f172a;">
+            <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('modal-code').innerText); showNotice('已复制 API 响应内容', 'success');">📋 复制 JSON</button>
+            <button type="button" class="btn btn-primary" onclick="closeModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function showNotice(msg, type) {{
+    let t = document.getElementById('toast');
+    t.innerText = msg;
+    t.style.borderColor = type === 'error' ? '#ef4444' : '#10b981';
+    t.style.display = 'block';
+    setTimeout(() => {{ t.style.display = 'none'; }}, 3500);
+}}
+
+async function uploadFile(file) {{
+    if (!file) return;
+    showNotice('正在上传文件 ' + file.name + ' ...', 'info');
+    let bar = document.getElementById('progress-bar');
+    let fill = document.getElementById('progress-fill');
+    bar.style.display = 'block';
+    fill.style.width = '30%';
+    try {{
+        let res = await fetch(encodeURIComponent(file.name), {{
+            method: 'PUT',
+            body: file
+        }});
+        fill.style.width = '100%';
+        if (res.ok || res.status === 201 || res.status === 204) {{
+            showNotice('文件 ' + file.name + ' 上传成功！', 'success');
+            setTimeout(() => {{ location.reload(); }}, 600);
+        }} else {{
+            showNotice('上传失败: HTTP ' + res.status + ' ' + (await res.text()), 'error');
+            bar.style.display = 'none';
+        }}
+    }} catch(e) {{
+        showNotice('网络或权限异常: ' + e.message, 'error');
+        bar.style.display = 'none';
+    }}
+}}
+
+async function uploadDcpmPackage(file) {{
+    if (!file) return;
+    showNotice('正在发布 DCPM 签名包 ' + file.name + ' ...', 'info');
+    try {{
+        let res = await fetch('/api/dcpm/publish', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/octet-stream' }},
+            body: file
+        }});
+        if (res.ok) {{
+            let data = await res.json();
+            showNotice('DCPM 软件包发布成功！包 ID: ' + (data.package_id || 'OK'), 'success');
+            setTimeout(() => {{ location.reload(); }}, 800);
+        }} else {{
+            showNotice('DCPM 发布失败: HTTP ' + res.status + ' ' + (await res.text()), 'error');
+        }}
+    }} catch(e) {{
+        showNotice('发布异常: ' + e.message, 'error');
+    }}
+}}
+
+async function deleteItem(name) {{
+    if (!confirm('确定要从 UFS 存储中永久删除 "' + name + '" 吗？此操作不可撤销。')) return;
+    try {{
+        let res = await fetch(encodeURIComponent(name), {{ method: 'DELETE' }});
+        if (res.ok || res.status === 204) {{
+            showNotice('已彻底删除 ' + name, 'success');
+            setTimeout(() => {{ location.reload(); }}, 600);
+        }} else {{
+            showNotice('删除失败: HTTP ' + res.status, 'error');
+        }}
+    }} catch(e) {{
+        showNotice('删除异常: ' + e.message, 'error');
+    }}
+}}
+
+async function createNewFile() {{
+    let name = prompt('请输入新文件名 (例如: note.txt):');
+    if (!name) return;
+    let content = prompt('请输入文件初始内容 (留空则创建空文件):', '');
+    if (content === null) return;
+    try {{
+        let res = await fetch(encodeURIComponent(name), {{
+            method: 'PUT',
+            body: new Blob([content], {{ type: 'text/plain;charset=utf-8' }})
+        }});
+        if (res.ok || res.status === 201 || res.status === 204) {{
+            showNotice('文件 ' + name + ' 创建成功！', 'success');
+            setTimeout(() => {{ location.reload(); }}, 600);
+        }} else {{
+            showNotice('创建失败: HTTP ' + res.status, 'error');
+        }}
+    }} catch(e) {{
+        showNotice('异常: ' + e.message, 'error');
+    }}
+}}
+
+async function createFolder() {{
+    let name = prompt('请输入新目录名称:');
+    if (!name) return;
+    try {{
+        let res = await fetch(encodeURIComponent(name), {{ method: 'MKCOL' }});
+        if (res.ok || res.status === 201) {{
+            showNotice('目录 ' + name + ' 创建成功！', 'success');
+            setTimeout(() => {{ location.reload(); }}, 600);
+        }} else {{
+            showNotice('创建目录失败: HTTP ' + res.status, 'error');
+        }}
+    }} catch(e) {{
+        showNotice('异常: ' + e.message, 'error');
+    }}
+}}
+
+async function inspectApi(endpoint) {{
+    let modal = document.getElementById('modal-json');
+    let title = document.getElementById('modal-title');
+    let code = document.getElementById('modal-code');
+    title.innerText = '实时 API 诊断: ' + endpoint;
+    code.innerText = '正在请求实时端点 ' + endpoint + ' ...';
+    modal.style.display = 'flex';
+    try {{
+        let res = await fetch(endpoint);
+        let text = await res.text();
+        try {{
+            let parsed = JSON.parse(text);
+            code.innerText = JSON.stringify(parsed, null, 2);
+        }} catch(_) {{
+            code.innerText = text;
+        }}
+    }} catch(e) {{
+        code.innerText = '请求失败: ' + e.message;
+    }}
+}}
+
+function closeModal() {{
+    document.getElementById('modal-json').style.display = 'none';
+}}
+
+function copyText(str) {{
+    navigator.clipboard.writeText(str).then(() => {{
+        showNotice('节点 ID 已复制到剪贴板', 'success');
+    }}).catch(() => {{
+        showNotice('复制失败，请手动选择复制', 'error');
+    }});
+}}
+
+let dropzone = document.getElementById('dropzone');
+if (dropzone) {{
+    ['dragenter', 'dragover'].forEach(ev => {{
+        dropzone.addEventListener(ev, e => {{ e.preventDefault(); dropzone.classList.add('dragover'); }}, false);
+    }});
+    ['dragleave', 'drop'].forEach(ev => {{
+        dropzone.addEventListener(ev, e => {{ e.preventDefault(); dropzone.classList.remove('dragover'); }}, false);
+    }});
+    dropzone.addEventListener('drop', e => {{
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        let files = e.dataTransfer.files;
+        if (files && files.length > 0) {{
+            uploadFile(files[0]);
+        }}
+    }}, false);
+}}
+</script>
+</body>
+</html>"""
+        return html_out
 
     def _send_with_rate_limit(self):
         return self.send_head()
