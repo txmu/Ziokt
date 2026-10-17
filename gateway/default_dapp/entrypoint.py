@@ -38,6 +38,8 @@ ALIAS_MAP = {
     'apps': 'overview',
     'corium': 'overview',
     'status': 'overview',
+    'probability': 'overview',
+    'prob': 'overview',
     'files': 'fileshare',
     'tunnel': 'onion',
     'ano': 'zda',
@@ -89,6 +91,10 @@ except Exception:
 chain_ctx = node_ctx.get('blockchain', {})
 dht_ctx = node_ctx.get('dht', {})
 nns_ctx = node_ctx.get('nns', [])
+cur_h = chain_ctx.get('height', 0)
+tx_c = chain_ctx.get('tx_count', 0)
+n_cnt = dht_ctx.get('nodes_count', 0)
+c_cnt = dht_ctx.get('chunks_count', 0)
 
 # 3. Visitor Tracking in Data Vault
 visit_count = 0
@@ -1526,6 +1532,21 @@ else:
             <span class="label">底层原生支持</span>
             <span class="val">Corium v108 &bull; ETP Protocol &bull; Ziokt Engine</span>
         </div>
+        
+        <!-- Terminal Console UI Guide Box -->
+        <div class="terminal-box" style="background:#090d16;border:1px solid #334155;border-radius:8px;padding:1rem 1.25rem;margin-top:1.5rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:inset 0 0 12px rgba(0,0,0,0.6);">
+            <div class="terminal-header" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.5rem;margin-bottom:0.75rem;border-bottom:1px solid #1e293b;font-size:0.85rem;color:var(--text-secondary);">
+                <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ Corium / Ziokt 架构控制台 &bull; 终端说明规范 (Terminal Console Telemetry)</span>
+                <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">ONLINE &bull; ETP-v2 / Corix-v108</span>
+            </div>
+            <div class="terminal-body" style="font-size:0.85rem;line-height:1.7;color:#cbd5e1;">
+                <div class="terminal-line"><span class="cmd-prompt" style="color:var(--accent-green);font-weight:bold;">$</span> <span class="cmd-code" style="color:#f8fafc;font-weight:bold;">ziokt-sys --telemetry --gateway</span></div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[COR-NET]</span> P2P Mesh: 8080 | UFS DCPM: 8184 | Gateway: 8185 | MCP Agent: 8186 | HTTPS: 443</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 双架构运行中；支持零延迟无损平滑热切换。</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> 浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。</div>
+            </div>
+        </div>
     </div>
     """
 
@@ -1588,6 +1609,139 @@ for n_key, n_i18n, n_icon in nav_items:
     nav_links_html += f'<a href="/app/{n_key}?lang={locale}" class="nav-link {active_cls}"{aria_curr}>{n_icon} {t(n_i18n)}</a>\n'
 
 nav_links_html += f'<a href="/gateway-assets/registry.html" class="nav-link" target="_blank">⚖️ {t("nav.registry")}</a>\n'
+nav_links_html += f'<a href="/app/{subpath}?ui=simple&lang={locale}" class="nav-link" style="border-color:#38bdf8;color:#38bdf8;font-weight:600;" onclick="if(window.applyUiMode){{event.preventDefault();window.applyUiMode(\'simple\');}}">⚡ {t("mode.minimalist")}</a>\n'
+
+# UI Mode Detection
+ui_mode = query.get('ui', [''])[0]
+if ui_mode == 'simple':
+    pano_attr = ' hidden'
+    simp_attr = ''
+else:
+    pano_attr = ''
+    simp_attr = ' hidden'
+
+# ==============================================================================
+# MINIMALIST VIEW (简约版) BUILDER
+# ==============================================================================
+simple_nav_html = ""
+for n_key, n_i18n, n_icon in nav_items:
+    is_active = (n_key == subpath)
+    aria_curr = ' aria-current="page"' if is_active else ""
+    simple_nav_html += f'<a href="/app/{n_key}?ui=simple&lang={locale}"{aria_curr}>{t(n_i18n)}</a>\n'
+simple_nav_html += f'<a href="/gateway-assets/registry.html" target="_blank">{t("nav.registry")}</a>\n'
+simple_nav_html += f'<a href="/app/{subpath}?ui=panoramic&lang={locale}" style="border-color:#a855f7;color:#a855f7;font-weight:600;" onclick="if(window.applyUiMode){{event.preventDefault();window.applyUiMode(\'panoramic\');}}">🌐 {t("mode.panoramic")}</a>\n'
+
+simple_content_html = f'<h1>{t("nav." + subpath)}</h1><p style="color:var(--text-secondary);font-size:0.9rem;">{t("portal.readonly")}</p>'
+
+if subpath == 'overview':
+    simple_content_html += f"""
+    <div class="simple-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0;">
+        <article style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;">
+            <h2 style="font-size:1rem;color:var(--text-secondary);">{t('chain.height')}</h2>
+            <p style="font-size:1.8rem;font-weight:bold;color:var(--accent-blue);margin:8px 0 0;">#{cur_h}</p>
+        </article>
+        <article style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;">
+            <h2 style="font-size:1rem;color:var(--text-secondary);">{t('chain.transactions')}</h2>
+            <p style="font-size:1.8rem;font-weight:bold;color:var(--accent-green);margin:8px 0 0;">{tx_c}</p>
+        </article>
+        <article style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;">
+            <h2 style="font-size:1rem;color:var(--text-secondary);">{t('dht.objects')}</h2>
+            <p style="font-size:1.8rem;font-weight:bold;color:var(--accent-purple);margin:8px 0 0;">{c_cnt}</p>
+        </article>
+        <article style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;">
+            <h2 style="font-size:1rem;color:var(--text-secondary);">{t('dht.nodes')}</h2>
+            <p style="font-size:1.8rem;font-weight:bold;color:var(--accent-amber);margin:8px 0 0;">{n_cnt}</p>
+        </article>
+    </div>
+    <div class="terminal-box" style="background:#090d16;border:1px solid #334155;border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:inset 0 0 12px rgba(0,0,0,0.6);">
+        <div class="terminal-header" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.5rem;margin-bottom:0.75rem;border-bottom:1px solid #1e293b;font-size:0.85rem;color:var(--text-secondary);">
+            <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ Corium / Ziokt 架构控制台 &bull; 终端说明规范 (Terminal Console Telemetry)</span>
+            <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">ONLINE &bull; ETP-v2 / Corix-v108</span>
+        </div>
+        <div class="terminal-body" style="font-size:0.85rem;line-height:1.7;color:#cbd5e1;">
+            <div class="terminal-line"><span class="cmd-prompt" style="color:var(--accent-green);font-weight:bold;">$</span> <span class="cmd-code" style="color:#f8fafc;font-weight:bold;">ziokt-sys --telemetry --gateway</span></div>
+            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[COR-NET]</span> P2P Mesh: 8080 | UFS DCPM: 8184 | Gateway: 8185 | MCP Agent: 8186 | HTTPS: 443</div>
+            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 双架构运行中；支持零延迟无损平滑热切换。</div>
+            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> 浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。</div>
+            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。</div>
+        </div>
+    </div>
+    """
+
+if subpath in ('forum', 'board'):
+    simple_content_html += f"""
+    <section style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;margin:16px 0;">
+        <h2 style="font-size:1.15rem;margin-bottom:12px;">{t('forum.new_topic')}</h2>
+        <form method="POST" action="/api/gateway/forum">
+            <label style="display:block;margin-bottom:10px;">{t('forum.topic')}<input name="topic" maxlength="256" style="width:100%;margin-top:4px;" required></label>
+            <label style="display:block;margin-bottom:10px;">{t('forum.content')}<textarea name="content" maxlength="65536" rows="4" style="width:100%;margin-top:4px;" required></textarea></label>
+            <button type="submit" class="btn btn-green">{t('forum.submit')}</button>
+        </form>
+    </section>
+    """
+    for topic in node_ctx.get('forum', {}).get('topics', []):
+        tid = esc(topic.get('id', ''))
+        simple_content_html += f"""
+        <article style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;margin:14px 0;">
+            <h2 style="font-size:1.1rem;margin-bottom:6px;">{esc(topic.get('topic', ''))}</h2>
+            <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">{esc(topic.get('author', ''))} &bull; {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(topic.get('timestamp', 0)))}</p>
+            <p style="font-size:0.95rem;line-height:1.6;margin-bottom:12px;">{esc(topic.get('content', ''))}</p>
+            <details>
+                <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.9rem;">{t('forum.reply')}</summary>
+        """
+        for reply in topic.get('replies', []):
+            simple_content_html += f'<blockquote style="border-left:3px solid var(--accent-purple);margin:8px 0;padding:6px 12px;background:#0f172a;"><p style="margin:0;font-size:0.9rem;">{esc(reply.get("content", ""))}</p><cite style="color:var(--text-secondary);font-size:0.8rem;">{esc(reply.get("author", ""))}</cite></blockquote>'
+        simple_content_html += f"""
+                <form method="POST" action="/api/gateway/forum" style="margin-top:10px;">
+                    <input type="hidden" name="reply_to" value="{tid}">
+                    <label style="display:block;margin-bottom:10px;">{t('forum.content')}<textarea name="content" maxlength="65536" rows="3" style="width:100%;margin-top:4px;" required></textarea></label>
+                    <button type="submit" class="btn btn-green">{t('forum.reply')}</button>
+                </form>
+            </details>
+        </article>
+        """
+
+if subpath in ('blockchain', 'effort'):
+    simple_content_html += f"""
+    <div style="overflow-x:auto;margin:16px 0;">
+        <table style="width:100%;border-collapse:collapse;background:var(--card-bg);border-radius:8px;overflow:hidden;">
+            <caption style="text-align:left;font-weight:bold;padding:10px 14px;color:var(--accent-blue);">{t('chain.blocks')}</caption>
+            <thead><tr style="border-bottom:1px solid var(--border-color);"><th style="padding:10px 14px;text-align:left;">{t('chain.height')}</th><th style="padding:10px 14px;text-align:left;">{t('chain.hash')}</th><th style="padding:10px 14px;text-align:left;">{t('chain.validator')}</th></tr></thead>
+            <tbody>
+    """
+    for block in chain_ctx.get('blocks', []):
+        simple_content_html += f'<tr style="border-bottom:1px solid #1f2937;"><td style="padding:10px 14px;">#{esc(block.get("height", 0))}</td><td style="padding:10px 14px;"><code style="color:var(--accent-green);">{esc(block.get("hash", ""))[:32]}...</code></td><td style="padding:10px 14px;">{esc(block.get("validator", ""))}</td></tr>'
+    simple_content_html += "</tbody></table></div>"
+
+if subpath == 'nns':
+    simple_content_html += '<div style="margin:16px 0;">'
+    for record in nns_ctx:
+        simple_content_html += f'<article style="padding:14px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;margin:10px 0;"><h2 style="font-size:1.05rem;color:var(--accent-blue);">{esc(record.get("domain", ""))}</h2><code style="color:var(--text-secondary);font-size:0.85rem;">{esc(record.get("target", ""))}</code></article>'
+    simple_content_html += '</div>'
+
+if subpath == 'fileshare':
+    simple_content_html += f"""
+    <section style="padding:16px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;margin:16px 0;">
+        <h2 style="font-size:1.15rem;margin-bottom:12px;">{t('files.open')}</h2>
+        <form id="stream-form-simple" onsubmit="event.preventDefault();const r=this.root.value.trim();if(r){{const v=document.querySelector('#stream-player-simple');v.src='/api/gateway/stream/'+encodeURIComponent(r);v.hidden=false;const d=document.querySelector('#stream-download-simple');d.href='/api/gateway/download/'+encodeURIComponent(r);d.hidden=false;}}">
+            <label style="display:block;margin-bottom:10px;">{t('files.root')}<input name="root" pattern="[a-f0-9]{{64}}" maxlength="64" style="width:100%;margin-top:4px;" required></label>
+            <button type="submit" class="btn btn-green">{t('files.open')}</button>
+        </form>
+        <video id="stream-player-simple" controls preload="metadata" hidden style="max-width:100%;margin-top:14px;border-radius:6px;"></video>
+        <p style="margin-top:10px;"><a id="stream-download-simple" class="btn btn-purple" hidden>{t('files.download')}</a></p>
+    </section>
+    """
+
+ext_links = {
+    'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
+    'sim': 'https://ziokt-sim-43-207-75-185.sslip.io/',
+    'effort': 'https://ziokt-effort-43-207-75-185.sslip.io/',
+    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/api/stats'
+}
+if subpath in ext_links:
+    simple_content_html += f'<p style="margin:16px 0;"><a class="btn btn-green" href="{ext_links[subpath]}" rel="noreferrer" target="_blank">{t("app.open")}</a></p>'
+
+simple_content_html += f'<p style="margin:16px 0;"><a href="/gateway-assets/registry.html" style="color:var(--accent-blue);" target="_blank">{t("card.registry.title")}</a></p>'
 
 # ==============================================================================
 # HTML TEMPLATE
@@ -1758,22 +1912,115 @@ response = f"""<!DOCTYPE html>
             border-top: 1px solid var(--border-color);
             padding-top: 1.5rem;
         }}
+        /* Minimalist View (简约版) Styles */
+        #simple-view .simple-nav {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 16px 0;
+        }}
+        #simple-view .simple-nav a {{
+            padding: 8px 12px;
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+        }}
+        #simple-view .simple-nav a:hover {{
+            background: #1e293b;
+            border-color: #334155;
+        }}
+        #simple-view .simple-nav a[aria-current="page"] {{
+            border-color: var(--accent-blue);
+            background: #1e293b;
+            color: #fff;
+            font-weight: 600;
+        }}
+        #simple-view article, #simple-view section {{
+            padding: 16px;
+            margin: 14px 0;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }}
+        #simple-view label {{
+            display: block;
+            margin: 10px 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }}
+        #simple-view input, #simple-view textarea, #simple-view select {{
+            width: 100%;
+            font: inherit;
+            color: var(--text-primary);
+            background: #0b0f19;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            min-height: 40px;
+            padding: 8px 10px;
+            box-sizing: border-box;
+        }}
     </style>
     <script src="/gateway-assets/gateway.js" defer></script>
     <script src="/gateway-assets/mcp-console.js" defer></script>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>⚡ Corium &amp; Ziokt 统一去中心化应用网关</h1>
-            <p class="subtitle">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
-        </header>
+        <!-- ========================================================== -->
+        <!-- VIEW 1: PANORAMIC STUDIO (全景版)                          -->
+        <!-- ========================================================== -->
+        <div id="panoramic-view"{pano_attr}>
+            <header>
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
+                    <div>
+                        <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 全景版 (Panoramic Studio)</span>
+                        <h1 style="font-size:2rem;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</h1>
+                        <p class="subtitle" style="margin:0;">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-purple" onclick="if(window.applyUiMode){{window.applyUiMode('simple');}}else{{location.assign('?ui=simple');}}" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                            ⚡ {t('mode.switch_to_simple')}
+                        </button>
+                    </div>
+                </div>
+            </header>
 
-        <nav class="nav-links" aria-label="{t('nav.label')}">
-            {nav_links_html}
-        </nav>
+            <nav class="nav-links" aria-label="{t('nav.label')}">
+                {nav_links_html}
+            </nav>
 
-        {tab_html}
+            {tab_html}
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- VIEW 2: MINIMALIST EDITION (简约版)                         -->
+        <!-- ========================================================== -->
+        <div id="simple-view"{simp_attr}>
+            <header>
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
+                    <div>
+                        <span class="badge" style="display:inline-block;background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid rgba(168,85,247,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 简约版 (Minimalist View)</span>
+                        <strong style="display:block;font-size:1.6rem;color:var(--text-primary);">{t('portal.title')}</strong>
+                        <p style="color:var(--text-secondary);font-size:0.9rem;margin:0;">{t('portal.readonly')}</p>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-green" onclick="if(window.applyUiMode){{window.applyUiMode('panoramic');}}else{{location.assign('?ui=panoramic');}}" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                            🌐 {t('mode.switch_to_panoramic')}
+                        </button>
+                    </div>
+                </div>
+                <nav class="simple-nav" aria-label="{t('nav.label')}">
+                    {simple_nav_html}
+                </nav>
+            </header>
+
+            {simple_content_html}
+        </div>
 
         {mcp_section}
 

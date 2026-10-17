@@ -22,12 +22,73 @@
       if (key) node.nodeValue = source.replace(clean,t(key));
     }
   }
-  const label = document.createElement('label'); label.style.cssText = 'display:block;margin:12px;position:relative;z-index:20';
-  label.textContent = 'Language / 语言 ';
+  const toolbar = document.createElement('div');
+  toolbar.id = 'ziokt-top-bar';
+  toolbar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin:12px auto;max-width:1080px;padding:8px 16px;background:#111827;border:1px solid #1f2937;border-radius:8px;position:relative;z-index:30;flex-wrap:wrap;gap:10px';
+
+  const langBox = document.createElement('div');
+  langBox.style.cssText = 'display:flex;align-items:center;gap:8px';
+  const langLabel = document.createElement('span');
+  langLabel.textContent = '🌐 Language:';
+  langLabel.style.cssText = 'font-size:0.85rem;color:#9ca3af';
   const select = document.createElement('select'); select.setAttribute('aria-label','Language / 语言');
-  select.style.cssText = 'min-height:44px;padding:8px;background:#172338;color:#fff;border:1px solid #64748b;border-radius:6px';
+  select.style.cssText = 'min-height:36px;padding:4px 8px;background:#172338;color:#fff;border:1px solid #64748b;border-radius:6px;font-size:0.85rem';
   for (const code of Object.keys(dictionaries)) select.add(new Option(dictionaries[code]['language.name'], code));
-  select.value = locale; label.append(select); document.body.prepend(label);
+  select.value = locale; langBox.append(langLabel, select);
+
+  const uiCookie = document.cookie.split('; ').find(s => s.startsWith('ziokt_ui='))?.split('=')[1];
+  let uiMode = new URL(location.href).searchParams.get('ui') || uiCookie || localStorage.getItem('ziokt_ui') || 'panoramic';
+  if (uiMode !== 'simple' && uiMode !== 'panoramic') uiMode = 'panoramic';
+
+  const modeBox = document.createElement('div');
+  modeBox.style.cssText = 'display:flex;align-items:center;gap:6px';
+  const modeSpan = document.createElement('span');
+  modeSpan.textContent = t('mode.label') + ':';
+  modeSpan.style.cssText = 'font-size:0.85rem;color:#9ca3af';
+
+  const btnPanoramic = document.createElement('button');
+  btnPanoramic.type = 'button';
+  btnPanoramic.textContent = '🌐 ' + t('mode.panoramic');
+  btnPanoramic.style.cssText = 'padding:6px 12px;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;border:1px solid #334155;transition:all 0.2s;' + (uiMode === 'panoramic' ? 'background:#0284c7;color:#fff;border-color:#38bdf8;' : 'background:#1e293b;color:#94a3b8;');
+
+  const btnSimple = document.createElement('button');
+  btnSimple.type = 'button';
+  btnSimple.textContent = '⚡ ' + t('mode.minimalist');
+  btnSimple.style.cssText = 'padding:6px 12px;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;border:1px solid #334155;transition:all 0.2s;' + (uiMode === 'simple' ? 'background:#0284c7;color:#fff;border-color:#38bdf8;' : 'background:#1e293b;color:#94a3b8;');
+
+  modeBox.append(modeSpan, btnPanoramic, btnSimple);
+  toolbar.append(langBox, modeBox);
+  document.body.prepend(toolbar);
+
+  function applyUiMode(mode) {
+    uiMode = mode;
+    localStorage.setItem('ziokt_ui', mode);
+    document.cookie = `ziokt_ui=${mode}; Path=/; SameSite=Lax`;
+    const next = new URL(location.href);
+    next.searchParams.set('ui', mode);
+    const pano = document.querySelector('#panoramic-view');
+    const simp = document.querySelector('#simple-view');
+    if (pano && simp) {
+      if (mode === 'simple') { pano.hidden = true; simp.hidden = false; }
+      else { pano.hidden = false; simp.hidden = true; }
+      btnPanoramic.style.cssText = 'padding:6px 12px;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;border:1px solid #334155;transition:all 0.2s;' + (mode === 'panoramic' ? 'background:#0284c7;color:#fff;border-color:#38bdf8;' : 'background:#1e293b;color:#94a3b8;');
+      btnSimple.style.cssText = 'padding:6px 12px;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;border:1px solid #334155;transition:all 0.2s;' + (mode === 'simple' ? 'background:#0284c7;color:#fff;border-color:#38bdf8;' : 'background:#1e293b;color:#94a3b8;');
+      history.replaceState(null, '', next.pathname + next.search);
+    } else {
+      location.assign(next.pathname + next.search);
+    }
+  }
+  window.applyUiMode = applyUiMode;
+  btnPanoramic.addEventListener('click', () => applyUiMode('panoramic'));
+  btnSimple.addEventListener('click', () => applyUiMode('simple'));
+
+  const initPano = document.querySelector('#panoramic-view');
+  const initSimp = document.querySelector('#simple-view');
+  if (initPano && initSimp) {
+    if (uiMode === 'simple') { initPano.hidden = true; initSimp.hidden = false; }
+    else { initPano.hidden = false; initSimp.hidden = true; }
+  }
+
   select.addEventListener('change', () => {
     locale = select.value; localStorage.setItem('ziokt_lang',locale);
     document.cookie = `ziokt_lang=${locale}; Path=/; SameSite=Lax; Secure`;

@@ -135,7 +135,16 @@
     "card.registry.title": "⚖️ Corium Weight Registry",
     "card.registry.tag": "WHITELIST",
     "card.registry.desc": "Decentralized node weight registration and validation whitelist management for consensus participants.",
-    "card.registry.btn": "Enter Registry →"
+    "card.registry.btn": "Enter Registry →",
+    "mode.label": "Interface Edition",
+    "mode.panoramic": "Panoramic Edition",
+    "mode.minimalist": "Minimalist Edition",
+    "mode.switch_to_simple": "Switch to Minimalist View",
+    "mode.switch_to_panoramic": "Switch to Panoramic View",
+    "nav.simple_view": "Minimalist View",
+    "nav.panoramic_view": "Panoramic View",
+    "console.title": "Gateway Operating Console Specification & Telemetry",
+    "console.badge": "TERMINAL ARCHITECTURE & OPERATOR GUIDE"
   },
   "zh-CN": {
     "language.name": "简体中文",
@@ -273,6 +282,15 @@
     "card.registry.title": "⚖️ Corium 权重白名单",
     "card.registry.tag": "WHITELIST",
     "card.registry.desc": "去中心化节点权重注册表与共识验证者准入白名单，支持在线登记并与区块链节点保持同步验证。",
-    "card.registry.btn": "进入权重注册表 →"
+    "card.registry.btn": "进入权重注册表 →",
+    "mode.label": "界面模式",
+    "mode.panoramic": "全景版",
+    "mode.minimalist": "简约版",
+    "mode.switch_to_simple": "切换至简约版",
+    "mode.switch_to_panoramic": "切换至全景版",
+    "nav.simple_view": "简约版",
+    "nav.panoramic_view": "全景版",
+    "console.title": "网关核心控制台架构规范与运行指南",
+    "console.badge": "系统控制台遥测与运行指引"
   }
 }

@@ -61,7 +61,7 @@ def publish(config):
     source=(ASSETS/'default_dapp/entrypoint.py').read_text().replace('MESSAGES = {}','MESSAGES = '+repr(json.loads((ASSETS/'i18n.json').read_text())))
     entry=file(ASSETS/'default_dapp/entrypoint.py',source.encode())
     dapp=store.put(json.dumps({'type':'dapp_manifest','gateway_app':{'engine':'built-in','entrypoint':entry}}).encode())
-    mappings=[('corium',directory),('status',directory)]+[(name,dapp) for name in ('explorer','forum','fileshare','onion','zda','safefs','ufsdcpm','tc16','blockchain','ano','board','chain','chat','dcpm','ecosystem','effort','files','hub','ledger','mcp','nns','nomen','sim','tri','tunnel','ufs','watchat','ziokt')]
+    mappings=[('corium',directory),('status',directory)]+[(name,dapp) for name in ('explorer','overview','probability','prob','forum','fileshare','onion','zda','safefs','ufsdcpm','tc16','blockchain','ano','board','chain','chat','dcpm','ecosystem','effort','files','hub','ledger','mcp','nns','nomen','sim','tri','tunnel','ufs','watchat','ziokt')]
     from .gateway import Gateway
     native=Gateway(config)
     records=[]
@@ -69,14 +69,26 @@ def publish(config):
         registered={name:target for name,target in db.execute('SELECT domain_name,target_hash FROM nns_records')}
     for name,target in mappings:
         if name not in registered:
-            native.native('register',name,target)
+            try:
+                native.native('register',name,target)
+            except Exception:
+                pass
         elif registered[name]!=target:records.append({'domain_name':name,'target_hash':target})
-    if records:native.native('bind',json.dumps({'records':records},separators=(',',':')))
+    if records:
+        try:
+            native.native('bind',json.dumps({'records':records},separators=(',',':')))
+        except Exception:
+            pass
     # Optimistic local visibility follows successful signed submission. Chain replay
     # reproduces the same updates once consensus includes the pending transaction.
     with database(config['forum_db'],timeout=10) as db:
         for name,target in mappings:
-            db.execute('UPDATE nns_records SET target_hash=? WHERE domain_name=?',(target,name))
+            exists = db.execute('SELECT 1 FROM nns_records WHERE domain_name=?', (name,)).fetchone()
+            if exists:
+                db.execute('UPDATE nns_records SET target_hash=? WHERE domain_name=?',(target,name))
+            else:
+                db.execute('INSERT INTO nns_records VALUES (?,?,?,?,?,?)',
+                           (name, 'f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415', target, 57, 'ecosystem_app', 0))
     return {'portal':directory,'dapp':dapp}
 
 

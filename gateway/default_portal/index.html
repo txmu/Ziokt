@@ -24,7 +24,7 @@
             color: var(--text-primary);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
             line-height: 1.5;
-            padding: 2.5rem 1rem;
+            padding: 1.5rem 1rem 3rem;
         }
         .container {
             max-width: 1080px;
@@ -32,7 +32,7 @@
         }
         header {
             text-align: center;
-            margin-bottom: 2.5rem;
+            margin-bottom: 2rem;
         }
         .badge {
             display: inline-block;
@@ -43,12 +43,12 @@
             border-radius: 9999px;
             font-size: 0.85rem;
             font-weight: 600;
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
             letter-spacing: 0.05em;
         }
         h1 {
             font-size: 2.2rem;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
             background: linear-gradient(to right, var(--accent-blue), var(--accent-purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -64,15 +64,15 @@
             background: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2.5rem;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 2rem;
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
         }
         .intro-title {
             color: var(--accent-blue);
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: 600;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.4rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -81,6 +81,52 @@
             color: var(--text-secondary);
             font-size: 0.95rem;
             line-height: 1.6;
+        }
+        /* Terminal Console Guide Box */
+        .terminal-box {
+            background: #090d16;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 2rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+        }
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 0.5rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px dashed #1e293b;
+            font-size: 0.8rem;
+            color: #38bdf8;
+        }
+        .terminal-dots {
+            display: inline-flex;
+            gap: 6px;
+        }
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .terminal-content {
+            font-size: 0.85rem;
+            line-height: 1.7;
+            color: #cbd5e1;
+        }
+        .terminal-cmd {
+            color: #10b981;
+            font-weight: 600;
+        }
+        .terminal-tag {
+            background: #1e293b;
+            color: #f59e0b;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
         }
         .section-title {
             font-size: 1.35rem;
@@ -170,6 +216,44 @@
         .btn-green:hover { background: #047857; }
         .btn-amber { background: #d97706; }
         .btn-amber:hover { background: #b45309; }
+
+        /* Minimalist view styles */
+        .simple-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+            margin: 2rem 0;
+        }
+        .simple-link {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            color: #7dd3fc;
+            padding: 16px;
+            background: var(--card-bg);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            min-height: 60px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .simple-link:hover {
+            border-color: #38bdf8;
+            background: var(--card-hover);
+            transform: translateY(-2px);
+        }
+        .simple-link-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 4px;
+        }
+        .simple-link-path {
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
         footer {
             text-align: center;
             color: #64748b;
@@ -183,311 +267,418 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <div class="badge" data-i18n="portal.badge">COR-WEB 原生去中心化静态门户 • NNS: status / corium</div>
-            <h1 data-i18n="portal.title">Cor-Web 原生去中心化全景门户</h1>
-            <p class="subtitle" data-i18n="portal.subtitle">
-                本页面通过 Corium NNS 域名系统与 DHT 分布式对象网络托管。无中心化服务器、纯净安全且全网防篡改，直接驱动生态全量 DApp。
-            </p>
-        </header>
+        <!-- ================================================================== -->
+        <!-- VIEW 1: PANORAMIC EDITION (全景版) -->
+        <!-- ================================================================== -->
+        <div id="panoramic-view">
+            <header>
+                <div class="badge" data-i18n="portal.badge">COR-WEB 原生去中心化静态门户 • NNS: status / corium</div>
+                <h1 data-i18n="portal.title">Cor-Web 原生去中心化全景门户</h1>
+                <p class="subtitle" data-i18n="portal.subtitle">
+                    本页面通过 Corium NNS 域名系统与 DHT 分布式对象网络托管。无中心化服务器、纯净安全且全网防篡改，直接驱动生态全量 DApp。
+                </p>
+            </header>
 
-        <div class="intro-box">
-            <div class="intro-title" data-i18n="portal.intro_title">💡 什么是 Cor-Web？</div>
-            <div class="intro-text" data-i18n="portal.intro_text">
-                Cor-Web 是 Corium 与 Ziokt 架构中的原生 Web 体系。网页全部以密码学分块散列形式存储于 P2P 网络，经由 NNS 解析直接挂载到网关；所有动态交互均运行在受控双层沙箱中，消除了跨站脚本 (XSS) 与第三方中间人劫持风险。
+            <div class="intro-box">
+                <div class="intro-title" data-i18n="portal.intro_title">💡 什么是 Cor-Web？</div>
+                <div class="intro-text" data-i18n="portal.intro_text">
+                    Cor-Web 是 Corium 与 Ziokt 架构中的原生 Web 体系。网页全部以密码学分块散列形式存储于 P2P 网络，经由 NNS 解析直接挂载到网关；所有动态交互均运行在受控双层沙箱中，消除了跨站脚本 (XSS) 与第三方中间人劫持风险。
+                </div>
+            </div>
+
+            <!-- Terminal Console Style UI Explanation -->
+            <div class="terminal-box">
+                <div class="terminal-header">
+                    <span class="terminal-dots">
+                        <span class="terminal-dot" style="background:#ef4444;"></span>
+                        <span class="terminal-dot" style="background:#f59e0b;"></span>
+                        <span class="terminal-dot" style="background:#10b981;"></span>
+                    </span>
+                    <strong data-i18n="console.badge">ZIOKT TERMINAL // GATEWAY CONSOLE SPEC v2.4</strong>
+                    <span>STATUS: ONLINE</span>
+                </div>
+                <div class="terminal-content">
+                    <div><span class="terminal-cmd">$ ziokt-sys --telemetry</span></div>
+                    <div>&bull; <span class="terminal-tag">DUAL-MODE UI</span> <strong>界面双模体系</strong>: 支持 <span style="color:#38bdf8;">全景版</span> (深度交互工坊/仿真器/微架构追踪) 与 <span style="color:#10b981;">简约版</span> (极简视窗/高密度/极速渲染)，顶部工具栏一键无缝热切换。</div>
+                    <div>&bull; <span class="terminal-tag">CRYPTO BOUNDARY</span> <strong>端侧密码学签名</strong>: 浏览器非导出 WebCrypto Ed25519 私钥存入 IndexedDB 独立保险库，发布论坛/动态直接签名，节点私钥绝对零暴露。</div>
+                    <div>&bull; <span class="terminal-tag">ZERO-COPY STREAM</span> <strong>零拷贝媒体直通</strong>: <code>/stream/&lt;root&gt;</code> 路由搭载原生 HTTP Range 流媒体引擎，免落盘边下边播。</div>
+                    <div>&bull; <span class="terminal-tag">MCP AGENT PROTOCOL</span> <strong>模型上下文协议</strong>: 2026 原生规范，支持 OAuth2 PKCE 授权接入、跨组件工具动态探测与写前计划审查确认。</div>
+                </div>
+            </div>
+
+            <h2 class="section-title" data-i18n="portal.apps_title">🚀 Corium、ETP 与 Ziokt 全量应用入口清单</h2>
+            <div class="grid">
+                <!-- 0. Overview -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.explorer.title">📊 网关核心监控控制台</div>
+                            <span class="app-tag" style="background:rgba(168,85,247,0.15);color:#a855f7;" data-i18n="card.explorer.tag">GATEWAY CORE</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.explorer.desc">
+                            网关实时健康状态、出块高度、DHT 邻居节点健康探测、沙箱指令周期监控与访问计数统计总控台。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/overview</span>
+                        <a href="/app/overview" class="btn btn-purple" data-i18n="card.explorer.btn">进入控制台 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 1. Forum -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.forum.title">💬 Corium 原生分布式论坛</div>
+                            <span class="app-tag" style="background:rgba(56,189,248,0.15);color:#38bdf8;" data-i18n="card.forum.tag">FORUM.DB NATIVE</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.forum.desc">
+                            基于 Corium 原生 forum.db 与 P2P 内容寻址对象库构建。每条话题与回复均经由 Ed25519 签名与 SHA-256 校验，实时区块链信标广播。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/forum</span>
+                        <a href="/app/forum" class="btn" data-i18n="card.forum.btn">进入论坛 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 2. FileShare & Stream -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.fileshare.title">📦 分布式文件共享与流媒体</div>
+                            <span class="app-tag" style="background:rgba(16,185,129,0.15);color:#10b981;" data-i18n="card.fileshare.tag">DHT STORAGE &amp; STREAM</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.fileshare.desc">
+                            内容寻址对象分发与零拷贝 HTTP Range 流播放平台。支持上传文本代码分块，生成全局唯一的 corium://dht/&lt;hash&gt; 磁力引用。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/fileshare</span>
+                        <a href="/app/fileshare" class="btn btn-green" data-i18n="card.fileshare.btn">进入文件共享 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 3. Onion Routing -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.onion.title">🧅 洋葱中继 &amp; Noise 隧道</div>
+                            <span class="app-tag" style="background:rgba(168,85,247,0.15);color:#a855f7;" data-i18n="card.onion.tag">ONION MESH</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.onion.desc">
+                            ETP 多跳 Sphinx 分层加密中继回路。支持在线组装 3 跳保护链路，模拟逐跳剥皮解密与 Noise-IK4 握手审计。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/onion</span>
+                        <a href="/app/onion" class="btn btn-purple" data-i18n="card.onion.btn">进入洋葱隧道 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 4. Ano / ZDA -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.zda.title">⚖️ Ano / ZDA 三值鉴证</div>
+                            <span class="app-tag" style="background:rgba(236,72,153,0.15);color:#ec4899;" data-i18n="card.zda.tag">FORMAL LOGIC</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.zda.desc">
+                            Ziokt 独创的三值形式化代数系统（Positive/Negative/Unknown）。提供张量 Cross 协同与 Merge 仲裁求值与公理定理检验。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/zda</span>
+                        <a href="/app/zda" class="btn" style="background:#db2777;" data-i18n="card.zda.btn">进入鉴证引擎 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 5. SafeFS -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.safefs.title">🛡️ SafeFS 防篡改保险库</div>
+                            <span class="app-tag" style="background:rgba(6,182,212,0.15);color:#06b6d4;" data-i18n="card.safefs.tag">AEAD VAULT</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.safefs.desc">
+                            端侧 AEAD 密钥派生与密码学防篡改封存密室。支持私密文档加密存入、HMAC 完整性校验与安全受控读取。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/safefs</span>
+                        <a href="/app/safefs" class="btn" style="background:#0891b2;" data-i18n="card.safefs.btn">进入 SafeFS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 6. UFS / DCPM -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.ufsdcpm.title">🔐 UFS / DCPM 安全存储网关</div>
+                            <span class="app-tag" style="background:rgba(132,204,22,0.15);color:#84cc16;" data-i18n="card.ufsdcpm.tag">LIVE 8184</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.ufsdcpm.desc">
+                            原生零知识双重加密磁盘与 DCPM 签名软件包管理器。已在 127.0.0.1:8184 上线持久服务，支持全网安全存储同步。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/ufsdcpm</span>
+                        <a href="/app/ufsdcpm" class="btn" style="background:#65a30d;" data-i18n="card.ufsdcpm.btn">进入存储管理器 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 7. TC-16 VM -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.tc16.title">⚙️ TC-16 虚拟机工坊</div>
+                            <span class="app-tag" style="background:rgba(245,158,11,0.15);color:#f59e0b;" data-i18n="card.tc16.tag">16-BIT ISA</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.tc16.desc">
+                            在线 16 位微架构代码工坊。支持自由编写或加载 TC-16 汇编，实时回显 R0~R15 寄存器、Flags 标志与指令周期。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/tc16</span>
+                        <a href="/app/tc16" class="btn btn-amber" data-i18n="card.tc16.btn">进入虚拟机 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 8. Blockchain Explorer -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.blockchain.title">⛓️ 区块链与 PoUW 账本</div>
+                            <span class="app-tag" style="background:rgba(99,102,241,0.15);color:#6366f1;" data-i18n="card.blockchain.tag">LIVE LEDGER</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.blockchain.desc">
+                            实时穿透底层 chain.db，展示最新出块高度、区块哈希、验证者身份、交易笔数与有意义算力证明。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/blockchain</span>
+                        <a href="/app/blockchain" class="btn" style="background:#4f46e5;" data-i18n="card.blockchain.btn">进入区块浏览 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 9. WATChat Bridge -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.watchat.title">📨 WATChat 端到端通讯</div>
+                            <span class="app-tag" style="background:rgba(20,184,166,0.15);color:#14b8a6;" data-i18n="card.watchat.tag">P2P CHAT</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.watchat.desc">
+                            去中心化聊天室网关桥梁。数据安全落入 Data Vault，并可一键拉起独立部署的完整 WATChat PWA 客户端。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/watchat</span>
+                        <a href="/app/watchat" class="btn" style="background:#0d9488;" data-i18n="card.watchat.btn">进入聊天室 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 10. SimManager -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.sim.title">🧪 SimManager 仿真中心</div>
+                            <span class="app-tag" style="background:rgba(14,165,233,0.15);color:#0ea5e9;" data-i18n="card.sim.tag">ORCHESTRATOR</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.sim.desc">
+                            集群节点网络演练控制中心。观测虚拟节点状态、共识投票，并可注入网络分区演练拜占庭容错机制。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/sim</span>
+                        <a href="/app/sim" class="btn" data-i18n="card.sim.btn">进入仿真中心 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 11. Effort Coordinator -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.effort.title">⛏️ Effort 多链算力协调</div>
+                            <span class="app-tag" style="background:rgba(217,119,6,0.15);color:#d97706;" data-i18n="card.effort.tag">POUW COORDINATOR</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.effort.desc">
+                            多链 PoUW 难度目标与有意义工作量审核大盘。维护矩阵运算、同态加密等可信算力任务的跨链最终性。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/effort</span>
+                        <a href="/app/effort" class="btn btn-amber" data-i18n="card.effort.btn">进入算力协调 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 12. NNS Registrar -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.nns.title">🌐 NNS 域名注册与管理</div>
+                            <span class="app-tag" style="background:rgba(225,29,72,0.15);color:#e11d48;" data-i18n="card.nns.tag">NAME SERVICE</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.nns.desc">
+                            Corium 域名系统控制台。实时查询全网 25+ 已注册应用域名，输入任意域名即可解析目标哈希并直达 DApp。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/nns</span>
+                        <a href="/app/nns" class="btn" style="background:#be123c;" data-i18n="card.nns.btn">进入域名控制台 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 13. Guestbook Board -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.board.title">📝 社区公网留言板</div>
+                            <span class="app-tag" style="background:rgba(59,130,246,0.15);color:#3b82f6;" data-i18n="card.board.tag">DATA VAULT</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.board.desc">
+                            基于 Data Vault 沙箱隔离持久化的社区动态交流板。任何浏览器用户均可签名发布留言并实时留存。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/board</span>
+                        <a href="/app/board" class="btn" data-i18n="card.board.btn">进入留言板 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 14. Ecosystem Matrix -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.ecosystem.title">⚡ 全景生态大盘</div>
+                            <span class="app-tag" style="background:rgba(16,185,129,0.15);color:#10b981;" data-i18n="card.ecosystem.tag">ARCHITECTURE</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.ecosystem.desc">
+                            全方位汇总展示 Corium、ETP、Ziokt 与 Shadow6 的协议规范、安全边界与技术组件交互拓扑图。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/ecosystem</span>
+                        <a href="/app/ecosystem" class="btn btn-green" data-i18n="card.ecosystem.btn">进入生态大盘 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 15. MCP Agent Tool Console -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.mcp.title">🤖 MCP 智能体工具控制台</div>
+                            <span class="app-tag" style="background:rgba(236,72,153,0.15);color:#ec4899;" data-i18n="card.mcp.tag">OAUTH2 PKCE</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.mcp.desc">
+                            Model Context Protocol 原生授权控制台。支持端侧 OAuth2 PKCE 认证，自动发现组件工具与沙箱写入审查执行。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/app/mcp</span>
+                        <a href="/app/mcp" class="btn" style="background:#db2777;" data-i18n="card.mcp.btn">进入 MCP 控制台 &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- 16. Corium Weight Registry -->
+                <div class="app-card">
+                    <div>
+                        <div class="app-header">
+                            <div class="app-title" data-i18n="card.registry.title">⚖️ Corium 权重白名单</div>
+                            <span class="app-tag" style="background:rgba(56,189,248,0.15);color:#38bdf8;" data-i18n="card.registry.tag">WHITELIST</span>
+                        </div>
+                        <div class="app-desc" data-i18n="card.registry.desc">
+                            去中心化节点权重注册表与共识验证者准入白名单，支持在线登记并与区块链节点保持同步验证。
+                        </div>
+                    </div>
+                    <div class="app-footer">
+                        <span class="app-path">/gateway-assets/registry.html</span>
+                        <a href="/gateway-assets/registry.html" class="btn" data-i18n="card.registry.btn">进入权重注册表 &rarr;</a>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <h2 class="section-title" data-i18n="portal.apps_title">🚀 Corium、ETP 与 Ziokt 全量应用入口清单</h2>
-        <div class="grid">
-            <!-- 1. Forum -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.forum.title">💬 Corium 原生分布式论坛</div>
-                        <span class="app-tag" style="background:rgba(56,189,248,0.15);color:#38bdf8;" data-i18n="card.forum.tag">FORUM.DB NATIVE</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.forum.desc">
-                        基于 Corium 原生 forum.db 与 P2P 内容寻址对象库构建。每条话题与回复均经由 Ed25519 签名与 SHA-256 校验，实时区块链信标广播。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/forum</span>
-                    <a href="/app/forum" class="btn" data-i18n="card.forum.btn">进入论坛 &rarr;</a>
-                </div>
-            </div>
+        <!-- ================================================================== -->
+        <!-- VIEW 2: MINIMALIST EDITION (简约版) -->
+        <!-- ================================================================== -->
+        <div id="simple-view" hidden>
+            <header>
+                <div class="badge" data-i18n="portal.badge">COR-WEB 去中心化网关 • 简约版</div>
+                <h1 data-i18n="portal.title">Corium decentralized gateway</h1>
+                <p class="subtitle" data-i18n="portal.readonly">公开浏览 · 用户签名发布 · 简约高密度网格</p>
+            </header>
 
-            <!-- 2. FileShare & Stream -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.fileshare.title">📦 分布式文件共享与流媒体</div>
-                        <span class="app-tag" style="background:rgba(16,185,129,0.15);color:#10b981;" data-i18n="card.fileshare.tag">DHT STORAGE & STREAM</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.fileshare.desc">
-                        内容寻址对象分发与零拷贝 HTTP Range 流播放平台。支持上传文本代码分块，生成全局唯一的 corium://dht/&lt;hash&gt; 磁力引用。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/fileshare</span>
-                    <a href="/app/fileshare" class="btn btn-green" data-i18n="card.fileshare.btn">进入文件共享 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 3. Onion Routing -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.onion.title">🧅 洋葱中继 & Noise 隧道</div>
-                        <span class="app-tag" style="background:rgba(168,85,247,0.15);color:#a855f7;" data-i18n="card.onion.tag">ONION MESH</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.onion.desc">
-                        ETP 多跳 Sphinx 分层加密中继回路。支持在线组装 3 跳保护链路，模拟逐跳剥皮解密与 Noise-IK4 握手审计。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/onion</span>
-                    <a href="/app/onion" class="btn btn-purple" data-i18n="card.onion.btn">进入洋葱隧道 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 4. Ano / ZDA -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.zda.title">⚖️ Ano / ZDA 三值鉴证</div>
-                        <span class="app-tag" style="background:rgba(236,72,153,0.15);color:#ec4899;" data-i18n="card.zda.tag">FORMAL LOGIC</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.zda.desc">
-                        Ziokt 独创的三值形式化代数系统（Positive/Negative/Unknown）。提供张量 Cross 协同与 Merge 仲裁求值与公理定理检验。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/zda</span>
-                    <a href="/app/zda" class="btn" style="background:#db2777;" data-i18n="card.zda.btn">进入鉴证引擎 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 5. SafeFS -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.safefs.title">🛡️ SafeFS 防篡改保险库</div>
-                        <span class="app-tag" style="background:rgba(6,182,212,0.15);color:#06b6d4;" data-i18n="card.safefs.tag">AEAD VAULT</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.safefs.desc">
-                        端侧 AEAD 密钥派生与密码学防篡改封存密室。支持私密文档加密存入、HMAC 完整性校验与安全受控读取。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/safefs</span>
-                    <a href="/app/safefs" class="btn" style="background:#0891b2;" data-i18n="card.safefs.btn">进入 SafeFS &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 6. UFS / DCPM -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.ufsdcpm.title">🔐 UFS / DCPM 安全存储网关</div>
-                        <span class="app-tag" style="background:rgba(132,204,22,0.15);color:#84cc16;" data-i18n="card.ufsdcpm.tag">LIVE 8184</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.ufsdcpm.desc">
-                        原生零知识双重加密磁盘与 DCPM 签名软件包管理器。已在 127.0.0.1:8184 上线持久服务，支持全网安全存储同步。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/ufsdcpm</span>
-                    <a href="/app/ufsdcpm" class="btn" style="background:#65a30d;" data-i18n="card.ufsdcpm.btn">进入存储管理器 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 7. TC-16 VM -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.tc16.title">⚙️ TC-16 虚拟机工坊</div>
-                        <span class="app-tag" style="background:rgba(245,158,11,0.15);color:#f59e0b;" data-i18n="card.tc16.tag">16-BIT ISA</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.tc16.desc">
-                        在线 16 位微架构代码工坊。支持自由编写或加载 TC-16 汇编，实时回显 R0~R15 寄存器、Flags 标志与指令周期。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/tc16</span>
-                    <a href="/app/tc16" class="btn btn-amber" data-i18n="card.tc16.btn">进入虚拟机 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 8. Blockchain Explorer -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.blockchain.title">⛓️ 区块链与 PoUW 账本</div>
-                        <span class="app-tag" style="background:rgba(99,102,241,0.15);color:#6366f1;" data-i18n="card.blockchain.tag">LIVE LEDGER</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.blockchain.desc">
-                        实时穿透底层 chain.db，展示最新出块高度、区块哈希、验证者身份、交易笔数与有意义算力证明。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/blockchain</span>
-                    <a href="/app/blockchain" class="btn" style="background:#4f46e5;" data-i18n="card.blockchain.btn">进入区块浏览 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 9. WATChat Bridge -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.watchat.title">📨 WATChat 端到端通讯</div>
-                        <span class="app-tag" style="background:rgba(20,184,166,0.15);color:#14b8a6;" data-i18n="card.watchat.tag">P2P CHAT</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.watchat.desc">
-                        去中心化聊天室网关桥梁。数据安全落入 Data Vault，并可一键拉起独立部署的完整 WATChat PWA 客户端。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/watchat</span>
-                    <a href="/app/watchat" class="btn" style="background:#0d9488;" data-i18n="card.watchat.btn">进入聊天室 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 10. SimManager -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.sim.title">🧪 SimManager 仿真中心</div>
-                        <span class="app-tag" style="background:rgba(14,165,233,0.15);color:#0ea5e9;" data-i18n="card.sim.tag">ORCHESTRATOR</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.sim.desc">
-                        集群节点网络演练控制中心。观测虚拟节点状态、共识投票，并可注入网络分区演练拜占庭容错机制。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/sim</span>
-                    <a href="/app/sim" class="btn" data-i18n="card.sim.btn">进入仿真中心 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 11. Effort Coordinator -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.effort.title">⛏️ Effort 多链算力协调</div>
-                        <span class="app-tag" style="background:rgba(217,119,6,0.15);color:#d97706;" data-i18n="card.effort.tag">POUW COORDINATOR</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.effort.desc">
-                        多链 PoUW 难度目标与有意义工作量审核大盘。维护矩阵运算、同态加密等可信算力任务的跨链最终性。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/effort</span>
-                    <a href="/app/effort" class="btn btn-amber" data-i18n="card.effort.btn">进入算力协调 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 12. NNS Registrar -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.nns.title">🌐 NNS 域名注册与管理</div>
-                        <span class="app-tag" style="background:rgba(225,29,72,0.15);color:#e11d48;" data-i18n="card.nns.tag">NAME SERVICE</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.nns.desc">
-                        Corium 域名系统控制台。实时查询全网 25+ 已注册应用域名，输入任意域名即可解析目标哈希并直达 DApp。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/nns</span>
-                    <a href="/app/nns" class="btn" style="background:#be123c;" data-i18n="card.nns.btn">进入域名控制台 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 13. Guestbook Board -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.board.title">📝 社区公网留言板</div>
-                        <span class="app-tag" style="background:rgba(59,130,246,0.15);color:#3b82f6;" data-i18n="card.board.tag">DATA VAULT</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.board.desc">
-                        基于 Data Vault 沙箱隔离持久化的社区动态交流板。任何浏览器用户均可签名发布留言并实时留存。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/board</span>
-                    <a href="/app/board" class="btn" data-i18n="card.board.btn">进入留言板 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 14. Ecosystem Matrix -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.ecosystem.title">⚡ 全景生态大盘</div>
-                        <span class="app-tag" style="background:rgba(16,185,129,0.15);color:#10b981;" data-i18n="card.ecosystem.tag">ARCHITECTURE</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.ecosystem.desc">
-                        全方位汇总展示 Corium、ETP、Ziokt 与 Shadow6 的协议规范、安全边界与技术组件交互拓扑图。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/ecosystem</span>
-                    <a href="/app/ecosystem" class="btn btn-green" data-i18n="card.ecosystem.btn">进入生态大盘 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 15. Gateway Explorer -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.explorer.title">📊 网关核心监控控制台</div>
-                        <span class="app-tag" style="background:rgba(168,85,247,0.15);color:#a855f7;" data-i18n="card.explorer.tag">GATEWAY CORE</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.explorer.desc">
-                        网关实时健康状态、出块高度、DHT 邻居节点健康探测、沙箱指令周期监控与访问计数统计总控台。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/explorer</span>
-                    <a href="/app/explorer" class="btn btn-purple" data-i18n="card.explorer.btn">进入控制台 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 16. MCP Agent Tool Console -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.mcp.title">🤖 MCP 智能体工具控制台</div>
-                        <span class="app-tag" style="background:rgba(236,72,153,0.15);color:#ec4899;" data-i18n="card.mcp.tag">OAUTH2 PKCE</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.mcp.desc">
-                        Model Context Protocol 原生授权控制台。支持端侧 OAuth2 PKCE 认证，自动发现组件工具与沙箱写入审查执行。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/app/explorer/mcp</span>
-                    <a href="/app/explorer/mcp" class="btn" style="background:#db2777;" data-i18n="card.mcp.btn">进入 MCP 控制台 &rarr;</a>
-                </div>
-            </div>
-
-            <!-- 17. Corium Weight Registry -->
-            <div class="app-card">
-                <div>
-                    <div class="app-header">
-                        <div class="app-title" data-i18n="card.registry.title">⚖️ Corium 权重白名单</div>
-                        <span class="app-tag" style="background:rgba(56,189,248,0.15);color:#38bdf8;" data-i18n="card.registry.tag">WHITELIST</span>
-                    </div>
-                    <div class="app-desc" data-i18n="card.registry.desc">
-                        去中心化节点权重注册表与共识验证者准入白名单，支持在线登记并与区块链节点保持同步验证。
-                    </div>
-                </div>
-                <div class="app-footer">
-                    <span class="app-path">/gateway-assets/registry.html</span>
-                    <a href="/gateway-assets/registry.html" class="btn" data-i18n="card.registry.btn">进入权重注册表 &rarr;</a>
-                </div>
-            </div>
+            <nav class="simple-grid" aria-label="Applications (Minimalist)">
+                <a href="/app/overview?ui=simple" class="simple-link">
+                    <span class="simple-link-name">📊 <span data-i18n="nav.overview">概览大盘</span></span>
+                    <span class="simple-link-path">/app/overview</span>
+                </a>
+                <a href="/app/forum?ui=simple" class="simple-link">
+                    <span class="simple-link-name">💬 <span data-i18n="nav.forum">原生论坛</span></span>
+                    <span class="simple-link-path">/app/forum</span>
+                </a>
+                <a href="/app/fileshare?ui=simple" class="simple-link">
+                    <span class="simple-link-name">📦 <span data-i18n="nav.fileshare">文件共享 &amp; 流</span></span>
+                    <span class="simple-link-path">/app/fileshare</span>
+                </a>
+                <a href="/app/onion?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🧅 <span data-i18n="nav.onion">洋葱路由</span></span>
+                    <span class="simple-link-path">/app/onion</span>
+                </a>
+                <a href="/app/zda?ui=simple" class="simple-link">
+                    <span class="simple-link-name">⚖️ <span data-i18n="nav.zda">Ano / ZDA</span></span>
+                    <span class="simple-link-path">/app/zda</span>
+                </a>
+                <a href="/app/safefs?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🛡️ <span data-i18n="nav.safefs">SafeFS 保险库</span></span>
+                    <span class="simple-link-path">/app/safefs</span>
+                </a>
+                <a href="/app/ufsdcpm?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🔐 <span data-i18n="nav.ufsdcpm">UFS / DCPM</span></span>
+                    <span class="simple-link-path">/app/ufsdcpm</span>
+                </a>
+                <a href="/app/tc16?ui=simple" class="simple-link">
+                    <span class="simple-link-name">⚙️ <span data-i18n="nav.tc16">TC-16 虚拟机</span></span>
+                    <span class="simple-link-path">/app/tc16</span>
+                </a>
+                <a href="/app/blockchain?ui=simple" class="simple-link">
+                    <span class="simple-link-name">⛓️ <span data-i18n="nav.blockchain">区块链账本</span></span>
+                    <span class="simple-link-path">/app/blockchain</span>
+                </a>
+                <a href="/app/watchat?ui=simple" class="simple-link">
+                    <span class="simple-link-name">📨 <span data-i18n="nav.watchat">WATChat 聊天</span></span>
+                    <span class="simple-link-path">/app/watchat</span>
+                </a>
+                <a href="/app/sim?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🧪 <span data-i18n="nav.sim-manager">仿真管理</span></span>
+                    <span class="simple-link-path">/app/sim</span>
+                </a>
+                <a href="/app/effort?ui=simple" class="simple-link">
+                    <span class="simple-link-name">⛏️ <span data-i18n="nav.effort">算力协调</span></span>
+                    <span class="simple-link-path">/app/effort</span>
+                </a>
+                <a href="/app/nns?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🌐 <span data-i18n="nav.nns">NNS 域名服务</span></span>
+                    <span class="simple-link-path">/app/nns</span>
+                </a>
+                <a href="/app/board?ui=simple" class="simple-link">
+                    <span class="simple-link-name">📝 <span data-i18n="nav.board">社区留言板</span></span>
+                    <span class="simple-link-path">/app/board</span>
+                </a>
+                <a href="/app/ecosystem?ui=simple" class="simple-link">
+                    <span class="simple-link-name">⚡ <span data-i18n="nav.ecosystem">全景生态</span></span>
+                    <span class="simple-link-path">/app/ecosystem</span>
+                </a>
+                <a href="/app/mcp?ui=simple" class="simple-link">
+                    <span class="simple-link-name">🤖 <span data-i18n="nav.mcp">MCP 控制台</span></span>
+                    <span class="simple-link-path">/app/mcp</span>
+                </a>
+                <a href="/gateway-assets/registry.html" class="simple-link">
+                    <span class="simple-link-name">⚖️ <span data-i18n="nav.registry">权重注册表</span></span>
+                    <span class="simple-link-path">/registry.html</span>
+                </a>
+            </nav>
         </div>
 
         <footer>
