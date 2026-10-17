@@ -1,6 +1,7 @@
 """Owner-scoped long-polling Telegram command bridge for the MCP catalog."""
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -9,6 +10,8 @@ from .gateway_store import database, encoded
 from .mcp import Service
 from .protocol import secure_read, strict_json
 from .telegram import TelegramBot
+
+log = logging.getLogger(__name__)
 
 
 class TelegramWorker:
@@ -46,6 +49,7 @@ class TelegramWorker:
                 state TEXT NOT NULL, result BLOB);
             ''')
         self.service.db.chmod(0o600)
+        log.info('Telegram command worker initialized; %d MCP tools available', len(self.service.tools))
 
     def _commands(self):
         command_map={'start':None,'help':None,'status':None,'tools':None,'mcp':None,'confirm':None,'cancel':None}
@@ -79,6 +83,7 @@ class TelegramWorker:
             try:
                 updates=self.bot.poll(offset,45)
                 if updates:
+                    accepted = 0
                     with database(self.service.db) as db:
                         for update in updates:
                             update_id=update.get('update_id')
@@ -89,14 +94,20 @@ class TelegramWorker:
                             if chat_id in self.bot.allowed and user_id in self.allowed_users and type(message.get('message_id')) is int:
                                 db.execute('INSERT OR IGNORE INTO telegram_inbox(update_id,chat_id,user_id,message_id,text,payload,received_at,status) VALUES (?,?,?,?,?,?,?,?)',
                                     (update_id,chat_id,user_id,message['message_id'],message.get('text','')[:4096],encoded(update),int(time.time()),'pending'))
+                                accepted += 1
                         offset=max(u['update_id'] for u in updates if type(u.get('update_id')) is int)+1
                         db.execute("INSERT OR REPLACE INTO telegram_state VALUES ('next_offset',?)",(str(offset),))
                         db.execute('DELETE FROM telegram_inbox WHERE received_at<?',(int(time.time())-30*86400,))
+                    if accepted:
+                        log.info('Received %d allowlisted Telegram update(s)', accepted)
+                    if len(updates) > accepted:
+                        log.warning('Ignored %d Telegram update(s) outside the configured chat and user allowlists', len(updates)-accepted)
                 self.process_pending()
             except KeyboardInterrupt:
                 return
-            except Exception:
+            except Exception as exc:
                 # Never log Telegram request URLs, token-bearing API paths or message payloads.
+                log.error('Telegram polling or inbox processing failed (%s)', type(exc).__name__)
                 time.sleep(3)
 
     def process_pending(self):
@@ -109,10 +120,11 @@ class TelegramWorker:
                     self.send_chunks(chat_id,message_id,reply)
                 with database(self.service.db) as db:
                     db.execute("UPDATE telegram_inbox SET status='processed' WHERE update_id=? AND status='pending'",(update_id,))
-            except Exception:
+            except Exception as exc:
                 # Keep failures from one update from terminating the polling service.
                 with database(self.service.db) as db:
                     db.execute("UPDATE telegram_inbox SET status='error' WHERE update_id=?",(update_id,))
+                log.error('Telegram reply failed for update %s (%s)', update_id, type(exc).__name__)
 
     def handle(self,chat_id,user_id,update_id,text):
         if not text.startswith('/'):
