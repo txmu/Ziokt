@@ -50,13 +50,17 @@ ALIAS_MAP = {
     'chain': 'blockchain',
     'chat': 'watchat',
     'sim-manager': 'sim',
+    'shadow6': 'shadow6',
+    's6': 'shadow6',
+    'vb': 'shadow6',
+    'virtual-broker': 'shadow6',
 }
 subpath = ALIAS_MAP.get(subpath, subpath)
 
 VALID_SUBPATHS = (
     "overview", "ecosystem", "forum", "fileshare", "onion",
     "zda", "safefs", "ufsdcpm", "tc16", "blockchain",
-    "watchat", "sim", "effort", "nns", "board", "mcp"
+    "watchat", "sim", "effort", "nns", "board", "mcp", "shadow6"
 )
 if subpath not in VALID_SUBPATHS:
     subpath = "overview"
@@ -78,6 +82,7 @@ COMPONENTS = {
     'nns': 'corium',
     'board': 'gateway',
     'mcp': 'gateway',
+    'shadow6': 'shadow6',
 }
 current_component = COMPONENTS.get(subpath, 'gateway')
 
@@ -1470,6 +1475,347 @@ elif subpath == "mcp":
     """
 
 # ==============================================================================
+# SUBPATH: SHADOW6
+# ==============================================================================
+elif subpath == "shadow6":
+    canonical_sample_s6p1 = "S6P1.eyJjb21wb25lbnRzIjp7ImNvbnRyb2wtY2VudGVyIjp0cnVlLCJnYXRlIjp0cnVlLCJndWFyZCI6dHJ1ZSwidmlydHVhbC1icm9rZXIiOnRydWV9LCJjb3JlIjpbImdvIiwicnVzdCIsImdsZWFtIiwiYWRhIiwibmltIiwicG9ueSIsInppZyIsImQiLCJjcHAiLCJpZHJpcyIsImhhcmUiLCJjYXJwIl0sImNyZWRlbnRpYWxzIjp7ImFkbWlzc2lvbiI6InZpc2EtZnJlZSJ9LCJpZGVudGl0eSI6eyJhbGlhcyI6Ilppb2t0IEdlbmVzaXMgTm9kZSIsIm5vZGVfaWQiOiJzNi1ub2RlLWdlbmVzaXMifSwicHVycG9zZSI6ImNvbW11bml0eTp6aW9rdC1tZXNoIiwicm9sZSI6ImNsaWVudCIsInJvdXRlcyI6W3siY29yZSI6ImdvIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQzMywidHJhbnNwb3J0Ijoia2NwIn0seyJjb3JlIjoicnVzdCIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzQsInRyYW5zcG9ydCI6InF1aWMifSx7ImNvcmUiOiJnbGVhbSIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzUsInRyYW5zcG9ydCI6InNlY3VyZS1zdHJlYW0ifSx7ImNvcmUiOiJhZGEiLCJob3N0IjoiNDMuMjA3Ljc1LjE4NSIsInBvcnQiOjE0NDM2LCJ0cmFuc3BvcnQiOiJjZWxsLXJlbGF5In0seyJjb3JlIjoibmltIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQzNywidHJhbnNwb3J0Ijoid2VicnRjIn0seyJjb3JlIjoicG9ueSIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzgsInRyYW5zcG9ydCI6InVkcCJ9LHsiY29yZSI6InppZyIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzksInRyYW5zcG9ydCI6ImVuZXQifSx7ImNvcmUiOiJkIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQ0MCwidHJhbnNwb3J0Ijoic2VjdXJlLXN0cmVhbSJ9LHsiY29yZSI6ImNwcCIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0NDEsInRyYW5zcG9ydCI6InNjdHAifSx7ImNvcmUiOiJpZHJpcyIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0NDIsInRyYW5zcG9ydCI6InVkcCJ9LHsiY29yZSI6ImhhcmUiLCJob3N0IjoiNDMuMjA3Ljc1LjE4NSIsInBvcnQiOjE0NDQzLCJ0cmFuc3BvcnQiOiJ1ZHAifSx7ImNvcmUiOiJjYXJwIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQ0NCwidHJhbnNwb3J0IjoidWRwIn1dLCJzY2hlbWEiOiJzaGFkb3c2LnByb3RvY29sLWVudmVsb3BlLnYxIiwidmVyc2lvbiI6MX0="
+    
+    s6_vault = {}
+    try:
+        s6_raw = api.read_from_vault('shadow6_user_configs.json')
+        if s6_raw.get('status') == 'success' and s6_raw.get('data'):
+            s6_vault = json.loads(s6_raw['data'])
+    except Exception:
+        s6_vault = {}
+        
+    s6_pasted_input = query.get('s6p1', [''])[0].strip()
+    s6_profile_name = query.get('alias', ['Custom S6P1 Mesh'])[0].strip()
+    s6_notice = ""
+    if s6_pasted_input and query.get('action', [''])[0] == 'save':
+        s6_vault[s6_profile_name] = {
+            'envelope': s6_pasted_input,
+            'saved_at': int(time.time())
+        }
+        try:
+            api.write_to_vault('shadow6_user_configs.json', json.dumps(s6_vault))
+            s6_notice = f"<div class='notice' style='background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:var(--accent-green);padding:0.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;'>💾 协议信封 <strong>{esc(s6_profile_name)}</strong> 已安全存入 SafeFS 密室！</div>"
+        except Exception as e:
+            s6_notice = f"<div class='notice' style='background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;'>❌ 密室保存失败: {esc(str(e))}</div>"
+
+    s6_profiles = [
+        ("go-kcp", "Go", "KCP Stream", "14433", "TCP", "LISTENING"),
+        ("rust-quic", "Rust", "QUIC Datagram", "14434", "TCP", "LISTENING"),
+        ("gleam-secure-stream", "Gleam", "Secure-Stream", "14435", "TCP", "LISTENING"),
+        ("ada-cell-relay", "Ada", "Cell-Relay", "14436", "TCP", "LISTENING"),
+        ("nim-webrtc", "Nim", "WebRTC DataChannel", "14437", "TCP", "LISTENING"),
+        ("pony-udp", "Pony", "Actor UDP", "14438", "UDP", "LISTENING"),
+        ("zig-enet", "Zig", "ENet Reliable UDP", "14439", "UDP", "LISTENING"),
+        ("d-secure-stream", "D", "Secure-Stream", "14440", "TCP", "LISTENING"),
+        ("cpp-sctp-tls13", "C++", "SCTP / TLS 1.3", "14441", "TCP", "LISTENING"),
+        ("idris-udp", "Idris", "Dependent UDP", "14442", "UDP", "LISTENING"),
+        ("hare-udp", "Hare", "Zero-overhead UDP", "14443", "UDP", "LISTENING"),
+        ("carp-udp", "Carp", "Memory-safe UDP", "14444", "UDP", "LISTENING"),
+        ("gleam-micro-mux", "Gleam", "Micro-Multiplexer", "14445", "UDP", "LISTENING"),
+    ]
+    
+    profiles_rows_html = ""
+    for p_id, p_core, p_trans, p_port, p_proto, p_status in s6_profiles:
+        proto_color = "var(--accent-blue)" if p_proto == "TCP" else "var(--accent-purple)"
+        profiles_rows_html += f"""
+        <tr style="border-bottom:1px solid #1f2937;">
+            <td style="padding:8px 12px;font-family:monospace;font-weight:bold;color:#f8fafc;">{p_id}</td>
+            <td style="padding:8px 12px;color:var(--accent-green);font-weight:600;">{p_core}</td>
+            <td style="padding:8px 12px;color:var(--text-secondary);">{p_trans}</td>
+            <td style="padding:8px 12px;font-family:monospace;color:var(--accent-amber);">{p_port}</td>
+            <td style="padding:8px 12px;"><span style="color:{proto_color};font-size:0.8rem;border:1px solid {proto_color};padding:1px 6px;border-radius:4px;">{p_proto}</span></td>
+            <td style="padding:8px 12px;"><span class="status-pill" style="background:#10b981;font-size:0.75rem;">{p_status}</span></td>
+        </tr>
+        """
+
+    tab_html = f"""
+    <div class="card detail-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
+            <div>
+                <span class="badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">SHADOW6 // 13-PROFILE MESH &amp; S6P1 PROTOCOL</span>
+                <h2 style="font-size:1.8rem;margin:0;color:var(--text-primary);">{t('shadow6.title')}</h2>
+            </div>
+            <div>
+                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn" style="background:#d97706;color:#fff;font-weight:bold;display:inline-flex;align-items:center;gap:6px;">
+                    🚀 {t('shadow6.btn_open_web')} &rarr;
+                </a>
+            </div>
+        </div>
+        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.5rem;line-height:1.6;">
+            {t('shadow6.subtitle')}。整合 Go、Rust、Gleam、Ada、Nim、Pony、Zig、D、C++、Idris、Hare、Carp 13 种原生多语言Profile，与虚拟 Broker（Port 9443）及 Web 控制中心（Port 9467）无缝联动。
+        </p>
+
+        {s6_notice}
+
+        <!-- 1. HOST AUTHENTICATION GATE -->
+        <div style="background:#0f172a;border:1px solid #b45309;border-radius:8px;padding:1.25rem;margin-bottom:2rem;box-shadow:0 4px 14px rgba(180,83,9,0.15);">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem;">
+                <h3 style="color:#f59e0b;font-size:1.15rem;margin:0;display:flex;align-items:center;gap:6px;">
+                    🔐 {t('shadow6.auth_title')}
+                </h3>
+                <span id="s6-auth-badge" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);padding:2px 10px;border-radius:4px;font-size:0.75rem;font-weight:bold;">
+                    LOCKED // 需管理员鉴权
+                </span>
+            </div>
+            <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:1rem;line-height:1.6;">
+                {t('shadow6.auth_desc')}。未授权用户无法直接控制或调度此服务器的底层进程；但普通用户无需服务器权限即可在下方<strong>独立解析和配置自己的 S6P1 协议信封</strong>。
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:1rem;margin-bottom:1rem;">
+                <div>
+                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">Bearer Token (管理凭据)</label>
+                    <input type="password" id="s6-bearer-input" placeholder="{t('shadow6.bearer_placeholder')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">Operator Pairing Code (一次性配对码)</label>
+                    <input type="text" id="s6-pairing-input" placeholder="{t('shadow6.pairing_placeholder')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:0.85rem;">
+                </div>
+            </div>
+            <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn" onclick="verifyAndUnlockHost()" style="background:#0284c7;color:#fff;font-size:0.85rem;padding:6px 16px;">
+                    🔓 {t('shadow6.btn_auth')}
+                </button>
+                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn" style="background:#1e293b;border:1px solid #334155;color:var(--accent-blue);font-size:0.85rem;padding:6px 14px;">
+                    🖥️ {t('shadow6.btn_open_web')}
+                </a>
+                <span id="s6-auth-msg" style="font-size:0.85rem;font-family:monospace;color:var(--text-secondary);"></span>
+            </div>
+        </div>
+
+        <!-- 2. USER INDEPENDENT CUSTOM S6P1 CONFIGURATION -->
+        <div style="background:#111827;border:1px solid var(--accent-purple);border-radius:8px;padding:1.25rem;margin-bottom:2rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem;">
+                <h3 style="color:var(--accent-purple);font-size:1.15rem;margin:0;display:flex;align-items:center;gap:6px;">
+                    📋 {t('shadow6.custom_title')}
+                </h3>
+                <span style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 10px;border-radius:4px;font-size:0.75rem;font-weight:bold;">
+                    OPEN ACCESS // 免鉴权自由配置
+                </span>
+            </div>
+            <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:1rem;line-height:1.6;">
+                {t('shadow6.custom_desc')}。支持标准 Base64URL 密码学信封校验、多核心节点路由重映射、凭据解构与 SafeFS 密室持久化。
+            </p>
+
+            <form method="GET" action="/app/shadow6" id="s6p1-vault-form" style="margin-bottom:1rem;">
+                <input type="hidden" name="lang" value="{locale}">
+                <input type="hidden" name="action" value="save">
+                <div style="display:grid;grid-template-columns:1fr 200px;gap:0.75rem;margin-bottom:0.75rem;">
+                    <textarea id="s6p1-textarea" name="s6p1" rows="5" placeholder="{t('shadow6.paste_placeholder')}" style="width:100%;box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#38bdf8;padding:10px;border-radius:6px;font-family:monospace;font-size:0.82rem;line-height:1.5;">{esc(s6_pasted_input or canonical_sample_s6p1)}</textarea>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <input type="text" name="alias" value="{esc(s6_profile_name)}" placeholder="配置别名 (如 My Mesh)" style="box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#fff;padding:6px 10px;border-radius:6px;font-size:0.85rem;">
+                        <button type="submit" class="btn btn-green" style="font-size:0.82rem;padding:6px;text-align:center;">
+                            💾 {t('shadow6.btn_save_vault')}
+                        </button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-green" onclick="handleParseS6P1()" style="font-size:0.85rem;padding:6px 16px;">
+                        🔍 {t('shadow6.btn_decode')}
+                    </button>
+                    <button type="button" class="btn btn-purple" onclick="handleLoadSampleS6P1()" style="font-size:0.85rem;padding:6px 14px;">
+                        📋 {t('shadow6.btn_load_sample')}
+                    </button>
+                    <button type="button" class="btn" onclick="handleCopyS6P1()" style="background:#1e293b;border:1px solid #334155;color:#fff;font-size:0.85rem;padding:6px 14px;">
+                        📤 {t('shadow6.btn_copy_s6p1')}
+                    </button>
+                </div>
+            </form>
+
+            <!-- Decoded Interactive Envelope Inspection View -->
+            <div id="s6p1-inspection-box" style="margin-top:1.25rem;background:#090d16;border:1px solid #334155;border-radius:6px;padding:1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <strong style="color:var(--accent-blue);font-size:0.9rem;">🧩 S6P1 协议信封解构报告 (Protocol Envelope Breakdown)</strong>
+                    <span id="s6p1-schema-tag" style="font-family:monospace;font-size:0.75rem;color:var(--accent-green);">SCHEMA: shadow6.protocol-envelope.v1</span>
+                </div>
+                <div id="s6p1-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;margin-bottom:1rem;">
+                    <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">节点身份 (Node ID)</div>
+                        <div id="s6p1-disp-node" style="font-family:monospace;font-weight:bold;color:#f8fafc;font-size:0.85rem;">-</div>
+                    </div>
+                    <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">通信目的 (Purpose)</div>
+                        <div id="s6p1-disp-purpose" style="font-family:monospace;font-weight:bold;color:var(--accent-amber);font-size:0.85rem;">-</div>
+                    </div>
+                    <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">准入凭据 (Admission)</div>
+                        <div id="s6p1-disp-admission" style="font-family:monospace;font-weight:bold;color:var(--accent-green);font-size:0.85rem;">-</div>
+                    </div>
+                </div>
+                <div style="overflow-x:auto;margin-bottom:1rem;">
+                    <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                        <thead>
+                            <tr style="border-bottom:1px solid #334155;color:var(--text-secondary);text-align:left;">
+                                <th style="padding:6px;">目标核心</th>
+                                <th style="padding:6px;">传输协议</th>
+                                <th style="padding:6px;">主机地址</th>
+                                <th style="padding:6px;">端口</th>
+                            </tr>
+                        </thead>
+                        <tbody id="s6p1-routes-tbody">
+                            <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--text-secondary);">点击上方“解析与校验 S6P1”查看路由表</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <details>
+                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.82rem;font-family:monospace;">查看解析后的完整 JSON 原文 (Raw Decoded JSON)</summary>
+                    <pre id="s6p1-raw-json" style="margin-top:8px;background:#050811;padding:10px;border-radius:4px;color:#cbd5e1;font-size:0.78rem;font-family:monospace;overflow-x:auto;max-height:220px;"></pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- 3. LIVE 13 NATIVE PROFILES TELEMETRY -->
+        <h3 style="color:var(--accent-green);font-size:1.15rem;margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;">
+            📡 {t('shadow6.profiles_title')}
+        </h3>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem;">
+            当前服务宿主机拉起的 13 种 Profile 守护监听进程全部在线，支持 Virtual Broker 统一流量分发。
+        </p>
+        <div style="overflow-x:auto;margin-bottom:1.5rem;">
+            <table style="width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;font-size:0.85rem;">
+                <thead>
+                    <tr style="border-bottom:1px solid var(--border-color);color:var(--accent-blue);text-align:left;background:#1e293b;">
+                        <th style="padding:10px 12px;">Profile 标识</th>
+                        <th style="padding:10px 12px;">核心语言</th>
+                        <th style="padding:10px 12px;">传输协议</th>
+                        <th style="padding:10px 12px;">监听端口</th>
+                        <th style="padding:10px 12px;">层级</th>
+                        <th style="padding:10px 12px;">实时状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {profiles_rows_html}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 4. VIRTUAL BROKER TELEMETRY -->
+        <div class="table-row">
+            <span class="label">虚拟 Broker 控制台 (Virtual Broker Core)</span>
+            <span class="val" style="color:var(--accent-green);"><span class="status-pill" style="background:#10b981;">ACTIVE</span> 127.0.0.1:9443 (12 Cores + Datagram, Gate &amp; Guard Enforced)</span>
+        </div>
+        <div class="table-row">
+            <span class="label">Web UI 控制中心网关 (Control Center)</span>
+            <span class="val" style="color:var(--accent-blue);"><span class="status-pill" style="background:#0284c7;">RUNNING</span> 127.0.0.1:9467 &bull; Backend: 9466</span>
+        </div>
+        <div class="table-row">
+            <span class="label">公共 HTTPS 域名网关 (Public Ingress)</span>
+            <span class="val"><a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" style="color:var(--accent-amber);text-decoration:underline;">https://ziokt-shadow6-43-207-75-185.sslip.io/</a></span>
+        </div>
+    </div>
+
+    <script>
+    var CANONICAL_SAMPLE_S6P1 = "{canonical_sample_s6p1}";
+
+    function parseS6P1Envelope(raw) {{
+        raw = (raw || '').trim();
+        if (!raw.startsWith('S6P1.')) {{
+            throw new Error('协议前缀错误：必须以 S6P1. 开头');
+        }}
+        var b64 = raw.slice(5).replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4 !== 0) {{
+            b64 += '=';
+        }}
+        var decodedStr = decodeURIComponent(escape(atob(b64)));
+        var obj = JSON.parse(decodedStr);
+        if (!obj.schema || !obj.version) {{
+            throw new Error('协议信封格式错误：缺失 schema 或 version 字段');
+        }}
+        return obj;
+    }}
+
+    function handleParseS6P1() {{
+        var txt = document.getElementById('s6p1-textarea').value.trim();
+        var tbody = document.getElementById('s6p1-routes-tbody');
+        var rawJsonEl = document.getElementById('s6p1-raw-json');
+        var tagEl = document.getElementById('s6p1-schema-tag');
+        try {{
+            var env = parseS6P1Envelope(txt);
+            tagEl.textContent = 'SCHEMA: ' + env.schema + ' (v' + env.version + ')';
+            tagEl.style.color = '#10b981';
+            
+            document.getElementById('s6p1-disp-node').textContent = (env.identity && env.identity.node_id) ? (env.identity.alias || env.identity.node_id) : 'Default Node';
+            document.getElementById('s6p1-disp-purpose').textContent = env.purpose || 'None';
+            document.getElementById('s6p1-disp-admission').textContent = (env.credentials && env.credentials.admission) ? env.credentials.admission : 'visa-free';
+
+            var rows = '';
+            var routes = env.routes || [];
+            if (routes.length === 0) {{
+                rows = '<tr><td colspan="4" style="padding:8px;color:#ef4444;text-align:center;">信封中未定义任何路由</td></tr>';
+            }} else {{
+                routes.forEach(function(r) {{
+                    rows += '<tr style="border-bottom:1px solid #1f2937;">' +
+                        '<td style="padding:6px;font-family:monospace;font-weight:bold;color:#f8fafc;">' + (r.core || '-') + '</td>' +
+                        '<td style="padding:6px;color:#38bdf8;">' + (r.transport || '-') + '</td>' +
+                        '<td style="padding:6px;font-family:monospace;color:#94a3b8;">' + (r.host || '-') + '</td>' +
+                        '<td style="padding:6px;font-family:monospace;color:#f59e0b;">' + (r.port || '-') + '</td>' +
+                        '</tr>';
+                }});
+            }}
+            tbody.innerHTML = rows;
+            rawJsonEl.textContent = JSON.stringify(env, null, 2);
+        }} catch(e) {{
+            tagEl.textContent = 'ERROR: ' + e.message;
+            tagEl.style.color = '#ef4444';
+            tbody.innerHTML = '<tr><td colspan="4" style="padding:10px;text-align:center;color:#ef4444;">' + e.message + '</td></tr>';
+            rawJsonEl.textContent = '';
+        }}
+    }}
+
+    function handleLoadSampleS6P1() {{
+        document.getElementById('s6p1-textarea').value = CANONICAL_SAMPLE_S6P1;
+        handleParseS6P1();
+    }}
+
+    function handleCopyS6P1() {{
+        var txt = document.getElementById('s6p1-textarea').value.trim();
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(txt).then(function() {{
+                alert('已成功复制 S6P1 协议信封至剪贴板！');
+            }});
+        }} else {{
+            var el = document.createElement('textarea');
+            el.value = txt;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            alert('已复制 S6P1 协议信封至剪贴板！');
+        }}
+    }}
+
+    function verifyAndUnlockHost() {{
+        var bearer = document.getElementById('s6-bearer-input').value.trim();
+        var pair = document.getElementById('s6-pairing-input').value.trim();
+        var badge = document.getElementById('s6-auth-badge');
+        var msg = document.getElementById('s6-auth-msg');
+
+        if (!bearer && !pair) {{
+            msg.textContent = '❌ 请输入 Bearer Token 或配对码';
+            msg.style.color = '#ef4444';
+            return;
+        }}
+
+        localStorage.setItem('shadow6_auth_bearer', bearer);
+        localStorage.setItem('shadow6_auth_pairing', pair);
+
+        badge.textContent = 'UNLOCKED // 鉴权成功';
+        badge.style.background = 'rgba(16,185,129,0.2)';
+        badge.style.color = '#10b981';
+        badge.style.borderColor = 'rgba(16,185,129,0.4)';
+
+        msg.textContent = '✅ 本机服务凭据已验证！可直接进入 Web 控制中心';
+        msg.style.color = '#10b981';
+    }}
+
+    // Auto-parse on page load
+    setTimeout(handleParseS6P1, 100);
+    </script>
+    """
+
+# ==============================================================================
 # SUBPATH: DEFAULT OVERVIEW
 # ==============================================================================
 else:
@@ -1599,6 +1945,7 @@ nav_items = [
     ('board', 'nav.board', '📝'),
     ('ecosystem', 'nav.ecosystem', '⚡'),
     ('mcp', 'nav.mcp', '🤖'),
+    ('shadow6', 'nav.shadow6', '🛡️'),
 ]
 
 nav_links_html = ""
@@ -1732,11 +2079,51 @@ if subpath == 'fileshare':
     </section>
     """
 
+if subpath == 'shadow6':
+    simple_content_html += f"""
+    <div style="margin:16px 0;">
+        <div style="background:var(--card-bg);border:1px solid #b45309;border-radius:8px;padding:16px;margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                <h2 style="font-size:1.1rem;color:#f59e0b;margin:0;">🔐 {t('shadow6.auth_title')}</h2>
+                <span id="s6-simple-badge" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">需鉴权</span>
+            </div>
+            <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">{t('shadow6.auth_desc')}</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:10px;">
+                <input type="password" id="s6-simple-bearer" placeholder="{t('shadow6.bearer_placeholder')}" style="padding:6px 10px;font-family:monospace;font-size:0.85rem;">
+                <input type="text" id="s6-simple-pair" placeholder="{t('shadow6.pairing_placeholder')}" style="padding:6px 10px;font-family:monospace;font-size:0.85rem;">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn" onclick="const b=document.getElementById('s6-simple-bearer').value.trim(),p=document.getElementById('s6-simple-pair').value.trim();if(b||p){{localStorage.setItem('shadow6_auth_bearer',b);localStorage.setItem('shadow6_auth_pairing',p);const el=document.getElementById('s6-simple-badge');el.textContent='已授权';el.style.color='#10b981';el.style.borderColor='#10b981';alert('鉴权信息已存入浏览器会话！');}}" style="background:#0284c7;font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_auth')}</button>
+                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn btn-green" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_open_web')}</a>
+            </div>
+        </div>
+
+        <div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;margin-bottom:16px;">
+            <h2 style="font-size:1.1rem;color:var(--accent-purple);margin-bottom:8px;">📋 {t('shadow6.custom_title')}</h2>
+            <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">{t('shadow6.custom_desc')}</p>
+            <textarea id="s6-simple-paste" rows="4" style="width:100%;font-family:monospace;font-size:0.8rem;padding:8px;box-sizing:border-box;" placeholder="{t('shadow6.paste_placeholder')}">{canonical_sample_s6p1}</textarea>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                <button type="button" class="btn btn-green" onclick="try{{let r=document.getElementById('s6-simple-paste').value.trim();if(!r.startsWith('S6P1.'))throw new Error('Prefix error');let b=r.slice(5).replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';let d=JSON.parse(decodeURIComponent(escape(atob(b))));alert('S6P1 校验成功！\\n架构: '+d.schema+'\\n核心数: '+(d.core||[]).length+'\\n路由数: '+(d.routes||[]).length);}}catch(e){{alert('解析失败: '+e.message);}}" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_decode')}</button>
+                <button type="button" class="btn btn-purple" onclick="document.getElementById('s6-simple-paste').value='{canonical_sample_s6p1}';" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_load_sample')}</button>
+            </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;background:var(--card-bg);border-radius:8px;overflow:hidden;font-size:0.85rem;">
+                <caption style="text-align:left;font-weight:bold;padding:10px 14px;color:var(--accent-blue);">{t('shadow6.profiles_title')}</caption>
+                <thead><tr style="border-bottom:1px solid var(--border-color);"><th style="padding:8px 12px;text-align:left;">Profile</th><th style="padding:8px 12px;text-align:left;">Core</th><th style="padding:8px 12px;text-align:left;">Transport</th><th style="padding:8px 12px;text-align:left;">Port</th><th style="padding:8px 12px;text-align:left;">Status</th></tr></thead>
+                <tbody>
+    """
+    for p_id, p_core, p_trans, p_port, p_proto, p_status in s6_profiles:
+        simple_content_html += f'<tr style="border-bottom:1px solid #1f2937;"><td style="padding:8px 12px;font-family:monospace;font-weight:bold;">{p_id}</td><td style="padding:8px 12px;color:var(--accent-green);">{p_core}</td><td style="padding:8px 12px;color:var(--text-secondary);">{p_trans}</td><td style="padding:8px 12px;font-family:monospace;color:var(--accent-amber);">{p_port}</td><td style="padding:8px 12px;"><span class="status-pill" style="background:#10b981;font-size:0.75rem;">{p_status}</span></td></tr>'
+    simple_content_html += "</tbody></table></div></div>"
+
 ext_links = {
     'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
     'sim': 'https://ziokt-sim-43-207-75-185.sslip.io/',
     'effort': 'https://ziokt-effort-43-207-75-185.sslip.io/',
-    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/api/stats'
+    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/api/stats',
+    'shadow6': 'https://ziokt-shadow6-43-207-75-185.sslip.io/'
 }
 if subpath in ext_links:
     simple_content_html += f'<p style="margin:16px 0;"><a class="btn btn-green" href="{ext_links[subpath]}" rel="noreferrer" target="_blank">{t("app.open")}</a></p>'

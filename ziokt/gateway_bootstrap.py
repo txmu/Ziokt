@@ -61,7 +61,7 @@ def publish(config):
     source=(ASSETS/'default_dapp/entrypoint.py').read_text().replace('MESSAGES = {}','MESSAGES = '+repr(json.loads((ASSETS/'i18n.json').read_text())))
     entry=file(ASSETS/'default_dapp/entrypoint.py',source.encode())
     dapp=store.put(json.dumps({'type':'dapp_manifest','gateway_app':{'engine':'built-in','entrypoint':entry}}).encode())
-    mappings=[('corium',directory),('status',directory)]+[(name,dapp) for name in ('explorer','overview','probability','prob','forum','fileshare','onion','zda','safefs','ufsdcpm','tc16','blockchain','ano','board','chain','chat','dcpm','ecosystem','effort','files','hub','ledger','mcp','nns','nomen','sim','tri','tunnel','ufs','watchat','ziokt')]
+    mappings=[('corium',directory),('status',directory)]+[(name,dapp) for name in ('explorer','overview','probability','prob','forum','fileshare','onion','zda','safefs','ufsdcpm','tc16','blockchain','ano','board','chain','chat','dcpm','ecosystem','effort','files','hub','ledger','mcp','nns','nomen','sim','tri','tunnel','ufs','watchat','ziokt','shadow6','s6','vb','virtual-broker')]
     from .gateway import Gateway
     native=Gateway(config)
     records=[]
