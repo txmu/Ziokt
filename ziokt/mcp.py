@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,7 @@ VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
 BRIDGE_READ={'component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
 BRIDGE_WRITE={'file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
 READ_NATIVE={'capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
+log=logging.getLogger(__name__)
 
 
 def schema(properties=None,required=()):
@@ -568,18 +570,24 @@ def http_handler(service):
                     if any(len(v)!=1 for v in q.values()):raise ValueError('duplicate OAuth field')
                     params={k:v[0] for k,v in q.items()};self.check_authorization(params)
                     # Explicit operator consent grants only the registered client's scopes.
-                    fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items() if k!='id_token_hint')
+                    auth_fields={'client_id','redirect_uri','response_type','code_challenge','code_challenge_method','scope','state','resource'}
+                    fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items() if k in auth_fields)
                     page='<html lang="en"><meta name="referrer" content="same-origin"><meta name="viewport" content="width=device-width"><title>Ziokt authorization</title><h1>Authorize '+html.escape(params['client_id'])+'</h1><p>Requested scopes: '+html.escape(params['scope'])+'</p><form method="post" action="/oauth/authorize">'+fields+'<label>Node administrator token <input type="password" name="admin_token" required autocomplete="off"></label><button type="submit">Approve scopes</button></form></html>'
                     # Chromium applies form-action to the 303 callback as well as the POST.
                     callback=quote(params['redirect_uri'].split('?',1)[0],safe=':/.-_~%[]')
                     return self.reply(200,page.encode(),{'Content-Security-Policy':"default-src 'none'; form-action 'self' "+callback+"; frame-ancestors 'none'; base-uri 'none'"},'text/html; charset=utf-8')
                 if path=='/mcp':return self.reply(405,{'error':'POST required'},{'Allow':'POST'})
                 return self.reply(404,{'error':'not found'})
-            except McpError as exc:self.error(exc)
-            except (ValueError,KeyError):self.reply(400,{'error':'invalid_request'})
+            except McpError as exc:
+                log.warning('MCP HTTP GET rejected path=%s code=%s',path if 'path' in locals() else 'unparsed',exc.code)
+                self.error(exc)
+            except (ValueError,KeyError) as exc:
+                log.warning('MCP HTTP GET invalid_request path=%s error_type=%s query_field_count=%d',path if 'path' in locals() else 'unparsed',type(exc).__name__,len(parse_qs(urlsplit(self.path).query)))
+                self.reply(400,{'error':'invalid_request'})
         def check_authorization(self,params):
             required={'client_id','redirect_uri','response_type','code_challenge','code_challenge_method','scope','state','resource'}
-            if not required<=set(params) or set(params)-required-{'id_token_hint'}:raise ValueError('invalid authorization parameters')
+            # OAuth clients may send extension parameters; ignore unknown fields per RFC 6749.
+            if not required<=set(params):raise ValueError('required authorization parameter missing')
             if 'id_token_hint' in params and len(params['id_token_hint'])>16384:raise ValueError('id_token_hint exceeds limit')
             if params['response_type']!='code' or params['code_challenge_method']!='S256' or not re.fullmatch('[A-Za-z0-9_-]{43}',params['code_challenge']):raise ValueError('PKCE S256 required')
             client=service.client(params['client_id'])
@@ -590,14 +598,17 @@ def http_handler(service):
             return scopes
         def do_POST(self):
             request_id=None
+            path='unparsed';phase='request'
             try:
                 self.validate_origin();path=urlsplit(self.path).path;raw=self.body()
                 if path.startswith('/oauth/'):
+                    phase='oauth_form'
                     if self.headers.get_content_type()!='application/x-www-form-urlencoded':raise ValueError('form encoding required')
                     form=parse_qs(raw.decode(),strict_parsing=True)
                     if any(len(v)!=1 for v in form.values()):raise ValueError('duplicate OAuth field')
                     params={k:v[0] for k,v in form.items()}
                     if path=='/oauth/authorize':
+                        phase='oauth_authorize'
                         token=params.pop('admin_token','');scopes=self.check_authorization(params)
                         if not hmac.compare_digest(token,read_token(service.config['admin_token'])):raise McpError(-32001,'administrator authentication required',403)
                         code=secrets.token_urlsafe(48)
@@ -607,6 +618,7 @@ def http_handler(service):
                         location=params['redirect_uri']+('&' if '?' in params['redirect_uri'] else '?')+urlencode({'code':code,'state':params['state'],'iss':service.config['issuer']})
                         return self.reply(303,b'',{'Location':location})
                     if path=='/oauth/token':
+                        phase='oauth_token'
                         if params.get('resource')!=service.config['issuer']+'/mcp':return self.reply(400,{'error':'invalid_target'})
                         client_id=params.get('client_id');client=service.client(client_id)
                         if not client:return self.reply(400,{'error':'invalid_client'})
@@ -630,11 +642,13 @@ def http_handler(service):
                             else:return self.reply(400,{'error':'unsupported_grant_type'})
                         return self.reply(200,service.issue(client_id,scopes&set(client['scopes'])))
                     if path=='/oauth/revoke':
+                        phase='oauth_revoke'
                         principal=service.auth(self.headers.get('Authorization'))
                         with database(service.db) as db:db.execute('DELETE FROM tokens WHERE hash=? AND client=?',(service.token_digest(params.get('token','')),principal['client']))
                         return self.reply(200,b'')
                     return self.reply(404,{'error':'not found'})
                 if path!='/mcp':return self.reply(404,{'error':'not found'})
+                phase='mcp_rpc'
                 if self.headers.get_content_type()!='application/json':raise McpError(-32600,'JSON required',415)
                 accept=self.headers.get('Accept','')
                 if not all(t in accept for t in ('application/json','text/event-stream')):raise McpError(-32600,'Accept must list JSON and SSE',406)
@@ -646,9 +660,15 @@ def http_handler(service):
                 result=service.rpc(request,principal,self.headers)
                 if 'id' not in request:return self.reply(202,b'')
                 return self.reply(200,{'jsonrpc':'2.0','id':request_id,'result':result})
-            except McpError as exc:self.error(exc,request_id)
-            except (ValueError,KeyError,UnicodeError):self.reply(400,{'error':'invalid_request'})
-            except Exception:self.reply(503,{'error':'component_unavailable'})
+            except McpError as exc:
+                log.warning('MCP HTTP POST rejected path=%s phase=%s code=%s',path,phase,exc.code)
+                self.error(exc,request_id)
+            except (ValueError,KeyError,UnicodeError) as exc:
+                log.warning('MCP HTTP POST invalid_request path=%s phase=%s error_type=%s',path,phase,type(exc).__name__)
+                self.reply(400,{'error':'invalid_request'})
+            except Exception as exc:
+                log.error('MCP HTTP POST unavailable path=%s phase=%s error_type=%s',path,phase,type(exc).__name__)
+                self.reply(503,{'error':'component_unavailable'})
         def do_OPTIONS(self):
             try:
                 self.validate_origin()

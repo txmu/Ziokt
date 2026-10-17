@@ -56,8 +56,8 @@ class McpTests(unittest.TestCase):
   verifier=secrets.token_urlsafe(48);challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
   auth={'client_id':'reader','redirect_uri':'http://127.0.0.1:8765/callback','response_type':'code','code_challenge':challenge,'code_challenge_method':'S256','scope':'ziokt:read','state':'random-state','resource':'https://gateway.test/mcp'}
   status,headers,body=self.request('GET','/oauth/authorize?'+urlencode(auth));self.assertEqual(status,200);self.assertIn(auth['redirect_uri'],headers['Content-Security-Policy']);self.assertIn(b'name="referrer" content="same-origin"',body)
-  hint='header.payload.signature'
-  status,_,body=self.request('GET','/oauth/authorize?'+urlencode({**auth,'id_token_hint':hint}));self.assertEqual(status,200);self.assertNotIn(hint.encode(),body)
+  hint='header.payload.signature';extension_value='never-render-this'
+  status,_,body=self.request('GET','/oauth/authorize?'+urlencode({**auth,'id_token_hint':hint,'prompt':'login','optional_extension':extension_value}));self.assertEqual(status,200);self.assertNotIn(hint.encode(),body);self.assertNotIn(extension_value.encode(),body)
   status,headers,_=self.request('POST','/oauth/authorize',urlencode({**auth,'admin_token':'a'*64}),{'Content-Type':'application/x-www-form-urlencoded'});self.assertEqual(status,303)
   code=parse_qs(urlsplit(headers['Location']).query)['code'][0]
   params={'grant_type':'authorization_code','code':code,'code_verifier':verifier,'client_id':'reader','redirect_uri':auth['redirect_uri'],'resource':auth['resource']}
