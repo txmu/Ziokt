@@ -725,22 +725,37 @@ elif subpath == "ufsdcpm":
         </div>
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🌐 UFS 原生安全存储 HTTP 服务 (Live Service)</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem;">
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin:0;">🌐 UFS 原生安全存储 HTTP 服务 (Live Service)</h3>
+                <span class="status-pill" style="background:#059669;font-size:0.75rem;">RUNNING &bull; 127.0.0.1:8184</span>
+            </div>
             <div class="table-row">
                 <span class="label">节点 ID (Node ID)</span>
                 <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green)">800a3e4c08b13a41b41632a2bd8f0065340dbb99d32f8f94fc307c6d52fa9f3d</span>
             </div>
             <div class="table-row">
-                <span class="label">服务状态 / 监听端口</span>
-                <span class="val"><span class="status-pill" style="background:#059669;">RUNNING</span> 127.0.0.1:8184 &bull; Digest Auth</span>
-            </div>
-            <div class="table-row">
                 <span class="label">公网访问网关</span>
-                <span class="val"><a href="https://ziokt-ufs-43-207-75-185.sslip.io/api/stats" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io &rarr;</a></span>
+                <span class="val"><a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">https://ziokt-ufs-43-207-75-185.sslip.io/ &rarr;</a></span>
             </div>
             <div class="table-row">
-                <span class="label">运行模式</span>
-                <span class="val">signed-package-http (DCPM & UFS Dual-Tier Storage)</span>
+                <span class="label">HTTP 鉴权模式</span>
+                <span class="val" style="color:var(--accent-amber);">HTTP Digest Auth (SHA-256, Realm: UltraFileServer)</span>
+            </div>
+            <div class="table-row">
+                <span class="label">鉴权账号 (Username)</span>
+                <span class="val" style="font-family:monospace;font-weight:bold;color:#f8fafc;">admin</span>
+            </div>
+            <div class="table-row">
+                <span class="label">鉴权密码 (Password)</span>
+                <span class="val" style="font-family:monospace;font-weight:bold;color:var(--accent-green);">A5Dxtn33xmDBPiMpl6xqKvT510yglrjO</span>
+            </div>
+            <div class="table-row">
+                <span class="label">配置文件位置</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">/home/admin/.config/dcpm-ufs/config.json</span>
+            </div>
+            <div class="table-row">
+                <span class="label">存储物理路径</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">/home/admin/.config/dcpm-ufs/ufs-storage</span>
             </div>
         </div>
 
@@ -2116,13 +2131,25 @@ if subpath == 'shadow6':
     """
     for p_id, p_core, p_trans, p_port, p_proto, p_status in s6_profiles:
         simple_content_html += f'<tr style="border-bottom:1px solid #1f2937;"><td style="padding:8px 12px;font-family:monospace;font-weight:bold;">{p_id}</td><td style="padding:8px 12px;color:var(--accent-green);">{p_core}</td><td style="padding:8px 12px;color:var(--text-secondary);">{p_trans}</td><td style="padding:8px 12px;font-family:monospace;color:var(--accent-amber);">{p_port}</td><td style="padding:8px 12px;"><span class="status-pill" style="background:#10b981;font-size:0.75rem;">{p_status}</span></td></tr>'
-    simple_content_html += "</tbody></table></div></div>"
+if subpath == 'ufsdcpm':
+    simple_content_html += f"""
+    <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
+        <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🌐 UFS 原生安全存储 HTTP 鉴权信息</h2>
+        <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary);">
+            <div>&bull; <strong>公网网关</strong>: <a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io/</a></div>
+            <div>&bull; <strong>认证协议</strong>: HTTP Digest Auth (SHA-256)</div>
+            <div>&bull; <strong>登录账号</strong>: <code style="color:#fff;font-weight:bold;">admin</code></div>
+            <div>&bull; <strong>登录密码</strong>: <code style="color:var(--accent-green);font-weight:bold;">A5Dxtn33xmDBPiMpl6xqKvT510yglrjO</code></div>
+            <div>&bull; <strong>配置文件</strong>: <code>/home/admin/.config/dcpm-ufs/config.json</code></div>
+        </div>
+    </div>
+    """
 
 ext_links = {
     'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
     'sim': 'https://ziokt-sim-43-207-75-185.sslip.io/',
     'effort': 'https://ziokt-effort-43-207-75-185.sslip.io/',
-    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/api/stats',
+    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/',
     'shadow6': 'https://ziokt-shadow6-43-207-75-185.sslip.io/'
 }
 if subpath in ext_links:

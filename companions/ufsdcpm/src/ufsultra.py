@@ -738,8 +738,33 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
     def parse_request(self):
         if not super().parse_request(): return False
         self.authenticated = False
-        expected_origin = ('https' if self.cfg['ssl'] else 'http')+'://'+self.headers.get('Host','')
-        if self.headers.get('Origin') not in {None, expected_origin} or self.headers.get('Sec-Fetch-Site') == 'cross-site':
+        host = self.headers.get('Host', '')
+        fwd_host = self.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+        fwd_proto = self.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
+        scheme = fwd_proto if fwd_proto else ('https' if self.cfg['ssl'] else 'http')
+        allowed_origins = {
+            None,
+            f'{scheme}://{host}',
+            f'http://{host}',
+            f'https://{host}',
+            'https://ziokt-ufs-43-207-75-185.sslip.io',
+            'https://cor-web.ziokt.com',
+            'http://127.0.0.1:8184',
+            'http://localhost:8184',
+        }
+        if fwd_host:
+            allowed_origins.update({f'{scheme}://{fwd_host}', f'https://{fwd_host}', f'http://{fwd_host}'})
+
+        origin = self.headers.get('Origin')
+        site = self.headers.get('Sec-Fetch-Site')
+        mode = self.headers.get('Sec-Fetch-Mode')
+        is_navigation = self.command in {'GET', 'HEAD', 'OPTIONS'} and (
+            mode == 'navigate' or not mode or site in {None, 'cross-site', 'same-site', 'same-origin', 'none'}
+        )
+        origin_ok = origin in allowed_origins or (self.command in {'GET', 'HEAD'} and (not origin or origin in allowed_origins or origin.startswith('https://cor-web.ziokt.com') or origin.startswith('https://ziokt-')))
+        site_ok = (site in {None, 'same-origin', 'none'}) or (self.command in {'GET', 'HEAD', 'OPTIONS'} and is_navigation)
+
+        if not origin_ok or not site_ok:
             self.send_error(403, 'Cross-origin browser request denied'); return False
         if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Authorization', [])) > 1:
             self.send_error(400, 'Ambiguous request framing or authorization'); return False
