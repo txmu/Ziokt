@@ -251,5 +251,10 @@
     "cor-web.ziokt.com",
     "ziokt-gateway-43-207-75-185.sslip.io",
     "127.0.0.1:8186"
-  ]
+  ],
+  "telegram": {
+    "enabled": false,
+    "token_file": "/home/admin/.local/share/ziokt-production/mcp/telegram/bot.token",
+    "allowed_chat_ids": []
+  }
 }

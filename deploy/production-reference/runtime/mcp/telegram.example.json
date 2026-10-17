@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "token_file": "/home/admin/.local/share/ziokt-production/mcp/telegram/bot.token",
+  "allowed_chat_ids": []
+}

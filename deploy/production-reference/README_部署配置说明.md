@@ -10,6 +10,7 @@
 | `systemd/*.service` | 当前 Corium P2P/共识/中继、Gateway、MCP、HTTPS、WATChat、SIM、UFS、Effort 服务定义 |
 | `runtime/config/gateway.json` | Gateway 对象、论坛、注册数据库路径，ETP bulk 线路和固定摘要；线路密钥已替换 |
 | `runtime/mcp/mcp.json` | OAuth/CIMD、明确 Host/Origin/回调、客户端授权范围、桥接和原生 ETP 配置引用 |
+| `runtime/mcp/telegram.example.json` | Telegram Bot 可选配置模板；默认关闭、无 Token、无 Chat ID。生产 Token 单独保存在 mode-0600 文件，不进入源码包 |
 | `runtime/config/federation.json`、`shadow6-production.json` | 原生提供者及所有者显式变更授权 |
 | `runtime/corium/etc/corix/networks/ziokt-main/corix.conf` | 当前 Corium 网络、P2P、Gateway、Ziokt 操作权限配置 |
 | `runtime/config/etp-bulk/`、`runtime/mcp/etp-native-*.json` | 原生 ETP 节点、对等公钥和论坛配置；私钥/论坛身份私密值已替换 |
@@ -46,6 +47,8 @@ python3 -m ziokt gateway bootstrap \
 ```
 
 新建 MCP 配置时使用 `tools/configure_mcp_gateway.py` 的 `--issuer https://mcp.ziokt.com` 和 `--portal-origin https://cor-web.ziokt.com`，并提供实际的 `--root`、`--federation`、`--gateway`。已有应用通过 `--bridge watchat=配置路径 --bridge sim-manager=配置路径` 接入；已存在的配置不会被该工具自动覆盖。迁移已有配置时需人工核对 Host/Origin、回调和授权范围。
+
+Telegram Bot 是显式 opt-in。取得 BotFather Token 并确定允许操作的数字 Chat ID 后，运行 `python3 tools/configure_telegram_bot.py --config /home/admin/.local/share/ziokt-production/mcp/mcp.json --chat-id CHAT_ID`；多个会话可重复参数。脚本隐藏读取 Token、调用 Telegram 验证、保存到私有 token 文件并重启 MCP。轮询模式不能与已配置的 webhook 并用。Chat ID 白名单同时约束消息读取和发送/管理目标。
 
 配置 bulk ETP 使用 `tools/configure_etp_bulk.py --config Gateway配置路径 --binary CI二进制路径 --digest SHA256`。它会生成相互匹配的新节点与线路材料，不能拿来覆盖需要保留的旧身份。
 

@@ -98,6 +98,36 @@ class Service:
         for item in config.get('etp',{}):
             for method,write in [('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
                 self.add(item.replace('-','_')+'_'+method.replace('.','_'),'Pinned native ETP '+method,schema({'params':ETP.get(method,PARAMS)},('params',)),write,'etp:'+('write' if write else 'read'),('etp',item,method))
+        telegram=config.get('telegram',{})
+        if telegram.get('enabled') is True:
+            if not isinstance(telegram.get('allowed_chat_ids'),list) or not telegram['allowed_chat_ids']:
+                raise ValueError('Telegram requires an explicit nonempty chat allowlist')
+            from .telegram import TelegramBot
+            # Validate the private token file before advertising any Telegram tools.
+            TelegramBot(telegram)
+            self.add('telegram_bot_status','Read the configured Telegram bot identity and webhook mode.',schema(),False,'telegram:read',('telegram','status'))
+            self.add('telegram_get_updates','Read recent Telegram updates only from explicitly allowlisted chats. Optional offset filters update IDs.',schema({'offset':{'type':'integer','minimum':0,'maximum':2**53-1}},()),False,'telegram:read',('telegram','updates'))
+            self.add('telegram_send_message','Send plain text to an explicitly allowlisted Telegram chat.',schema({'chat_id':{'type':'string','pattern':'^-?[0-9]{1,20}$','maxLength':21},'text':{'type':'string','minLength':1,'maxLength':4096}},('chat_id','text')),True,'telegram:write',('telegram','send'))
+            chat={'chat_id':{'type':'string','pattern':'^-?[0-9]{1,20}$','maxLength':21}}
+            message={'message_id':{'type':'integer','minimum':1,'maximum':2**53-1}}
+            member={'user_id':{'type':'integer','minimum':1,'maximum':2**53-1}}
+            for tool,desc,props,required,write,op in [
+                ('telegram_get_chat','Read an allowlisted chat.',chat,('chat_id',),False,'get-chat'),
+                ('telegram_get_chat_member','Read one member of an allowlisted chat.',{**chat,**member},('chat_id','user_id'),False,'get-member'),
+                ('telegram_edit_message','Edit text in an allowlisted chat.',{**chat,**message,'text':{'type':'string','minLength':1,'maxLength':4096}},('chat_id','message_id','text'),True,'edit'),
+                ('telegram_delete_message','Delete a message in an allowlisted chat.',{**chat,**message},('chat_id','message_id'),True,'delete'),
+                ('telegram_forward_message','Forward a message between allowlisted chats.',{**chat,'from_chat_id':chat['chat_id'],**message},('chat_id','from_chat_id','message_id'),True,'forward'),
+                ('telegram_copy_message','Copy a message between allowlisted chats.',{**chat,'from_chat_id':chat['chat_id'],**message},('chat_id','from_chat_id','message_id'),True,'copy'),
+                ('telegram_send_photo','Send a Telegram file_id photo to an allowlisted chat.',{**chat,'file_id':{'type':'string','minLength':1,'maxLength':512},'caption':{'type':'string','maxLength':1024}},('chat_id','file_id'),True,'photo'),
+                ('telegram_send_document','Send a Telegram file_id document to an allowlisted chat.',{**chat,'file_id':{'type':'string','minLength':1,'maxLength':512},'caption':{'type':'string','maxLength':1024}},('chat_id','file_id'),True,'document'),
+                ('telegram_send_location','Send coordinates to an allowlisted chat.',{**chat,'latitude':{'type':'number','minimum':-90,'maximum':90},'longitude':{'type':'number','minimum':-180,'maximum':180}},('chat_id','latitude','longitude'),True,'location'),
+                ('telegram_send_poll','Send a poll to an allowlisted chat.',{**chat,'question':{'type':'string','minLength':1,'maxLength':300},'options':{'type':'array','minItems':2,'maxItems':10,'items':{'type':'string','minLength':1,'maxLength':100}},'is_anonymous':{'type':'boolean'}},('chat_id','question','options'),True,'poll'),
+                ('telegram_answer_callback','Answer a callback query read from allowlisted updates.',{'callback_query_id':{'type':'string','minLength':1,'maxLength':256},'text':{'type':'string','maxLength':200}},('callback_query_id',),True,'callback'),
+                ('telegram_pin_message','Pin a message in an allowlisted chat.',{**chat,**message},('chat_id','message_id'),True,'pin'),
+                ('telegram_unpin_message','Unpin a message in an allowlisted chat.',{**chat,**message},('chat_id','message_id'),True,'unpin'),
+                ('telegram_set_chat_title','Set the title of an allowlisted group or channel.',{**chat,'title':{'type':'string','minLength':1,'maxLength':128}},('chat_id','title'),True,'title'),
+                ('telegram_set_chat_description','Set the description of an allowlisted group or channel.',{**chat,'description':{'type':'string','maxLength':255}},('chat_id','description'),True,'description')]:
+                self.add(tool,desc,schema(props,required),write,'telegram:'+('write' if write else 'read'),('telegram',op))
         self.add('ziokt_audit_read','Administrator: inspect recent tool names, request digests and outcomes without exposing payloads or tokens.',schema({'limit':{'type':'integer','minimum':1,'maximum':100}},('limit',)),False,'ziokt:admin',('admin','audit'))
         for action in ('revoke','restore'):
             self.add('ziokt_client_'+action,'Administrator: '+action+' an OAuth client and its current access tokens.',schema({'client_id':{'type':'string','maxLength':256}},('client_id',)),True,'ziokt:admin',('admin',action))
@@ -176,14 +206,19 @@ class Service:
         for key,value in args.items():
             field=spec['properties'][key];kind=field['type'];kinds=kind if isinstance(kind,list) else [kind]
             actual='null' if value is None else 'boolean' if type(value) is bool else 'integer' if type(value) is int else 'string' if isinstance(value,str) else 'object' if isinstance(value,dict) else 'array'
+            if type(value) is float:actual='number'
             if actual not in kinds:raise ValueError('invalid '+key)
             if actual=='object' and 'properties' in field:self.validate(value,field)
-            if actual=='array' and len(value)>field.get('maxItems',128):raise ValueError('array budget exceeded')
+            if actual=='array' and not field.get('minItems',0)<=len(value)<=field.get('maxItems',128):raise ValueError('array budget exceeded')
+            if actual=='array' and 'items' in field:
+                for item in value:self.validate({'item':item},{'properties':{'item':field['items']},'required':['item']})
             if 'enum' in field and value not in field['enum']:raise ValueError('invalid enum')
             if actual=='string' and 'pattern' in field and not re.fullmatch(field['pattern'],value):raise ValueError('invalid identifier')
             if 'const' in field and value!=field['const']:raise ValueError('invalid confirmation')
             if actual=='string' and len(value)>field.get('maxLength',65536):raise ValueError('argument too large')
+            if actual=='string' and len(value)<field.get('minLength',0):raise ValueError('argument too short')
             if actual=='integer' and not field.get('minimum',-2**53+1)<=value<=field.get('maximum',2**53-1):raise ValueError('integer out of bounds')
+            if actual=='number' and not field.get('minimum',-1e308)<=value<=field.get('maximum',1e308):raise ValueError('number out of bounds')
 
     def permitted(self,principal,tool):
         return tool['scope'] in principal['scopes'] and (not tool['annotations']['destructiveHint'] or self.config.get('writes_enabled') is True)
@@ -325,6 +360,35 @@ class Service:
             settings=self.config['etp'][route[1]]
             if route[1] not in self.etp:self.etp[route[1]]=EtpGateway(settings['binary'],settings['digest'],settings['config'])
             return self.etp[route[1]].call(route[2],args['params'])
+        if kind=='telegram':
+            from .telegram import TelegramBot
+            bot=TelegramBot(self.current()['telegram'])
+            if route[1]=='status':return bot.status()
+            if route[1]=='updates':return bot.updates(args.get('offset'))
+            if route[1]=='send':return bot.send(args['chat_id'],args['text'])
+            if route[1]=='get-chat':return bot.chat(args['chat_id'])
+            if route[1]=='get-member':return bot.member(args['chat_id'],args['user_id'])
+            if route[1]=='edit':return bot.call('editMessageText',{'chat_id':bot.chat_id(args['chat_id']),'message_id':args['message_id'],'text':args['text']})
+            if route[1]=='delete':return bot.call('deleteMessage',{'chat_id':bot.chat_id(args['chat_id']),'message_id':args['message_id']})
+            if route[1] in {'forward','copy'}:
+                values={'chat_id':bot.chat_id(args['chat_id']),'from_chat_id':bot.chat_id(args['from_chat_id']),'message_id':args['message_id']}
+                return bot.call('forwardMessage' if route[1]=='forward' else 'copyMessage',values)
+            if route[1] in {'photo','document'}:
+                values={'chat_id':bot.chat_id(args['chat_id']), 'photo' if route[1]=='photo' else 'document':args['file_id']}
+                if args.get('caption'):values['caption']=args['caption']
+                return bot.call('sendPhoto' if route[1]=='photo' else 'sendDocument',values)
+            if route[1]=='location':return bot.call('sendLocation',{**{key:args[key] for key in ('latitude','longitude')},'chat_id':bot.chat_id(args['chat_id'])})
+            if route[1]=='poll':
+                values={key:args[key] for key in ('question','options')};values.update({'chat_id':bot.chat_id(args['chat_id']),'is_anonymous':args.get('is_anonymous',True)})
+                return bot.call('sendPoll',values)
+            if route[1]=='callback':return bot.call('answerCallbackQuery',{key:args[key] for key in ('callback_query_id','text') if key in args})
+            if route[1] in {'pin','unpin'}:
+                values={'chat_id':bot.chat_id(args['chat_id'])}
+                if route[1]=='pin':values['message_id']=args['message_id']
+                return bot.call('pinChatMessage' if route[1]=='pin' else 'unpinChatMessage',values)
+            if route[1] in {'title','description'}:
+                values={'chat_id':bot.chat_id(args['chat_id']),'title' if route[1]=='title' else 'description':args[route[1]]}
+                return bot.call('setChatTitle' if route[1]=='title' else 'setChatDescription',values)
         raise ValueError('unsupported component')
 
     def guard(self,principal):
@@ -366,7 +430,12 @@ class Service:
         if method=='server/discover':return {'supportedVersions':list(VERSIONS),'capabilities':{'tools':{},'resources':{}},'instructions':'Scoped native tools. Writes deduplicate automatically; review native plan digests before apply. Administrator-approved tools retain native identity and consensus checks.'}
         if method=='ping':return {}
         if method=='tools/list':
-            tools=[{k:v for k,v in tool.items() if k!='scope'} for tool in self.tools.values() if self.permitted({'scopes':set(self.client(principal['client'])['scopes'])},tool)]
+            if principal.get('public'):
+                tools=[{k:v for k,v in tool.items() if k!='scope'} for tool in self.tools.values()]
+            else:
+                client=self.client(principal['client'])
+                if not client:raise McpError(-32001,'client revoked',401)
+                tools=[{k:v for k,v in tool.items() if k!='scope'} for tool in self.tools.values() if self.permitted({'scopes':set(client['scopes'])},tool)]
             return {'tools':tools}
         if method=='tools/call':
             try:
@@ -505,11 +574,14 @@ def http_handler(service):
                         return self.reply(200,b'')
                     return self.reply(404,{'error':'not found'})
                 if path!='/mcp':return self.reply(404,{'error':'not found'})
-                principal=service.auth(self.headers.get('Authorization'))
                 if self.headers.get_content_type()!='application/json':raise McpError(-32600,'JSON required',415)
                 accept=self.headers.get('Accept','')
                 if not all(t in accept for t in ('application/json','text/event-stream')):raise McpError(-32600,'Accept must list JSON and SSE',406)
                 request=json.loads(raw,object_pairs_hook=unique);request_id=request.get('id') if isinstance(request,dict) else None
+                # ChatGPT deliberately bootstraps MCP without credentials, then applies
+                # per-tool OAuth schemes from tools/list before authenticating tool calls.
+                unauthenticated_bootstrap=isinstance(request,dict) and request.get('method') in {'initialize','tools/list','server/discover','notifications/initialized','ping'}
+                principal=({'client':'__public_bootstrap__','scopes':set(),'expires':2**63,'public':True} if unauthenticated_bootstrap and not self.headers.get('Authorization') else service.auth(self.headers.get('Authorization')))
                 result=service.rpc(request,principal,self.headers)
                 if 'id' not in request:return self.reply(202,b'')
                 return self.reply(200,{'jsonrpc':'2.0','id':request_id,'result':result})

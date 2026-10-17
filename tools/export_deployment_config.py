@@ -16,6 +16,8 @@ def export(root,output):
     route=(*trail,key)
     if key=='identities' and isinstance(item,dict):
      result[key]={name:redact(secret,(*route,name)) for name,secret in item.items()}
+    elif key=='allowed_chat_ids' and isinstance(item,list):
+     result[key]=[redact(str(chat_id),(*route,str(index))) for index,chat_id in enumerate(item)]
     elif SECRET.search(key) and isinstance(item,str) and not (key in PATH_KEYS and item.startswith('/')):
      result[key]=redact(item,route)
     else:result[key]=scrub(item,route)

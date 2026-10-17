@@ -212,3 +212,24 @@ actor transitions and native receipts live in the private mode-0600 registry DB.
 Tests cover unauthorized approval, malformed weights/hashes, digest substitution,
 duplicate targets, revocation, real browser signatures/replay and native scheduled
 engine activation against real SQLite.
+
+## Telegram Bot MCP integration
+
+For ChatGPT compatibility, the endpoint accepts unauthenticated MCP `initialize`
+and `tools/list` bootstrap requests and declares OAuth per tool. Other protected
+operations still require a valid scoped bearer token.
+
+Telegram is optional and disabled until an owner supplies a BotFather token and an explicit numeric chat allowlist. Configure an existing production MCP server without putting the token in shell history or command-line arguments:
+
+```bash
+cd /home/admin/Ziokt
+python3 tools/configure_telegram_bot.py \
+  --config /home/admin/.local/share/ziokt-production/mcp/mcp.json \
+  --chat-id YOUR_NUMERIC_CHAT_ID
+```
+
+The script reads the token without echo, verifies the bot with Telegram, stores it in `mcp/telegram/bot.token` with mode `0600`, adds `telegram:read` and `telegram:write` only to the operator/browser grants, restarts `ziokt-mcp`, and checks that the service is active. Add one `--chat-id` for every allowed private chat or group. The token file and Telegram configuration are runtime secrets and are excluded from source packages; the sanitized configuration reference has no live bot credential. Do not configure a Telegram webhook for this polling integration; `telegram_bot_status` reports whether an existing webhook prevents polling.
+
+The MCP catalog provides bot/webhook status, filtered updates, chat and member reads, text send/edit/delete, allowlisted forwarding/copying, Telegram `file_id` photo/document sending, location and poll sending, callback answers, pin/unpin, and group title/description changes. The API host and method set are fixed; there is no arbitrary URL, file path, token, or Bot API method input. Read tools require `telegram:read`; all remote writes require `telegram:write`, normal MCP write enablement, and idempotency. Every source and destination chat is checked against the allowlist. Media tools accept Telegram `file_id` values and do not upload arbitrary local files or fetch user-supplied URLs.
+
+Telegram Bot API reference: https://core.telegram.org/bots/api
