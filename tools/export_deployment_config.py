@@ -70,7 +70,7 @@ def export(root,output):
   for key,value in list(parser[section].items()):
    if SECRET.search(key) and not value.startswith('/') and key!='gpg_signing_key':parser[section][key]=redact(value,('corix.conf',section,key))
  import io
- text=io.StringIO();parser.write(text);write(Path('runtime/corium/etc/corix/networks/ziokt-main/corix.conf'),text.getvalue())
+ text=io.StringIO();parser.write(text);write(Path('runtime/corium/etc/corix/networks/ziokt-main/corix.conf'),'\n'.join(line.rstrip() for line in text.getvalue().splitlines()).rstrip()+'\n')
  # UFS is configured outside the production root.
  ufs=Path.home()/'.config/dcpm-ufs/config.json'
  if ufs.is_file():json_file(ufs,Path('user-config/dcpm-ufs/config.json'))

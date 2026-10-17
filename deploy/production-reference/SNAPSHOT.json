@@ -44,7 +44,7 @@
     "systemd/ziokt-watchat.service": "d344f25739f762fa71683e1e947d3854ff694c04ac5833c91292e7861320f7a5",
     "runtime/config/Caddyfile": "a213a5a1b38b6b7a3d600caa9c5d2d705dbc81eb1075176a5ed5886182d2d9b0",
     "runtime/bin/corium-service": "45cf00121efcb6e6dc2fcbac0eae1b021cbc6b33039c8a4b87aca81d1a52a028",
-    "runtime/corium/etc/corix/networks/ziokt-main/corix.conf": "9425aea78ab7f2e9eb9044e5cd016f0f85c27722bc5f0a72e78ddff74faae3f1",
+    "runtime/corium/etc/corix/networks/ziokt-main/corix.conf": "28d6ea8abf4d932774a152c1b360027af260405603ae53ea27538b891d6143c1",
     "user-config/dcpm-ufs/config.json": "f956f0ba963b664804664df34aabcd14410e42aff82abb02464847c0a41e3a66"
   },
   "redacted_fields": [
