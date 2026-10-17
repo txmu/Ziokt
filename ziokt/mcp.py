@@ -568,7 +568,7 @@ def http_handler(service):
                     if any(len(v)!=1 for v in q.values()):raise ValueError('duplicate OAuth field')
                     params={k:v[0] for k,v in q.items()};self.check_authorization(params)
                     # Explicit operator consent grants only the registered client's scopes.
-                    fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items())
+                    fields=''.join('<input type="hidden" name="'+html.escape(k,quote=True)+'" value="'+html.escape(v,quote=True)+'">' for k,v in params.items() if k!='id_token_hint')
                     page='<html lang="en"><meta name="referrer" content="same-origin"><meta name="viewport" content="width=device-width"><title>Ziokt authorization</title><h1>Authorize '+html.escape(params['client_id'])+'</h1><p>Requested scopes: '+html.escape(params['scope'])+'</p><form method="post" action="/oauth/authorize">'+fields+'<label>Node administrator token <input type="password" name="admin_token" required autocomplete="off"></label><button type="submit">Approve scopes</button></form></html>'
                     # Chromium applies form-action to the 303 callback as well as the POST.
                     callback=quote(params['redirect_uri'].split('?',1)[0],safe=':/.-_~%[]')
@@ -579,7 +579,9 @@ def http_handler(service):
             except (ValueError,KeyError):self.reply(400,{'error':'invalid_request'})
         def check_authorization(self,params):
             required={'client_id','redirect_uri','response_type','code_challenge','code_challenge_method','scope','state','resource'}
-            if set(params)!=required or params['response_type']!='code' or params['code_challenge_method']!='S256' or not re.fullmatch('[A-Za-z0-9_-]{43}',params['code_challenge']):raise ValueError('PKCE S256 required')
+            if not required<=set(params) or set(params)-required-{'id_token_hint'}:raise ValueError('invalid authorization parameters')
+            if 'id_token_hint' in params and len(params['id_token_hint'])>16384:raise ValueError('id_token_hint exceeds limit')
+            if params['response_type']!='code' or params['code_challenge_method']!='S256' or not re.fullmatch('[A-Za-z0-9_-]{43}',params['code_challenge']):raise ValueError('PKCE S256 required')
             client=service.client(params['client_id'])
             if not client or params['redirect_uri'] not in client['redirect_uris'] or not params['state'] or len(params['state'])>512:raise ValueError('unregistered client')
             if params['resource']!=service.config['issuer']+'/mcp':raise ValueError('wrong resource audience')
