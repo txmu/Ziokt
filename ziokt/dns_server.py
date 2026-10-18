@@ -52,13 +52,27 @@ class UDP(Workers,socketserver.ThreadingUDPServer):
 class TCP(Workers,socketserver.ThreadingTCPServer):
     allow_reuse_address=True
 class HTTP(Workers,http.server.ThreadingHTTPServer):pass
+class DoTServer(Workers,socketserver.ThreadingTCPServer):
+    allow_reuse_address=True
+    def __init__(self,server_address,RequestHandlerClass,ssl_context,td=None,bind_and_activate=True):
+        self.ssl_context=ssl_context
+        self.td=td
+        super().__init__(server_address,RequestHandlerClass,bind_and_activate=bind_and_activate)
+    def server_close(self):
+        super().server_close()
+        if self.td is not None:
+            try:self.td.cleanup()
+            except Exception:pass
 
 
-def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
+def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0,dot_port=None,doq_port=None,doh3_port=None,tls_cert=None,tls_key=None):
     from .runtime_policy import require_network
     require_network()
     family=ipaddress.ip_address(host).version
-    if type(port) is not int or not 0<=port<=65535:raise ValueError('invalid DNS port')
+    if port is not None and (type(port) is not int or not 0<=port<=65535):raise ValueError('invalid DNS port')
+    if dot_port is not None and (type(dot_port) is not int or not 0<=dot_port<=65535):raise ValueError('invalid DoT port')
+    if doq_port is not None and (type(doq_port) is not int or not 0<=doq_port<=65535):raise ValueError('invalid DoQ port')
+    if doh3_port is not None and (type(doh3_port) is not int or not 0<=doh3_port<=65535):raise ValueError('invalid DoH3 port')
     limits=Limits()
     class Datagram(socketserver.BaseRequestHandler):
         def handle(self):
@@ -81,6 +95,43 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
                     response=answer(receive(length),resolver,tcp=True)
                     self.request.sendall(struct.pack('!H',len(response))+response)
             except (EOFError,OSError,ValueError):pass
+    class DoTStream(socketserver.BaseRequestHandler):
+        def handle(self):
+            try:
+                ssl_sock=self.server.ssl_context.wrap_socket(self.request,server_side=True)
+            except (Exception,OSError):return
+            ssl_sock.settimeout(5)
+            active=resolver
+            sni=getattr(ssl_sock,'realm_sni',None)
+            if sni and isinstance(resolver,NameNetworks):
+                first=sni.split('.')[0]
+                if first in resolver.realms:
+                    active=resolver.view(first)
+                elif sni not in ('dns.ziokt.com','localhost') and '.' in sni:
+                    try:active=resolver.view(first)
+                    except ProtocolError:active=None
+            def receive(length):
+                output=bytearray()
+                while len(output)<length:
+                    part=ssl_sock.recv(length-len(output))
+                    if not part:raise EOFError()
+                    output.extend(part)
+                return bytes(output)
+            try:
+                for _ in range(16):
+                    length=struct.unpack('!H',receive(2))[0]
+                    if not 12<=length<=4096 or not limits.admit(self.client_address[0]):return
+                    query=receive(length)
+                    if active is None:
+                        ident=struct.unpack('!H',query[:2])[0]
+                        response=struct.pack('!6H',ident,0x8105,1,0,0,0)+query[12:]
+                    else:
+                        response=answer(query,active,tcp=True)
+                    ssl_sock.sendall(struct.pack('!H',len(response))+response)
+            except (EOFError,OSError,ValueError):pass
+            finally:
+                try:ssl_sock.close()
+                except OSError:pass
     class DoH(http.server.BaseHTTPRequestHandler):
         def setup(self):super().setup();self.connection.settimeout(5)
         def log_message(self,*_):pass
@@ -126,22 +177,50 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
         import socket
         udp_type=type('FamilyUDP',(UDP,),{'address_family':socket.AF_INET6 if family==6 else socket.AF_INET})
         tcp_type=type('FamilyTCP',(TCP,),{'address_family':socket.AF_INET6 if family==6 else socket.AF_INET})
-        udp=udp_type((host,port),Datagram);opened.append(udp)
-        tcp=tcp_type((host,udp.server_address[1]),Stream);opened.append(tcp)
+        if port is not None:
+            udp=udp_type((host,port),Datagram);opened.append(udp)
+            tcp=tcp_type((host,udp.server_address[1]),Stream);opened.append(tcp)
         if doh_port is not None:opened.append(HTTP(('127.0.0.1',doh_port),DoH))
-        # Share one finite budget across all transports, including expensive
-        # encrypted-community projections. DoH must not bypass UDP/TCP limits.
+        if dot_port is not None:
+            import ssl
+            from .tls_helper import get_cert_and_key
+            cert_path,key_path,td=get_cert_and_key(tls_cert,tls_key,host=host)
+            ssl_ctx=ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_ctx.load_cert_chain(cert_path,key_path)
+            try:ssl_ctx.set_alpn_protocols(['dot'])
+            except (AttributeError,NotImplementedError):pass
+            def sni_cb(s,server_name,initial_context):s.realm_sni=server_name
+            ssl_ctx.sni_callback=sni_cb
+            dot_type=type('FamilyDoT',(DoTServer,),{'address_family':socket.AF_INET6 if family==6 else socket.AF_INET})
+            dot=dot_type((host,dot_port),DoTStream,ssl_ctx,td=td)
+            opened.append(dot)
+        if doq_port is not None:
+            from .dns_quic import QuicServerRunner
+            doq=QuicServerRunner('doq',resolver,host,doq_port,tls_cert=tls_cert,tls_key=tls_key,limits=limits)
+            doq.start()
+            opened.append(doq)
+        if doh3_port is not None:
+            from .dns_quic import QuicServerRunner
+            doh3=QuicServerRunner('h3',resolver,host,doh3_port,tls_cert=tls_cert,tls_key=tls_key,limits=limits)
+            doh3.start()
+            opened.append(doh3)
         workers=threading.BoundedSemaphore(8)
         for server in opened:server.workers=workers
         return opened
     except BaseException:
-        for server in opened:server.server_close()
+        for server in opened:
+            if hasattr(server,'shutdown'):
+                try:server.shutdown()
+                except Exception:pass
+            server.server_close()
         raise
 
 
 def load(path):
     config=strict_json(secure_read(path))
-    if (not isinstance(config,dict) or set(config)!={'schema','listen','port','doh_port','default_realm','realms'} or
+    allowed_keys={'schema','listen','port','doh_port','default_realm','realms','dot_port','doq_port','doh3_port','tls_cert','tls_key'}
+    required_keys={'schema','listen','port','doh_port','default_realm','realms'}
+    if (not isinstance(config,dict) or not (required_keys<=set(config)<=allowed_keys) or
             config['schema']!='ziokt.dns.v2' or not isinstance(config['realms'],dict)):
         raise ValueError('exact private multi-realm DNS configuration required')
     realms={}
@@ -179,12 +258,16 @@ def load(path):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',required=True);args=parser.parse_args()
     config,resolver=load(args.config)
-    opened=servers(resolver,host=config['listen'],port=config['port'],doh_port=config['doh_port'])
+    opened=servers(resolver,host=config['listen'],port=config.get('port',5353),doh_port=config.get('doh_port',0),dot_port=config.get('dot_port'),doq_port=config.get('doq_port'),doh3_port=config.get('doh3_port'),tls_cert=config.get('tls_cert'),tls_key=config.get('tls_key'))
     try:
         for server in opened[1:]:threading.Thread(target=server.serve_forever,daemon=True).start()
         opened[0].serve_forever()
     finally:
-        for server in opened:server.server_close()
+        for server in opened:
+            if hasattr(server,'shutdown'):
+                try:server.shutdown()
+                except Exception:pass
+            server.server_close()
 
 if __name__=='__main__':main()
 
@@ -201,11 +284,15 @@ def execute(args):
     config,networks=load(args.config)
     if args.dns_action=='resolve':return networks.resolve(args.name,realm=args.realm,component=args.component,public=args.component is None)
     if args.dns_action=='status':return {'default_realm':networks.default,'realms':{key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False}
-    opened=servers(networks,host=config['listen'],port=config['port'],doh_port=config['doh_port'])
+    opened=servers(networks,host=config['listen'],port=config.get('port',5353),doh_port=config.get('doh_port',0),dot_port=config.get('dot_port'),doq_port=config.get('doq_port'),doh3_port=config.get('doh3_port'),tls_cert=config.get('tls_cert'),tls_key=config.get('tls_key'))
     try:
         for server in opened[1:]:threading.Thread(target=server.serve_forever,daemon=True).start()
         opened[0].serve_forever()
     except KeyboardInterrupt:pass
     finally:
-        for server in opened:server.server_close()
+        for server in opened:
+            if hasattr(server,'shutdown'):
+                try:server.shutdown()
+                except Exception:pass
+            server.server_close()
     return {'stopped':True}

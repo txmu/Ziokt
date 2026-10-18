@@ -366,7 +366,7 @@ def serve(config):
         if config.get('dns_config'):
             from .dns_server import load as load_dns,servers as open_dns
             dns_config,networks=load_dns(config['dns_config'])
-            dns_servers=open_dns(networks,host=dns_config['listen'],port=dns_config['port'],doh_port=dns_config['doh_port'])
+            dns_servers=open_dns(networks,host=dns_config['listen'],port=dns_config.get('port',5353),doh_port=dns_config.get('doh_port',8188),dot_port=dns_config.get('dot_port'),doq_port=dns_config.get('doq_port'),doh3_port=dns_config.get('doh3_port'),tls_cert=dns_config.get('tls_cert'),tls_key=dns_config.get('tls_key'))
             for listener in dns_servers:
                 thread=threading.Thread(target=listener.serve_forever,daemon=True);thread.start();dns_threads.append(thread)
         server=Server(('127.0.0.1',config.get('port',8185)),handler(gateway))
@@ -374,6 +374,10 @@ def serve(config):
     finally:
         stop.set()
         if server is not None:server.server_close()
-        for listener in dns_servers:listener.shutdown();listener.server_close()
+        for listener in dns_servers:
+            if hasattr(listener,'shutdown'):
+                try:listener.shutdown()
+                except Exception:pass
+            listener.server_close()
         for thread in dns_threads:thread.join(2)
         worker.join(2);gateway.close()

@@ -23,7 +23,7 @@ def write(path,value):
         if os.path.exists(temporary):os.unlink(temporary)
 
 
-def configure(mcp_path,gateway_path,output,namespace):
+def configure(mcp_path,gateway_path,output,namespace,listen='127.0.0.1',port=5353,doh_port=8188,dot_port=853,doq_port=853):
     from ziokt.protocol import identifier
     identifier(namespace,'DNS namespace')
     mcp=strict_json(secure_read(mcp_path));gateway=strict_json(secure_read(gateway_path));base=Path(mcp_path).resolve().parent
@@ -48,11 +48,13 @@ def configure(mcp_path,gateway_path,output,namespace):
         sources[component]={'component_bridge':str(Path(path).resolve())}
     forum=Path(gateway['forum_db']);chain=forum.parent.parent/'blockchain/chain.db'
     sources['corium']={'forum_db':str(forum),'chain_db':str(chain),'objects':gateway['objects'],'native_network_id':gateway['network']}
-    config={'schema':'ziokt.dns.v2','listen':'127.0.0.1','port':5353,'doh_port':8188,'default_realm':'main',
+    config={'schema':'ziokt.dns.v2','listen':listen,'port':port,'doh_port':doh_port,'default_realm':'main',
+            'dot_port':dot_port,'doq_port':doq_port,
             'realms':{'main':{'network_id':namespace,'sources':sources}}}
     write(output,config);mcp['dns_config']=str(Path(output).resolve());write(mcp_path,mcp)
     return {'config':str(Path(output).resolve()),'namespace':namespace,'sources':sorted(sources),'names_published':0,'listeners_started':False}
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--mcp-config',required=True);parser.add_argument('--gateway-config',required=True);parser.add_argument('--output',required=True);parser.add_argument('--namespace',required=True);args=parser.parse_args()
-    print(json.dumps(configure(args.mcp_config,args.gateway_config,args.output,args.namespace)))
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--mcp-config',required=True);parser.add_argument('--gateway-config',required=True);parser.add_argument('--output',required=True);parser.add_argument('--namespace',required=True)
+    parser.add_argument('--listen',default='127.0.0.1');parser.add_argument('--port',type=int,default=5353);parser.add_argument('--doh-port',type=int,default=8188);parser.add_argument('--dot-port',type=int,default=853);parser.add_argument('--doq-port',type=int,default=853);args=parser.parse_args()
+    print(json.dumps(configure(args.mcp_config,args.gateway_config,args.output,args.namespace,listen=args.listen,port=args.port,doh_port=args.doh_port,dot_port=args.dot_port,doq_port=args.doq_port)))
