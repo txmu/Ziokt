@@ -61,5 +61,7 @@ form>*{min-width:0;max-width:100%}
 #media{width:100%}
 body[data-ui="classic"] #workspace{grid-template-columns:minmax(200px,280px) minmax(0,1fr)}
 body[data-ui="classic"] #composer{grid-template-columns:minmax(0,1fr) auto}
-body[data-ui="classic"] #composer label{grid-column:1/-1}
 @media(max-width:600px){main{grid-template-columns:minmax(0,1fr)}}
+.transport-badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;background:rgba(25,83,165,.15);color:var(--accent);margin:4px 0}
+#reset-identity{background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;border-radius:6px}
+#reset-identity:hover{color:var(--focus);border-color:var(--focus)}

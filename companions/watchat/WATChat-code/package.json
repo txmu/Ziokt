@@ -6,6 +6,7 @@
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
+    "test": "npm run check",
     "check": "node --check backend/server.js && node --check frontend/app.js && node --test test/*.test.js"
   },
   "dependencies": {

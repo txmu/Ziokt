@@ -29,6 +29,10 @@ if(process.env.ZIOKT_BRIDGE_CONFIG){
  if(cfg.inbox){bridgeInbox=path.resolve(cfg.inbox);if(bridgeInbox!==path.join(DATA,'inbox'))throw Error('BRIDGE_INBOX_SCOPE');fs.mkdirSync(bridgeInbox,{recursive:true,mode:0o700});if(fs.lstatSync(bridgeInbox).isSymbolicLink())throw Error('UNSAFE_INBOX');fs.chmodSync(bridgeInbox,0o700)}
 }
 store.filePending??=[];
+const { TransportManager } = require('./transports/TransportManager');
+const transportManager = new TransportManager({
+ server: { sendFn: (recipientId, envelope) => push([recipientId], { type: 'message', message: envelope, transport: envelope.transport || 'watchat-server', hops: envelope.hops || 1, bridged: envelope.bridged }) }
+});
 const simBridge=process.env.SIM_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.SIM_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(process.env.ZIOKT_PROJECT_ROOT||path.join(ROOT,'../../..'))):null;
 const simFederation=simBridge?new(require('./sim_bridge').SimFederation)(simBridge,store,()=>save(),reminderScheduler):null;
 const sessions=new Map(),attempts=new Map();let hashing=0;
@@ -65,7 +69,7 @@ const server=http.createServer(async(req,res)=>{try{
   const x=JSON.parse(await body(req)),u=store.users.find(u=>u.username===x.username),salt=u?.salt||'dummy-authentication-salt';let valid=false;
   try{const hash=await passwordHash(x.password,salt);valid=!!u&&crypto.timingSafeEqual(Buffer.from(hash,'hex'),Buffer.from(u.hash,'hex'))}catch(e){if(e.message==='BUSY')return json(res,503,{error:'BUSY'})}
   if(!valid)return json(res,401,{error:'AUTH_FAILED'});if(sessions.size>=1024)return json(res,503,{error:'BUSY'});
-  const token=crypto.randomBytes(32).toString('hex');sessions.set(token,{id:u.id,expires:now+3600000});return json(res,200,{user:pub(u)},{'Set-Cookie':`ziokt_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600${publicOrigin?'; Secure':''}`});
+  const token=crypto.randomBytes(32).toString('hex');sessions.set(token,{id:u.id,expires:now+3600000});return json(res,200,{user:{...pub(u),backup:u.backup||null}},{'Set-Cookie':`ziokt_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600${publicOrigin?'; Secure':''}`});
  }
  const me=auth(req);
  if(url.pathname.startsWith('/api/')||url.pathname.startsWith('/uploads/')){
@@ -76,6 +80,8 @@ const server=http.createServer(async(req,res)=>{try{
   if(url.pathname==='/api/push-subscription'&&req.method==='POST'){if(!notifier)return json(res,503,{error:'PUSH_NOT_CONFIGURED'});const x=JSON.parse(await body(req));try{return json(res,200,{id:notifier.register(me.id,x)})}catch(e){return json(res,400,{error:e.message})}}
   if(url.pathname==='/api/push-subscription'&&req.method==='DELETE'){notifier?.unregister(me.id);return json(res,200,{ok:true})}
   if(url.pathname==='/api/integration'&&req.method==='GET')return json(res,200,{chat_federation_configured:!!bridge,sim_federation_configured:!!simBridge,pending_messages:store.pending.length,pending_reminders:!!store.simPending?.[me.id],background_push_configured:!!notifier,webhook_configured:!!webhook,account:me.username});
+   if(url.pathname==='/api/transport/modes'&&req.method==='GET')return json(res,200,{current:transportManager.getUserMode(me.id),modes:transportManager.getAllModesStatus()});
+   if(url.pathname==='/api/transport/mode'&&req.method==='POST'){const x=JSON.parse(await body(req));if(!x.mode||!transportManager.setUserMode(me.id,x.mode))return json(res,400,{error:'INVALID_MODE'});return json(res,200,{ok:true,mode:x.mode})}
   if(url.pathname==='/api/settings'&&req.method==='POST'){
    if(!me.admin)return json(res,403,{error:'FORBIDDEN'});
    const x=JSON.parse(await body(req));
@@ -83,14 +89,16 @@ const server=http.createServer(async(req,res)=>{try{
    const previous=store.settings;store.settings={title:x.title.normalize('NFC')};try{save()}catch(error){store.settings=previous;throw error}return json(res,200,{title:store.settings.title});
   }
   if(url.pathname==='/api/presence'&&req.method==='GET')return json(res,200,{schema:'watchat.presence.v1',contacts:me.contacts.filter(id=>can(me,id)).map(id=>({id,online:[...wss.clients].some(ws=>ws.userId===id&&ws.readyState===WebSocket.OPEN)}))});
-  if(url.pathname==='/api/me'&&req.method==='GET')return json(res,200,{user:pub(me)});
+  if(url.pathname==='/api/me'&&req.method==='GET')return json(res,200,{user:{...pub(me),backup:me.backup||null}});
   if(url.pathname==='/api/logout'&&req.method==='POST'){revoke(me.id);return json(res,200,{ok:true},{'Set-Cookie':'ziokt_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'})}
   if(url.pathname==='/api/users'&&req.method==='GET')return json(res,200,{users:store.users.filter(u=>me.admin||me.contacts.includes(u.id)||u.id===me.id).map(pub)});
   if(url.pathname==='/api/users'&&req.method==='POST'){if(!me.admin)return json(res,403,{error:'FORBIDDEN'});if(store.users.length>=256)return json(res,413,{error:'LIMIT'});const x=JSON.parse(await body(req));if(store.users.some(u=>u.username===x.username))return json(res,409,{error:'DUPLICATE'});const u=await makeUser(x.username,x.name,x.password);store.users.push(u);save();return json(res,201,{user:pub(u)})}
   if(url.pathname==='/api/key'&&req.method==='POST'){const x=JSON.parse(await body(req));if(!x.key||Object.keys(x.key).some(k=>!['kty','crv','x','y','ext','key_ops'].includes(k))||x.key.kty!=='EC'||x.key.crv!=='P-256'||!/^[-_A-Za-z0-9]{43}$/.test(x.key.x)||!/^[-_A-Za-z0-9]{43}$/.test(x.key.y))return json(res,400,{error:'INVALID_KEY'});const value={kty:'EC',crv:'P-256',x:x.key.x,y:x.key.y};if(me.key&&JSON.stringify(me.key)!==JSON.stringify(value))return json(res,409,{error:'KEY_CHANGED'});me.key=value;save();return json(res,200,{ok:true})}
+   if(url.pathname==='/api/key/backup'&&req.method==='POST'){const x=JSON.parse(await body(req));if(!x||typeof x!=='object'||!x.salt||!x.iv||!x.ciphertext||typeof x.ciphertext!=='string'||x.ciphertext.length>8192)return json(res,400,{error:'INVALID_BACKUP'});me.backup={version:x.version||2,algorithm:x.algorithm||'AES-256-GCM',kdf:x.kdf||'PBKDF2-SHA-256',iterations:x.iterations||100000,salt:x.salt,iv:x.iv,ciphertext:x.ciphertext,updatedAt:Date.now()};save();return json(res,200,{ok:true})}
+   if(url.pathname==='/api/key/reset'&&req.method==='POST'){const x=JSON.parse(await body(req));me.key=null;me.backup=null;if(x.key){if(x.key.kty!=='EC'||x.key.crv!=='P-256'||!x.key.x||!x.key.y)return json(res,400,{error:'INVALID_KEY'});me.key={kty:'EC',crv:'P-256',x:x.key.x,y:x.key.y}}if(x.backup){me.backup={version:x.backup.version||2,algorithm:x.backup.algorithm||'AES-256-GCM',kdf:x.backup.kdf||'PBKDF2-SHA-256',iterations:x.backup.iterations||100000,salt:x.backup.salt,iv:x.backup.iv,ciphertext:x.backup.ciphertext,updatedAt:Date.now()}}save();push(me.contacts,{type:'key-reset',contactId:me.id});return json(res,200,{ok:true,reset:true})}
   if(url.pathname==='/api/contacts'&&req.method==='POST'){const x=JSON.parse(await body(req));const target=byId(x.id);if(!target||target.id===me.id)return json(res,400,{error:'INVALID_CONTACT'});if(!me.contacts.includes(target.id))me.contacts.push(target.id);if(!target.contacts.includes(me.id))target.contacts.push(me.id);save();return json(res,200,{ok:true})}
   const um=url.pathname.match(/^\/api\/users\/([a-f0-9-]{36})$/);
-  if(um&&['PATCH','DELETE'].includes(req.method)){const u=byId(um[1]);if(!u||(!me.admin&&u.id!==me.id))return json(res,403,{error:'FORBIDDEN'});if(req.method==='DELETE'){if(!me.admin||u.admin)return json(res,403,{error:'FORBIDDEN'});store.users=store.users.filter(v=>v.id!==u.id);for(const v of store.users)v.contacts=v.contacts.filter(id=>id!==u.id);store.messages=store.messages.filter(m=>m.from!==u.id&&m.to!==u.id);revoke(u.id)}else{const x=JSON.parse(await body(req));if(x.name){if(typeof x.name!=='string'||x.name.length>64)throw Error('INVALID_USER');u.name=x.name}if(x.password){u.salt=crypto.randomBytes(16).toString('hex');u.hash=await passwordHash(x.password,u.salt);revoke(u.id)}}save();return json(res,200,{ok:true})}
+  if(um&&['PATCH','DELETE'].includes(req.method)){const u=byId(um[1]);if(!u||(!me.admin&&u.id!==me.id))return json(res,403,{error:'FORBIDDEN'});if(req.method==='DELETE'){if(!me.admin||u.admin)return json(res,403,{error:'FORBIDDEN'});store.users=store.users.filter(v=>v.id!==u.id);for(const v of store.users)v.contacts=v.contacts.filter(id=>id!==u.id);store.messages=store.messages.filter(m=>m.from!==u.id&&m.to!==u.id);revoke(u.id)}else{const x=JSON.parse(await body(req));if(x.name){if(typeof x.name!=='string'||x.name.length>64)throw Error('INVALID_USER');u.name=x.name}if(x.password){u.salt=crypto.randomBytes(16).toString('hex');u.hash=await passwordHash(x.password,u.salt);if(x.backup){u.backup={version:x.backup.version||2,algorithm:x.backup.algorithm||'AES-256-GCM',kdf:x.backup.kdf||'PBKDF2-SHA-256',iterations:x.backup.iterations||100000,salt:x.backup.salt,iv:x.backup.iv,ciphertext:x.backup.ciphertext,updatedAt:Date.now()}}else u.backup=null;revoke(u.id)}}save();return json(res,200,{ok:true})}
   if(url.pathname==='/api/upload'&&req.method==='POST'){
    const supplied=req.headers['x-upload-id'];if(supplied!==undefined&&(typeof supplied!=='string'||!/^[a-f0-9]{32}$/.test(supplied)))return json(res,400,{error:'INVALID_UPLOAD_ID'});
    const id=(supplied||crypto.randomBytes(16).toString('hex'))+'.bin',previous=store.uploads[id];
@@ -121,8 +129,10 @@ const server=http.createServer(async(req,res)=>{try{
 server.requestTimeout=15000;server.headersTimeout=10000;
 const wss=new WebSocketServer({noServer:true,maxPayload:8192});
 server.on('upgrade',(req,socket,head)=>{const url=new URL(req.url,'http://localhost'),me=auth(req);if(url.pathname!=='/ws'||url.search||!originOK(req)||!me||[...wss.clients].filter(w=>w.userId===me.id).length>=4){socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return}wss.handleUpgrade(req,socket,head,ws=>{ws.userId=me.id;ws.alive=true;wss.emit('connection',ws)})});
-wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws.on('pong',()=>ws.alive=true);ws.on('message',raw=>{try{if(Date.now()-start>10000){start=Date.now();count=0}if(++count>64)return ws.close(1008);const me=byId(ws.userId);if(!me)return ws.close(4001);const x=JSON.parse(raw);
- if(x.action==='received'){
+wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws.on('pong',()=>ws.alive=true);ws.on('message',async raw=>{try{if(Date.now()-start>10000){start=Date.now();count=0}if(++count>64)return ws.close(1008);const me=byId(ws.userId);if(!me)return ws.close(4001);const x=JSON.parse(raw);
+ if(x.action==='mode'){if(typeof x.mode==='string'&&transportManager.setUserMode(me.id,x.mode))send(ws,{type:'mode',mode:x.mode});return;}
+  if(x.action==='read'){if(typeof x.id!=='string')return send(ws,{type:'error',error:'INVALID_RECEIPT'});const message=store.messages.find(m=>m.id===x.id&&m.to===me.id);if(!message||!can(me,message.from))return send(ws,{type:'error',error:'INVALID_RECEIPT'});message.readAt=Date.now();save();push([message.from],{type:'receipt',id:message.id,state:'read',time:message.readAt});transportManager.markRead(message.id);return;}
+  if(x.action==='received'){
   if(typeof x.id!=='string')return send(ws,{type:'error',error:'INVALID_RECEIPT'});
   const message=store.messages.find(m=>m.id===x.id&&m.to===me.id);
   if(!message||!can(me,message.from))return send(ws,{type:'error',error:'INVALID_RECEIPT'});
@@ -134,7 +144,8 @@ wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws
  if(x.attachments.some(url=>!/^\/uploads\/[a-f0-9]{32}\.bin$/.test(url)||store.uploads[url.slice(9)]?.owner!==me.id))return send(ws,{type:'error',error:'INVALID_ATTACHMENT'});
  const old=store.messages.find(m=>m.id===x.id);if(old){if(old.from!==me.id||old.to!==x.to||old.ciphertext!==x.ciphertext||JSON.stringify(old.attachments)!==JSON.stringify(x.attachments))return send(ws,{type:'error',error:'IDEMPOTENCY_CONFLICT'});save();return send(ws,{type:'ack',id:x.id})}
  if(store.messages.length>=10000||store.pending.length>=1000)return send(ws,{type:'error',error:'LIMIT'});
- const m={id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,time:Date.now()};store.messages.push(m);if(process.env.ZIOKT_BRIDGE_CONFIG)store.pending.push(m.id);try{save()}catch(error){store.messages.pop();store.pending=store.pending.filter(id=>id!==m.id);throw error}notifier?.enqueue(m.to);push([m.from,m.to],{type:'message',message:m});send(ws,{type:'ack',id:m.id});flushBridge();
+ const routeResult=await transportManager.routeMessage({id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,transport:x.transport||transportManager.getUserMode(me.id),hops:x.hops,nonce:x.nonce||x.id},x.transport);
+  const m={id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,time:Date.now(),transport:routeResult.transport,hops:routeResult.hops,bridged:routeResult.bridged};store.messages.push(m);if(process.env.ZIOKT_BRIDGE_CONFIG)store.pending.push(m.id);try{save()}catch(error){store.messages.pop();store.pending=store.pending.filter(id=>id!==m.id);throw error}notifier?.enqueue(m.to);push([m.from,m.to],{type:'message',message:m,transport:routeResult.transport,hops:routeResult.hops,bridged:routeResult.bridged});send(ws,{type:'ack',id:m.id,state:routeResult.state,transport:routeResult.transport,hops:routeResult.hops,bridged:routeResult.bridged});flushBridge();
  }catch(_){send(ws,{type:'error',error:'INVALID_FRAME'})}})});
 const bridge=process.env.ZIOKT_BRIDGE_CONFIG?new(require('./bridge').BridgeWorker)(path.resolve(process.env.ZIOKT_BRIDGE_CONFIG),process.env.ZIOKT_PYTHON||'python3',path.resolve(process.env.ZIOKT_PROJECT_ROOT||path.join(__dirname,'../../../..'))):null;
 let bridgeBusy=false,bridgePollAt=0,bridgePollCursor=0;store.fileBackoff??={};
@@ -164,5 +175,5 @@ async function flushBridge(){
 }
 
 const heartbeat=setInterval(()=>{const now=Date.now();for(const [token,s]of sessions)if(s.expires<now){sessions.delete(token);revoke(s.id)}for(const ws of wss.clients){if(!ws.alive)ws.terminate();else{ws.alive=false;ws.ping()}}flushBridge();simFederation?.flush();reminderScheduler.tick()},30000);
-server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close();simBridge?.close()});
+server.on('close',()=>{clearInterval(heartbeat);notifier?.close();bridge?.close();simBridge?.close();transportManager.close()});
 (async()=>{if(!store.users.length){const password=process.env.ADMIN_PASSWORD;if(!password||password.length<12)throw Error('ADMIN_PASSWORD_REQUIRED');store.users.push(await makeUser('admin','Administrator',password,true));save()}if(!process.env.ZIOKT_BRIDGE_CONFIG&&!simBridge&&process.env.ZIOKT_STANDALONE!=='1')throw Error('FEDERATION_CONFIG_REQUIRED');server.listen(PORT,'127.0.0.1',()=>console.log('WATChat ready on loopback'))})().catch(e=>{clearInterval(heartbeat);console.error(e.message);process.exit(1)});

@@ -34,6 +34,12 @@ from ziokt.naming_tc16 import TC16Names, DOMAIN as TC16_DOMAIN
 from ziokt.dns_wire import wire_name, answer
 from ziokt.dns_server import servers
 
+import sys
+from pathlib import Path
+user_site = Path.home() / '.local/lib/python3.13/site-packages'
+if user_site.is_dir() and str(user_site) not in sys.path:
+    sys.path.insert(0, str(user_site))
+
 from aioquic.asyncio.client import connect
 from aioquic.asyncio.protocol import QuicConnectionProtocol
 from aioquic.quic.configuration import QuicConfiguration
