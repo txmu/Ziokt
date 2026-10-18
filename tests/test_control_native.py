@@ -46,3 +46,31 @@ class FenceTests(NativeFixture):
             no_token["expected_revision"] = client.objects("service")[0]["revision"]
             with self.assertRaises(ProtocolError) as required: client.call("operation.prepare", no_token)
             self.assertEqual(required.exception.code, "FENCE_REQUIRED")
+
+    def test_two_step_workflow_keeps_attempt_owner_separate_from_leader(self):
+        from ziokt.workflow import WorkflowJournal
+        sys.path.insert(0,str(S))
+        from Deployment.service_registry import ServiceRegistry
+        from Deployment.core_catalog import CoreCatalog
+        from Deployment.service_storage import atomic_write
+        material=self.base/'workflow-material.json';atomic_write(material,b'{}')
+        registry=ServiceRegistry(catalog=CoreCatalog(S))
+        for name in ('first','second'):registry.create('test/'+name,core='go',config={'config_path':str(material)})
+        key=Ed25519PrivateKey.generate()
+        private=key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption())
+        public=key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw).hex()
+        config=json.loads(self.sconfig.read_text());config.update(allow_mutations=True,
+            allowed_operations=['service.stop'],allowed_resources=['test/first','test/second'],coordinator_public_key=public)
+        self.sconfig.write_text(json.dumps(config))
+        records=NativeClient('test',self.providers[0]).objects('service')
+        steps=[{'step_id':str(i),'provider_id':'shadow6-local','action':'service.stop','resource':record['native_id'],
+                'arguments':{},'expected_revision':record['revision'],'depends_on':[] if i==0 else ['0']}
+               for i,record in enumerate(records)]
+        manifest={'schema':'ziokt.workflow.v1','workflow_id':'fenced-workflow','steps':steps}
+        with LeaderAuthority(self.base/'workflow-leader.sqlite') as authority,WorkflowJournal(self.base/'workflow.sqlite') as journal:
+            plan=journal.plan(manifest,self.federation)
+            done=journal.apply('fenced-workflow',self.federation,plan['plan_digest'],confirmed=True,leadership=(authority,'leader',private))
+            self.assertEqual(done['state'],'committed');self.assertFalse(done['global_atomicity'])
+            self.assertEqual(done['application_health'],'not-assessed')
+            self.assertEqual(len(done['steps']),2)
+            self.assertEqual(journal.db.execute('SELECT count(*) FROM attempts').fetchone()[0],0)

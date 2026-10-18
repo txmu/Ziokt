@@ -83,6 +83,8 @@ class WorkflowJournal:
             raise ProtocolError("WORKFLOW_NOT_FOUND", "workflow not found")
         rows = self.db.execute("SELECT step_id,state,native_plan,result FROM steps WHERE workflow_id=? ORDER BY rowid", (workflow_id,)).fetchall()
         return {"workflow_id": workflow_id, "plan_digest": row[0], "state": row[1],
+                "execution_semantics": "recoverable-steps", "global_atomicity": False,
+                "application_health": "not-assessed",
                 "steps": [{"step_id": r[0], "state": r[1], "native_plan": strict_json(r[2].encode()) if r[2] else None,
                            "result": strict_json(r[3].encode()) if r[3] else None} for r in rows]}
 
@@ -139,9 +141,9 @@ class WorkflowJournal:
                         raise
                     params = {"operation_id": op_id, **{k: step[k] for k in ("action", "resource", "arguments", "expected_revision")}}
                     if leadership:
-                        authority, owner, key = leadership
-                        authority.acquire(federation["federation_id"], owner)
-                        params["fence"] = authority.token(federation["federation_id"], owner, step["provider_id"], params, key)
+                        authority, leader_owner, key = leadership
+                        authority.acquire(federation["federation_id"], leader_owner)
+                        params["fence"] = authority.token(federation["federation_id"], leader_owner, step["provider_id"], params, key)
                     native = client.call("operation.prepare", params)
                 if native["state"] == "unknown":
                     native = client.call("operation.reconcile", {"operation_id": op_id})

@@ -8,7 +8,7 @@ def execute(bridge, method, params):
         if set(params)!=set(fields):raise ProtocolError('INVALID_PARAMS','exact typed component arguments required')
     if method=='component.status':
         exact([])
-        return {'schema':'ziokt.component-status.v1','application':bridge.app,'vault_ready':bridge.vault_root is not None,'auto_execute_imports':False}
+        return {'schema':'ziokt.component-status.v1','application':bridge.app,'status':'local-bridge-reachable','native_runtime':'not-observed','vault_ready':bridge.vault_root is not None,'auto_execute_imports':False}
     if method=='ano.laws':
         exact([])
         from .ano import law_report
@@ -35,6 +35,56 @@ def execute(bridge, method, params):
     if bridge.vault_root is None:raise ProtocolError('POLICY_DENIED','application vault is not configured')
     from .safefs import Vault
     vault=Vault(bridge.vault_root,bridge.app,bridge.appkey)
+    if method in {'package.build.references','package.verify.references','package.release.references'}:
+        if bridge.app not in {'ufs','dcpm'}:raise ProtocolError('SCOPE_MISMATCH','UFS/DCPM application required')
+        from .chunkstore import ChunkStore
+        from .ufsdcpm import reference_package,verify_reference_package
+        store=ChunkStore(vault)
+        try:
+            if method=='package.build.references':
+                exact(['name','version','files','dependencies'])
+                data=reference_package(store,params['name'],params['version'],params['files'],params['dependencies'],bridge.private)
+                item=vault.put('packages/'+params['name']+'/'+params['version']+'.zpkg2',data)
+                manifest=strict_json(data)['manifest']['payload']
+                store.pin(item['digest'],[entry['object'] for entry in manifest['files']])
+                return item
+            exact(['digest','authority'])
+            report=verify_reference_package(store,vault.get(params['digest'])[1],params['authority'],verify_content=method!='package.release.references')
+            if method=='package.release.references':return store.unpin(params['digest'])
+            return report
+        finally:store.close()
+    if method.startswith('object.'):
+        from .chunkstore import ChunkStore
+        store=ChunkStore(vault)
+        try:
+            if method=='object.begin':
+                exact(['upload','size','digest','ttl']);return store.begin(params['upload'],params['size'],params['digest'],params['ttl'])
+            if method=='object.status':
+                exact(['upload']);return store.status(params['upload'])
+            if method=='object.chunk.put':
+                exact(['upload','position','digest','data_base64'])
+                if not isinstance(params['data_base64'],str) or len(params['data_base64'])>21848:raise ProtocolError('CHUNK_LIMIT','one bounded encoded chunk required')
+                try:data=base64.b64decode(params['data_base64'],validate=True)
+                except (TypeError,ValueError):raise ProtocolError('INVALID_CHUNK','canonical base64 required')
+                return store.put(params['upload'],params['position'],params['digest'],data)
+            if method=='object.finish':
+                exact(['upload']);ref=store.finish(params['upload'])
+                from .security import sign
+                return {**ref,'attestation':sign(ref,bridge.private,'Ziokt/object-reference/v1')}
+            if method=='object.reference':
+                exact(['object']);return store.reference(params['object'])
+            if method=='object.chunk.get':
+                exact(['object','position']);data=store.read(params['object'],params['position'])
+                import hashlib
+                return {'data_base64':base64.b64encode(data).decode(),'digest':'sha256:'+hashlib.sha256(data).hexdigest(),'position':params['position']}
+            if method=='object.abort':
+                exact(['upload']);return store.abort(params['upload'])
+            if method=='object.release':
+                exact(['object','upload']);return store.release(params['object'],params['upload'])
+            if method=='object.gc':
+                exact([]);return store.gc()
+            raise ProtocolError('METHOD_UNSUPPORTED','fixed object operation required')
+        finally:store.close()
     if method=='vault.put':
         exact(['name','data_base64'])
         try:data=base64.b64decode(params['data_base64'],validate=True)
@@ -81,7 +131,7 @@ def execute(bridge, method, params):
         files={};total=0
         for name,digest in params['files'].items():
             data=vault.get(digest)[1];total+=len(data)
-            if total>32768:raise ProtocolError('BRIDGE_LIMIT','bounded package content required')
+            if total>4*1024*1024:raise ProtocolError('PACKAGE_LIMIT','legacy v1 package plaintext budget exceeded')
             files[name]=data
         from .ufsdcpm import package_bytes
         data=package_bytes(params['name'],params['version'],files,params['dependencies'],bridge.private)

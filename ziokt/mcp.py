@@ -22,8 +22,8 @@ from .protocol import ProtocolError, secure_read, strict_json
 
 LATEST='2026-07-28'
 VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
-BRIDGE_READ={'component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
-BRIDGE_WRITE={'file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
+BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
+BRIDGE_WRITE={'package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
 READ_NATIVE={'capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
 log=logging.getLogger(__name__)
 
@@ -128,6 +128,7 @@ class Service:
             if not re.fullmatch('[a-z0-9-]{1,64}',app):raise ValueError('invalid bridge name')
             for method in sorted(BRIDGE_READ|BRIDGE_WRITE):
                 settings=strict_json(secure_read(config['bridges'][app]))
+                if method.startswith('object.') and not settings.get('vault_root'):continue
                 if method.startswith('file.') and not settings.get('inbox'):continue
                 if method.startswith('ano.') and method!='ano.laws' and app!='zda':continue
                 if method=='tc16.run' and app!='tc16':continue
@@ -257,7 +258,11 @@ class Service:
             actual='null' if value is None else 'boolean' if type(value) is bool else 'integer' if type(value) is int else 'string' if isinstance(value,str) else 'object' if isinstance(value,dict) else 'array'
             if type(value) is float:actual='number'
             if actual not in kinds:raise ValueError('invalid '+key)
-            if actual=='object' and 'properties' in field:self.validate(value,field)
+            if actual=='object':
+                if not field.get('minProperties',0)<=len(value)<=field.get('maxProperties',4096):raise ValueError('object budget exceeded')
+                if 'properties' in field:self.validate(value,field)
+                elif isinstance(field.get('additionalProperties'),dict):
+                    for entry in value.values():self.validate({'entry':entry},{'properties':{'entry':field['additionalProperties']},'required':['entry']})
             if actual=='array' and not field.get('minItems',0)<=len(value)<=field.get('maxItems',128):raise ValueError('array budget exceeded')
             if actual=='array' and 'items' in field:
                 for item in value:self.validate({'item':item},{'properties':{'item':field['items']},'required':['item']})

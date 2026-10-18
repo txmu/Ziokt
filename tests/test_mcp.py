@@ -84,6 +84,25 @@ class ComponentMcpTests(unittest.TestCase):
    self.assertGreater(count,150)
    def call(name,args,key):
     value=service.call(principal,name,{'params':args},key);self.assertFalse(value['isError'],value);return value['structuredContent']
+   payload=b'large-control-path'*3000;digest='sha256:'+hashlib.sha256(payload).hexdigest()
+   call('dcpm_object_begin',{'upload':'mcp-object','size':len(payload),'digest':digest,'ttl':3600},'object-begin-0001')
+   for i,start in enumerate(range(0,len(payload),16384)):
+    chunk=payload[start:start+16384]
+    call('dcpm_object_chunk_put',{'upload':'mcp-object','position':i,'digest':'sha256:'+hashlib.sha256(chunk).hexdigest(),'data_base64':base64.b64encode(chunk).decode()},('object-chunk-'+str(i)).ljust(16,'x'))
+   ref=call('dcpm_object_finish',{'upload':'mcp-object'},'object-finish-01')
+   self.assertEqual(ref['length'],len(payload));self.assertFalse(ref['execution_authorized'])
+   from ziokt.security import verify
+   verify(ref['attestation'],ref['attestation']['public_key'],'Ziokt/object-reference/v1')
+   read=call('dcpm_object_chunk_get',{'object':ref['manifest_digest'],'position':0},None)
+   self.assertEqual(base64.b64decode(read['data_base64']),payload[:16384])
+   report=service.call(principal,'tri_object_reference',{'params':{'object':ref['manifest_digest']}},None)
+   self.assertTrue(report['isError'])
+   with self.assertRaises(ValueError):service.call(principal,'dcpm_package_build_references',{'params':{'name':'bad','version':'1','files':{'data':'not-a-digest'},'dependencies':[]}},'invalid-ref-0001')
+   restricted={'client':'ziokt-operator','scopes':{'dcpm:read'},'expires':int(time.time())+60}
+   with self.assertRaises(McpError):service.call(restricted,'dcpm_object_begin',{'params':{'upload':'forbidden','size':0,'digest':digest,'ttl':60}},'forbidden-000001')
+   built=call('dcpm_package_build_references',{'name':'mcp-demo','version':'1.0.0','files':{'data':ref['manifest_digest']},'dependencies':[]},'package-ref-0001')
+   verified=call('dcpm_package_verify_references',{'digest':built['digest'],'authority':ref['attestation']['public_key']},None)
+   self.assertEqual(verified['content_bytes'],len(payload))
    saved=call('safefs_vault_put',{'name':'test.txt','data_base64':base64.b64encode(b'private payload').decode()},'a'*16)
    sent=call('safefs_component_send',{'target':'tri','kind':'file','digest':saved['digest'],'operation':'test-operation'},'b'*16)
    received=call('tri_component_receive',{'event':sent['event'],'source':'safefs'},'c'*16)

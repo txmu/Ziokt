@@ -34,6 +34,7 @@ def package_bytes(name,version,files,dependencies,private):
     paths=set(files)
     if any('/'.join(path.split('/')[:i]) in paths for path in paths for i in range(1,len(path.split('/')))):raise ProtocolError('INVALID_PACKAGE','file directory collision')
     manifest={'schema':'ziokt.dcpm-package.v1','name':name,'version':version,'dependencies':dependencies,'files':entries,'install_scripts':False}
+    if len(encoded(manifest))>65536:raise ProtocolError('PACKAGE_LIMIT','signed manifest budget exceeded')
     return encoded({'manifest':sign(manifest,private,DOMAIN),'content':content})
 
 
@@ -71,3 +72,65 @@ class IntegratedStorage:
         return {**result,'schema':'ziokt.ufs-dcpm-publication.v1','native_integration':True,'install_scripts':False}
     def download_package(self,digest,authority):
         _,blob=self.vault.get(digest);return read_package(blob,authority)
+
+# V2 carries signed references, never Base64 file bodies. It uses the existing
+# SafeFS chunk adapter and does not alter v1 admission or native trust policies.
+REFERENCE_DOMAIN='Ziokt/DCPM/package-references/v2'
+MAX_REFERENCE_PACKAGE=256*1024*1024
+MAX_REFERENCE_FILE=64*1024*1024
+
+
+def reference_package(store,name,version,files,dependencies,private):
+    _label(name);_label(version)
+    if not isinstance(files,dict) or not 1<=len(files)<=128 or not isinstance(dependencies,list) or len(dependencies)>128:
+        raise ProtocolError('PACKAGE_LIMIT','bounded reference package required')
+    paths=set(files)
+    for path in paths:virtual_name(path)
+    if any('/'.join(path.split('/')[:i]) in paths for path in paths for i in range(1,len(path.split('/')))):
+        raise ProtocolError('INVALID_PACKAGE','file directory collision')
+    entries=[];total=0
+    for path,obj in sorted(files.items()):
+        ref=store.reference(obj);total+=ref['length']
+        if ref['length']>MAX_REFERENCE_FILE or total>MAX_REFERENCE_PACKAGE:
+            raise ProtocolError('PACKAGE_LIMIT','reference package content quota exceeded')
+        # Recheck the full object before binding it into a publisher signature.
+        for _ in store.stream(obj):pass
+        entries.append({'path':path,'object':obj,'sha256':ref['digest'],'size':ref['length'],'scope':ref['source']})
+    manifest={'schema':'ziokt.dcpm-package.v2','name':name,'version':version,
+              'dependencies':sorted({_label(dep) for dep in dependencies}),
+              'files':entries,'install_scripts':False,'encoding':'identity'}
+    data=encoded({'manifest':sign(manifest,private,REFERENCE_DOMAIN)})
+    if len(data)>65536:raise ProtocolError('PACKAGE_LIMIT','signed reference manifest budget exceeded')
+    return data
+
+
+def verify_reference_package(store,data,authority,*,verify_content=True):
+    envelope=strict_json(data,65536)
+    if not isinstance(envelope,dict) or set(envelope)!={'manifest'}:
+        raise ProtocolError('INVALID_PACKAGE','exact reference package envelope required')
+    manifest=verify(envelope['manifest'],authority,REFERENCE_DOMAIN)
+    if (not isinstance(manifest,dict) or set(manifest)!={'schema','name','version','dependencies','files','install_scripts','encoding'} or
+        manifest['schema']!='ziokt.dcpm-package.v2' or manifest['install_scripts'] is not False or manifest['encoding']!='identity'):
+        raise ProtocolError('INVALID_PACKAGE','signed v2 reference package required')
+    _label(manifest['name']);_label(manifest['version'])
+    deps=manifest['dependencies'];entries=manifest['files']
+    if not isinstance(deps,list) or len(deps)>128 or deps!=sorted({_label(dep) for dep in deps}) or not isinstance(entries,list) or not 1<=len(entries)<=128:
+        raise ProtocolError('INVALID_PACKAGE','bounded canonical package entries required')
+    paths=set();total=0
+    for entry in entries:
+        if not isinstance(entry,dict) or set(entry)!={'path','object','sha256','size','scope'}:
+            raise ProtocolError('INVALID_PACKAGE','exact content reference entry required')
+        path=virtual_name(entry['path'])
+        if path in paths or any(path.startswith(p+'/') or p.startswith(path+'/') for p in paths):
+            raise ProtocolError('INVALID_PACKAGE','duplicate or colliding content paths')
+        paths.add(path);ref=store.reference(entry['object'])
+        if type(entry['size']) is not int or entry['size']!=ref['length'] or entry['sha256']!=ref['digest'] or entry['scope']!=ref['source']:
+            raise ProtocolError('PACKAGE_INTEGRITY','signed object metadata differs from verified storage')
+        total+=entry['size']
+        if entry['size']>MAX_REFERENCE_FILE or total>MAX_REFERENCE_PACKAGE:
+            raise ProtocolError('PACKAGE_LIMIT','reference package content quota exceeded')
+        if verify_content:
+            for _ in store.stream(entry['object']):pass
+    return {'schema':'ziokt.package-verification.v2','manifest':manifest,'publisher':authority,
+            'files_verified':len(entries) if verify_content else 0,'content_verified':verify_content,'content_bytes':total,'installation_authorized':False,
+            'execution_authorized':False,'native_signature_verified':False}

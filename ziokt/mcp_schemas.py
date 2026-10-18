@@ -8,12 +8,20 @@ I={'type':'integer','minimum':1,'maximum':100000}
 def contract(fields,optional=()):
  return {'type':'object','properties':fields,'required':[k for k in fields if k not in optional],'additionalProperties':False}
 BRIDGE={
+ 'object.begin':contract({'upload':S,'size':{'type':'integer','minimum':0,'maximum':536870912},'digest':D,'ttl':{'type':'integer','minimum':1,'maximum':86400}}),
+ 'object.status':contract({'upload':S}), 'object.finish':contract({'upload':S}), 'object.abort':contract({'upload':S}),
+ 'object.chunk.put':contract({'upload':S,'position':{'type':'integer','minimum':0,'maximum':32767},'digest':D,'data_base64':{'type':'string','maxLength':21848}}),
+ 'object.reference':contract({'object':D}), 'object.release':contract({'object':D,'upload':S}), 'object.gc':contract({}),
+ 'object.chunk.get':contract({'object':D,'position':{'type':'integer','minimum':0,'maximum':32767}}),
  'component.status':contract({}), 'ano.laws':contract({}),
  'ano.calculate':contract({'kind':S,'operation':S,'left':O,'right':O}),
  'ano.defence':contract({'evidence':O,'required':A}), 'ano.evaluate':contract({'circuit':O}),
  'tc16.run':contract({'source':S,'syntax':{'type':'string','enum':['assembly','tcc']},'cycles':I}),
  'vault.put':contract({'name':S,'data_base64':S}), 'vault.get':contract({'digest':D}), 'vault.publish':contract({'digest':D}),
  'tri.put':contract({'program':S,'state':O}), 'tri.get':contract({'digest':D}), 'tri.publish':contract({'digest':D}),
+ 'package.build.references':contract({'name':S,'version':S,'files':{'type':'object','minProperties':1,'maxProperties':128,'additionalProperties':D},'dependencies':A}),
+ 'package.release.references':contract({'digest':D,'authority':H}),
+ 'package.verify.references':contract({'digest':D,'authority':H}),
  'package.build':contract({'name':S,'version':S,'files':O,'dependencies':A}),
  'package.verify':contract({'digest':D,'authority':H}), 'package.publish':contract({'digest':D,'authority':H}),
  'sim.reminders.pull':contract({'user':S}), 'sim.reminders.replace':contract({'user':S,'items':A}),

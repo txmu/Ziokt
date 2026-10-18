@@ -97,6 +97,54 @@ class NativeUFSDCPMIntegration(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError): reopened.blob(publication['package_id'])
         finally: reopened.close()
 
+    @unittest.skipUnless((Path(os.environ.get('ZIOKT_SHADOW6_ROOT',ROOT.parent/'Shadow6'))/'CLI/shadow6.py').is_file(),'requires real native checkouts; integration.yml executes this tier')
+    async def test_dcpm_http_fetch_to_actual_shadow6_install_activate(self):
+        from test_native_integration import NativeFixture, S
+        from ziokt.artifacts import ArtifactStore
+        from ziokt.package_handoff import stage_native_package, NATIVE_PATH
+        from ziokt.client import NativeClient
+        fixture=NativeFixture();fixture.setUp()
+        try:
+            sys.path.insert(0,str(S/'Package-Manager'))
+            import shadow6_pkg as native
+            private,trust=fixture.base/'native.key',fixture.base/'native-trust.json'
+            native.keygen(private,trust,'native-publisher');trust.chmod(0o600)
+            payload=fixture.base/'payload';payload.mkdir();(payload/'readme').write_bytes(b'actual signed app bytes')
+            archive=fixture.base/'native.zip'
+            native.build_package(payload,archive,private,'native-publisher','app','handoff-demo','1.0.0')
+            blob=package_bytes('handoff-demo','1.0.0',{NATIVE_PATH:archive.read_bytes()},[],self.source.package_store.private)
+            status,_,body=self.authenticated('POST','/api/dcpm/publish',blob,**{'Content-Type':'application/octet-stream'})
+            self.assertEqual(status,200,body);publication=json.loads(body)
+            target=await self.node('handoff-target',trusted=[self.source.package_store.public],sources=[{
+                'url':'http://127.0.0.1:'+str(self.port),'username':'admin','password':self.password}])
+            await target.download_package(publication['package_id'],publication['version_id'])
+            fetched=target.package_store.blob(publication['package_id'])
+            artifacts=ArtifactStore(fixture.base/'artifacts');packages=fixture.base/'packages';packages.mkdir(mode=0o700)
+            receipt=stage_native_package(fetched,self.source.package_store.public,native,trust,artifacts,packages)
+            self.assertFalse(receipt['installation_authorized']);self.assertEqual(artifacts.get(receipt['source_artifact']),blob)
+            config=json.loads(fixture.sconfig.read_text());config.update(allow_mutations=True,
+                allowed_operations=['package.install','package.activate'],allowed_resources=[receipt['selector']],
+                package_root=str(packages),package_trust_file=str(trust),artifact_root=str(artifacts.root))
+            fixture.sconfig.write_text(json.dumps(config))
+            client=NativeClient('test',fixture.providers[0])
+            for action,args in [('package.install',{'artifact_digest':receipt['artifact_digest']}),('package.activate',{})]:
+                prepared=client.call('operation.prepare',{'operation_id':action.replace('.','-'),
+                    'action':action,'resource':receipt['selector'],'arguments':args,'expected_revision':None})
+                done=client.call('operation.commit',{'operation_id':action.replace('.','-'),'plan_digest':prepared['plan_digest']})
+                self.assertEqual(done['state'],'committed');self.assertTrue(done['result']['native_signature_verified'])
+            installed=packages/'app/handoff-demo'
+            self.assertEqual((installed/'versions/1.0.0/readme').read_bytes(),b'actual signed app bytes')
+            self.assertEqual(json.loads((installed/'active.json').read_text())['version'],'1.0.0')
+            # Adapter output is staging evidence, never a service-health receipt.
+            self.assertEqual(receipt['service_health'],'not-observed')
+            with self.assertRaises(ProtocolError):stage_native_package(fetched,'0'*64,native,trust,artifacts,packages)
+            generic=package_bytes('handoff-demo','1.0.0',{'data':b'not native'},[],self.source.package_store.private)
+            with self.assertRaises(ProtocolError):stage_native_package(generic,self.source.package_store.public,native,trust,artifacts,packages)
+            missing=package_bytes('handoff-demo','1.0.0',{NATIVE_PATH:archive.read_bytes()},['missing-app'],self.source.package_store.private)
+            with self.assertRaises(ProtocolError) as failure:stage_native_package(missing,self.source.package_store.public,native,trust,artifacts,packages)
+            self.assertEqual(failure.exception.code,'DEPENDENCY_MISSING')
+        finally:fixture.doCleanups()
+
     async def test_wrong_publisher_version_conflict_unsigned_and_identity_mismatch(self):
         blob=package_bytes('signed','1',{'data':b'first'},[],self.source.package_store.private)
         publication=self.source.package_store.admit(blob)
