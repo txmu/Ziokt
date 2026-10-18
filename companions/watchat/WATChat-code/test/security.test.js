@@ -12,7 +12,7 @@ test('push rejects SSRF and only sends generic wakeups',async()=>{
 });
 test('real gateway sessions, ciphertext dedup, media ACL and encrypted storage',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'watchat-test-')),port=await freePort(),base=`http://127.0.0.1:${port}`;
- const child=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ADMIN_PASSWORD:'test-password-very-strong',ZIOKT_STANDALONE:'1'},stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',x=>error+=x);t.after(async()=>{child.kill();await delay(50);fs.rmSync(dir,{recursive:true,force:true})});
+ const child=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ADMIN_PASSWORD:'test-password-very-strong',ZIOKT_STANDALONE:'1',ZIOKT_BRIDGE_CONFIG:'',SIM_BRIDGE_CONFIG:'',WATCHAT_PUSH_CONFIG:'',WATCHAT_WEBHOOK_CONFIG:'',WATCHAT_ORIGIN:''},stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',x=>error+=x);t.after(async()=>{child.kill();await delay(50);fs.rmSync(dir,{recursive:true,force:true})});
  let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base)).ok){ready=true;break}}catch(_){}await delay(20)}assert.ok(ready,error);
  async function request(url,{cookie,data,method=data?'POST':'GET',origin=base}={}){const headers={Origin:origin};if(cookie)headers.Cookie=cookie;if(data)headers['Content-Type']='application/json';return fetch(base+url,{method,headers,body:data?JSON.stringify(data):undefined})}
  async function login(username,password){const r=await request('/api/login',{data:{username,password}});assert.equal(r.status,200);return {cookie:r.headers.get('set-cookie').split(';')[0],user:(await r.json()).user}}
@@ -33,13 +33,25 @@ test('real gateway sessions, ciphertext dedup, media ACL and encrypted storage',
 
  assert.equal((await request('/api/contacts',{cookie:admin.cookie,data:{id:bob.user.id},origin:'https://attacker.invalid'})).status,403);
  assert.equal((await request('/api/contacts',{cookie:admin.cookie,data:{id:bob.user.id}})).status,200);
- const upload=await fetch(base+'/api/upload',{method:'POST',headers:{Cookie:admin.cookie,Origin:base},body:crypto.randomBytes(256)});assert.equal(upload.status,201);const media=(await upload.json()).url;
+ const uploadId=crypto.randomBytes(16).toString('hex'),cipher=crypto.randomBytes(256),uploadHeaders={Cookie:admin.cookie,Origin:base,'X-Upload-Id':uploadId};
+ const upload=await fetch(base+'/api/upload',{method:'POST',headers:uploadHeaders,body:cipher});assert.equal(upload.status,201);const media=(await upload.json()).url;
+ const duplicate=await fetch(base+'/api/upload',{method:'POST',headers:uploadHeaders,body:cipher});assert.equal(duplicate.status,201);assert.equal((await duplicate.json()).duplicate,true);
+ assert.equal((await fetch(base+'/api/upload',{method:'POST',headers:uploadHeaders,body:crypto.randomBytes(256)})).status,409);
+ assert.equal((await fetch(base+'/api/upload',{method:'POST',headers:{...uploadHeaders,Cookie:bob.cookie},body:cipher})).status,409);
+ assert.equal((await request('/api/presence')).status,401);
+ const presence=await(await request('/api/presence',{cookie:carol.cookie})).json();assert.deepEqual(presence.contacts,[]);
  assert.equal((await request(media,{cookie:carol.cookie})).status,404);assert.equal((await request(media,{cookie:bob.cookie})).status,404);
  const socket=new WebSocket(base.replace('http:','ws:')+'/ws',{headers:{Cookie:admin.cookie,Origin:base}});const events=[];socket.on('message',x=>events.push(JSON.parse(x)));await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject)});t.after(()=>socket.close());
  const frame={action:'send',id:crypto.randomUUID(),to:bob.user.id,kind:'sealed',ciphertext:crypto.randomBytes(2048).toString('base64'),attachments:[media]};socket.send(JSON.stringify(frame));await delay(100);assert.equal(events.filter(x=>x.type==='ack').length,1);socket.send(JSON.stringify(frame));await delay(100);assert.equal(events.filter(x=>x.type==='ack').length,2);
  socket.send(JSON.stringify({...frame,ciphertext:crypto.randomBytes(2048).toString('base64')}));await delay(50);assert.ok(events.some(x=>x.error==='IDEMPOTENCY_CONFLICT'));
  socket.send(JSON.stringify({action:'history',peerId:bob.user.id}));await delay(50);assert.equal(events.find(x=>x.type==='history').messages.length,1);
  assert.equal((await request(media,{cookie:bob.cookie})).status,200);assert.equal((await request(media,{cookie:carol.cookie})).status,404);
+ const receiver=new WebSocket(base.replace('http:','ws:')+'/ws',{headers:{Cookie:bob.cookie,Origin:base}});t.after(()=>receiver.close());
+ await new Promise((resolve,reject)=>{receiver.once('open',resolve);receiver.once('error',reject)});
+ receiver.send(JSON.stringify({action:'received',id:frame.id}));await delay(80);assert.ok(events.some(x=>x.type==='receipt'&&x.id===frame.id&&x.state==='recipient-confirmed'));
+ socket.send(JSON.stringify({action:'received',id:frame.id}));await delay(40);assert.ok(events.some(x=>x.error==='INVALID_RECEIPT'));
+ const online=await(await request('/api/presence',{cookie:admin.cookie})).json();assert.deepEqual(online.contacts,[{id:bob.user.id,online:true}]);receiver.close();
+
  // Force a real filesystem failure after validation; retries must not acknowledge memory-only data.
  const retry={...frame,id:crypto.randomUUID(),attachments:[]},moved=dir+'.unavailable';
  fs.renameSync(dir,moved);
@@ -57,7 +69,7 @@ test('real gateway sessions, ciphertext dedup, media ACL and encrypted storage',
  const bad=new WebSocket(base.replace('http:','ws:')+'/ws?token=secret',{headers:{Cookie:admin.cookie,Origin:base}});await new Promise(resolve=>{bad.once('unexpected-response',(_,r)=>{assert.equal(r.statusCode,403);r.resume();resolve()});bad.once('error',resolve)});
  // Re-open the actual encrypted database in a fresh server process.
  const exited=new Promise(resolve=>child.once('exit',resolve));child.kill();await exited;
- const restarted=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ZIOKT_STANDALONE:'1'},stdio:['ignore','pipe','pipe']});restarted.stderr.resume();
+ const restarted=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ZIOKT_STANDALONE:'1',ZIOKT_BRIDGE_CONFIG:'',SIM_BRIDGE_CONFIG:'',WATCHAT_PUSH_CONFIG:'',WATCHAT_WEBHOOK_CONFIG:'',WATCHAT_ORIGIN:''},stdio:['ignore','pipe','pipe']});restarted.stderr.resume();
  t.after(async()=>{restarted.kill();await delay(50)});
  let recoveredReady=false;for(let i=0;i<100;i++){try{if((await fetch(base)).ok){recoveredReady=true;break}}catch(_){}await delay(20)}assert.ok(recoveredReady);
  const resumed=await login('admin','test-password-very-strong');
