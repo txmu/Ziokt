@@ -483,6 +483,52 @@ tr:hover td {
   box-sizing: border-box;
 }
 
+/* WATChat Login Screen with Dual UI Switcher */
+.chat-login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  padding: 24px 16px;
+}
+.chat-login-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+  transition: all 0.25s ease;
+}
+.chat-login-container.login-classic .chat-login-card {
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 8px 32px rgba(16, 185, 129, 0.15);
+  background: #0f171c;
+}
+.chat-login-switcher-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dual-ui-toggle-group {
+  display: inline-flex;
+  background: var(--bg-input);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-bright);
+}
+.chat-classic-telemetry-box {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 12px 0;
+}
+
 .chat-subheader {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);

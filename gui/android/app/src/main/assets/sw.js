@@ -2,7 +2,7 @@
 // Ziokt Unified Graphical Client - Progressive Web App Service Worker
 // ==============================================================================
 
-const CACHE_NAME = 'ziokt-gui-cache-v1.0.3';
+const CACHE_NAME = 'ziokt-gui-cache-v1.0.4';
 const STATIC_ASSETS = [
   './',
   './index.html',

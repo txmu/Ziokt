@@ -765,6 +765,7 @@ function renderHome(container) {
 // ==============================================================================
 
 let chatUiMode = getStorage('watchat_ui_mode', 'minimalist'); // 'minimalist' | 'classic'
+let isChatLoggedIn = getStorage('watchat_logged_in', 'false') === 'true';
 let activeContact = 'genesis-node';
 let messagesStore = null;
 try {
@@ -788,22 +789,125 @@ if (!messagesStore) {
 function renderChat(container) {
   const isMinimalist = chatUiMode === 'minimalist';
 
+  // 1. WATChat Login Screen with Dual UI Switcher
+  if (!isChatLoggedIn) {
+    container.innerHTML = `
+      <div class="chat-page-wrapper">
+        <div class="chat-login-container ${isMinimalist ? 'login-minimalist' : 'login-classic'}">
+          <div class="chat-login-card">
+            
+            <!-- Dual UI Switcher on Login Page -->
+            <div class="chat-login-switcher-bar">
+              <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <span>💬 WATChat</span>
+                <span class="mode-pill" style="font-size: 0.7rem; color: var(--accent-cyan);">${t('chat.dual_ui')}</span>
+              </div>
+              <div class="dual-ui-toggle-group">
+                <button id="toggle-minimalist" class="btn btn-sm ${isMinimalist ? 'btn-primary' : 'btn-secondary'}" style="border:none;">${t('chat.ui_minimalist')}</button>
+                <button id="toggle-classic" class="btn btn-sm ${!isMinimalist ? 'btn-primary' : 'btn-secondary'}" style="border:none;">${t('chat.ui_classic')}</button>
+              </div>
+            </div>
+
+            <!-- Login Header & Encryption Badge -->
+            <div style="text-align: center; margin: 16px 0 20px 0;">
+              <div style="font-size: 2.2rem; margin-bottom: 8px;">🔐</div>
+              <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px;">${t('chat.login_title')}</h2>
+              <p style="font-size: 0.8rem; color: var(--text-muted);">${t('chat.login_desc')}</p>
+              <div style="margin-top: 8px;">
+                <span class="status-badge" style="font-size: 0.72rem; color: var(--accent-green); background: rgba(16,185,129,0.12); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3);">
+                  <span class="status-dot"></span> XChaCha20-Poly1305
+                </span>
+              </div>
+            </div>
+
+            <!-- Classic Telemetry Panel (Only shown in Classic mode) -->
+            ${!isMinimalist ? `
+              <div class="chat-classic-telemetry-box">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--accent-cyan); margin-bottom: 6px; font-family: var(--font-mono);">${t('chat.classic_telemetry')}</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">
+                  <div>• ${t('chat.ratchet_status')}</div>
+                  <div>• ${t('chat.cipher_info')}</div>
+                  <div style="grid-column: 1 / -1;">• ${t('chat.onion_route')}</div>
+                </div>
+              </div>
+            ` : ''}
+
+            <!-- Login Credentials Form -->
+            <form id="chat-login-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div>
+                <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
+                  ${t('common.name')} / DID
+                </label>
+                <input type="text" id="chat-username" class="input-text" value="Genesis Node (Node #0)" placeholder="${t('chat.username_placeholder')}" style="width: 100%;">
+              </div>
+
+              <div>
+                <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
+                  ${t('settings.auth_token')} / Passphrase
+                </label>
+                <input type="password" id="chat-passphrase" class="input-text" value="●●●●●●●●●●●●" placeholder="${t('chat.passphrase_placeholder')}" style="width: 100%;">
+              </div>
+
+              <button type="submit" id="chat-login-btn" class="btn btn-primary" style="width: 100%; padding: 10px; margin-top: 6px; font-weight: 600;">
+                🚀 ${t('chat.login_btn')}
+              </button>
+            </form>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 0.75rem; color: var(--text-dim);">
+              <span>DID: did:ziokt:mesh:genesis-node</span>
+              <span class="mode-pill">${isMinimalist ? t('chat.ui_minimalist') : t('chat.ui_classic')}</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Dual UI Switcher Handlers on Login Page
+    container.querySelector('#toggle-minimalist').onclick = () => {
+      chatUiMode = 'minimalist';
+      setStorage('watchat_ui_mode', 'minimalist');
+      showToast(t('chat.ui_minimalist'), 'info');
+      renderChat(container);
+    };
+
+    container.querySelector('#toggle-classic').onclick = () => {
+      chatUiMode = 'classic';
+      setStorage('watchat_ui_mode', 'classic');
+      showToast(t('chat.ui_classic'), 'info');
+      renderChat(container);
+    };
+
+    // Login Form Submit
+    container.querySelector('#chat-login-form').onsubmit = (e) => {
+      e.preventDefault();
+      isChatLoggedIn = true;
+      setStorage('watchat_logged_in', 'true');
+      showToast('WATChat 已登录并建立加密会话', 'success');
+      renderChat(container);
+    };
+
+    return;
+  }
+
+  // 2. Active Chat Conversation Room
   container.innerHTML = `
     <div class="chat-page-wrapper">
-      <!-- WATChat Sub-Header: Dual UI Switcher -->
+      <!-- WATChat Sub-Header: Dual UI Switcher & Session Controls -->
       <div class="chat-subheader">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-weight: 700; color: var(--accent-cyan); font-size: 0.95rem;">💬 ${t('chat.title')}</span>
           <span class="status-badge" style="font-size: 0.7rem; color: var(--accent-green);">
-            <span class="status-dot"></span> ${t('chat.encryption_badge')}
+            <span class="status-dot"></span> XChaCha20-Poly1305
           </span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 0.78rem; color: var(--text-muted);">${t('chat.dual_ui')}:</span>
-          <div style="display: inline-flex; background: var(--bg-input); padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--border-bright);">
+          <div class="dual-ui-toggle-group">
             <button id="toggle-minimalist" class="btn btn-sm ${isMinimalist ? 'btn-primary' : 'btn-secondary'}" style="border:none;">${t('chat.ui_minimalist')}</button>
             <button id="toggle-classic" class="btn btn-sm ${!isMinimalist ? 'btn-primary' : 'btn-secondary'}" style="border:none;">${t('chat.ui_classic')}</button>
           </div>
+          <button id="chat-logout-btn" class="btn btn-secondary btn-sm" title="${t('chat.logout_btn')}" style="padding: 4px 8px; font-size: 0.75rem;">🔒 ${t('chat.logout_btn')}</button>
         </div>
       </div>
 
@@ -908,6 +1012,17 @@ function renderChat(container) {
     showToast('已切换至 WATChat 经典丰富版 (含加密机密与中继状态)', 'info');
     renderChat(container);
   };
+
+  // Logout / Lock Session Handler
+  const logoutBtn = container.querySelector('#chat-logout-btn');
+  if (logoutBtn) {
+    logoutBtn.onclick = () => {
+      isChatLoggedIn = false;
+      setStorage('watchat_logged_in', 'false');
+      showToast('已锁定会话并返回 WATChat 登录页', 'info');
+      renderChat(container);
+    };
+  }
 
   // Contact Switcher
   container.querySelectorAll('.contact-item').forEach(item => {

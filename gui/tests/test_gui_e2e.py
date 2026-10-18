@@ -88,7 +88,7 @@ class TestZioktGuiE2E(unittest.TestCase):
         self.assertIn('.modal-overlay', css)
 
     def test_04_watchat_dual_ui_implementation(self):
-        """Verify WATChat supports both minimalist and classic rich UI seamlessly."""
+        """Verify WATChat supports both minimalist and classic rich UI seamlessly on login and chat views."""
         chat_js = (SRC_DIR / "modules" / "chat.js").read_text(encoding="utf-8")
         
         # Dual UI controls
@@ -98,6 +98,17 @@ class TestZioktGuiE2E(unittest.TestCase):
         self.assertIn('messagesStore', chat_js)
         self.assertIn('attach-vault-btn', chat_js, "File vault attachment capability missing in chat")
         self.assertIn('XChaCha20-Poly1305', chat_js, "Sealed encryption badge missing")
+
+        # Dual UI controls on WATChat GUI login screen
+        self.assertIn('chat-login-switcher-bar', chat_js, "Dual UI switcher missing on WATChat login screen")
+        self.assertIn('chat-login-form', chat_js, "Login credentials form missing in WATChat")
+        self.assertIn('chat-logout-btn', chat_js, "Sign out / lock session button missing in WATChat")
+
+        # Standalone companion WATChat login page dual UI picker
+        companion_html = (Path(__file__).resolve().parents[2] / "companions" / "watchat" / "WATChat-code" / "frontend" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('login-ui-picker', companion_html, "Dual UI picker missing on standalone WATChat login form")
+        self.assertIn('login-ui-simple', companion_html)
+        self.assertIn('login-ui-classic', companion_html)
 
     def test_05_dcpm_package_lifecycle_and_rollback(self):
         """Verify dCPM package manager includes install, rollback, uninstall, and SHA-256 verification."""

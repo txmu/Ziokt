@@ -22,3 +22,15 @@ body[data-ui="classic"] #composer label{grid-column:1/-1}body[data-ui="classic"]
 body[data-ui="classic"] #status{font-size:14px;margin:4px 0}
 @media(max-width:600px){body[data-ui="classic"] header{max-height:28dvh;overflow:auto}body[data-ui="classic"] header h1{flex-basis:100%}body[data-ui="classic"] #workspace{display:block;overflow:hidden}body[data-ui="classic"] aside{height:100%;border:0}body[data-ui="classic"] #conversation{display:none;height:100%}body[data-ui="classic"].chat-open aside{display:none}body[data-ui="classic"].chat-open #conversation{display:flex}body[data-ui="classic"] #chat-back{display:block;align-self:flex-start;margin-bottom:8px}body[data-ui="classic"] #media-tools button{flex:1}body[data-ui="simple"] #messages{height:40dvh}}
 button{touch-action:manipulation}
+.login-ui-picker{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.login-ui-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.login-ui-title{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:0.5px}
+#login-ui-mode{display:none}
+.ui-mode-toggle{display:flex;gap:6px;background:var(--bg);padding:4px;border-radius:10px;border:1px solid var(--border)}
+.ui-mode-pill{flex:1;text-align:center;padding:8px 12px;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;user-select:none;transition:all .15s ease}
+.ui-mode-pill:hover{color:var(--ink)}
+.ui-mode-pill.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+body[data-ui="classic"] .login-ui-picker{border-bottom-color:var(--border)}
+body[data-ui="classic"] .ui-mode-toggle{background:rgba(0,0,0,.25);border-color:var(--border)}
+body[data-ui="classic"] .ui-mode-pill.active{background:var(--accent);color:#eef6f2;box-shadow:0 0 10px rgba(57,217,151,.25)}
+body[data-ui="classic"] #login{border:1px solid var(--border);box-shadow:0 8px 32px rgba(8,107,69,.15)}
