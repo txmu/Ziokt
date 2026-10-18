@@ -216,7 +216,15 @@ def handler(gateway):
                         gui_root = (ASSETS / 'gui').resolve()
                         if not str(target_file).startswith(str(gui_root)) or not target_file.is_file():
                             return self.send(404,{'error':'not found'})
-                        ctype = 'text/html; charset=utf-8' if name.endswith('.html') else 'application/json' if name.endswith('.json') else 'text/css; charset=utf-8' if name.endswith('.css') else 'image/svg+xml' if name.endswith('.svg') else 'image/png' if name.endswith('.png') else 'text/javascript; charset=utf-8'
+                        if name.endswith('.tar.gz') or name.endswith('.gz'): ctype = 'application/gzip'
+                        elif name.endswith('.zip'): ctype = 'application/zip'
+                        elif name.endswith('.apk') or name.endswith('.msi') or name.endswith('.dmg'): ctype = 'application/octet-stream'
+                        elif name.endswith('.html'): ctype = 'text/html; charset=utf-8'
+                        elif name.endswith('.json'): ctype = 'application/json'
+                        elif name.endswith('.css'): ctype = 'text/css; charset=utf-8'
+                        elif name.endswith('.svg'): ctype = 'image/svg+xml'
+                        elif name.endswith('.png'): ctype = 'image/png'
+                        else: ctype = 'text/javascript; charset=utf-8'
                         return self.send(200, target_file.read_bytes(), ctype)
                     if name not in ('gateway.js','i18n.json','media.js','mcp-console.js','oauth-callback.html','oauth-callback.js','registry.html','registry.js'): return self.send(404,{'error':'not found'})
                     return self.send(200,(ASSETS/name).read_bytes(),'application/json' if name.endswith('.json') else 'text/html; charset=utf-8' if name.endswith('.html') else 'text/javascript; charset=utf-8')

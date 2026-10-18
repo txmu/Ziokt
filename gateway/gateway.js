@@ -14,7 +14,7 @@
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const node of nodes) {
-      if (['SCRIPT','STYLE','PRE','CODE','TEXTAREA'].includes(node.parentElement?.tagName) || node.parentElement?.closest('form')) continue;
+      if (['SCRIPT','STYLE','PRE','CODE','TEXTAREA','OPTION','SELECT'].includes(node.parentElement?.tagName) || node.parentElement?.closest('form') || node.parentElement?.closest('#ziokt-top-bar')) continue;
       if (!original.has(node)) original.set(node, node.nodeValue);
       const source = original.get(node), clean = source.trim();
       const mapping = dictionaries['zh-CN'];
@@ -33,7 +33,10 @@
   langLabel.style.cssText = 'font-size:0.85rem;color:#9ca3af';
   const select = document.createElement('select'); select.setAttribute('aria-label','Language / 语言');
   select.style.cssText = 'min-height:36px;padding:4px 8px;background:#172338;color:#fff;border:1px solid #64748b;border-radius:6px;font-size:0.85rem';
-  for (const code of Object.keys(dictionaries)) select.add(new Option(dictionaries[code]['language.name'], code));
+  for (const code of Object.keys(dictionaries)) {
+    const label = code.startsWith('zh') ? '简体中文' : (dictionaries[code]['language.name'] || 'English');
+    select.add(new Option(label, code));
+  }
   select.value = locale; langBox.append(langLabel, select);
 
   const uiCookie = document.cookie.split('; ').find(s => s.startsWith('ziokt_ui='))?.split('=')[1];

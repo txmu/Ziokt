@@ -2,9 +2,14 @@
 // Ziokt Unified Graphical Client - Core Application Framework & State Manager
 // ==============================================================================
 
+function getInitialLang() {
+  const raw = localStorage.getItem('ziokt_lang') || navigator.language || 'zh';
+  return raw.toLowerCase().startsWith('en') ? 'en' : 'zh';
+}
+
 export const State = {
   currentTab: 'home',
-  language: localStorage.getItem('ziokt_lang') || 'zh',
+  language: getInitialLang(),
   theme: localStorage.getItem('ziokt_theme') || 'dark',
   runtimeMode: localStorage.getItem('ziokt_mode') || 'local', // 'local' | 'remote' | 'hybrid'
   gatewayUrl: localStorage.getItem('ziokt_gateway') || 'https://cor-web.ziokt.com',
@@ -37,8 +42,14 @@ export const Events = {
 // i18n Translation Engine
 export async function initI18n() {
   try {
-    const res = await fetch(`i18n/${State.language}.json`);
-    State.i18nData = await res.json();
+    const lang = State.language.toLowerCase().startsWith('en') ? 'en' : 'zh';
+    const res = await fetch(`i18n/${lang}.json`);
+    if (res.ok) {
+      State.i18nData = await res.json();
+    } else {
+      const fallback = await fetch('i18n/zh.json');
+      State.i18nData = await fallback.json();
+    }
   } catch (e) {
     console.error('Failed to load i18n:', e);
   }

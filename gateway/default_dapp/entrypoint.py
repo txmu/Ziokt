@@ -30,6 +30,13 @@ messages = MESSAGES.get(locale, {})
 def t(key):
     return esc(messages.get(key, MESSAGES.get('zh-CN', {}).get(key, MESSAGES.get('en-US', {}).get(key, key))))
 
+is_en = (locale == 'en-US')
+def tr(zh, en):
+    return esc(en if is_en else zh)
+def tr_raw(zh, en):
+    return en if is_en else zh
+
+
 # Resolve subpath
 if len(path) >= 2 and path[0] in ('explorer', 'hub', 'apps', 'corium'):
     subpath = path[1]
@@ -1146,7 +1153,7 @@ elif subpath == "watchat":
         
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
             <span class="status-pill" style="background:#0284c7;">{t('watchat.public_channel')}</span>
-            <a href="https://ziokt-chat-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple">打开独立 WATChat PWA 界面 &rarr;</a>
+            <a href="https://ziokt-chat-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple">{tr('打开独立 WATChat PWA 界面', 'Open Standalone WATChat PWA')} &rarr;</a>
         </div>
         
         <div style="background:#1e293b;padding:1rem;border-radius:8px;border:1px solid var(--border-color);height:300px;overflow-y:auto;margin-bottom:1rem;">
@@ -1155,9 +1162,9 @@ elif subpath == "watchat":
         
         <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
             <input type="hidden" name="lang" value="{locale}" />
-            <input type="text" name="user" placeholder="您的昵称" value="{esc(c_user)}" style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:120px;" required />
-            <input type="text" name="msg" placeholder="输入聊天消息..." style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
-            <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">发送消息</button>
+            <input type="text" name="user" placeholder="{tr('您的昵称', 'Your nickname')}" value="{esc(c_user)}" style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:120px;" required />
+            <input type="text" name="msg" placeholder="{tr('输入聊天消息...', 'Type chat message...')}" style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
+            <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">{tr('发送消息', 'Send Message')}</button>
         </form>
     </div>
     """
@@ -1402,76 +1409,76 @@ elif subpath == "board":
 elif subpath == "ecosystem":
     tab_html = f"""
     <div class="card detail-card">
-        <h2>⚡ Corium &amp; Ziokt &amp; ETP 全景生态矩阵</h2>
+        <h2>⚡ {tr('Corium &amp; Ziokt &amp; ETP 全景生态矩阵', 'Corium &amp; Ziokt &amp; ETP Ecosystem Matrix')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            所有由 Ziokt 伴生规范、ETP 传输层及 Corium 分布式网关所驱动的去中心化应用，均已原生集成入统一网关体系：
+            {tr('所有由 Ziokt 伴生规范、ETP 传输层及 Corium 分布式网关所驱动的去中心化应用，均已原生集成入统一网关体系：', 'All decentralized applications driven by the Ziokt specification, ETP transport, and Corium distributed gateway are natively integrated into the unified gateway architecture:')}
         </p>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;">
             <div class="card" style="background:#0f172a;border-left:3px solid #38bdf8;">
-                <h3 style="color:#38bdf8;font-size:1.1rem;margin-bottom:0.3rem;">💬 ETP 论坛 (forum.db)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">密码学哈希签名、去中心化社区讨论与抗审查发帖。</p>
-                <a href="/app/forum?lang={locale}" class="btn" style="background:#0284c7;font-size:0.85rem;padding:0.35rem 0.75rem;">进入论坛 &rarr;</a>
+                <h3 style="color:#38bdf8;font-size:1.1rem;margin-bottom:0.3rem;">💬 {tr('ETP 论坛 (forum.db)', 'ETP Forum (forum.db)')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('密码学哈希签名、去中心化社区讨论与抗审查发帖。', 'Cryptographic signatures, decentralized community discussions, and censorship-resistant publishing.')}</p>
+                <a href="/app/forum?lang={locale}" class="btn" style="background:#0284c7;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入论坛', 'Open Forum')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #10b981;">
-                <h3 style="color:#10b981;font-size:1.1rem;margin-bottom:0.3rem;">📦 分布式文件共享 (FileShare)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">基于 SHA256/BLAKE3 内容寻址的分块文件分发与 Range 媒体流。</p>
-                <a href="/app/fileshare?lang={locale}" class="btn btn-green" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入文件共享 &rarr;</a>
+                <h3 style="color:#10b981;font-size:1.1rem;margin-bottom:0.3rem;">📦 {tr('分布式文件共享 (FileShare)', 'Decentralized FileShare')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('基于 SHA256/BLAKE3 内容寻址的分块文件分发与 Range 媒体流。', 'SHA256/BLAKE3 content-addressed chunk distribution and HTTP Range streaming.')}</p>
+                <a href="/app/fileshare?lang={locale}" class="btn btn-green" style="font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入文件共享', 'Open FileShare')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #a855f7;">
-                <h3 style="color:#a855f7;font-size:1.1rem;margin-bottom:0.3rem;">🧅 ETP 洋葱中继与 Noise 隧道</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">2-4 跳 Sphinx 分层加密回路与逐跳剥皮验证。</p>
-                <a href="/app/onion?lang={locale}" class="btn btn-purple" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入洋葱隧道 &rarr;</a>
+                <h3 style="color:#a855f7;font-size:1.1rem;margin-bottom:0.3rem;">🧅 {tr('ETP 洋葱中继与 Noise 隧道', 'ETP Onion Relays &amp; Noise Tunnels')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('2-4 跳 Sphinx 分层加密回路与逐跳剥皮验证。', '2-4 hop Sphinx layered onion circuits and per-hop peeled verification.')}</p>
+                <a href="/app/onion?lang={locale}" class="btn btn-purple" style="font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入洋葱隧道', 'Open Onion Tunnel')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #f59e0b;">
-                <h3 style="color:#f59e0b;font-size:1.1rem;margin-bottom:0.3rem;">⚙️ TC-16 虚拟机代码工坊</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">16位安全受控指令集执行器、寄存器堆与算力沙箱。</p>
-                <a href="/app/tc16?lang={locale}" class="btn btn-amber" style="font-size:0.85rem;padding:0.35rem 0.75rem;">进入虚拟机 &rarr;</a>
+                <h3 style="color:#f59e0b;font-size:1.1rem;margin-bottom:0.3rem;">⚙️ {tr('TC-16 虚拟机代码工坊', 'TC-16 Virtual Machine Studio')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('16位安全受控指令集执行器、寄存器堆与算力沙箱。', '16-bit safe instruction set executor, registers, and computational sandbox.')}</p>
+                <a href="/app/tc16?lang={locale}" class="btn btn-amber" style="font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入虚拟机', 'Open VM Studio')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #ec4899;">
-                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">⚖️ Ano / ZDA 三值鉴证逻辑</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">Positive / Negative / Unknown 证据张量演算与形式公理。</p>
-                <a href="/app/zda?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">进入鉴证引擎 &rarr;</a>
+                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">⚖️ {tr('Ano / ZDA 三值鉴证逻辑', 'Ano / ZDA Tri-State Proof Logic')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('Positive / Negative / Unknown 证据张量演算与形式公理。', 'Positive / Negative / Unknown evidence tensor calculus and formal axioms.')}</p>
+                <a href="/app/zda?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入鉴证引擎', 'Open Proof Engine')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #06b6d4;">
-                <h3 style="color:#06b6d4;font-size:1.1rem;margin-bottom:0.3rem;">🛡️ SafeFS 防篡改保险库</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">端侧 AEAD 密钥派生与密室加密文件存取。</p>
-                <a href="/app/safefs?lang={locale}" class="btn" style="background:#0891b2;font-size:0.85rem;padding:0.35rem 0.75rem;">进入 SafeFS &rarr;</a>
+                <h3 style="color:#06b6d4;font-size:1.1rem;margin-bottom:0.3rem;">🛡️ {tr('SafeFS 防篡改保险库', 'SafeFS Tamper-proof Vault')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('端侧 AEAD 密钥派生与密室加密文件存取。', 'Client-side AEAD key derivation and encrypted vault file storage.')}</p>
+                <a href="/app/safefs?lang={locale}" class="btn" style="background:#0891b2;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入 SafeFS', 'Open SafeFS')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #84cc16;">
-                <h3 style="color:#84cc16;font-size:1.1rem;margin-bottom:0.3rem;">🔐 UFS / DCPM 零知识双重卷</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">可否认性诱饵卷 + 隐藏密室卷 + 签名软件包管理器。</p>
-                <a href="/app/ufsdcpm?lang={locale}" class="btn" style="background:#65a30d;font-size:0.85rem;padding:0.35rem 0.75rem;">进入存储管理器 &rarr;</a>
+                <h3 style="color:#84cc16;font-size:1.1rem;margin-bottom:0.3rem;">🔐 {tr('UFS / DCPM 零知识双重卷', 'UFS / DCPM Plausible Deniability Volumes')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('可否认性诱饵卷 + 隐藏密室卷 + 签名软件包管理器。', 'Decoy volumes + hidden vaults + signed package manager.')}</p>
+                <a href="/app/ufsdcpm?lang={locale}" class="btn" style="background:#65a30d;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入存储管理器', 'Open Storage Manager')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #6366f1;">
-                <h3 style="color:#6366f1;font-size:1.1rem;margin-bottom:0.3rem;">⛓️ 区块链与 PoUW 账本</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">穿透底层数据库，查看高度、区块与 PoUW 证明。</p>
-                <a href="/app/blockchain?lang={locale}" class="btn" style="background:#4f46e5;font-size:0.85rem;padding:0.35rem 0.75rem;">进入区块链浏览 &rarr;</a>
+                <h3 style="color:#6366f1;font-size:1.1rem;margin-bottom:0.3rem;">⛓️ {tr('区块链与 PoUW 账本', 'Blockchain &amp; PoUW Ledger')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('穿透底层数据库，查看高度、区块与 PoUW 证明。', 'Inspect height, blocks, and PoUW proofs directly from underlying storage.')}</p>
+                <a href="/app/blockchain?lang={locale}" class="btn" style="background:#4f46e5;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入区块链浏览', 'Open Explorer')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #14b8a6;">
-                <h3 style="color:#14b8a6;font-size:1.1rem;margin-bottom:0.3rem;">📨 WATChat 端到端即时通讯</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">P2P 加密聊天室桥梁，直通独立 PWA。</p>
-                <a href="/app/watchat?lang={locale}" class="btn" style="background:#0d9488;font-size:0.85rem;padding:0.35rem 0.75rem;">进入聊天室 &rarr;</a>
+                <h3 style="color:#14b8a6;font-size:1.1rem;margin-bottom:0.3rem;">📨 {tr('WATChat 端到端即时通讯', 'WATChat End-to-End Messenger')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('P2P 加密聊天室桥梁，直通独立 PWA 与统一客户端。', 'P2P encrypted chat bridge, connecting to standalone PWA and unified GUI client.')}</p>
+                <a href="/app/watchat?lang={locale}" class="btn" style="background:#0d9488;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入聊天室', 'Open WATChat')} &rarr;</a>
             </div>
             
             <div class="card" style="background:#0f172a;border-left:3px solid #e11d48;">
-                <h3 style="color:#e11d48;font-size:1.1rem;margin-bottom:0.3rem;">🌐 NNS 域名注册与管理</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">去中心化域名目录检索、解析与链上绑定。</p>
-                <a href="/app/nns?lang={locale}" class="btn" style="background:#be123c;font-size:0.85rem;padding:0.35rem 0.75rem;">进入域名控制台 &rarr;</a>
+                <h3 style="color:#e11d48;font-size:1.1rem;margin-bottom:0.3rem;">🌐 {tr('NNS 域名注册与管理', 'NNS Domain Registry')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('去中心化域名目录检索、解析与链上绑定。', 'Decentralized domain name resolution, lookup, and on-chain bindings.')}</p>
+                <a href="/app/nns?lang={locale}" class="btn" style="background:#be123c;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入域名控制台', 'Open NNS Console')} &rarr;</a>
             </div>
 
             <div class="card" style="background:#0f172a;border-left:3px solid #ec4899;">
-                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">🤖 MCP 智能体工具控制台</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">Model Context Protocol 原生授权控制台与沙箱执行。</p>
-                <a href="/app/mcp?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">进入 MCP 控制台 &rarr;</a>
+                <h3 style="color:#ec4899;font-size:1.1rem;margin-bottom:0.3rem;">🤖 {tr('MCP 智能体工具控制台', 'MCP Agent Tools Console')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('Model Context Protocol 原生授权控制台与沙箱执行。', 'Model Context Protocol native authorized console and sandbox execution.')}</p>
+                <a href="/app/mcp?lang={locale}" class="btn" style="background:#db2777;font-size:0.85rem;padding:0.35rem 0.75rem;">{tr('进入 MCP 控制台', 'Open MCP Console')} &rarr;</a>
             </div>
         </div>
     </div>
@@ -1483,23 +1490,23 @@ elif subpath == "ecosystem":
 elif subpath == "mcp":
     tab_html = f"""
     <div class="card detail-card">
-        <h2>🤖 MCP 智能体原生工具控制台 (Model Context Protocol)</h2>
+        <h2>🤖 {tr('MCP 智能体原生工具控制台 (Model Context Protocol)', 'MCP Agent Native Tool Console (Model Context Protocol)')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            基于 2026 规范的 Model Context Protocol 端侧授权控制台。支持 OAuth2 PKCE 授权流、跨组件工具发现、沙箱写前计划审查与幂等执行。
+            {tr('基于 2026 规范的 Model Context Protocol 端侧授权控制台。支持 OAuth2 PKCE 授权流、跨组件工具发现、沙箱写前计划审查与幂等执行。', 'Client-side authorized console compliant with 2026 Model Context Protocol specification. Supports OAuth2 PKCE flow, cross-component tool discovery, write-plan review, and idempotent execution.')}
         </p>
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
             <div class="table-row">
-                <span class="label">认证模式</span>
+                <span class="label">{tr('认证模式', 'Auth Mode')}</span>
                 <span class="val" style="color:var(--accent-blue);">OAuth2 PKCE (S256) / Scoped Bearer Token</span>
             </div>
             <div class="table-row">
-                <span class="label">协议版本</span>
+                <span class="label">{tr('协议版本', 'Protocol Version')}</span>
                 <span class="val">2026-07-28 (Modern MCP Stream)</span>
             </div>
             <div class="table-row">
-                <span class="label">安全保障</span>
-                <span class="val" style="color:var(--accent-green);"><span class="status-pill">{t('runtime.unobserved')}</span> 写入计划交互确认 &bull; 幂等重试保护</span>
+                <span class="label">{tr('安全保障', 'Security Guard')}</span>
+                <span class="val" style="color:var(--accent-green);"><span class="status-pill">{t('runtime.unobserved')}</span> {tr('写入计划交互确认 • 幂等重试保护', 'Interactive write confirmation • Idempotent retry protection')}</span>
             </div>
         </div>
     </div>
@@ -1577,7 +1584,7 @@ elif subpath == "shadow6":
             </div>
         </div>
         <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.5rem;line-height:1.6;">
-            {t('shadow6.subtitle')}。整合 Go、Rust、Gleam、Ada、Nim、Pony、Zig、D、C++、Idris、Hare、Carp 13 种原生多语言Profile，与虚拟 Broker（Port 9443）及 Web 控制中心（Port 9467）无缝联动。
+            {t('shadow6.subtitle')}。{tr('整合 Go、Rust、Gleam、Ada、Nim、Pony、Zig、D、C++、Idris、Hare、Carp 13 种原生多语言Profile，与虚拟 Broker（Port 9443）及 Web 控制中心（Port 9467）无缝联动。', 'Orchestrates 13 multi-language profiles (Go, Rust, Gleam, Ada, Nim, Pony, Zig, D, C++, Idris, Hare, Carp) interconnected with Virtual Broker (Port 9443) and Web Control Center (Port 9467).')}
         </p>
 
         {s6_notice}
@@ -1589,19 +1596,19 @@ elif subpath == "shadow6":
                     🔐 {t('shadow6.auth_title')}
                 </h3>
                 <span id="s6-auth-badge" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);padding:2px 10px;border-radius:4px;font-size:0.75rem;font-weight:bold;">
-                    LOCKED // 需管理员鉴权
+                    {tr('LOCKED // 需管理员鉴权', 'LOCKED // Admin Auth Required')}
                 </span>
             </div>
             <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:1rem;line-height:1.6;">
-                {t('shadow6.auth_desc')}。未授权用户无法直接控制或调度此服务器的底层进程；但普通用户无需服务器权限即可在下方<strong>独立解析和配置自己的 S6P1 协议信封</strong>。
+                {t('shadow6.auth_desc')}。{tr('未授权用户无法直接控制或调度此服务器的底层进程；但普通用户无需服务器权限即可在下方独立解析和配置自己的 S6P1 协议信封。', 'Unauthorized users cannot control host processes; but any user can independently parse and configure custom S6P1 protocol envelopes below.')}
             </p>
             <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:1rem;margin-bottom:1rem;">
                 <div>
-                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">Bearer Token (管理凭据)</label>
+                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">{tr('Bearer Token (管理凭据)', 'Bearer Token (Admin Credentials)')}</label>
                     <input type="password" id="s6-bearer-input" placeholder="{t('shadow6.bearer_placeholder')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:0.85rem;">
                 </div>
                 <div>
-                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">Operator Pairing Code (一次性配对码)</label>
+                    <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">{tr('Operator Pairing Code (一次性配对码)', 'Operator Pairing Code (One-time Pairing Code)')}</label>
                     <input type="text" id="s6-pairing-input" placeholder="{t('shadow6.pairing_placeholder')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:0.85rem;">
                 </div>
             </div>
@@ -1623,11 +1630,11 @@ elif subpath == "shadow6":
                     📋 {t('shadow6.custom_title')}
                 </h3>
                 <span style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 10px;border-radius:4px;font-size:0.75rem;font-weight:bold;">
-                    OPEN ACCESS // 免鉴权自由配置
+                    {tr('OPEN ACCESS // 免鉴权自由配置', 'OPEN ACCESS // Permissionless Custom Config')}
                 </span>
             </div>
             <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:1rem;line-height:1.6;">
-                {t('shadow6.custom_desc')}。支持标准 Base64URL 密码学信封校验、多核心节点路由重映射、凭据解构与 SafeFS 密室持久化。
+                {t('shadow6.custom_desc')}。{tr('支持标准 Base64URL 密码学信封校验、多核心节点路由重映射、凭据解构与 SafeFS 密室持久化。', 'Supports standard Base64URL cryptographic envelope validation, multi-core route re-mapping, credential breakdown, and SafeFS persistence.')}
             </p>
 
             <form method="GET" action="/app/shadow6" id="s6p1-vault-form" style="margin-bottom:1rem;">
@@ -1636,7 +1643,7 @@ elif subpath == "shadow6":
                 <div style="display:grid;grid-template-columns:1fr 200px;gap:0.75rem;margin-bottom:0.75rem;">
                     <textarea id="s6p1-textarea" name="s6p1" rows="5" placeholder="{t('shadow6.paste_placeholder')}" style="width:100%;box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#38bdf8;padding:10px;border-radius:6px;font-family:monospace;font-size:0.82rem;line-height:1.5;">{esc(s6_pasted_input or canonical_sample_s6p1)}</textarea>
                     <div style="display:flex;flex-direction:column;gap:0.5rem;">
-                        <input type="text" name="alias" value="{esc(s6_profile_name)}" placeholder="配置别名 (如 My Mesh)" style="box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#fff;padding:6px 10px;border-radius:6px;font-size:0.85rem;">
+                        <input type="text" name="alias" value="{esc(s6_profile_name)}" placeholder="{tr('配置别名 (如 My Mesh)', 'Profile Alias (e.g. My Mesh)')}" style="box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#fff;padding:6px 10px;border-radius:6px;font-size:0.85rem;">
                         <button type="submit" class="btn btn-green" style="font-size:0.82rem;padding:6px;text-align:center;">
                             💾 {t('shadow6.btn_save_vault')}
                         </button>
@@ -1658,20 +1665,20 @@ elif subpath == "shadow6":
             <!-- Decoded Interactive Envelope Inspection View -->
             <div id="s6p1-inspection-box" style="margin-top:1.25rem;background:#090d16;border:1px solid #334155;border-radius:6px;padding:1rem;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
-                    <strong style="color:var(--accent-blue);font-size:0.9rem;">🧩 S6P1 协议信封解构报告 (Protocol Envelope Breakdown)</strong>
+                    <strong style="color:var(--accent-blue);font-size:0.9rem;">🧩 {tr('S6P1 协议信封解构报告 (Protocol Envelope Breakdown)', 'S6P1 Protocol Envelope Breakdown')}</strong>
                     <span id="s6p1-schema-tag" style="font-family:monospace;font-size:0.75rem;color:var(--accent-green);">SCHEMA: shadow6.protocol-envelope.v1</span>
                 </div>
                 <div id="s6p1-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;margin-bottom:1rem;">
                     <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
-                        <div style="font-size:0.75rem;color:var(--text-secondary);">节点身份 (Node ID)</div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">{tr('节点身份 (Node ID)', 'Node Identity (Node ID)')}</div>
                         <div id="s6p1-disp-node" style="font-family:monospace;font-weight:bold;color:#f8fafc;font-size:0.85rem;">-</div>
                     </div>
                     <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
-                        <div style="font-size:0.75rem;color:var(--text-secondary);">通信目的 (Purpose)</div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">{tr('通信目的 (Purpose)', 'Purpose')}</div>
                         <div id="s6p1-disp-purpose" style="font-family:monospace;font-weight:bold;color:var(--accent-amber);font-size:0.85rem;">-</div>
                     </div>
                     <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
-                        <div style="font-size:0.75rem;color:var(--text-secondary);">准入凭据 (Admission)</div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">{tr('准入凭据 (Admission)', 'Admission Credential')}</div>
                         <div id="s6p1-disp-admission" style="font-family:monospace;font-weight:bold;color:var(--accent-green);font-size:0.85rem;">-</div>
                     </div>
                 </div>
@@ -1679,19 +1686,19 @@ elif subpath == "shadow6":
                     <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
                         <thead>
                             <tr style="border-bottom:1px solid #334155;color:var(--text-secondary);text-align:left;">
-                                <th style="padding:6px;">目标核心</th>
-                                <th style="padding:6px;">传输协议</th>
-                                <th style="padding:6px;">主机地址</th>
-                                <th style="padding:6px;">端口</th>
+                                <th style="padding:6px;">{tr('目标核心', 'Target Core')}</th>
+                                <th style="padding:6px;">{tr('传输协议', 'Transport')}</th>
+                                <th style="padding:6px;">{tr('主机地址', 'Host Address')}</th>
+                                <th style="padding:6px;">{tr('端口', 'Port')}</th>
                             </tr>
                         </thead>
                         <tbody id="s6p1-routes-tbody">
-                            <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--text-secondary);">点击上方“解析与校验 S6P1”查看路由表</td></tr>
+                            <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--text-secondary);">{tr('点击上方“解析与校验 S6P1”查看路由表', 'Click &quot;Decode &amp; Verify S6P1&quot; above to inspect routes')}</td></tr>
                         </tbody>
                     </table>
                 </div>
                 <details>
-                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.82rem;font-family:monospace;">查看解析后的完整 JSON 原文 (Raw Decoded JSON)</summary>
+                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.82rem;font-family:monospace;">{tr('查看解析后的完整 JSON 原文 (Raw Decoded JSON)', 'View Full Decoded JSON Output')}</summary>
                     <pre id="s6p1-raw-json" style="margin-top:8px;background:#050811;padding:10px;border-radius:4px;color:#cbd5e1;font-size:0.78rem;font-family:monospace;overflow-x:auto;max-height:220px;"></pre>
                 </details>
             </div>
@@ -1702,18 +1709,18 @@ elif subpath == "shadow6":
             📡 {t('shadow6.profiles_title')}
         </h3>
         <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem;">
-            以下是 Profile 能力目录和示例端口；实际进程、监听和健康状态需授权后查询原生系统。
+            {tr('以下是 Profile 能力目录和示例端口；实际进程、监听和健康状态需授权后查询原生系统。', 'The following is the Profile capability directory and port assignment; actual process status requires authorized native inspection.')}
         </p>
         <div style="overflow-x:auto;margin-bottom:1.5rem;">
             <table style="width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;font-size:0.85rem;">
                 <thead>
                     <tr style="border-bottom:1px solid var(--border-color);color:var(--accent-blue);text-align:left;background:#1e293b;">
-                        <th style="padding:10px 12px;">Profile 标识</th>
-                        <th style="padding:10px 12px;">核心语言</th>
-                        <th style="padding:10px 12px;">传输协议</th>
-                        <th style="padding:10px 12px;">监听端口</th>
-                        <th style="padding:10px 12px;">层级</th>
-                        <th style="padding:10px 12px;">实时状态</th>
+                        <th style="padding:10px 12px;">{tr('Profile 标识', 'Profile ID')}</th>
+                        <th style="padding:10px 12px;">{tr('核心语言', 'Core Language')}</th>
+                        <th style="padding:10px 12px;">{tr('传输协议', 'Transport')}</th>
+                        <th style="padding:10px 12px;">{tr('监听端口', 'Port')}</th>
+                        <th style="padding:10px 12px;">{tr('层级', 'Layer')}</th>
+                        <th style="padding:10px 12px;">{tr('实时状态', 'Live Status')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1724,15 +1731,15 @@ elif subpath == "shadow6":
 
         <!-- 4. VIRTUAL BROKER TELEMETRY -->
         <div class="table-row">
-            <span class="label">虚拟 Broker 控制台 (Virtual Broker Core)</span>
+            <span class="label">{tr('虚拟 Broker 控制台 (Virtual Broker Core)', 'Virtual Broker Core')}</span>
             <span class="val" style="color:var(--accent-green);"><span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span> 127.0.0.1:9443 (12 Cores + Datagram, Gate &amp; Guard Enforced)</span>
         </div>
         <div class="table-row">
-            <span class="label">Web UI 控制中心网关 (Control Center)</span>
+            <span class="label">{tr('Web UI 控制中心网关 (Control Center)', 'Web UI Control Center')}</span>
             <span class="val" style="color:var(--accent-blue);"><span class="status-pill" style="background:#0284c7;">{t('runtime.unobserved')}</span> 127.0.0.1:9467 &bull; Backend: 9466</span>
         </div>
         <div class="table-row">
-            <span class="label">公共 HTTPS 域名网关 (Public Ingress)</span>
+            <span class="label">{tr('公共 HTTPS 域名网关 (Public Ingress)', 'Public HTTPS Ingress')}</span>
             <span class="val"><a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" style="color:var(--accent-amber);text-decoration:underline;">https://ziokt-shadow6-43-207-75-185.sslip.io/</a></span>
         </div>
     </div>
@@ -1858,94 +1865,134 @@ elif subpath == "gui":
                     🖥️ {t('nav.gui')}
                 </h2>
                 <p style="color:var(--text-secondary);font-size:0.9rem;margin-top:4px;">
-                    Ziokt Desktop &amp; Mobile 统一图形客户端 &bull; 多平台原生 (Tauri 2 / ArkUI / Web PWA)
+                    {tr('Ziokt Desktop &amp; Mobile 统一图形客户端 • 多平台原生 (Tauri 2 / ArkUI / Web PWA)', 'Ziokt Desktop &amp; Mobile Unified GUI Client • Multi-platform Native (Tauri 2 / ArkUI / Web PWA)')}
                 </p>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <a href="/gateway-assets/gui/index.html" target="_blank" class="btn btn-green" style="font-size:0.88rem;padding:8px 16px;">
-                    🚀 立即进入 Web 应用 (PWA)
+                    🚀 {tr('立即进入 Web 应用 (PWA)', 'Launch Web Client (PWA)')}
                 </a>
                 <a href="https://github.com/Ziokt/Ziokt/releases" target="_blank" class="btn btn-purple" style="font-size:0.88rem;padding:8px 16px;">
-                    📥 下载安装包 (Release)
+                    📦 {tr('GitHub 发行版 (Releases)', 'GitHub Releases')}
                 </a>
             </div>
         </div>
 
         <!-- Platform downloads grid -->
-        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:0.75rem;">📦 支持平台与原生安装包</h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;margin-bottom:2rem;">
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                    🐧 Linux (x86_64 / arm64)
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:0.75rem;">📦 {tr('支持平台与本地服务器直链下载', 'Supported Platforms & Direct Server Downloads')}</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:1rem;margin-bottom:2rem;">
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
+                <div>
+                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        🐧 Linux (x86_64 / arm64)
+                    </div>
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        {tr('适用于 Ubuntu/Debian、Fedora、Arch 原生桌面环境。提供独立沙盒、系统托盘与原生通知。', 'Native desktop app for Ubuntu/Debian, Fedora, Arch. Features isolation, tray, and native notifications.')}
+                    </div>
                 </div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
-                    .deb, .AppImage, tar.gz。提供独立沙盒与原生通知集成。
+                <div style="margin-top:auto;">
+                    <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载 tar.gz (34.4 KB)', 'Download tar.gz (34.4 KB)')}
+                    </a>
                 </div>
-                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
             </div>
 
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                    🪟 Windows (x64)
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
+                <div>
+                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        🪟 Windows (x64)
+                    </div>
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        {tr('Windows 10/11 安装包与绿色便携版。采用 WebView2 轻量引擎与原生系统融合。', 'Windows 10/11 installer & portable package. Powered by WebView2 native rendering.')}
+                    </div>
                 </div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
-                    .msi 安装程序, .exe 单文件便携版。WebView2 原生驱动。
+                <div style="margin-top:auto;">
+                    <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载 zip (46.1 KB)', 'Download zip (46.1 KB)')}
+                    </a>
                 </div>
-                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
             </div>
 
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                    🤖 Android (ARM64 / x86_64)
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
+                <div>
+                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        🤖 Android (ARM64 / x86_64)
+                    </div>
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        {tr('Android 移动端应用安装包与工程资源。支持触摸滑动手势、底部导航栏与离线存储。', 'Android mobile package & assets. Supports gestures, bottom navigation, and offline store.')}
+                    </div>
                 </div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
-                    .apk 独立安装包。支持移动端手势、底部导航栏与离线存储。
+                <div style="margin-top:auto;">
+                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-android-assets.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载资源包 (34.4 KB)', 'Download Assets (34.4 KB)')}
+                    </a>
                 </div>
-                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
             </div>
 
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                    🔴 HarmonyOS NEXT (鸿蒙原生)
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
+                <div>
+                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        🔴 HarmonyOS NEXT (鸿蒙原生)
+                    </div>
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        {tr('ArkUI 鸿蒙原生组件工程源码 (Entry module &amp; Index.ets Web 容器集成方案)。', 'ArkUI native OpenHarmony / NEXT project bundle (Entry module &amp; Index.ets container).')}
+                    </div>
                 </div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
-                    ArkUI 原生 Web 容器集成方案 (Entry module &amp; Index.ets)。
+                <div style="margin-top:auto;">
+                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn btn-purple" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载工程包 (35.7 KB)', 'Download ArkUI (35.7 KB)')}
+                    </a>
                 </div>
-                <span class="status-pill" style="background:#a855f7;font-size:0.75rem;">ARKUI INTEGRATED</span>
+            </div>
+
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
+                <div>
+                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        🌐 Web PWA (独立离线版)
+                    </div>
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        {tr('全离线渐进式 Web 客户端，包含完整离线缓存与零依赖本地静态资源。', 'Fully offline Progressive Web App bundle with Service Worker offline caching.')}
+                    </div>
+                </div>
+                <div style="margin-top:auto;">
+                    <a href="/gateway-assets/gui/downloads/ziokt-web-pwa.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载 PWA 包 (34.4 KB)', 'Download PWA (34.4 KB)')}
+                    </a>
+                </div>
             </div>
         </div>
 
         <!-- 9 Modules Showcase -->
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">🧩 客户端 9 大全功能核心模块</h3>
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">🧩 {tr('客户端 9 大全功能核心模块', 'Client 9 Core Functional Modules')}</h3>
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:2rem;">
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-blue);margin-bottom:4px;">💬 WATChat 实时加密通讯</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">支持<strong>简洁版</strong>与<strong>经典丰富版</strong>无缝自由切换，会话状态与端到端加密零中断保持。</div>
+                <div style="font-weight:bold;color:var(--accent-blue);margin-bottom:4px;">💬 {tr('WATChat 实时加密通讯', 'WATChat Encrypted Messenger')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('支持<strong>简约版</strong>与<strong>经典丰富版</strong>无缝自由切换，会话状态与端到端加密零中断保持。', 'Seamless switching between <strong>Minimalist</strong> and <strong>Classic</strong> UI with zero session or cryptographic disruption.')}</div>
             </div>
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-green);margin-bottom:4px;">📦 dCPM 应用与软件包中心</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">与 UFS / Shadow6 深度打通，支持真实安装、依赖解析、一键更新、版本回滚与干净卸载。</div>
+                <div style="font-weight:bold;color:var(--accent-green);margin-bottom:4px;">📦 {tr('dCPM 应用与软件包中心', 'dCPM App &amp; Package Hub')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('与 UFS / Shadow6 深度打通，支持真实安装、依赖解析、一键更新、版本回滚与干净卸载。', 'Integrated with UFS and Shadow6; supports live installation, dependency resolution, rollbacks, and clean uninstall.')}</div>
             </div>
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-purple);margin-bottom:4px;">🛡️ Shadow6 &amp; ETP 网络节点</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">13 种 Profile 并行运行矩阵，Virtual Broker 核心，S6P1 自定义信封解析与 ETP 洋葱拓扑。</div>
+                <div style="font-weight:bold;color:var(--accent-purple);margin-bottom:4px;">🛡️ {tr('Shadow6 &amp; ETP 网络节点', 'Shadow6 &amp; ETP Network Nodes')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('13 种 Profile 并行运行矩阵，Virtual Broker 核心，S6P1 自定义信封解析与 ETP 洋葱拓扑。', '13-profile parallel matrix, Virtual Broker core, custom S6P1 envelope parsing, and ETP onion topology.')}</div>
             </div>
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-amber);margin-bottom:4px;">🔐 UFS &amp; SafeFS 安全密室</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">文件分片加密存储，拖拽秒传与根哈希校验，隐形密室卷状态实时监控。</div>
+                <div style="font-weight:bold;color:var(--accent-amber);margin-bottom:4px;">🔐 {tr('UFS &amp; SafeFS 安全密室', 'UFS &amp; SafeFS Secure Vaults')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('文件分片加密存储，拖拽秒传与根哈希校验，隐形密室卷状态实时监控。', 'Chunked encrypted file storage, drag-and-drop uploads, Merkle root checks, and hidden vault monitoring.')}</div>
             </div>
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#38bdf8;margin-bottom:4px;">⚙️ TC-16 &amp; ZDA 开发者套件</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">全功能 16 位虚拟机单步调试与内存监视，Corium 账本检索，ZDA 多项式零知识门验证。</div>
+                <div style="font-weight:bold;color:#38bdf8;margin-bottom:4px;">⚙️ {tr('TC-16 &amp; ZDA 开发者套件', 'TC-16 &amp; ZDA Developer Suite')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('全功能 16 位虚拟机单步调试与内存监视，Corium 账本检索，ZDA 多项式零知识门验证。', '16-bit VM step debugging and memory inspector, Corium ledger exploration, ZDA polynomial zero-knowledge verification.')}</div>
             </div>
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f43f5e;margin-bottom:4px;">🎛️ 本地 / 远端 / 混合生命周期</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">按需按量按角色启停底层组件，无需全量常驻，全套快捷键 (1-9, Esc, Ctrl+K) 与高对比度无障碍支持。</div>
+                <div style="font-weight:bold;color:#f43f5e;margin-bottom:4px;">🎛️ {tr('本地 / 远端 / 混合生命周期', 'Local / Remote / Hybrid Lifecycle')}</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('按需按量按角色启停底层组件，无需全量常驻，全套快捷键 (1-9, Esc, Ctrl+K) 与高对比度无障碍支持。', 'On-demand component lifecycle, full keyboard navigation (1-9, Esc, Ctrl+K), and high-contrast accessibility.')}</div>
             </div>
         </div>
 
         <!-- Embedded Interactive Preview -->
-        <h3 style="color:var(--accent-amber);font-size:1.1rem;margin-bottom:0.75rem;">🖥️ 客户端在线嵌入式工作台</h3>
+        <h3 style="color:var(--accent-amber);font-size:1.1rem;margin-bottom:0.75rem;">🖥️ {tr('客户端在线嵌入式工作台', 'Client Live Embedded Studio')}</h3>
         <div style="width:100%;height:650px;border:1px solid #334155;border-radius:8px;overflow:hidden;background:#000;">
             <iframe src="/gateway-assets/gui/index.html" style="width:100%;height:100%;border:none;" title="Ziokt GUI Client"></iframe>
         </div>
@@ -1963,71 +2010,71 @@ else:
     
     tab_html = f"""
     <div class="card detail-card">
-        <h2>📊 Corium &amp; Ziokt 网关核心运行大盘</h2>
+        <h2>📊 {tr('Corium &amp; Ziokt 网关核心运行大盘', 'Corium &amp; Ziokt Gateway Telemetry Dashboard')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            本网关为普通浏览器提供无缝穿透去中心化 P2P 网络的入口通道。无需安装任何扩展或节点客户端即可与整个底层生态交互。
+            {tr('本网关为普通浏览器提供无缝穿透去中心化 P2P 网络的入口通道。无需安装任何扩展或节点客户端即可与整个底层生态交互。', 'This gateway provides seamless browser-native access to the decentralized P2P network. Interact with the entire ecosystem without requiring extensions or node clients.')}
         </p>
         
         <div class="grid" style="margin-bottom:1.5rem;">
             <div class="card">
-                <div class="card-title">区块链出块高度</div>
+                <div class="card-title">{tr('区块链出块高度', 'Blockchain Height')}</div>
                 <div class="card-value" style="color:var(--accent-blue);">#{cur_h}</div>
             </div>
             <div class="card">
-                <div class="card-title">DHT 路由表节点</div>
-                <div class="card-value" style="color:var(--accent-green);">{n_cnt} 个</div>
+                <div class="card-title">{tr('DHT 路由表节点', 'DHT Routing Nodes')}</div>
+                <div class="card-value" style="color:var(--accent-green);">{n_cnt} {tr('个', 'nodes')}</div>
             </div>
             <div class="card">
-                <div class="card-title">已分块对象数量</div>
-                <div class="card-value" style="color:var(--accent-purple);">{c_cnt} 个</div>
+                <div class="card-title">{tr('已分块对象数量', 'Chunked Objects')}</div>
+                <div class="card-value" style="color:var(--accent-purple);">{c_cnt} {tr('个', 'objects')}</div>
             </div>
             <div class="card">
-                <div class="card-title">沙箱访问计数</div>
-                <div class="card-value" style="color:#f59e0b;">{visit_count} 次</div>
+                <div class="card-title">{tr('沙箱访问计数', 'Sandbox Visits')}</div>
+                <div class="card-value" style="color:#f59e0b;">{visit_count} {tr('次', 'visits')}</div>
             </div>
         </div>
         
-        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">🚀 一键快捷进入生态应用</h3>
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">🚀 {tr('一键快捷进入生态应用', 'Quick Launch Ecosystem Apps')}</h3>
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.75rem;margin-bottom:1.5rem;">
-            <a href="/app/forum?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">💬 原生论坛 &rarr;</a>
-            <a href="/app/fileshare?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📦 文件共享 &rarr;</a>
-            <a href="/app/onion?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🧅 洋葱路由 &rarr;</a>
-            <a href="/app/tc16?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚙️ TC-16 虚拟机 &rarr;</a>
-            <a href="/app/zda?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ Ano 三值鉴证 &rarr;</a>
-            <a href="/app/safefs?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🛡️ SafeFS 密室 &rarr;</a>
-            <a href="/app/blockchain?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⛓️ 区块链浏览器 &rarr;</a>
-            <a href="/app/watchat?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📨 WATChat 聊天 &rarr;</a>
-            <a href="/app/nns?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🌐 NNS 域名控制台 &rarr;</a>
-            <a href="/app/board?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📝 社区公网留言板 &rarr;</a>
-            <a href="/app/mcp?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🤖 MCP 工具控制台 &rarr;</a>
-            <a href="/gateway-assets/registry.html" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ 权重白名单 &rarr;</a>
+            <a href="/app/forum?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">💬 {tr('原生论坛', 'Native Forum')} &rarr;</a>
+            <a href="/app/fileshare?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📦 {tr('文件共享', 'File Share')} &rarr;</a>
+            <a href="/app/onion?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🧅 {tr('洋葱路由', 'Onion Tunnel')} &rarr;</a>
+            <a href="/app/tc16?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚙️ {tr('TC-16 虚拟机', 'TC-16 VM')} &rarr;</a>
+            <a href="/app/zda?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ {tr('Ano 三值鉴证', 'Ano Tri-state')} &rarr;</a>
+            <a href="/app/safefs?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🛡️ {tr('SafeFS 密室', 'SafeFS Vault')} &rarr;</a>
+            <a href="/app/blockchain?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⛓️ {tr('区块链浏览器', 'Block Explorer')} &rarr;</a>
+            <a href="/app/watchat?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📨 {tr('WATChat 聊天', 'WATChat Messenger')} &rarr;</a>
+            <a href="/app/nns?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🌐 {tr('NNS 域名控制台', 'NNS Domains')} &rarr;</a>
+            <a href="/app/board?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">📝 {tr('社区公网留言板', 'Community Board')} &rarr;</a>
+            <a href="/app/mcp?lang={locale}" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">🤖 {tr('MCP 工具控制台', 'MCP Tools Console')} &rarr;</a>
+            <a href="/gateway-assets/registry.html" class="btn" style="background:#1e293b;border:1px solid #334155;text-align:center;">⚖️ {tr('权重白名单', 'Weight Registry')} &rarr;</a>
         </div>
         
         <div class="table-row">
-            <span class="label">网关运行状态</span>
+            <span class="label">{tr('网关运行状态', 'Gateway Status')}</span>
             <span class="val"><span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
-            <span class="label">沙箱双层隔离体系</span>
+            <span class="label">{tr('沙箱双层隔离体系', 'Sandbox Dual Isolation')}</span>
             <span class="val">Bubblewrap (bwrap) + RestrictedPython v7</span>
         </div>
         <div class="table-row">
-            <span class="label">底层原生支持</span>
+            <span class="label">{tr('底层原生支持', 'Native Core Engines')}</span>
             <span class="val">Corium v108 &bull; ETP Protocol &bull; Ziokt Engine</span>
         </div>
         
         <!-- Terminal Console UI Guide Box -->
         <div class="terminal-box" style="background:#090d16;border:1px solid #334155;border-radius:8px;padding:1rem 1.25rem;margin-top:1.5rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:inset 0 0 12px rgba(0,0,0,0.6);">
             <div class="terminal-header" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.5rem;margin-bottom:0.75rem;border-bottom:1px solid #1e293b;font-size:0.85rem;color:var(--text-secondary);">
-                <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ Corium / Ziokt 架构控制台 &bull; 终端说明规范 (Terminal Console Telemetry)</span>
+                <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ {tr('Corium / Ziokt 架构控制台 • 终端说明规范 (Terminal Console Telemetry)', 'Corium / Ziokt Architecture Console • Telemetry Specification')}</span>
                 <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">{t('runtime.unobserved')}</span>
             </div>
             <div class="terminal-body" style="font-size:0.85rem;line-height:1.7;color:#cbd5e1;">
                 <div class="terminal-line"><span class="cmd-prompt" style="color:var(--accent-green);font-weight:bold;">$</span> <span class="cmd-code" style="color:#f8fafc;font-weight:bold;">ziokt-sys --telemetry --gateway</span></div>
                 <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[COR-NET]</span> P2P Mesh: 8080 | UFS DCPM: 8184 | Gateway: 8185 | MCP Agent: 8186 | HTTPS: 443</div>
-                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 共用功能入口，可切换布局。</div>
-                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> 浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。</div>
-                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> {tr('⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 共用功能入口，可切换布局。', '⚡ Minimalist View and 🌐 Panoramic Studio share features; layout switchable anytime.')}</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> {tr('浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。', 'Client WebCrypto Ed25519 private key isolation; keys never leave browser; write operations require explicit confirmation.')}</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> {tr('Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。', 'Range streaming chunks and 3-hop onion routing; SafeFS local dual encryption; supports MCP JSON-RPC 2.0 reflection.')}</div>
             </div>
         </div>
     </div>
@@ -2257,13 +2304,13 @@ if subpath == 'shadow6':
 if subpath == 'ufsdcpm':
     simple_content_html += f"""
     <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
-        <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🌐 UFS 原生安全存储 HTTP 鉴权信息</h2>
+        <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🌐 {tr('UFS 原生安全存储 HTTP 鉴权信息', 'UFS Native Secure Storage HTTP Credentials')}</h2>
         <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary);">
-            <div>&bull; <strong>公网网关</strong>: <a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io/</a></div>
-            <div>&bull; <strong>认证协议</strong>: HTTP Digest Auth (SHA-256)</div>
-            <div>&bull; <strong>凭据存储</strong>: <code>~/.config/dcpm-ufs/config.json</code> (受本地 0600 权限保护，不向公网暴露)</div>
-            <div>&bull; <strong>安全说明</strong>: 口令持久化保存在节点主机配置文件中，可在终端执行 <code>cat ~/.config/dcpm-ufs/config.json</code> 查看或配置。</div>
-            <div>&bull; <strong>存储路径</strong>: <code>~/.config/dcpm-ufs/ufs-storage</code></div>
+            <div>&bull; <strong>{tr('公网网关', 'Public Gateway')}</strong>: <a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io/</a></div>
+            <div>&bull; <strong>{tr('认证协议', 'Auth Protocol')}</strong>: HTTP Digest Auth (SHA-256)</div>
+            <div>&bull; <strong>{tr('凭据存储', 'Credentials Storage')}</strong>: <code>~/.config/dcpm-ufs/config.json</code> ({tr('受本地 0600 权限保护，不向公网暴露', 'Protected by local 0600 permissions, not exposed publicly')})</div>
+            <div>&bull; <strong>{tr('安全说明', 'Security Notice')}</strong>: {tr('口令持久化保存在节点主机配置文件中，可在终端执行 <code>cat ~/.config/dcpm-ufs/config.json</code> 查看或配置。', 'Credentials are securely stored in the host node config file. Inspect or update via <code>cat ~/.config/dcpm-ufs/config.json</code> on host.')}</div>
+            <div>&bull; <strong>{tr('存储路径', 'Storage Path')}</strong>: <code>~/.config/dcpm-ufs/ufs-storage</code></div>
         </div>
     </div>
     """
@@ -2272,10 +2319,16 @@ if subpath == 'gui':
     simple_content_html += f"""
     <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
         <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🖥️ {t('nav.gui')}</h2>
-        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">Ziokt 跨平台统一图形客户端 (Desktop / Mobile)。集成 WATChat 双 UI、dCPM 包管理器、Shadow6 节点网络、SafeFS/UFS 存储密室与 TC-16 虚拟机。</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <a class="btn btn-green" href="/gateway-assets/gui/index.html" target="_blank" style="font-size:0.85rem;padding:6px 14px;">🚀 启动 Web 客户端 (PWA)</a>
-            <a class="btn btn-purple" href="https://github.com/Ziokt/Ziokt/releases" target="_blank" style="font-size:0.85rem;padding:6px 14px;">📦 下载原生安装包</a>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">{tr('Ziokt 跨平台统一图形客户端 (Desktop / Mobile)。集成 WATChat 双 UI、dCPM 包管理器、Shadow6 节点网络、SafeFS/UFS 存储密室与 TC-16 虚拟机。', 'Ziokt Cross-Platform Unified GUI Client (Desktop / Mobile). Integrates WATChat dual UI, dCPM manager, Shadow6 mesh, SafeFS/UFS vaults, and TC-16 VM.')}</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <a class="btn btn-green" href="/gateway-assets/gui/index.html" target="_blank" style="font-size:0.85rem;padding:6px 14px;">🚀 {tr('启动 Web 客户端 (PWA)', 'Launch Web Client (PWA)')}</a>
+            <a class="btn btn-purple" href="https://github.com/Ziokt/Ziokt/releases" target="_blank" style="font-size:0.85rem;padding:6px 14px;">📦 {tr('GitHub 发行版', 'GitHub Releases')}</a>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🐧 Linux (.tar.gz)</a>
+            <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🪟 Windows (.zip)</a>
+            <a href="/gateway-assets/gui/downloads/ziokt-mobile-android-assets.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🤖 Android (.tar.gz)</a>
+            <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🔴 HarmonyOS (.tar.gz)</a>
         </div>
     </div>
     """
@@ -2529,7 +2582,7 @@ response = f"""<!DOCTYPE html>
             <header>
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
                     <div>
-                        <span class="badge" style="display:inline-block;background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid rgba(168,85,247,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 简约版 (Minimalist View)</span>
+                        <span class="badge" style="display:inline-block;background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid rgba(168,85,247,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">{tr('COR-WEB 简约版 (Minimalist View)', 'COR-WEB Minimalist View')}</span>
                         <strong style="display:block;font-size:1.6rem;color:var(--text-primary);">{t('portal.title')}</strong>
                         <p style="color:var(--text-secondary);font-size:0.9rem;margin:0;">{t('portal.readonly')}</p>
                     </div>
@@ -2549,9 +2602,9 @@ response = f"""<!DOCTYPE html>
             <header>
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
                     <div>
-                        <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 全景版 (Panoramic Studio)</span>
-                        <div style="font-size:2rem;font-weight:bold;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</div>
-                        <p class="subtitle" style="margin:0;">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
+                        <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">{tr('COR-WEB 全景版 (Panoramic Studio)', 'COR-WEB Panoramic Studio')}</span>
+                        <div style="font-size:2rem;font-weight:bold;margin-bottom:0.25rem;">⚡ {tr('Corium &amp; Ziokt 统一去中心化应用网关', 'Corium &amp; Ziokt Unified DApp Gateway')}</div>
+                        <p class="subtitle" style="margin:0;">{tr('深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 • 纯浏览器零门槛访问', 'Deep integration with Corium, Ziokt, and ETP native stacks • Browser-native zero barrier access')}</p>
                     </div>
                     <div>
                         <a href="/app/{subpath}?ui=simple&lang={locale}" class="btn btn-purple" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">

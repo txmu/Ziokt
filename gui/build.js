@@ -25,10 +25,13 @@ fs.mkdirSync(DIST_DIR, { recursive: true });
 const jsonFiles = [
   path.join(SRC_DIR, 'i18n', 'zh.json'),
   path.join(SRC_DIR, 'i18n', 'en.json'),
+  path.join(SRC_DIR, 'i18n', 'zh-CN.json'),
+  path.join(SRC_DIR, 'i18n', 'en-US.json'),
   path.join(__dirname, 'package.json')
 ];
 
 for (const jf of jsonFiles) {
+  if (!fs.existsSync(jf)) continue;
   try {
     const content = fs.readFileSync(jf, 'utf8');
     JSON.parse(content);
@@ -56,6 +59,12 @@ function copyDir(src, dest) {
 
 copyDir(SRC_DIR, DIST_DIR);
 
+// Copy downloads if available
+const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
+if (fs.existsSync(DOWNLOADS_DIR)) {
+  copyDir(DOWNLOADS_DIR, path.join(DIST_DIR, 'downloads'));
+}
+
 const distFiles = fs.readdirSync(DIST_DIR, { recursive: true });
 console.log(`>> [Ziokt GUI] Build complete! ${distFiles.length} files staged into dist/`);
 
@@ -66,4 +75,5 @@ if (fs.existsSync(GATEWAY_GUI_DIR)) {
 }
 copyDir(DIST_DIR, GATEWAY_GUI_DIR);
 console.log(`>> [Ziokt GUI] Assets synced into gateway/gui/ for /gateway-assets/gui/ serving.`);
+
 

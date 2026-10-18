@@ -24,6 +24,11 @@ const routes = {
   settings: { render: renderSettings, titleKey: 'nav.settings' }
 };
 
+function getHashTab() {
+  const hash = (window.location.hash || '').replace('#', '').trim().toLowerCase();
+  return routes[hash] ? hash : null;
+}
+
 export async function initApp() {
   // 1. Initialize i18n and theme
   await initI18n();
@@ -35,8 +40,17 @@ export async function initApp() {
   // 3. Setup Keyboard Navigation Accessibility
   setupKeyboardShortcuts();
 
-  // 4. Initial Navigation
-  navigate(State.currentTab || 'home');
+  // 4. Initial Navigation (honor URL hash like #network or #chat)
+  const initialTab = getHashTab() || State.currentTab || 'home';
+  navigate(initialTab);
+
+  // Support browser Back/Forward & hash changes
+  window.addEventListener('hashchange', () => {
+    const tab = getHashTab();
+    if (tab && tab !== State.currentTab) {
+      navigate(tab);
+    }
+  });
 
   // 5. Global Event Listeners
   Events.on('navigate', (tab) => navigate(tab));
@@ -54,6 +68,9 @@ export async function initApp() {
 function navigate(tabName) {
   if (!routes[tabName]) tabName = 'home';
   State.currentTab = tabName;
+  if (window.location.hash !== '#' + tabName) {
+    history.replaceState(null, '', '#' + tabName);
+  }
 
   // Update Page Title
   const route = routes[tabName];
@@ -80,18 +97,22 @@ function navigate(tabName) {
 function setupNavigation() {
   // Desktop Sidebar clicks
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.onclick = (e) => {
+    item.addEventListener('click', (e) => {
       e.preventDefault();
-      navigate(item.dataset.tab);
-    };
+      const tab = item.dataset.tab;
+      window.location.hash = '#' + tab;
+      navigate(tab);
+    });
   });
 
   // Mobile Bottom Bar clicks
   document.querySelectorAll('.bottom-item').forEach(item => {
-    item.onclick = (e) => {
+    item.addEventListener('click', (e) => {
       e.preventDefault();
-      navigate(item.dataset.tab);
-    };
+      const tab = item.dataset.tab;
+      window.location.hash = '#' + tab;
+      navigate(tab);
+    });
   });
 
   // Quick DID click
@@ -162,5 +183,10 @@ function setupKeyboardShortcuts() {
   });
 }
 
-// Global bootstrap
-window.addEventListener('DOMContentLoaded', initApp);
+// Global bootstrap: check document readyState to prevent missing DOMContentLoaded in deferred modules
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+
