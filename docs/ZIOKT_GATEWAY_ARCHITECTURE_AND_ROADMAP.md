@@ -669,3 +669,17 @@ echo "全部打包完成，产物均保存在家目录下。"
 - **生产归档包**：[`/home/admin/Ziokt-production-deployment-2026-10-16.zip`](file:///home/admin/Ziokt-production-deployment-2026-10-16.zip)
 - **源码归档包**：[`/home/admin/Ziokt-Corium-Shadow6-source-2026-10-16.zip`](file:///home/admin/Ziokt-Corium-Shadow6-source-2026-10-16.zip)
 
+
+
+## 2026-10-18：命名、可选 Tracker、隐私与静态站点扩展
+
+新增实现与精确边界参见 [中文部署与使用说明](NAMING_PRIVACY_TRACKER_ZH.md)。
+
+- Ziokt DNS：54 个保留/通用后缀，按组件来源查询；默认不代理公共 DNS；多 realm/名称空间独立隔离；Corium NNS 保持无 TLD、逐后缀主动发布；逐级签名子域委托；公共记录与加密组件描述分离。
+- Corium IBC：可选 home-chain 共享 Namespace、拥有者校验、短租约与单调序号、checkpoint/历史证明；本地双真实链已验收，生产需明确配置源链启用高度与治理信任锚。
+- MCP/TG：新增名称状态、解析、组件发布、原生 NNS/IBC 写入计划与可选 Tracker 接口；本次配置目录 361 工具；以部署导出的目录与在线 tools/list 为准。
+- Tracker：可选、多服务器、显式发布、续租/撤销/过期、匿名中继授权，复用现有签名发现池与 mTLS，不替代 DHT/Gossip。
+- 原生实验性屏蔽所有权仅限 test-/dev- 网络；没有独立密码审计，生产屏蔽未开启。审查批准不能自动解密，仍需持有者自愿授权披露。
+- 浏览器论坛需要自行提供签名身份；静态站点支持真实 JS/模块与多种静态博客产物，在隔离来源中执行；不执行服务端博客插件。
+
+禁止将 DNS 传输加密、ECH 配置发布、固定大小封装、社区策略或上述测试描述成“完全保密”“绝对匿名”或自动获得生产审计。

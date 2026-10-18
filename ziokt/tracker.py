@@ -15,6 +15,27 @@ METHODS={'tracker.register','tracker.query','tracker.revoke','tracker.status'}
 RELAY_DOMAIN='Ziokt/tracker-relay-authorization/v1'
 
 
+def admit_registration(directory,params,principal,*,anonymous_only=False,relay_authorities=()):
+    exact(params,{'envelope','publish','anonymous','relay_authorization'})
+    if params['publish'] is not True or type(params['anonymous']) is not bool:
+        raise ProtocolError('POLICY_DENIED','explicit opt-in publication required')
+    public,value=directory.validate(params['envelope'])
+    if public!=principal:raise ProtocolError('POLICY_DENIED','cannot publish another identity')
+    if anonymous_only or params['anonymous'] or directory.policy['privacy']=='restricted':
+        clear=[endpoint for endpoint in value['endpoints'] if not endpoint['host'].endswith(('.onion','.i2p'))]
+        if clear:
+            envelope=params['relay_authorization'];issuer=envelope.get('public_key') if isinstance(envelope,dict) else None
+            if issuer not in relay_authorities or issuer==principal:
+                raise ProtocolError('POLICY_DENIED','anonymous registration requires a separately authorized relay')
+            auth=verify(envelope,issuer,RELAY_DOMAIN)
+            expected={'community_id':directory.policy['community_id'],'policy':directory.policy_id,'node':principal,
+                      'endpoints_digest':'sha256:'+hashlib.sha256(encoded(clear)).hexdigest(),'expires':value['expires']}
+            if auth!=expected:raise ProtocolError('POLICY_DENIED','relay authorization scope or expiry differs')
+    elif params['relay_authorization'] is not None:
+        raise ProtocolError('INVALID_DISCOVERY','relay authorization is only used for anonymous registration')
+    return public,value
+
+
 class Tracker:
     def __init__(self,directory,*,anonymous_only=False,relay_authorities=()):
         self.directory=directory;self.policy=directory.policy
@@ -58,24 +79,9 @@ class Tracker:
                 directory.db.execute('DELETE FROM tracker_leases WHERE public=?',(principal,))
                 directory.db.execute('INSERT OR REPLACE INTO tracker_revocations VALUES (?,?)',(principal,sequence))
                 return {'revoked':True,'sequence':sequence}
-            exact(params,{'envelope','publish','anonymous','relay_authorization'})
-            if params['publish'] is not True or type(params['anonymous']) is not bool:
-                raise ProtocolError('POLICY_DENIED','explicit opt-in publication required')
-            public,value=directory.validate(params['envelope'])
-            if public!=principal:raise ProtocolError('POLICY_DENIED','cannot publish another identity')
+            public,value=admit_registration(directory,params,principal,anonymous_only=self.anonymous_only,relay_authorities=self.relay_authorities)
             revoked=directory.db.execute('SELECT sequence FROM tracker_revocations WHERE public=?',(principal,)).fetchone()
             if revoked and value['sequence']<=revoked[0]:raise ProtocolError('REPLAY_REJECTED','revoked advertisement cannot be re-registered')
-            if self.anonymous_only or params['anonymous']:
-                clear=[endpoint for endpoint in value['endpoints'] if not endpoint['host'].endswith(('.onion','.i2p'))]
-                if clear:
-                    envelope=params['relay_authorization'];issuer=envelope.get('public_key') if isinstance(envelope,dict) else None
-                    if issuer not in self.relay_authorities:raise ProtocolError('POLICY_DENIED','anonymous registration requires an explicitly authorized relay')
-                    auth=verify(envelope,issuer,RELAY_DOMAIN)
-                    expected={'community_id':self.community.community_id,'policy':directory.policy_id,'node':principal,
-                              'endpoints_digest':'sha256:'+hashlib.sha256(encoded(clear)).hexdigest(),'expires':value['expires']}
-                    if auth!=expected:raise ProtocolError('POLICY_DENIED','relay authorization scope or expiry differs')
-            elif params['relay_authorization'] is not None:
-                raise ProtocolError('INVALID_DISCOVERY','relay authorization is only used for anonymous registration')
             directory.ingest([params['envelope']])
             directory.db.execute('INSERT OR REPLACE INTO tracker_leases VALUES (?,?,?,?)',(public,value['expires'],value['sequence'],encoded(params['envelope'])))
             return {'registered':True,'expires':value['expires'],'sequence':value['sequence']}
@@ -89,6 +95,11 @@ class TrackerClient:
 
     def call(self,method,params,*,cancellation=None):
         if method not in METHODS:raise ValueError('tracker method required')
+        if method=='tracker.register':
+            from .security import sign
+            principal=sign({},self.private,'test')['public_key']
+            issuers={key for key,rights in self.directory.policy['members'].items() if 'discover' in rights}
+            admit_registration(self.directory,params,principal,relay_authorities=issuers)
         from .security import grant
         from .community import content_id
         from .resilient_transport import request_resilient

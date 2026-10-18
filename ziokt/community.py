@@ -119,12 +119,15 @@ class Community:
         self._ring_path = self.root/'keyrings'/self.policy_id[7:]
         if self._ring_path.exists(): self._adopt_keys(self._decode_ring(secure_read(self._ring_path, 4096)))
         path = self.root/'community.sqlite'
-        if path.exists(): secure_read(path, 64*1024*1024)
+        if path.exists() and not readonly:secure_read(path,64*1024*1024)
+        if readonly and os.name!='nt' and path.lstat().st_mode & 0o077:
+            raise ProtocolError('UNSAFE_FILE','owner-private community database required')
         self.store = ArtifactStore(self.root/'objects')
         self.lock = threading.RLock()
         self._event_cache = {}
         if readonly:
-            self.db=sqlite3.connect(path.absolute().as_uri()+'?mode=ro',uri=True,timeout=5,check_same_thread=False)
+            from ._runtime import native_database
+            self.db=native_database(path)
             try:
                 latest=self.db.execute('SELECT id,epoch,document FROM policies ORDER BY epoch DESC LIMIT 1').fetchone()
                 if not latest or latest[0]!=self.policy_id or latest[1]!=self.policy['epoch']:

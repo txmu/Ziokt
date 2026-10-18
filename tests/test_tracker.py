@@ -31,6 +31,14 @@ class TrackerTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):self.register(advert,anonymous=True)
         with self.assertRaises(ProtocolError):self.tracker.call('tracker.register',{'envelope':advert,'publish':True,'anonymous':False,'relay_authorization':None},self.public[2])
         self.assertEqual(self.query(),[])
+    def test_anonymous_clear_endpoint_is_rejected_before_network_send(self):
+        from unittest.mock import patch
+        from ziokt.tracker import TrackerClient
+        client=TrackerClient(self.directory,self.keys[1],{'host':'127.0.0.1','port':1},object())
+        with patch('ziokt.resilient_transport.request_resilient') as send:
+            with self.assertRaises(ProtocolError):client.call('tracker.register',{'envelope':self.advert(),'publish':True,'anonymous':True,'relay_authorization':None})
+            send.assert_not_called()
+
     def test_actual_mtls_register_query_and_revoke(self):
         import hashlib,threading
         from test_community_network import certificates
