@@ -50,7 +50,21 @@ function save(){
 function pub(u){return{id:u.id,username:u.username,name:u.name,admin:u.admin,contacts:u.contacts,key:u.key}}
 function byId(id){return store.users.find(u=>u.id===id)}
 function auth(req){const bearer=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1],cookie=req.headers.cookie?.match(/(?:^|;\s*)ziokt_session=([a-f0-9]{64})(?:;|$)/)?.[1];const s=sessions.get(bearer||cookie);return s&&s.expires>Date.now()?byId(s.id):null}
-function originOK(req){return (publicOrigin&&req.headers.origin===publicOrigin)||req.headers.origin===`http://127.0.0.1:${PORT}`||req.headers.origin===`http://localhost:${PORT}`}
+function originOK(req){
+ const orig=req.headers.origin;
+ if(!orig){
+  const ref=req.headers.referer;
+  if(ref){try{const refUrl=new URL(ref);if(refUrl.host===req.headers.host||(publicOrigin&&refUrl.origin===publicOrigin))return true}catch(_){}}
+  const secFetch=req.headers['sec-fetch-site'];
+  if(secFetch==='same-origin'||secFetch==='same-site'||secFetch==='none')return true;
+  if(!publicOrigin)return true;
+ }
+ if(!orig)return true;
+ if(publicOrigin&&orig===publicOrigin)return true;
+ if(orig===`http://127.0.0.1:${PORT}`||orig===`http://localhost:${PORT}`)return true;
+ if(req.headers.host&&(orig===`http://${req.headers.host}`||orig===`https://${req.headers.host}`))return true;
+ return false;
+}
 function json(res,status,data,headers={}){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(JSON.stringify(data))}
 let activeBodies=0;
 const STORAGE_BUDGET=256*1024*1024;
@@ -64,6 +78,22 @@ const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost');
  if(url.pathname==='/app-config'&&req.method==='GET')return json(res,200,{title:store.settings?.title||'网页管理',mode:bridge||simBridge?'federated':'standalone'});
  if(req.method==='POST'&&!originOK(req)&&!req.headers.authorization)return json(res,403,{error:'ORIGIN_REJECTED'});
+ if(url.pathname==='/api/register'&&req.method==='POST'){
+  const ip=req.socket.remoteAddress,now=Date.now();let attempt=attempts.get(ip)||{n:0,until:now+60000};if(attempt.until<now)attempt={n:0,until:now+60000};attempt.n++;attempts.set(ip,attempt);if(attempt.n>12)return json(res,429,{error:'RATE_LIMIT'});
+  if(store.users.length>=256)return json(res,413,{error:'LIMIT'});
+  const x=JSON.parse(await body(req));
+  const username=(x.username||'').trim(),name=(x.name||username).trim(),password=x.password;
+  if(!username||!password)return json(res,400,{error:'INVALID_USER'});
+  if(store.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return json(res,409,{error:'DUPLICATE'});
+  const u=await makeUser(username,name,password,store.users.length===0);
+  if(x.backup)u.backup={version:x.backup.version||2,algorithm:x.backup.algorithm||'AES-256-GCM',kdf:x.backup.kdf||'PBKDF2-SHA-256',iterations:x.backup.iterations||100000,salt:x.backup.salt,iv:x.backup.iv,ciphertext:x.backup.ciphertext,updatedAt:now};
+  if(x.key)u.key={kty:'EC',crv:'P-256',x:x.key.x,y:x.key.y};
+  const adminUser=store.users.find(a=>a.admin);
+  if(adminUser&&adminUser.id!==u.id){if(!u.contacts.includes(adminUser.id))u.contacts.push(adminUser.id);if(!adminUser.contacts.includes(u.id))adminUser.contacts.push(u.id)}
+  store.users.push(u);save();
+  const token=crypto.randomBytes(32).toString('hex');sessions.set(token,{id:u.id,expires:now+3600000});
+  return json(res,201,{user:{...pub(u),backup:u.backup||null}},{'Set-Cookie':`ziokt_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600${publicOrigin?'; Secure':''}`});
+ }
  if(url.pathname==='/api/login'&&req.method==='POST'){
   const ip=req.socket.remoteAddress,now=Date.now();let attempt=attempts.get(ip)||{n:0,until:now+60000};if(attempt.until<now)attempt={n:0,until:now+60000};attempt.n++;attempts.set(ip,attempt);if(attempt.n>12)return json(res,429,{error:'RATE_LIMIT'});
   const x=JSON.parse(await body(req)),u=store.users.find(u=>u.username===x.username),salt=u?.salt||'dummy-authentication-salt';let valid=false;

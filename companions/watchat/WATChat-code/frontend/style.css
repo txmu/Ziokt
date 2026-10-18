@@ -63,5 +63,15 @@ body[data-ui="classic"] #workspace{grid-template-columns:minmax(200px,280px) min
 body[data-ui="classic"] #composer{grid-template-columns:minmax(0,1fr) auto}
 @media(max-width:600px){main{grid-template-columns:minmax(0,1fr)}}
 .transport-badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;background:rgba(25,83,165,.15);color:var(--accent);margin:4px 0}
-#reset-identity{background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;border-radius:6px}
+#reset-identity{background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;border-radius:6px;font-size:12px;padding:4px 8px;margin-top:8px}
 #reset-identity:hover{color:var(--focus);border-color:var(--focus)}
+.login-actions{display:flex;gap:8px;margin-top:4px}
+.login-actions button{flex:1;min-height:48px}
+.button-secondary{background:var(--bg);color:var(--ink);border:1px solid var(--border)}
+.button-text{background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:13px;padding:8px;text-align:center;width:100%}
+.button-text:hover{color:var(--focus);text-decoration:underline}
+.login-error{display:block;color:#e53935;font-size:13px;font-weight:600;min-height:18px;margin:4px 0;text-align:center}
+body[data-ui="classic"] .login-actions{display:flex;gap:8px}
+body[data-ui="classic"] .button-secondary{background:var(--panel);color:var(--text);border:1px solid var(--line)}
+body[data-ui="classic"] .button-text{color:var(--muted)}
+body[data-ui="classic"] .login-error{color:var(--danger)}

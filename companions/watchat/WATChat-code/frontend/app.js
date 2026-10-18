@@ -1,17 +1,23 @@
 'use strict';
 const $=id=>document.getElementById(id),encoder=new TextEncoder(),decoder=new TextDecoder();
-const messages={en:{language:'Language',install:'Install app',notifications:'Enable notifications',logout:'Sign out',username:'Username',password:'Password',login:'Sign in',contacts:'Contacts',contactId:'Contact ID',add:'Add',manage:'Manage users',name:'Name',create:'Create',selectContact:'Select a contact',message:'Message',send:'Send',attachment:'Photo, video or audio',ready:'Connected',offline:'Offline: sealed messages remain queued',newMessage:'New message',keyTrust:'Verify this fingerprint with your contact before sending:',keyChanged:'Contact key changed. Sending blocked.',keyMissing:'Contact has not registered a key',keyLost:'This device does not have the account key. Use the original device.',notificationOff:'Notifications unavailable or permission denied',pushLocal:'Notifications enabled while this app is running; background push is not configured',pushReady:'Background notifications enabled',pending:'Queued sealed messages',error:'Operation failed'},'zh-CN':{language:'语言',install:'安装应用',notifications:'启用通知',logout:'退出登录',username:'用户名',password:'密码',login:'登录',contacts:'联系人',contactId:'联系人 ID',add:'添加',manage:'管理用户',name:'名称',create:'创建',selectContact:'选择联系人',message:'消息',send:'发送',attachment:'照片、视频或音频',ready:'已连接',offline:'当前离线：密文消息保留在待发送队列',newMessage:'收到新消息',keyTrust:'发送前，请与联系人核对这个指纹：',keyChanged:'联系人密钥发生变化，已阻止发送。',keyMissing:'联系人尚未登记密钥',keyLost:'此设备没有账户密钥，请使用原设备。',notificationOff:'通知不可用或未获授权',pushLocal:'已启用应用运行期间的通知；尚未配置后台推送',pushReady:'已启用后台通知',pending:'待发送密文消息',error:'操作失败'}};
+const messages={en:{language:'Language',install:'Install app',notifications:'Enable notifications',logout:'Sign out',username:'Username',password:'Password',login:'Sign in',register:'Register',resetKey:'Reset Identity',contacts:'Contacts',contactId:'Contact ID',add:'Add',manage:'Manage users',name:'Name',create:'Create',selectContact:'Select a contact',message:'Message',send:'Send',attachment:'Photo, video or audio',ready:'Connected',offline:'Offline: sealed messages remain queued',newMessage:'New message',keyTrust:'Verify this fingerprint with your contact before sending:',keyChanged:'Contact key changed. Sending blocked.',keyMissing:'Contact has not registered a key',keyLost:'This device does not have the account key. Use the original device.',notificationOff:'Notifications unavailable or permission denied',pushLocal:'Notifications enabled while this app is running; background push is not configured',pushReady:'Background notifications enabled',pending:'Queued sealed messages',error:'Operation failed',AUTH_FAILED:'Invalid username or password',DUPLICATE:'Username already exists',PASSWORD_POLICY:'Password must be at least 12 characters',INVALID_USER:'Invalid username or details',RATE_LIMIT:'Too many attempts, please wait',ORIGIN_REJECTED:'Origin verification failed',legacyAccountMigratePrompt:'This legacy account has no key backup on server. Initialize a new identity key with your password?'},'zh-CN':{language:'语言',install:'安装应用',notifications:'启用通知',logout:'退出登录',username:'用户名',password:'密码',login:'登录',register:'注册',resetKey:'重置身份',contacts:'联系人',contactId:'联系人 ID',add:'添加',manage:'管理用户',name:'名称',create:'创建',selectContact:'选择联系人',message:'消息',send:'发送',attachment:'照片、视频或音频',ready:'已连接',offline:'当前离线：密文消息保留在待发送队列',newMessage:'收到新消息',keyTrust:'发送前，请与联系人核对这个指纹：',keyChanged:'联系人密钥发生变化，已阻止发送。',keyMissing:'联系人尚未登记密钥',keyLost:'此设备没有账户密钥，请使用原设备。',notificationOff:'通知不可用或未获授权',pushLocal:'已启用应用运行期间的通知；尚未配置后台推送',pushReady:'已启用后台通知',pending:'待发送密文消息',error:'操作失败',AUTH_FAILED:'用户名或密码错误',DUPLICATE:'用户名已被注册',PASSWORD_POLICY:'密码至少需 12 位字符',INVALID_USER:'用户名或信息不符合规则',RATE_LIMIT:'请求过于频繁，请稍候再试',ORIGIN_REJECTED:'请求源验证失败',legacyAccountMigratePrompt:'检测到此旧版本账户尚无备份，是否使用当前密码重新初始化身份密钥？'}};
 messages.en.pageTitle='Page title';messages.en.saveTitle='Save title';messages['zh-CN'].pageTitle='页面标题';messages['zh-CN'].saveTitle='保存标题';
-Object.assign(messages.en,{interface:'Interface',simple:'Modern Simple',classic:'Classic Rich',theme:'Theme',system:'System',light:'Light',dark:'Dark',back:'Back to contacts',photo:'Photo',video:'Video',record:'Record voice',stopRecording:'Stop and send',cancelRecording:'Cancel recording',recording:'Recording (60 seconds maximum)',recordUnsupported:'Voice recording is unavailable in this browser',microphoneDenied:'Microphone permission denied or unavailable',mediaLimit:'Attachment exceeds the 11 MiB limit',mediaBusy:'An attachment is being prepared',online:'Online',offlineContact:'Offline',sendingMedia:'Encrypting and uploading attachment',serverStored:'Stored by server',recipientConfirmed:'Recipient confirmed',clearMedia:'Cancel pending attachments',attachmentDigest:'Attachment integrity check failed'});
-Object.assign(messages['zh-CN'],{interface:'界面模式',simple:'现代简约版',classic:'经典丰富版',theme:'主题',system:'跟随系统',light:'浅色',dark:'深色',back:'返回联系人',photo:'图片',video:'视频',record:'录制语音',stopRecording:'停止并发送',cancelRecording:'取消录音',recording:'录音中（最长 60 秒）',recordUnsupported:'当前浏览器不支持语音录制',microphoneDenied:'麦克风权限被拒绝或设备不可用',mediaLimit:'附件超过 11 MiB 上限',mediaBusy:'正在处理附件',online:'在线',offlineContact:'离线',sendingMedia:'正在加密并上传附件',serverStored:'服务器已存储',recipientConfirmed:'对端已确认',clearMedia:'取消待发送附件',attachmentDigest:'附件完整性校验失败'});
+Object.assign(messages.en,{interface:'Interface',simple:'Modern Simple',classic:'Classic Rich',theme:'Theme',system:'System',light:'Light',dark:'Dark',back:'Back',photo:'Photo',video:'Video',record:'Record voice',stopRecording:'Stop and send',cancelRecording:'Cancel recording',recording:'Recording (60 seconds maximum)',recordUnsupported:'Voice recording is unavailable in this browser',microphoneDenied:'Microphone permission denied or unavailable',mediaLimit:'Attachment exceeds the 11 MiB limit',mediaBusy:'An attachment is being prepared',online:'Online',offlineContact:'Offline',sendingMedia:'Encrypting and uploading attachment',serverStored:'Stored by server',recipientConfirmed:'Recipient confirmed',clearMedia:'Cancel pending attachments',attachmentDigest:'Attachment integrity check failed'});
+Object.assign(messages['zh-CN'],{interface:'界面模式',simple:'现代简约版',classic:'经典丰富版',theme:'主题',system:'跟随系统',light:'浅色',dark:'深色',back:'返回',photo:'图片',video:'视频',record:'录制语音',stopRecording:'停止并发送',cancelRecording:'取消录音',recording:'录音中（最长 60 秒）',recordUnsupported:'当前浏览器不支持语音录制',microphoneDenied:'麦克风权限被拒绝或设备不可用',mediaLimit:'附件超过 11 MiB 上限',mediaBusy:'正在处理附件',online:'在线',offlineContact:'离线',sendingMedia:'正在加密并上传附件',serverStored:'服务器已存储',recipientConfirmed:'对端已确认',clearMedia:'取消待发送附件',attachmentDigest:'附件完整性校验失败'});
 Object.assign(messages.en,{MEDIA_TYPE:'Choose a photo, video or audio file',MEDIA_OUTBOX_LIMIT:'Four attachments are queued; retry or cancel pending attachments',UPLOAD_REFERENCE_CHANGED:'Server returned a different attachment reference',SESSION_CHANGED:'Session changed while preparing the attachment',upgradeBlocked:'Close other WATChat tabs to finish the storage upgrade',dbReload:'Storage changed in another tab; reload this page',playbackUnavailable:'This browser cannot play this media format',saveAttachment:'Save attachment'});
-Object.assign(messages.en,{transportMode:'Mode','ziokt-p2p':'Ziokt P2P (Default)','ziokt-multihop':'Ziokt P2P Multi-Hop','watchat-server':'WATChat Server',shadow6:'Shadow6 Native',etp:'ETP Native',stateNode:'Reached node',stateTransport:'Handed to transport',read:'Read',bridged:'Bridged',resetIdentity:'Reset Identity',identityResetAlert:'Contact identity was reset',backupDecryptFailed:'Incorrect password for key recovery',keyLostOrReset:'Key not found on this device and no server backup exists.'});
-Object.assign(messages['zh-CN'],{transportMode:'通信模式','ziokt-p2p':'Ziokt P2P 单跳 (默认)','ziokt-multihop':'Ziokt P2P 多跳','watchat-server':'WATChat 原生服务器',shadow6:'Shadow6 原生传输',etp:'ETP 原生传输',stateNode:'已达节点',stateTransport:'已交传输',read:'已读',bridged:'跨模式受控桥接',resetIdentity:'重置身份密钥',identityResetAlert:'联系人身份密钥已重置',backupDecryptFailed:'密码无法解密此账户在此设备的密钥备份',keyLostOrReset:'此设备无账户私钥且服务器无备份。'});
+Object.assign(messages.en,{transportMode:'Mode','ziokt-p2p':'Ziokt P2P Single-Hop','ziokt-multihop':'Ziokt P2P Multi-Hop','watchat-server':'WATChat Server (Default)',shadow6:'Shadow6 Native',etp:'ETP Native',stateNode:'Reached node',stateTransport:'Handed to transport',read:'Read',bridged:'Bridged',resetIdentity:'Reset Identity',identityResetAlert:'Contact identity was reset',backupDecryptFailed:'Incorrect password for key recovery',keyLostOrReset:'Key not found on this device and no server backup exists.'});
+Object.assign(messages['zh-CN'],{transportMode:'通信模式','ziokt-p2p':'Ziokt P2P 单跳','ziokt-multihop':'Ziokt P2P 多跳','watchat-server':'WATChat 原生服务器 (默认)',shadow6:'Shadow6 原生传输',etp:'ETP 原生传输',stateNode:'已达节点',stateTransport:'已交传输',read:'已读',bridged:'跨模式受控桥接',resetIdentity:'重置身份密钥',identityResetAlert:'联系人身份密钥已重置',backupDecryptFailed:'密码无法解密此账户在此设备的密钥备份',keyLostOrReset:'此设备无账户私钥且服务器无备份。'});
 Object.assign(messages['zh-CN'],{MEDIA_TYPE:'请选择图片、视频或音频文件',MEDIA_OUTBOX_LIMIT:'已有四个待发送附件，请重试或取消待发送附件',UPLOAD_REFERENCE_CHANGED:'服务器返回的附件引用不匹配',SESSION_CHANGED:'处理附件时会话已发生变化',upgradeBlocked:'请关闭其他 WATChat 标签页以完成存储升级',dbReload:'其他标签页已升级存储，请刷新当前页面',playbackUnavailable:'当前浏览器无法播放此媒体格式',saveAttachment:'保存附件'});
-let transportMode=localStorage.getItem('watchat.transport')||'ziokt-p2p';
+
+let locale=localStorage.getItem('watchat.locale')||'en';if(!messages[locale])locale='en';
+function t(key){return messages[locale][key]||key}function status(key){$('status').textContent=t(key)}
+function language(){document.documentElement.lang=locale;$('language').value=locale;for(const el of document.querySelectorAll('[data-i18n]'))el.textContent=t(el.dataset.i18n);localStorage.setItem('watchat.locale',locale);navigator.serviceWorker?.controller?.postMessage({type:'locale',locale})}
+
+let transportMode=localStorage.getItem('watchat.transport')||'watchat-server';
 if($('transport-mode')){$('transport-mode').value=transportMode;$('transport-mode').onchange=()=>{transportMode=$('transport-mode').value;localStorage.setItem('watchat.transport',transportMode);if(ws?.readyState===1)ws.send(JSON.stringify({action:'mode',mode:transportMode}));updateTransportBadge()}}
-function updateTransportBadge(){if($('active-transport')){$('active-transport').textContent=t(transportMode)+' ('+(transportMode==='ziokt-p2p'?'1跳 · 单跳直连':(transportMode==='ziokt-multihop'?'多跳路由':(transportMode==='shadow6'?'Shadow6原生':(transportMode==='etp'?'ETP洋葱':'服务器中继'))))+')'}}
+function updateTransportBadge(){if($('active-transport')){$('active-transport').textContent=t(transportMode)+' ('+(transportMode==='watchat-server'?'服务器中继 · 默认':(transportMode==='ziokt-p2p'?'1跳 · 单跳直连':(transportMode==='ziokt-multihop'?'多跳路由':(transportMode==='shadow6'?'Shadow6原生':'ETP洋葱'))))+')'}}
 updateTransportBadge();
+
 let uiMode=localStorage.getItem('watchat.ui')||'simple',theme=localStorage.getItem('watchat.theme')||'system';
 if(!['simple','classic'].includes(uiMode))uiMode='simple';if(!['system','light','dark'].includes(theme))theme='system';
 const systemTheme=matchMedia('(prefers-color-scheme: dark)');
@@ -19,9 +25,6 @@ function appearance(){document.body.dataset.ui=uiMode;document.documentElement.d
 function setUiMode(mode){if(['simple','classic'].includes(mode)){uiMode=mode;appearance()}}
 if($('ui-mode'))$('ui-mode').onchange=()=>setUiMode($('ui-mode').value);if($('login-ui-mode'))$('login-ui-mode').onchange=()=>setUiMode($('login-ui-mode').value);if($('login-ui-simple')){$('login-ui-simple').onclick=()=>setUiMode('simple');$('login-ui-simple').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setUiMode('simple')}}}if($('login-ui-classic')){$('login-ui-classic').onclick=()=>setUiMode('classic');$('login-ui-classic').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setUiMode('classic')}}}if($('theme'))$('theme').onchange=()=>{theme=$('theme').value;appearance()};systemTheme.addEventListener('change',appearance);appearance();
 $('chat-back').onclick=()=>{document.body.classList.remove('chat-open');$('contacts').querySelector('button')?.focus()};
-let locale=localStorage.getItem('watchat.locale')||'en';if(!messages[locale])locale='en';
-function t(key){return messages[locale][key]||key}function status(key){$('status').textContent=t(key)}
-function language(){document.documentElement.lang=locale;$('language').value=locale;for(const el of document.querySelectorAll('[data-i18n]'))el.textContent=t(el.dataset.i18n);localStorage.setItem('watchat.locale',locale);navigator.serviceWorker?.controller?.postMessage({type:'locale',locale})}
 $('language').onchange=()=>{locale=$('language').value;language()};language();
 let db,me,pair,users=[],peer=null,ws,installEvent,serial=Promise.resolve(),generation=0;const rendered=new Set(),mediaUrls=new Set(),confirmed=new Set();
 function database(){return new Promise((resolve,reject)=>{const request=indexedDB.open('ziokt-watchat-v2',2);request.onupgradeneeded=()=>{for(const name of ['keys','pins','outbox','media'])if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name)};request.onblocked=()=>status('upgradeBlocked');request.onsuccess=()=>{request.result.onversionchange=()=>{request.result.close();status('dbReload')};resolve(request.result)};request.onerror=()=>reject(request.error)})}
@@ -40,10 +43,11 @@ async function render(message,viewGeneration){if(rendered.has(message.id)||viewG
  if(message.from===me.id){
   const receipt=document.createElement('small');receipt.className='delivery';
   const st=message.readAt?'read':(message.receivedAt||confirmed.has(message.id)?'recipientConfirmed':(message.state==='node'?'stateNode':'serverStored'));
-  let badge=t(st);
-  if(message.bridged)badge+=` · ${t('bridged')} (${t(message.bridged.from)}→${t(message.bridged.to)})`;
-  else badge+=` · ${t(message.transport||transportMode)} (${message.hops||1}跳)`;
-  receipt.textContent=badge;article.append(receipt);
+  receipt.textContent=t(st);article.append(receipt);
+  const badgeSpan=document.createElement('small');badgeSpan.className='delivery-transport';
+  if(message.bridged)badgeSpan.textContent=` · ${t('bridged')} (${t(message.bridged.from)}→${t(message.bridged.to)})`;
+  else badgeSpan.textContent=` · ${t(message.transport||transportMode)} (${message.hops||1}跳)`;
+  article.append(badgeSpan);
  }else if(ws?.readyState===1){ws.send(JSON.stringify({action:'received',id:message.id}));ws.send(JSON.stringify({action:'read',id:message.id}))}
  rendered.add(message.id);$('messages').append(article);$('messages').scrollTop=$('messages').scrollHeight}
 async function refresh(){users=(await api('/api/users')).users;const list=$('contacts');list.replaceChildren();for(const u of users){if(u.id===me.id)continue;const row=document.createElement('div'),button=document.createElement('button');button.textContent=u.name;button.dataset.contact=u.id;button.onclick=()=>openChat(u);row.append(button);if(me.admin){const add=document.createElement('button');add.textContent=t('add');add.onclick=async()=>{await api('/api/contacts',{id:u.id});me=(await api('/api/me')).user;await refresh()};row.append(add)}list.append(row)}await presence()}
@@ -77,22 +81,22 @@ function connect(){const userId=me.id;ws=new WebSocket(location.origin.replace(/
 async function deriveBackupKey(password,salt,iterations=100000){const km=await crypto.subtle.importKey('raw',encoder.encode(password),{name:'PBKDF2'},false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
 async function encryptPrivateKey(privateJwk,password){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveBackupKey(password,salt,100000);const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,encoder.encode(JSON.stringify(privateJwk)));return{version:2,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:100000,salt:b64(salt),iv:b64(iv),ciphertext:b64(cipher)}}
 async function decryptPrivateKey(backup,password){const salt=unb64(backup.salt),iv=unb64(backup.iv),cipher=unb64(backup.ciphertext),key=await deriveBackupKey(password,salt,backup.iterations||100000);const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,cipher);return JSON.parse(decoder.decode(plain))}
-async function enter(user,password){me=user;db??=await database();pair=await get('keys',me.id);
- if(!pair){
-  if(me.backup&&password){
+async function enter(user,password,forceReset=false){me=user;db??=await database();pair=await get('keys',me.id);
+ if(!pair||forceReset){
+  if(me.backup&&password&&!forceReset){
    try{
     const jwk=await decryptPrivateKey(me.backup,password);
     const privateKey=await crypto.subtle.importKey('jwk',jwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
     const publicKey=me.key?await crypto.subtle.importKey('jwk',me.key,{name:'ECDH',namedCurve:'P-256'},true,[]):await crypto.subtle.importKey('jwk',{kty:'EC',crv:'P-256',x:jwk.x,y:jwk.y},{name:'ECDH',namedCurve:'P-256'},true,[]);
     pair={privateKey,publicKey};await put('keys',me.id,pair);
    }catch(e){throw Error(t('backupDecryptFailed'))}
-  }else if(me.key){throw Error(t('keyLostOrReset'))}
-  else{
+  }else{
    const generated=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
    const privateJwk=await crypto.subtle.exportKey('jwk',generated.privateKey);
    pair={privateKey:await crypto.subtle.importKey('jwk',privateJwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),publicKey:generated.publicKey};
    await put('keys',me.id,pair);
-   if(password){try{const backup=await encryptPrivateKey(privateJwk,password);await api('/api/key/backup',backup);me.backup=backup}catch(_){}}
+   const publicKeyJwk=await crypto.subtle.exportKey('jwk',pair.publicKey);
+   if(password){try{const backup=await encryptPrivateKey(privateJwk,password);if(me.key&&!me.backup){await api('/api/key/reset',{key:publicKeyJwk,backup})}else{await api('/api/key/backup',backup)}me.backup=backup}catch(_){}}
   }
  }else if(!me.backup&&password){
   try{const privateJwk=await crypto.subtle.exportKey('jwk',pair.privateKey);const backup=await encryptPrivateKey(privateJwk,password);await api('/api/key/backup',backup);me.backup=backup}catch(_){}
@@ -102,8 +106,48 @@ async function enter(user,password){me=user;db??=await database();pair=await get
  $('login').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;$('admin').hidden=!me.admin;$('my-id').textContent=me.id;
  updateTransportBadge();await refresh();connect();
 }
-async function queue(value,attachments=[],recipient=peer){if(!recipient)throw Error(t('selectContact'));const frames=await transaction('outbox','readonly',s=>s.getAll());if(frames.length>=128)throw Error('OUTBOX_LIMIT');const id=crypto.randomUUID();const hops=transportMode==='ziokt-p2p'?1:(transportMode==='etp'?3:(transportMode==='ziokt-multihop'?2:1));const frame={action:'send',id,from:me.id,to:recipient.id,kind:'sealed',ciphertext:await sealMessage(recipient,id,value),attachments,transport:transportMode,hops,nonce:crypto.randomUUID()};await put('outbox',me.id+'/'+id,frame);await flush()}
-$('login').onsubmit=async event=>{event.preventDefault();try{const pwd=$('password').value;await enter((await api('/api/login',{username:$('username').value,password:pwd})).user,pwd);$('password').value=''}catch(e){$('status').textContent=t(e.message)}};
+async function queue(value,attachments=[],recipient=peer){if(!recipient)throw Error(t('selectContact'));const frames=await transaction('outbox','readonly',s=>s.getAll());if(frames.length>=128)throw Error('OUTBOX_LIMIT');const id=crypto.randomUUID();const hops=transportMode==='watchat-server'?1:(transportMode==='ziokt-p2p'?1:(transportMode==='etp'?3:(transportMode==='ziokt-multihop'?2:1)));const frame={action:'send',id,from:me.id,to:recipient.id,kind:'sealed',ciphertext:await sealMessage(recipient,id,value),attachments,transport:transportMode,hops,nonce:crypto.randomUUID()};await put('outbox',me.id+'/'+id,frame);await flush()}
+let isRegisterMode=false;
+function setLoginError(msg){if($('login-error'))$('login-error').textContent=msg?t(msg)||msg:'';if(msg)$('status').textContent=t(msg)||msg}
+$('login').onsubmit=async event=>{
+ event.preventDefault();
+ setLoginError('');
+ const userVal=$('username').value.trim(),pwd=$('password').value;
+ if(!userVal||!pwd)return;
+ try{
+  if(isRegisterMode){
+   const nickVal=($('nickname')?.value||'').trim()||userVal;
+   const res=await api('/api/register',{username:userVal,name:nickVal,password:pwd});
+   await enter(res.user,pwd);
+  }else{
+   const res=await api('/api/login',{username:userVal,password:pwd});
+   await enter(res.user,pwd);
+  }
+  $('password').value='';
+ }catch(e){
+  setLoginError(e.message);
+ }
+};
+if($('login-register')){$('login-register').onclick=()=>{
+ isRegisterMode=!isRegisterMode;
+ $('register-fields').hidden=!isRegisterMode;
+ $('login-submit').textContent=isRegisterMode?t('create'):t('login');
+ $('login-register').textContent=isRegisterMode?t('back'):t('register');
+ setLoginError('');
+};}
+if($('login-reset')){$('login-reset').onclick=async()=>{
+ const userVal=$('username').value.trim(),pwd=$('password').value;
+ if(!userVal||!pwd){alert(t('username')+' & '+t('password')+' '+(locale==='zh-CN'?'必须填写':'required'));return}
+ if(!confirm(t('resetIdentity')+'?'))return;
+ try{
+  setLoginError('');
+  const res=await api('/api/login',{username:userVal,password:pwd});
+  await enter(res.user,pwd,true);
+  $('password').value='';
+ }catch(e){
+  setLoginError(e.message);
+ }
+};}
 if($('reset-identity')){$('reset-identity').onclick=async()=>{if(!me||!confirm(t('resetIdentity')+'?'))return;const pwd=prompt(t('password'));if(!pwd||pwd.length<12)return;try{const generated=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);const privateJwk=await crypto.subtle.exportKey('jwk',generated.privateKey);const newPair={privateKey:await crypto.subtle.importKey('jwk',privateJwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),publicKey:generated.publicKey};const publicKeyJwk=await crypto.subtle.exportKey('jwk',newPair.publicKey);const backup=await encryptPrivateKey(privateJwk,pwd);await api('/api/key/reset',{key:publicKeyJwk,backup});await put('keys',me.id,newPair);pair=newPair;me.key=publicKeyJwk;me.backup=backup;status('ready');alert(t('ready'))}catch(e){$('status').textContent=t(e.message)}}};
 
 $('logout').onclick=async()=>{await api('/api/logout',{});me=null;ws?.close();location.reload()};

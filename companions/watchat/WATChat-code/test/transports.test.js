@@ -34,8 +34,22 @@ test('Five communication modes and unified TransportManager unit verification', 
   const ids = modes.map(m => m.id).sort();
   assert.deepEqual(ids, ['etp', 'shadow6', 'watchat-server', 'ziokt-multihop', 'ziokt-p2p'].sort());
 
-  // Mode 1: Ziokt P2P Single-Hop (DEFAULT)
-  assert.equal(tm.getUserMode('user-1'), 'ziokt-p2p');
+  // Mode: WATChat Server (DEFAULT)
+  assert.equal(tm.getUserMode('user-1'), 'watchat-server');
+  const envDefault = {
+    id: crypto.randomUUID(),
+    from: 'user-1',
+    to: 'user-2',
+    kind: 'sealed',
+    ciphertext: crypto.randomBytes(2048).toString('base64'),
+    nonce: crypto.randomUUID()
+  };
+  const resDefault = await tm.routeMessage(envDefault);
+  assert.equal(resDefault.transport, 'watchat-server');
+  assert.equal(resDefault.hops, 1);
+  assert.equal(resDefault.state, 'node');
+
+  // Mode 1: Ziokt P2P Single-Hop
   const envP2P = {
     id: crypto.randomUUID(),
     from: 'user-1',
@@ -209,7 +223,7 @@ test('End-to-end integration: 5 communication modes, switching, and 5-stage ACKs
 
   // 1. Check /api/transport/modes endpoint
   const modesRes = await (await request('/api/transport/modes', { cookie: u1.cookie })).json();
-  assert.equal(modesRes.current, 'ziokt-p2p'); // Default is Ziokt P2P single-hop!
+  assert.equal(modesRes.current, 'watchat-server'); // Default is WATChat Server!
   assert.equal(modesRes.modes.length, 5);
 
   // 2. Switch mode via /api/transport/mode
@@ -220,8 +234,8 @@ test('End-to-end integration: 5 communication modes, switching, and 5-stage ACKs
   const afterSwitch = await (await request('/api/transport/modes', { cookie: u1.cookie })).json();
   assert.equal(afterSwitch.current, 'shadow6');
 
-  // Switch back to ziokt-p2p (default)
-  await request('/api/transport/mode', { cookie: u1.cookie, data: { mode: 'ziokt-p2p' } });
+  // Switch back to watchat-server (default)
+  await request('/api/transport/mode', { cookie: u1.cookie, data: { mode: 'watchat-server' } });
 
   // 3. Connect via WebSockets and test 5-stage ACKs
   const ws1 = new WebSocket(base.replace('http:', 'ws:') + '/ws', { headers: { Cookie: u1.cookie, Origin: base } });

@@ -9,7 +9,7 @@ const { EtpTransport } = require('./EtpTransport');
 class TransportManager {
   constructor(options = {}) {
     this.transports = new Map();
-    this.userModes = new Map(); // userId -> mode ('ziokt-p2p' default)
+    this.userModes = new Map(); // userId -> mode ('watchat-server' default)
     this.processedNonces = new Map(); // nonce -> timestamp
     this.deliveryStates = new Map(); // messageId -> state ('queued'|'transport'|'node'|'confirmed'|'read')
     this.onMessageCallback = options.onMessage || null;
@@ -32,11 +32,11 @@ class TransportManager {
   }
 
   getTransport(mode) {
-    return this.transports.get(mode) || this.transports.get('ziokt-p2p');
+    return this.transports.get(mode) || this.transports.get('watchat-server');
   }
 
   getUserMode(userId) {
-    return this.userModes.get(userId) || 'ziokt-p2p';
+    return this.userModes.get(userId) || 'watchat-server';
   }
 
   setUserMode(userId, mode) {
