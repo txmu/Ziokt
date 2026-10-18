@@ -54,3 +54,12 @@ body[data-ui="classic"] .login-ui-picker{border-bottom-color:var(--border)}
 body[data-ui="classic"] .ui-mode-toggle{background:rgba(0,0,0,.25);border-color:var(--border)}
 body[data-ui="classic"] .ui-mode-pill.active{background:var(--accent);color:#eef6f2;box-shadow:0 0 10px rgba(57,217,151,.25)}
 body[data-ui="classic"] #login{border:1px solid var(--border);box-shadow:0 8px 32px rgba(8,107,69,.15)}
+/* Native file controls and media must shrink inside narrow grid tracks. */
+main{grid-template-columns:minmax(200px,280px) minmax(0,1fr)}
+form,input,select,textarea,#media,#messages,#media-tools{min-width:0;max-width:100%}
+form>*{min-width:0;max-width:100%}
+#media{width:100%}
+body[data-ui="classic"] #workspace{grid-template-columns:minmax(200px,280px) minmax(0,1fr)}
+body[data-ui="classic"] #composer{grid-template-columns:minmax(0,1fr) auto}
+body[data-ui="classic"] #composer label{grid-column:1/-1}
+@media(max-width:600px){main{grid-template-columns:minmax(0,1fr)}}

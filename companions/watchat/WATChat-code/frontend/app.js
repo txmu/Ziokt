@@ -100,7 +100,7 @@ $('record').onclick=async()=>{
  recorder.onerror=()=>{recordCancelled=true;releaseMicrophone();status('microphoneDenied')};
  recorder.onstop=async()=>{releaseMicrophone();if(recordCancelled)return;try{const file=new File(pieces,['voice',mime.includes('mp4')?'m4a':mime.includes('ogg')?'ogg':'webm'].join('.'),{type:mime});await sendMedia(file,recordTarget)}catch(e){$('status').textContent=t(e.message)}};
  recorder.start(1000);recordTimer=setTimeout(()=>{if(recorder?.state==='recording')recorder.stop()},60000);$('record').dataset.i18n='stopRecording';$('record').textContent=t('stopRecording');$('record-cancel').hidden=false;status('recording');
- }catch(e){releaseMicrophone();$('status').textContent=e.name==='NotAllowedError'||e.name==='NotFoundError'?t('microphoneDenied'):e.message}
+ }catch(e){releaseMicrophone();$('status').textContent=['NotAllowedError','NotFoundError','NotReadableError'].includes(e.name)?t('microphoneDenied'):e.name==='NotSupportedError'?t('recordUnsupported'):e.message}
  finally{$('record').disabled=false}
 };
 window.addEventListener('pagehide',()=>{recordCancelled=true;if(recorder?.state==='recording')recorder.stop();releaseMicrophone();for(const url of mediaUrls)URL.revokeObjectURL(url)});
