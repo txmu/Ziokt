@@ -1,7 +1,7 @@
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
-import { State, t, showToast, Events } from '../core.js';
+import { State, t, showToast, Events, setStorage } from '../core.js';
 
 export function renderHome(container) {
   container.innerHTML = `
@@ -138,7 +138,7 @@ export function renderHome(container) {
   if (modeSelect) {
     modeSelect.onchange = (e) => {
       State.runtimeMode = e.target.value;
-      localStorage.setItem('ziokt_mode', e.target.value);
+      setStorage('ziokt_mode', e.target.value);
       showToast(`已切换至: ${e.target.options[e.target.selectedIndex].text}`, 'info');
       Events.emit('mode_changed', e.target.value);
     };

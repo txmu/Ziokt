@@ -6,6 +6,13 @@
   <title>Ziokt 统一图形客户端</title>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Ziokt">
+  <meta name="theme-color" content="#0284c7">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
 <body>
 
@@ -82,6 +89,7 @@
       </div>
 
       <div class="topbar-right">
+        <button id="pwa-install-btn" class="btn btn-primary btn-sm" style="display:none;" title="安装为独立桌面/移动端应用">📲 安装应用</button>
         <button id="quick-lang-btn" class="btn btn-secondary btn-sm" title="切换语言">🌐 中/EN</button>
         <button id="quick-theme-btn" class="btn btn-secondary btn-sm" title="切换主题">🌓</button>
         <div id="user-did-pill" class="did-pill" title="点击复制当前 DID">
@@ -139,6 +147,17 @@
 <!-- Toast Container -->
 <div id="toast-container"></div>
 
-<script type="module" src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js').then(function(reg) {
+        console.log('[Ziokt PWA] ServiceWorker registered with scope:', reg.scope);
+      }).catch(function(err) {
+        console.warn('[Ziokt PWA] ServiceWorker registration failed:', err);
+      });
+    });
+  }
+</script>
+<script src="app.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // ==============================================================================
 // Module: Decentralized Identity (DID), Keys & PoUW Governance Management
 // ==============================================================================
-import { State, t, showToast, showConfirm, showJsonModal } from '../core.js';
+import { State, t, showToast, showConfirm, showJsonModal, setStorage } from '../core.js';
 
 let pouwActive = true;
 let hashrate = '2,840 H/s';
@@ -115,7 +115,7 @@ export function renderIdentity(container) {
     const newDid = prompt('输入切换的 DID 标识:', State.userDid);
     if (newDid && newDid.trim()) {
       State.userDid = newDid.trim();
-      localStorage.setItem('ziokt_did', State.userDid);
+      setStorage('ziokt_did', State.userDid);
       showToast('已切换至新身份', 'success');
       renderIdentity(container);
     }

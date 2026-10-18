@@ -1925,7 +1925,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 APK 安装包 (755 KB)', 'Download APK Package (755 KB)')}
+                        ⬇️ {tr('直接下载 APK 安装包 (1.1 MB)', 'Download APK Package (1.1 MB)')}
                     </a>
                 </div>
             </div>
@@ -1957,7 +1957,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-web-pwa.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 PWA 包 (34.4 KB)', 'Download PWA (34.4 KB)')}
+                        ⬇️ {tr('直接下载 PWA 包 (51 KB)', 'Download PWA (51 KB)')}
                     </a>
                 </div>
             </div>

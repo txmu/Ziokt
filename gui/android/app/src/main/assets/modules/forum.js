@@ -1,46 +1,55 @@
 // ==============================================================================
 // Module: Corium Community Forum & Decentralized Governance Reader/Publisher
 // ==============================================================================
-import { State, t, showToast } from '../core.js';
+import { State, t, showToast, getStorage, setStorage } from '../core.js';
 
-let forumPosts = JSON.parse(localStorage.getItem('ziokt_forum_posts') || 'null') || [
-  {
-    id: 1,
-    title: '【治理提案 #48】关于增加 PoUW 算力贡献者奖励权重的提案',
-    author: 'did:ziokt:mesh:genesis-node',
-    authorName: 'Genesis Validator',
-    category: 'governance',
-    date: '2026-10-17 18:30',
-    content: '为激励更多社区节点加入 Corium 验证网络，建议将 PoUW 引擎算力证明的奖励权重由现行 1.25 调整至 1.50。已通过本地 SQLite/Bash 引擎奖励权重激活测试。',
-    replies: 12,
-    upvotes: 38,
-    signature: 'ed25519:9f8e7d...12c'
-  },
-  {
-    id: 2,
-    title: '【技术规范】TC-16 虚拟机 16 位微架构运行指令集草案',
-    author: 'did:ziokt:mesh:core-dev',
-    authorName: 'Core Architecture Team',
-    category: 'technical',
-    date: '2026-10-16 14:20',
-    content: 'TC-16 VM 设计采用 16 位虚拟处理器架构，包含 8 个通用寄存器 R0-R7，严格控制 TCC Gas 消耗上限，确保在 ETP 洋葱中继环境中完全确定性执行。',
-    replies: 8,
-    upvotes: 24,
-    signature: 'ed25519:4a8b1c...99f'
-  },
-  {
-    id: 3,
-    title: '【生态应用】基于 UFS 与 dCPM 软件包的去中心化协作工具链',
-    author: 'did:ziokt:mesh:app-builder',
-    authorName: 'Community Contributor',
-    category: 'apps',
-    date: '2026-10-15 11:05',
-    content: '分享我们如何通过 dCPM 签名软件包发布应用，实现零接触命令行的一键安装、依赖检查以及版本无损回滚。',
-    replies: 15,
-    upvotes: 45,
-    signature: 'ed25519:7e2d9a...33b'
-  }
-];
+let forumPosts = null;
+try {
+  const raw = getStorage('ziokt_forum_posts');
+  if (raw) forumPosts = JSON.parse(raw);
+} catch (e) {
+  forumPosts = null;
+}
+if (!forumPosts) {
+  forumPosts = [
+    {
+      id: 1,
+      title: '【治理提案 #48】关于增加 PoUW 算力贡献者奖励权重的提案',
+      author: 'did:ziokt:mesh:genesis-node',
+      authorName: 'Genesis Validator',
+      category: 'governance',
+      date: '2026-10-17 18:30',
+      content: '为激励更多社区节点加入 Corium 验证网络，建议将 PoUW 引擎算力证明的奖励权重由现行 1.25 调整至 1.50。已通过本地 SQLite/Bash 引擎奖励权重激活测试。',
+      replies: 12,
+      upvotes: 38,
+      signature: 'ed25519:9f8e7d...12c'
+    },
+    {
+      id: 2,
+      title: '【技术规范】TC-16 虚拟机 16 位微架构运行指令集草案',
+      author: 'did:ziokt:mesh:core-dev',
+      authorName: 'Core Architecture Team',
+      category: 'technical',
+      date: '2026-10-16 14:20',
+      content: 'TC-16 VM 设计采用 16 位虚拟处理器架构，包含 8 个通用寄存器 R0-R7，严格控制 TCC Gas 消耗上限，确保在 ETP 洋葱中继环境中完全确定性执行。',
+      replies: 8,
+      upvotes: 24,
+      signature: 'ed25519:4a8b1c...99f'
+    },
+    {
+      id: 3,
+      title: '【生态应用】基于 UFS 与 dCPM 软件包的去中心化协作工具链',
+      author: 'did:ziokt:mesh:app-builder',
+      authorName: 'Community Contributor',
+      category: 'apps',
+      date: '2026-10-15 11:05',
+      content: '分享我们如何通过 dCPM 签名软件包发布应用，实现零接触命令行的一键安装、依赖检查以及版本无损回滚。',
+      replies: 15,
+      upvotes: 45,
+      signature: 'ed25519:7e2d9a...33b'
+    }
+  ];
+}
 
 let activeFilter = 'all';
 
@@ -177,7 +186,7 @@ export function renderForum(container) {
     };
 
     forumPosts.unshift(newPost);
-    localStorage.setItem('ziokt_forum_posts', JSON.stringify(forumPosts));
+    setStorage('ziokt_forum_posts', JSON.stringify(forumPosts));
     modal.style.display = 'none';
     showToast('提案发布成功！已完成 Ed25519 链上签名校验', 'success');
     renderForum(container);

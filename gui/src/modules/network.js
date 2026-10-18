@@ -146,7 +146,7 @@ export function renderNetwork(container) {
     try {
       let b64 = raw.slice(5).replace(/-/g, '+').replace(/_/g, '/');
       while (b64.length % 4) b64 += '=';
-      const parsed = JSON.parse(decodeURIComponent(escape(atob(b64)))));
+      const parsed = JSON.parse(decodeURIComponent(escape(atob(b64))));
       showJsonModal('S6P1 信封解析成功', parsed);
       showToast('S6P1 信封解析通过，已载入自定义路由网格', 'success');
     } catch (e) {

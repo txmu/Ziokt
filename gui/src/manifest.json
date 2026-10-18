@@ -1,0 +1,38 @@
+{
+  "name": "Ziokt 统一图形客户端",
+  "short_name": "Ziokt",
+  "description": "Ziokt 跨平台统一桌面与移动端图形客户端 (Desktop & Mobile Unified GUI)",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#0284c7",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "utilities",
+    "productivity",
+    "social"
+  ],
+  "screenshots": [],
+  "lang": "zh-CN"
+}

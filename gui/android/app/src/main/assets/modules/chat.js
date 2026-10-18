@@ -1,20 +1,29 @@
 // ==============================================================================
 // Module: WATChat End-to-End Encrypted Messenger with Dual UI Switcher
 // ==============================================================================
-import { State, t, showToast } from '../core.js';
+import { State, t, showToast, getStorage, setStorage } from '../core.js';
 
-let chatUiMode = localStorage.getItem('watchat_ui_mode') || 'minimalist'; // 'minimalist' | 'classic'
+let chatUiMode = getStorage('watchat_ui_mode', 'minimalist'); // 'minimalist' | 'classic'
 let activeContact = 'genesis-node';
-let messagesStore = JSON.parse(localStorage.getItem('watchat_msgs') || 'null') || {
-  'genesis-node': [
-    { id: 1, sender: 'genesis-node', text: '欢迎加入 Ziokt 端到端加密通讯网络！所有消息均由 XChaCha20-Poly1305 密封。', time: '10:00' },
-    { id: 2, sender: 'me', text: '收到！正在测试统一客户端的无缝双 UI 切换。', time: '10:02' },
-    { id: 3, sender: 'genesis-node', text: '可在上方随时切换“现代简约版”与“经典丰富版”，加密会话状态实时无损保持。', time: '10:03' }
-  ],
-  'community-bot': [
-    { id: 1, sender: 'community-bot', text: 'Corium 治理委员会 #48 提案已发起，欢迎前往社区论坛参与投票。', time: '09:15' }
-  ]
-};
+let messagesStore = null;
+try {
+  const raw = getStorage('watchat_msgs');
+  if (raw) messagesStore = JSON.parse(raw);
+} catch (e) {
+  messagesStore = null;
+}
+if (!messagesStore) {
+  messagesStore = {
+    'genesis-node': [
+      { id: 1, sender: 'genesis-node', text: '欢迎加入 Ziokt 端到端加密通讯网络！所有消息均由 XChaCha20-Poly1305 密封。', time: '10:00' },
+      { id: 2, sender: 'me', text: '收到！正在测试统一客户端的无缝双 UI 切换。', time: '10:02' },
+      { id: 3, sender: 'genesis-node', text: '可在上方随时切换“现代简约版”与“经典丰富版”，加密会话状态实时无损保持。', time: '10:03' }
+    ],
+    'community-bot': [
+      { id: 1, sender: 'community-bot', text: 'Corium 治理委员会 #48 提案已发起，欢迎前往社区论坛参与投票。', time: '09:15' }
+    ]
+  };
+}
 
 export function renderChat(container) {
   const isMinimalist = chatUiMode === 'minimalist';
@@ -128,14 +137,14 @@ export function renderChat(container) {
   // UI Switch Handlers
   container.querySelector('#toggle-minimalist').onclick = () => {
     chatUiMode = 'minimalist';
-    localStorage.setItem('watchat_ui_mode', 'minimalist');
+    setStorage('watchat_ui_mode', 'minimalist');
     showToast('已切换至 WATChat 现代简约版', 'info');
     renderChat(container);
   };
 
   container.querySelector('#toggle-classic').onclick = () => {
     chatUiMode = 'classic';
-    localStorage.setItem('watchat_ui_mode', 'classic');
+    setStorage('watchat_ui_mode', 'classic');
     showToast('已切换至 WATChat 经典丰富版 (含加密机密与中继状态)', 'info');
     renderChat(container);
   };
@@ -164,7 +173,7 @@ export function renderChat(container) {
       text,
       time: timeStr
     });
-    localStorage.setItem('watchat_msgs', JSON.stringify(messagesStore));
+    setStorage('watchat_msgs', JSON.stringify(messagesStore));
     inputEl.value = '';
     
     // Auto-scroll
