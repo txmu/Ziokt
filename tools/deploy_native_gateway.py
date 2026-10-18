@@ -30,10 +30,13 @@ def deploy(root,corix):
  for name in value['digests']:
   if name.endswith('corix_v108.sh'):value['digests'][name]=digest
  value['updated']=timestamp;digests.write_text(json.dumps(value,indent=2)+'\n');digests.chmod(0o600)
- subprocess.run([sys.executable,'-m','ziokt','gateway','bootstrap','--root',str(root),'--state-root',config['state_root'],'--corix',str(target),'--network',config['network'],'--publish','--install'],cwd=repo,check=True)
+ # Updating interpreted sources must preserve existing NNS publication, DNS
+ # settings, identities and unit definitions. Initial bootstrap is separate.
+ # In particular, never manufacture optimistic NNS rows during an upgrade.
  services=['ziokt-corium-p2p','ziokt-corium-consensus','ziokt-corium-relayer','ziokt-gateway']
  if (root/'mcp/mcp.json').is_file():services.append('ziokt-mcp')
- subprocess.run(['sudo','systemctl','restart',*services],check=True)
+ control=['systemctl'] if os.geteuid()==0 else ['sudo','-n','systemctl']
+ subprocess.run([*control,'restart',*services],check=True)
  deadline=time.monotonic()+30
  while True:
   try:
