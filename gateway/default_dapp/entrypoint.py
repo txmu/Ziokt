@@ -2522,35 +2522,10 @@ response = f"""<!DOCTYPE html>
 <body>
     <div class="container">
         <!-- ========================================================== -->
-        <!-- VIEW 1: PANORAMIC STUDIO (全景版)                          -->
         <!-- ========================================================== -->
-        <div id="panoramic-view"{pano_attr}>
-            <header>
-                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
-                    <div>
-                        <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 全景版 (Panoramic Studio)</span>
-                        <div style="font-size:2rem;font-weight:bold;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</div>
-                        <p class="subtitle" style="margin:0;">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
-                    </div>
-                    <div>
-                        <button type="button" class="btn btn-purple" onclick="if(window.applyUiMode){{window.applyUiMode('simple');}}else{{location.assign('?ui=simple');}}" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-                            ⚡ {t('mode.switch_to_simple')}
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            <nav class="nav-links" aria-label="{t('nav.label')}">
-                {nav_links_html}
-            </nav>
-
-            {tab_html}
-        </div>
-
+        <!-- ACTIVE VIEW CONTAINER (根据 ui_mode 渲染全景版或简约版)         -->
         <!-- ========================================================== -->
-        <!-- VIEW 2: MINIMALIST EDITION (简约版)                         -->
-        <!-- ========================================================== -->
-        <div id="simple-view"{simp_attr}>
+        {"<div id=\"simple-view\">" + f"""
             <header>
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
                     <div>
@@ -2559,9 +2534,9 @@ response = f"""<!DOCTYPE html>
                         <p style="color:var(--text-secondary);font-size:0.9rem;margin:0;">{t('portal.readonly')}</p>
                     </div>
                     <div>
-                        <button type="button" class="btn btn-green" onclick="if(window.applyUiMode){{window.applyUiMode('panoramic');}}else{{location.assign('?ui=panoramic');}}" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                        <a href="/app/{subpath}?ui=panoramic&lang={locale}" class="btn btn-green" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
                             🌐 {t('mode.switch_to_panoramic')}
-                        </button>
+                        </a>
                     </div>
                 </div>
                 <nav class="simple-nav" aria-label="{t('nav.label')}">
@@ -2570,7 +2545,30 @@ response = f"""<!DOCTYPE html>
             </header>
 
             {simple_content_html}
-        </div>
+        </div>""" if ui_mode == 'simple' else "<div id=\"panoramic-view\">" + f"""
+            <header>
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
+                    <div>
+                        <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 全景版 (Panoramic Studio)</span>
+                        <div style="font-size:2rem;font-weight:bold;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</div>
+                        <p class="subtitle" style="margin:0;">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
+                    </div>
+                    <div>
+                        <a href="/app/{subpath}?ui=simple&lang={locale}" class="btn btn-purple" style="font-size:0.85rem;padding:6px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                            ⚡ {t('mode.switch_to_simple')}
+                        </a>
+                    </div>
+                </div>
+            </header>
+
+            <nav class="nav-links" aria-label="{t('nav.label')}">
+                {nav_links_html}
+            </nav>
+
+            <h1>{t('nav.' + subpath)}</h1>
+
+            {tab_html}
+        </div>"""}
 
         {mcp_section}
 
