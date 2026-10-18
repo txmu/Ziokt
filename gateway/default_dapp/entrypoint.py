@@ -3,7 +3,11 @@ import hashlib
 import base64
 import time
 import hmac
-from html import unescape
+
+def unescape(s):
+    if not isinstance(s, str): s = str(s)
+    return s.replace('&quot;', '"').replace('&#39;', "'").replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+
 
 # Bootstrap embeds the versioned, external dictionary when publishing to P2P.
 MESSAGES = {}
