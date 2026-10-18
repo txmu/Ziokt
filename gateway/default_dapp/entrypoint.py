@@ -1893,7 +1893,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 tar.gz (80 KB)', 'Download tar.gz (80 KB)')}
+                        ⬇️ {tr('直接下载 tar.gz (97 KB)', 'Download tar.gz (97 KB)')}
                     </a>
                 </div>
             </div>
@@ -1909,7 +1909,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 zip (99 KB)', 'Download zip (99 KB)')}
+                        ⬇️ {tr('直接下载 zip (117 KB)', 'Download zip (117 KB)')}
                     </a>
                 </div>
             </div>
@@ -1925,7 +1925,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 APK 安装包 (115 KB)', 'Download APK Package (115 KB)')}
+                        ⬇️ {tr('直接下载 APK 安装包 (135 KB)', 'Download APK Package (135 KB)')}
                     </a>
                 </div>
             </div>
@@ -1941,7 +1941,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn btn-purple" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载工程包 (81 KB)', 'Download ArkUI (81 KB)')}
+                        ⬇️ {tr('直接下载工程包 (98 KB)', 'Download ArkUI (98 KB)')}
                     </a>
                 </div>
             </div>
@@ -1957,7 +1957,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-web-pwa.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 PWA 包 (80 KB)', 'Download PWA (80 KB)')}
+                        ⬇️ {tr('直接下载 PWA 包 (97 KB)', 'Download PWA (97 KB)')}
                     </a>
                 </div>
             </div>
