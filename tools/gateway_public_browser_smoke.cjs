@@ -9,11 +9,11 @@ let pw;try{pw=require('../ci/browser/node_modules/playwright')}catch(_){pw=requi
  const browser=await pw.chromium.launch({headless:true});
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(portal+'/app/explorer/cbb?lang=en-US');await page.locator('#mcp-connect').click();
+  await page.goto(portal+'/app/explorer/blockchain?lang=en-US');await page.locator('#mcp-connect').click();
   await page.waitForURL(url=>url.origin===issuer&&url.pathname==='/oauth/authorize');
   assert.equal(new URL(page.url()).searchParams.get('redirect_uri'),portal+'/gateway-assets/oauth-callback.html');
   await page.locator('input[name="admin_token"]').fill(fs.readFileSync(tokenFile,'utf8').trim());
-  await page.getByRole('button',{name:'Approve scopes'}).click();await page.waitForURL(portal+'/app/explorer/cbb?lang=en-US').catch(async error=>{console.error('callback diagnosis',new URL(page.url()).origin+new URL(page.url()).pathname,await page.locator('body').innerText());throw error;});
+  await page.getByRole('button',{name:'Approve scopes'}).click();await page.waitForURL(portal+'/app/explorer/blockchain?lang=en-US').catch(async error=>{console.error('callback diagnosis',new URL(page.url()).origin+new URL(page.url()).pathname,await page.locator('body').innerText());throw error;});
   await page.locator('#mcp-form').waitFor();await page.locator('#mcp-tool').selectOption('corium_registration_list');
   await page.locator('#mcp-arguments').fill(JSON.stringify({status:'approved'}));await page.locator('#mcp-form button').click();
   await page.waitForFunction(()=>document.querySelector('#mcp-result').textContent.includes('registrations'));

@@ -78,6 +78,7 @@ ziokt-gateway-43-207-75-185.sslip.io, ziokt-dapp-43-207-75-185.sslip.io {
 }
 
 cor-web.ziokt.com {
+ redir /app/explorer/cbb /app/explorer/blockchain?{query} 302
  redir /gateway-assets/gui/downloads/* https://app.ziokt.com/downloads/ 302
  redir /app/gui* https://app.ziokt.com/ 302
  redir /app/desktop* https://app.ziokt.com/ 302

@@ -62,7 +62,7 @@ cat /home/admin/.local/share/ziokt-production/config/admin_token.key
 
 拒绝使用 `decision: reject`，撤销已批准资格使用 `decision: revoke`。只有获得节点所有者管理员授权的会话能审批。你没有批准的申请不会自动加入白名单。
 
-也可打开 **https://cor-web.ziokt.com/app/explorer/cbb**，点击连接 MCP，完成相同授权后，在工具下拉框选择上述注册工具并填写 JSON 执行。
+也可打开 **https://cor-web.ziokt.com/app/explorer/blockchain**，点击连接 MCP，完成相同授权后，在工具下拉框选择上述注册工具并填写 JSON 执行。
 
 外部链审批控制 Gateway 注册资格，不改 Corium 分叉选择权重。PoUW 批准会提交原生治理交易并返回交易哈希；链上激活仍遵循贡献资格、验证者投票和执行延迟。撤销 Gateway 资格不会改写已终局的链状态。若出现 submitting，应先核对原生交易状态，不要反复提交同一提案。
 

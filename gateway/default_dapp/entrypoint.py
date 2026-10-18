@@ -59,6 +59,7 @@ ALIAS_MAP = {
     'ufs': 'ufsdcpm',
     'tri': 'blockchain',
     'ledger': 'blockchain',
+    'cbb': 'blockchain',
     'chain': 'blockchain',
     'chat': 'watchat',
     'sim-manager': 'sim',
