@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,8 +66,9 @@ function buildStandaloneAppBundle() {
 
   for (const rel of order) {
     let content = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
-    content = content.replace(/^\s*import\s+.*?;?\s*$/gm, '');
-    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var)\s+/gm, '$2$3 ');
+    content = content.replace(/^\s*import\b[\s\S]*?from\s*['"][^'"]+['"];?\s*$/gm, '');
+    content = content.replace(/^\s*import\b.*?;?\s*$/gm, '');
+    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var)\s+/gm, (m, p1, p2, p3) => (p2 || '') + p3 + ' ');
     content = content.replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '');
     bundle += `  // --- Module: ${rel} ---\n` + content + `\n\n`;
   }
@@ -156,7 +158,7 @@ function buildStandaloneAppBundle() {
         route.render(container);
       } catch (err) {
         console.error('[Router] Error rendering ' + tabName + ':', err);
-        container.innerHTML = '<div style="max-width:800px;margin:40px auto;padding:24px;background:rgba(239,68,68,0.1);border:1px solid var(--accent-red);border-radius:var(--radius-md);"><h3 style="color:var(--accent-red);margin-bottom:8px;">⚠️ 模块加载异常 / Component Render Error</h3><p style="font-size:0.88rem;color:var(--text-main);margin-bottom:12px;">无法加载模块 <strong>' + tabName + '</strong>: ' + (err?.message || err) + '</p><button class="btn btn-secondary btn-sm" onclick="location.hash=\\'#home\\'">返回首页 / Return Home</button></div>';
+        container.innerHTML = '<div style="max-width:800px;margin:40px auto;padding:24px;background:rgba(239,68,68,0.1);border:1px solid var(--accent-red);border-radius:var(--radius-md);"><h3 style="color:var(--accent-red);margin-bottom:8px;">⚠️ 模块加载异常 / Component Render Error</h3><p style="font-size:0.88rem;color:var(--text-main);margin-bottom:12px;">无法加载模块 <strong>' + tabName + '</strong>: ' + (err?.message || err) + '</p><button class="btn btn-secondary btn-sm" onclick="location.hash=&quot;#home&quot;">返回首页 / Return Home</button></div>';
       }
     }
   }
@@ -276,7 +278,18 @@ function buildStandaloneAppBundle() {
 `;
 
   bundle += controllerCode + '\n})();\n';
-  fs.writeFileSync(path.join(SRC_DIR, 'app.js'), bundle);
+
+  const appPath = path.join(SRC_DIR, 'app.js');
+  fs.writeFileSync(appPath, bundle);
+
+  try {
+    execSync(`node -c "${appPath}"`, { stdio: 'pipe' });
+    console.log(`  ✓ Validated JS syntax of standalone app.js with Node.js V8 engine`);
+  } catch (err) {
+    console.error(`  ✕ Syntax error in bundled app.js:`, err.stderr ? err.stderr.toString() : err.message);
+    process.exit(1);
+  }
+
   console.log(`  ✓ Built universal standalone app.js (${bundle.length} bytes)`);
 }
 

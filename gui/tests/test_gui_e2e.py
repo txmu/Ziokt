@@ -44,6 +44,11 @@ class TestZioktGuiE2E(unittest.TestCase):
         self.assertIn('src="app.js"', index_html)
         self.assertIn('href="style.css"', index_html)
 
+        # Verify standalone app.js bundle is valid JavaScript syntax
+        import subprocess
+        res = subprocess.run(["node", "-c", str(SRC_DIR / "app.js")], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Syntax error in app.js: {res.stderr}")
+
     def test_02_i18n_translation_parity(self):
         """Verify zh.json and en.json dictionaries have 100% key parity and non-empty values."""
         zh = json.loads((SRC_DIR / "i18n" / "zh.json").read_text(encoding="utf-8"))

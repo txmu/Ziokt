@@ -456,16 +456,6 @@ async function apiRequest(endpoint, options = {}) {
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
-
-  State,
-  t,
-  showToast,
-  Events,
-  setStorage,
-  checkLocalNodeHealth,
-  getActiveRemoteNode,
-  updateAppNodeBadge
-} from '../core.js';
 function renderHome(container) {
   const isEn = State.language === 'en';
   const isLocal = State.runtimeMode === 'local';
@@ -1539,16 +1529,6 @@ function renderApps(container) {
 // Module: Shadow6 Multi-Core Mesh & ETP Onion Gateway Network Panel
 // ==============================================================================
 
-  State,
-  t,
-  showToast,
-  showJsonModal,
-  Events,
-  getActiveRemoteNode,
-  getRemoteNodes,
-  checkLocalNodeHealth
-} from '../core.js';
-
 const shadow6Profiles = [
   { id: 'profile-go', core: 'Go', transport: 'kcp', port: 14433, status: 'RUNNING', latency: '12ms' },
   { id: 'profile-rust', core: 'Rust', transport: 'quic', port: 14434, status: 'RUNNING', latency: '8ms' },
@@ -2254,24 +2234,6 @@ function renderMcpProbes(container) {
 // ==============================================================================
 // Module: System Settings, Local/Remote Node Management, Auth & Lifecycle
 // ==============================================================================
-
-  State,
-  t,
-  showToast,
-  showConfirm,
-  setLanguage,
-  setTheme,
-  Events,
-  setStorage,
-  getRemoteNodes,
-  getActiveRemoteNode,
-  setActiveRemoteNode,
-  addRemoteNode,
-  removeRemoteNode,
-  checkLocalNodeHealth,
-  verifyRemoteNodeAuth,
-  updateAppNodeBadge
-} from '../core.js';
 function renderSettings(container) {
   if (!container) return;
   const isEn = State.language === 'en';
@@ -2782,7 +2744,7 @@ function renderSettings(container) {
         route.render(container);
       } catch (err) {
         console.error('[Router] Error rendering ' + tabName + ':', err);
-        container.innerHTML = '<div style="max-width:800px;margin:40px auto;padding:24px;background:rgba(239,68,68,0.1);border:1px solid var(--accent-red);border-radius:var(--radius-md);"><h3 style="color:var(--accent-red);margin-bottom:8px;">⚠️ 模块加载异常 / Component Render Error</h3><p style="font-size:0.88rem;color:var(--text-main);margin-bottom:12px;">无法加载模块 <strong>' + tabName + '</strong>: ' + (err?.message || err) + '</p><button class="btn btn-secondary btn-sm" onclick="location.hash=\'#home\'">返回首页 / Return Home</button></div>';
+        container.innerHTML = '<div style="max-width:800px;margin:40px auto;padding:24px;background:rgba(239,68,68,0.1);border:1px solid var(--accent-red);border-radius:var(--radius-md);"><h3 style="color:var(--accent-red);margin-bottom:8px;">⚠️ 模块加载异常 / Component Render Error</h3><p style="font-size:0.88rem;color:var(--text-main);margin-bottom:12px;">无法加载模块 <strong>' + tabName + '</strong>: ' + (err?.message || err) + '</p><button class="btn btn-secondary btn-sm" onclick="location.hash=&quot;#home&quot;">返回首页 / Return Home</button></div>';
       }
     }
   }
