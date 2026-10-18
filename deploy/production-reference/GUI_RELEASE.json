@@ -1,0 +1,73 @@
+{
+  "schema": "ziokt.gui-release.v1",
+  "revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+  "ci": "https://github.com/txmu/Ziokt/actions/runs/39101426440",
+  "artifacts": [
+    {
+      "platform": "Linux",
+      "file": "1736072a0ce7/ziokt-desktop-linux-Ziokt Client_1.1.0_amd64.AppImage",
+      "bytes": 81795576,
+      "sha256": "4bc5322e8bb1dc94e9154c151d8ae4d9cb62457a94203e262dafb9980f6a62b2",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "Linux",
+      "file": "1736072a0ce7/ziokt-desktop-linux-Ziokt Client_1.1.0_amd64.deb",
+      "bytes": 3145964,
+      "sha256": "0421289a2bafffcc9c4d43bfcfbcf363c8dd3ded1bff230c24a47e1af5cafbbd",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "Windows",
+      "file": "1736072a0ce7/ziokt-desktop-windows-Ziokt Client_1.1.0_x64_en-US.msi",
+      "bytes": 3055616,
+      "sha256": "503f8d18430cb69aec8bec0f2cc11bc56707b08ffacb9df74aeb4fb5b4bfdc5d",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "Windows",
+      "file": "1736072a0ce7/ziokt-desktop-windows-Ziokt Client_1.1.0_x64-setup.exe",
+      "bytes": 2045963,
+      "sha256": "aa4f4beb3b281844a34ee565939f15eaf1706926c0632b700b79f4c26dcb28fd",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "Android",
+      "file": "1736072a0ce7/ziokt-mobile-packages-ziokt-mobile-android.apk",
+      "bytes": 116787,
+      "sha256": "184e712e7607a79e26f160456265879ee7e3de470f9fb1e931537d97d23dc64e",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "macOS Apple Silicon",
+      "file": "1736072a0ce7/ziokt-desktop-macos-aarch64-apple-darwin-Ziokt Client_1.1.0_aarch64.dmg",
+      "bytes": 3088042,
+      "sha256": "2788989f035121cd0614e2aaa17993102f9572bd9dc29bcdb85947f0fb3cc30e",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "macOS Intel",
+      "file": "1736072a0ce7/ziokt-desktop-macos-x86_64-apple-darwin-Ziokt Client_1.1.0_x64.dmg",
+      "bytes": 3270446,
+      "sha256": "cddc445ba03c20abb01bb3f661c6a7e8a13361e228b0f62c13d77536a8703ae5",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    },
+    {
+      "platform": "Web PWA assets",
+      "file": "1736072a0ce7/ziokt-web-pwa-ziokt-web-pwa.tar.gz",
+      "bytes": 82474,
+      "sha256": "8f3ab8791fe63414b13a2710026bbb9c2b9247e413323b6e33a1fe31380ef07d",
+      "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "ci_run": "https://github.com/txmu/Ziokt/actions/runs/39101426440"
+    }
+  ],
+  "harmonyos": "No signed HAP: SDK/signing/device verification required",
+  "macos_signing": "ad-hoc; not Apple notarized"
+}

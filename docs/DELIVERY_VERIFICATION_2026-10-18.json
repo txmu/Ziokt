@@ -1,0 +1,164 @@
+{
+  "schema": "ziokt.delivery-verification.v1",
+  "date": "2026-10-18",
+  "runs": {
+    "gui_installers": {
+      "revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39101426440",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "GUI Automated Tests & Asset Validation",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build macOS GUI (x86_64-apple-darwin)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build Android APK (HarmonyOS source wrapper is not a signed HAP)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Package Standalone Web PWA & Gateway Embed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build Windows Desktop (MSI / NSIS)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build Linux Desktop (Deb / AppImage)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build macOS GUI (aarch64-apple-darwin)",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "gateway_latest": {
+      "revision": "cef6533f28a3bdada37889b7f18e8fb6a389383e",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39102390330",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "gateway-mcp",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "objects_packages_chat": {
+      "revision": "03228766dda9f96bf85c129cf159e080d57cc3b6",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39102119478",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "large-objects (128)",
+          "conclusion": "success"
+        },
+        {
+          "name": "large-objects (384)",
+          "conclusion": "success"
+        },
+        {
+          "name": "native-handoff",
+          "conclusion": "success"
+        },
+        {
+          "name": "dual-ui (simple, mobile)",
+          "conclusion": "success"
+        },
+        {
+          "name": "dual-ui (classic, mobile)",
+          "conclusion": "success"
+        },
+        {
+          "name": "bounded-objects",
+          "conclusion": "success"
+        },
+        {
+          "name": "dual-ui (simple, desktop)",
+          "conclusion": "success"
+        },
+        {
+          "name": "dual-ui (classic, desktop)",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "companions_browsers_etp": {
+      "revision": "6d59cb0a2a39e673f8a713c0f43754589ab07c21",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39102245609",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "applications",
+          "conclusion": "success"
+        },
+        {
+          "name": "browser-engines (webkit)",
+          "conclusion": "success"
+        },
+        {
+          "name": "native-etp (integrated)",
+          "conclusion": "success"
+        },
+        {
+          "name": "browser-engines (chromium)",
+          "conclusion": "success"
+        },
+        {
+          "name": "native-etp (minimal)",
+          "conclusion": "success"
+        },
+        {
+          "name": "browser-engines (firefox)",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "native_federation_transports": {
+      "revision": "03228766dda9f96bf85c129cf159e080d57cc3b6",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39102086645",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "portable (ubuntu-24.04)",
+          "conclusion": "success"
+        },
+        {
+          "name": "i2p-carrier",
+          "conclusion": "success"
+        },
+        {
+          "name": "portable (macos-latest)",
+          "conclusion": "success"
+        },
+        {
+          "name": "portable (windows-latest)",
+          "conclusion": "success"
+        },
+        {
+          "name": "nested-nat",
+          "conclusion": "success"
+        },
+        {
+          "name": "native-integration",
+          "conclusion": "success"
+        },
+        {
+          "name": "anonymous-carrier",
+          "conclusion": "success"
+        }
+      ]
+    }
+  },
+  "gui_unchanged_since": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+  "unfulfilled": [
+    "shielded on-chain ownership consensus upgrade",
+    "signed HarmonyOS HAP and physical device acceptance",
+    "physical phone microphone and OS notification delivery acceptance",
+    "Apple notarization"
+  ]
+}

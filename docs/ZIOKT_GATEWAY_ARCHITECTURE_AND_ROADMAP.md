@@ -4,6 +4,8 @@
 > **文档位置**：`/home/admin/ZIOKT_GATEWAY_ARCHITECTURE_AND_ROADMAP.md`  
 > **适用范围**：Ziokt 生产联邦网络、Corium 去中心化网关、Shadow6 原生集成、ETP 洋葱中继与 UFS/DCPM 存储系统
 
+> **2026-10-18 实施更新**：真实 GUI 适配器与 MCP 目录已同步，当前部署 340 工具；Web 入口为 https://app.ziokt.com/ ，实际 CI 构建的安装包见 https://app.ziokt.com/downloads/ 。v2 引用包已贯通独立原生签名验证、所有者准入和原生安装/激活验收。测试依据见 `DELIVERY_VERIFICATION_2026-10-18.json`，操作见 `GUI_USER_MANUAL.md` 与 `MCP_中文使用说明.md`。链上所有权屏蔽、HarmonyOS 已签名 HAP 和真实手机硬件验收仍未完成，不能用 UI 或包装工程冒充这些能力。
+
 ---
 
 ## 目录
