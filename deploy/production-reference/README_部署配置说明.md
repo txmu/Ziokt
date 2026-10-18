@@ -6,7 +6,7 @@
 
 | 位置 | 内容 |
 |---|---|
-| `runtime/config/Caddyfile` | 当前完整 HTTPS 站点和反向代理，包括 mcp.ziokt.com、门户、各组件站点 |
+| `runtime/config/Caddyfile` | 当前完整 HTTPS 站点和反向代理，包括 app.ziokt.com、mcp.ziokt.com、门户、各组件站点 |
 | `systemd/*.service` | 当前 Corium P2P/共识/中继、Gateway、MCP、Telegram Bot、HTTPS、WATChat、SIM、UFS、Effort 服务定义 |
 | `runtime/config/gateway.json` | Gateway 对象、论坛、注册数据库路径，ETP bulk 线路和固定摘要；线路密钥已替换 |
 | `runtime/mcp/mcp.json` | OAuth/CIMD、明确 Host/Origin/回调、客户端授权范围、桥接和原生 ETP 配置引用 |
@@ -71,12 +71,35 @@ node tools/gateway_public_browser_smoke.cjs \
 
 浏览器验证依赖已安装的 Playwright/Chromium。上述验证会申请并撤销短期访问令牌、执行受限读写检查，不会批准新的权重申请。
 
+## Web 应用、安装包与 Bot 新命令
+
+Web 应用独立部署于 `https://app.ziokt.com/`，Caddy 从 `gateway/gui` 提供前端，将 `/api/gateway/*` 代理到已鉴权的 Gateway。`/downloads/` 使用运行目录的 `downloads/gui`，与源码目录分离；门户旧 GUI 和下载地址重定向到新域名。
+
+已有节点启用真实 GUI 适配器与原生包双签名准入配置：
+
+```bash
+python3 tools/configure_gui_runtime.py --root /home/admin/.local/share/ziokt-production --shadow6 /home/admin/Shadow6
+```
+
+配置后重启 Gateway、MCP、Telegram 服务。原生包发布者默认无人获准，必须由所有者明确加入信任表。详细操作见 `docs/GUI_USER_MANUAL.md`。
+
+安装包由 `.github/workflows/gui-release.yml` 在云端构建；所有平台任务成功后才执行发布：
+
+```bash
+python3 tools/publish_gui_artifacts.py --run-id SUCCESSFUL_GUI_RUN_ID --root /home/admin/.local/share/ziokt-production/downloads/gui
+```
+
+发布工具核对 CI 结论、实际安装包文件头与必要平台，写入固定源码版本目录，并生成下载页及 `releases.json`（含 SHA-256、源提交、CI 地址）。Android CI 需要私有 Secrets `GUI_ANDROID_KEYSTORE_BASE64` 与 `GUI_ANDROID_STORE_PASSWORD`，持续使用同一个 alias `ziokt-release` 的 PKCS12 发布密钥，避免升级时签名变化。不要提交 keystore 或密码。
+
+Telegram 新增 `/objects`、`/packages`、`/privacy`、`/gui`；`/tools` 查看工具，`/mcp 工具名 JSON参数` 使用与 Gateway 相同的完整授权工具集。写操作仍通过一次性 `/confirm`，不能因入口是 Bot 而绕过权限。
+
 ## 私有备份清单（不在源码包内）
 
 - Corium 创世配置、节点身份私钥及链/论坛/DHT 状态。
 - 所有者令牌 `config/admin_token.key`，应用管理员密码及推送私钥。
 - MCP 各组件和共享社区的私钥、加密密钥、已签名策略，以及 Gateway/ETP 线路私密材料。
 - WATChat、SIM、UFS、各 vault 的数据和解密材料。
+- Android 持续发布 keystore 与密码（运行目录 `config/gui-signing/`）；丢失后不能以相同签名更新旧安装。
 - MCP/审批注册数据库（审计、工作流、去重状态）；TLS 存储可按需要备份，或在 DNS/网络正常时重新签发。
 
 这些材料应单独加密备份。源码包中的占位符不代表服务器上的实际密钥被修改；本次只是导出参考配置，没有更改线上服务。

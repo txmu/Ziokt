@@ -1858,151 +1858,14 @@ elif subpath == "shadow6":
 # SUBPATH: GUI CLIENT
 # ==============================================================================
 elif subpath == "gui":
-    tab_html = f"""
-    <div class="card detail-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;">
-            <div>
-                <h2 style="margin:0;font-size:1.4rem;display:flex;align-items:center;gap:8px;">
-                    🖥️ {t('nav.gui')}
-                </h2>
-                <p style="color:var(--text-secondary);font-size:0.9rem;margin-top:4px;">
-                    {tr('Ziokt Desktop &amp; Mobile 统一图形客户端 • 多平台原生 (Tauri 2 / ArkUI / Web PWA)', 'Ziokt Desktop &amp; Mobile Unified GUI Client • Multi-platform Native (Tauri 2 / ArkUI / Web PWA)')}
-                </p>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <a href="/gateway-assets/gui/index.html" target="_blank" class="btn btn-green" style="font-size:0.88rem;padding:8px 16px;">
-                    🚀 {tr('立即进入 Web 应用 (PWA)', 'Launch Web Client (PWA)')}
-                </a>
-                <a href="https://github.com/Ziokt/Ziokt/releases" target="_blank" class="btn btn-purple" style="font-size:0.88rem;padding:8px 16px;">
-                    📦 {tr('GitHub 发行版 (Releases)', 'GitHub Releases')}
-                </a>
-            </div>
-        </div>
-
-        <!-- Platform downloads grid -->
-        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:0.75rem;">📦 {tr('支持平台与本地服务器直链下载', 'Supported Platforms & Direct Server Downloads')}</h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:1rem;margin-bottom:2rem;">
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
-                <div>
-                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🐧 Linux (x86_64 / arm64)
-                    </div>
-                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('适用于 Ubuntu/Debian、Fedora、Arch 原生桌面环境。提供独立沙盒、系统托盘与原生通知。', 'Native desktop app for Ubuntu/Debian, Fedora, Arch. Features isolation, tray, and native notifications.')}
-                    </div>
-                </div>
-                <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 tar.gz (104 KB)', 'Download tar.gz (104 KB)')}
-                    </a>
-                </div>
-            </div>
-
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
-                <div>
-                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🪟 Windows (x64)
-                    </div>
-                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('Windows 10/11 安装包与绿色便携版。采用 WebView2 轻量引擎与原生系统融合。', 'Windows 10/11 installer & portable package. Powered by WebView2 native rendering.')}
-                    </div>
-                </div>
-                <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 zip (126 KB)', 'Download zip (126 KB)')}
-                    </a>
-                </div>
-            </div>
-
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
-                <div>
-                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🤖 Android (ARM64 / x86_64)
-                    </div>
-                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('Android 移动端独立安装包 (APK) 与工程资源。内置轻量级 Native Web 引擎，支持触摸滑动手势、底部导航栏与离线存储。', 'Android standalone package (APK) & assets. Built-in lightweight native web runtime, gesture navigation & offline storage.')}
-                    </div>
-                </div>
-                <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 APK 安装包 (143 KB)', 'Download APK Package (143 KB)')}
-                    </a>
-                </div>
-            </div>
-
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
-                <div>
-                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🔴 HarmonyOS NEXT ({tr('鸿蒙原生', 'ArkUI Native')})
-                    </div>
-                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('ArkUI 鸿蒙原生组件工程源码 (Entry module &amp; Index.ets Web 容器集成方案)。', 'ArkUI native OpenHarmony / NEXT project bundle (Entry module &amp; Index.ets container).')}
-                    </div>
-                </div>
-                <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn btn-purple" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载工程包 (105 KB)', 'Download ArkUI (105 KB)')}
-                    </a>
-                </div>
-            </div>
-
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
-                <div>
-                    <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🌐 Web PWA ({tr('独立离线版', 'Standalone Offline')})
-                    </div>
-                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('全离线渐进式 Web 客户端，包含完整离线缓存与零依赖本地静态资源。', 'Fully offline Progressive Web App bundle with Service Worker offline caching.')}
-                    </div>
-                </div>
-                <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-web-pwa.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 PWA 包 (104 KB)', 'Download PWA (104 KB)')}
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- 9 Modules Showcase -->
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">🧩 {tr('客户端 9 大全功能核心模块', 'Client 9 Core Functional Modules')}</h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:2rem;">
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-blue);margin-bottom:4px;">💬 {tr('WATChat 实时加密通讯', 'WATChat Encrypted Messenger')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('支持<strong>简约版</strong>与<strong>经典丰富版</strong>无缝自由切换，会话状态与端到端加密零中断保持。', 'Seamless switching between <strong>Minimalist</strong> and <strong>Classic</strong> UI with zero session or cryptographic disruption.')}</div>
-            </div>
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-green);margin-bottom:4px;">📦 {tr('dCPM 应用与软件包中心', 'dCPM App &amp; Package Hub')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('与 UFS / Shadow6 深度打通，支持真实安装、依赖解析、一键更新、版本回滚与干净卸载。', 'Integrated with UFS and Shadow6; supports live installation, dependency resolution, rollbacks, and clean uninstall.')}</div>
-            </div>
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-purple);margin-bottom:4px;">🛡️ {tr('Shadow6 &amp; ETP 网络节点', 'Shadow6 &amp; ETP Network Nodes')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('13 种 Profile 并行运行矩阵，Virtual Broker 核心，S6P1 自定义信封解析与 ETP 洋葱拓扑。', '13-profile parallel matrix, Virtual Broker core, custom S6P1 envelope parsing, and ETP onion topology.')}</div>
-            </div>
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:var(--accent-amber);margin-bottom:4px;">🔐 {tr('UFS &amp; SafeFS 安全密室', 'UFS &amp; SafeFS Secure Vaults')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('文件分片加密存储，拖拽秒传与根哈希校验，隐形密室卷状态实时监控。', 'Chunked encrypted file storage, drag-and-drop uploads, Merkle root checks, and hidden vault monitoring.')}</div>
-            </div>
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#38bdf8;margin-bottom:4px;">⚙️ {tr('TC-16 &amp; ZDA 开发者套件', 'TC-16 &amp; ZDA Developer Suite')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('全功能 16 位虚拟机单步调试与内存监视，Corium 账本检索，ZDA 多项式零知识门验证。', '16-bit VM step debugging and memory inspector, Corium ledger exploration, ZDA polynomial zero-knowledge verification.')}</div>
-            </div>
-            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
-                <div style="font-weight:bold;color:#f43f5e;margin-bottom:4px;">🎛️ {tr('本地 / 远端 / 混合生命周期', 'Local / Remote / Hybrid Lifecycle')}</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary);">{tr('按需按量按角色启停底层组件，无需全量常驻，全套快捷键 (1-9, Esc, Ctrl+K) 与高对比度无障碍支持。', 'On-demand component lifecycle, full keyboard navigation (1-9, Esc, Ctrl+K), and high-contrast accessibility.')}</div>
-            </div>
-        </div>
-
-        <!-- Embedded Interactive Preview -->
-        <h3 style="color:var(--accent-amber);font-size:1.1rem;margin-bottom:0.75rem;">🖥️ {tr('客户端在线嵌入式工作台', 'Client Live Embedded Studio')}</h3>
-        <div style="width:100%;height:650px;border:1px solid #334155;border-radius:8px;overflow:hidden;background:#000;">
-            <iframe src="/gateway-assets/gui/index.html" style="width:100%;height:100%;border:none;" title="Ziokt GUI Client"></iframe>
-        </div>
-    </div>
+    content_html = f"""
+      <div class="card"><h2>{tr('Ziokt 统一客户端', 'Ziokt unified client')}</h2>
+      <p>{tr('使用真实鉴权后端；下载清单仅列出通过 CI 的平台安装包。', 'Uses the real authenticated backend; downloads list only actual CI-verified platform installers.')}</p>
+      <p><a class="btn" href="https://app.ziokt.com/">{tr('打开 Web 应用', 'Open web application')}</a></p>
+      <p><a class="btn" href="https://app.ziokt.com/downloads/">{tr('各平台软件下载与 SHA-256', 'Platform installers and SHA-256')}</a></p>
+      <p>{tr('HarmonyOS 源码包装不等同于已签名安装包；macOS ad-hoc 签名不等同于 Apple 公证。', 'HarmonyOS source wrappers are not signed installers; ad-hoc macOS signatures are not Apple notarization.')}</p></div>
     """
 
-# ==============================================================================
-# SUBPATH: DEFAULT OVERVIEW
-# ==============================================================================
 else:
     cur_h = esc(chain_ctx.get('height', t('runtime.unobserved')))
     tx_c = esc(chain_ctx.get('tx_count', t('runtime.unobserved')))
@@ -2317,22 +2180,7 @@ if subpath == 'ufsdcpm':
     """
 
 if subpath == 'gui':
-    simple_content_html += f"""
-    <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
-        <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🖥️ {t('nav.gui')}</h2>
-        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">{tr('Ziokt 跨平台统一图形客户端 (Desktop / Mobile)。集成 WATChat 双 UI、dCPM 包管理器、Shadow6 节点网络、SafeFS/UFS 存储密室与 TC-16 虚拟机。', 'Ziokt Cross-Platform Unified GUI Client (Desktop / Mobile). Integrates WATChat dual UI, dCPM manager, Shadow6 mesh, SafeFS/UFS vaults, and TC-16 VM.')}</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-            <a class="btn btn-green" href="/gateway-assets/gui/index.html" target="_blank" style="font-size:0.85rem;padding:6px 14px;">🚀 {tr('启动 Web 客户端 (PWA)', 'Launch Web Client (PWA)')}</a>
-            <a class="btn btn-purple" href="https://github.com/Ziokt/Ziokt/releases" target="_blank" style="font-size:0.85rem;padding:6px 14px;">📦 {tr('GitHub 发行版', 'GitHub Releases')}</a>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🐧 Linux (.tar.gz)</a>
-            <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🪟 Windows (.zip)</a>
-            <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🤖 Android (.apk)</a>
-            <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🔴 HarmonyOS (.tar.gz)</a>
-        </div>
-    </div>
-    """
+    simple_content_html += content_html
 
 ext_links = {
     'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
