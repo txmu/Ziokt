@@ -173,15 +173,15 @@ if subpath == "forum":
             """
 
         topics_html += f"""
-        <div class="card" style="margin-bottom:1.25rem;padding:1.25rem;">
+        <article class="card" style="margin-bottom:1.25rem;padding:1.25rem;">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
-                <h3 style="color:var(--accent-blue);font-size:1.15rem;">📌 {t_title}</h3>
+                <h2 style="color:var(--accent-blue);font-size:1.15rem;margin:0;">{t_title}</h2>
                 <span class="status-pill" style="font-size:0.7rem;font-family:monospace;">ID: {t_id[:16]}...</span>
             </div>
-            <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">
-                发帖人: <strong>{t_author[:20]}</strong> &bull; 时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_ts))} &bull; 内容哈希: <code>{t_chash[:16]}...</code>
-            </div>
-            <p style="font-size:0.95rem;line-height:1.6;color:var(--text-primary);margin-bottom:1rem;background:#1e293b;padding:0.75rem;border-radius:6px;">
+            <p class="meta" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                {t_author} · {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_ts))} · 内容哈希: <code>{t_chash[:16]}...</code>
+            </p>
+            <p class="content" style="font-size:0.95rem;line-height:1.6;color:var(--text-primary);margin-bottom:1rem;background:#1e293b;padding:0.75rem;border-radius:6px;">
                 {t_content}
             </p>
             
