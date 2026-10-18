@@ -78,6 +78,9 @@ ziokt-gateway-43-207-75-185.sslip.io, ziokt-dapp-43-207-75-185.sslip.io {
 }
 
 cor-web.ziokt.com {
+ redir /downloads https://app.ziokt.com/downloads/ 302
+ redir /downloads/* https://app.ziokt.com{uri} 302
+
 	@zioktNative path /api/gateway/* /gateway-assets/* /stream/*
 	handle @zioktNative {
 		reverse_proxy 127.0.0.1:8185 {
@@ -100,7 +103,11 @@ cor-web.ziokt.com {
 }
 
 ziokt-ufs-43-207-75-185.sslip.io {
-	reverse_proxy 127.0.0.1:8184
+	reverse_proxy 127.0.0.1:8184 {
+		header_up Host {host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto https
+	}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
@@ -121,4 +128,42 @@ mcp.ziokt.com {
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 	}
+}
+
+ziokt-shadow6-43-207-75-185.sslip.io {
+	reverse_proxy 127.0.0.1:9467 {
+		header_up Host {host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto https
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+
+
+app.ziokt.com {
+ handle_path /downloads/* {
+  root * /home/admin/.local/share/ziokt-production/downloads/gui
+  file_server
+  header Cache-Control no-cache
+ }
+ handle /api/gateway/* {
+  reverse_proxy 127.0.0.1:8185
+ }
+ handle {
+  root * /home/admin/Ziokt/gateway/gui
+  try_files {path} /index.html
+  file_server
+  header Cache-Control no-cache
+ }
+ header {
+  Strict-Transport-Security "max-age=31536000"
+  X-Content-Type-Options nosniff
+  Referrer-Policy no-referrer
+  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cor-web.ziokt.com wss://cor-web.ziokt.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+ }
 }

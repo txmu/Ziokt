@@ -28,7 +28,7 @@ Web 页面通过 Gateway 的 `/api/gateway/tools` 和 `/api/gateway/tools/call` 
 
 Linux systemd 环境的 Tauri 组件控制调用固定单元名，再读取 `is-active`；权限不足、缺少服务或超时均返回错误。其他平台不声称已启停本地服务。TCP Ping 建立实际连接，返回真实经过时间；它不代表组件业务健康。
 
-Windows/Linux/macOS 安装包由 CI 实际构建，不把前端静态目录压缩包命名成桌面程序。macOS 未提供 Apple 发布证书时使用 ad-hoc 签名，不等同于 Apple 公证。Android 通过受控 HTTPS 资产源加载本地资源，不开放 file URL 的任意跨域权限。HarmonyOS ArkUI 工程仍需对应 SDK、签名材料和真实设备验收，源码包装档案不标作可安装 HAP。
+Windows/Linux/macOS 安装包由 CI 实际构建，不把前端静态目录压缩包命名成桌面程序。macOS 未提供 Apple 发布证书时使用 ad-hoc 签名，不等同于 Apple 公证。Android 从 1.1 使用节点所有者持有的持续发布签名，通过 CI 私有凭据注入签署，签名密钥不进入源码或安装包；旧调试签名版本可能需要先卸载。Android 通过受控 HTTPS 资产源加载本地资源，不开放 file URL 的任意跨域权限。HarmonyOS ArkUI 工程仍需对应 SDK、签名材料和真实设备验收，源码包装档案不标作可安装 HAP。
 
 ## 验证与隐私边界
 

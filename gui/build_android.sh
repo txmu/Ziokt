@@ -69,13 +69,16 @@ java -cp "$R8_JAR" com.android.tools.r8.D8 \
 # 4-byte boundary zipalign
 zipalign -f -v -p 4 "$WORK_DIR/unaligned.apk" "$WORK_DIR/aligned.apk" >/dev/null
 
-# Generate keystore if missing
-DEBUG_KS="$WORK_DIR/debug.keystore"
-keytool -genkeypair -v -keystore "$DEBUG_KS" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" -noprompt
-
-# Cryptographically sign APK (v1, v2, v3)
+# CI uses an owner-controlled persistent signing identity, never a fresh key per build.
+RELEASE_KS="$WORK_DIR/release.p12"
+if [ -z "${ZIOKT_ANDROID_KEYSTORE_BASE64:-}" ] || [ -z "${ZIOKT_ANDROID_STORE_PASSWORD:-}" ]; then
+  echo "Persistent Android release signing credentials are required" >&2
+  exit 1
+fi
+printf '%s' "$ZIOKT_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KS"
+chmod 600 "$RELEASE_KS"
 mkdir -p "$SCRIPT_DIR/downloads"
-apksigner sign --ks "$DEBUG_KS" --ks-pass pass:android --out "$SCRIPT_DIR/downloads/ziokt-mobile-android.apk" "$WORK_DIR/aligned.apk"
+apksigner sign --ks "$RELEASE_KS" --ks-key-alias "${ZIOKT_ANDROID_KEY_ALIAS:-ziokt-release}" --ks-pass env:ZIOKT_ANDROID_STORE_PASSWORD --out "$SCRIPT_DIR/downloads/ziokt-mobile-android.apk" "$WORK_DIR/aligned.apk"
 
 # Verify signature
 apksigner verify -v "$SCRIPT_DIR/downloads/ziokt-mobile-android.apk"

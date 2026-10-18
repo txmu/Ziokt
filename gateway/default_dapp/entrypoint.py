@@ -2357,6 +2357,11 @@ response = f"""<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{t('portal.title')}</title>
     <style>
+        *, *::before, *::after {{ box-sizing: border-box; }}
+        main, section, article, form, fieldset, .card, .grid > * {{ min-width: 0; max-width: 100%; }}
+        body, pre, code, .meta {{ overflow-wrap: anywhere; word-break: break-word; }}
+        input, select, textarea, button {{ min-width: 0; max-width: 100%; }}
+
         :root {{
             color-scheme: dark;
             --bg-color: #0b0f19;
@@ -2635,3 +2640,5 @@ response = f"""<!DOCTYPE html>
 """
 
 response=response.replace('<body>', '<body><p id="runtime-evidence-note" role="status">'+t('runtime.evidence_note')+'</p>',1)
+
+response=response.replace('<body>', '<body><nav aria-label="Unified client" style="padding:12px;display:flex;gap:16px;flex-wrap:wrap"><a href="https://app.ziokt.com/">Ziokt Web 应用</a><a href="https://app.ziokt.com/downloads/">各平台软件下载</a></nav>',1)

@@ -69,7 +69,7 @@ jobs:
       - name: Check Rust Core & Tauri 2 Config
         run: |
           cd gui/src-tauri
-          cargo check --locked --manifest-path Cargo.toml
+          cargo test --lib --locked --manifest-path Cargo.toml
 
   build-linux:
     name: Build Linux Desktop (Deb / AppImage)
@@ -218,6 +218,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends aapt zipalign apksigner
 
       - name: Build Standalone Android APK Application
+        env:
+          ZIOKT_ANDROID_KEYSTORE_BASE64: ${{ secrets.GUI_ANDROID_KEYSTORE_BASE64 }}
+          ZIOKT_ANDROID_STORE_PASSWORD: ${{ secrets.GUI_ANDROID_STORE_PASSWORD }}
+          ZIOKT_ANDROID_KEY_ALIAS: ziokt-release
         run: |
           chmod +x gui/build_android.sh
           ./gui/build_android.sh

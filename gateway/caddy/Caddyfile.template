@@ -11,3 +11,23 @@
   reverse_proxy 127.0.0.1:8080
  }
 }
+
+# The GUI is hosted separately; installer files are populated only after successful GUI CI.
+{$ZIOKT_APP_DOMAIN:app.ziokt.com} {
+ handle_path /downloads/* {
+  root * {$ZIOKT_GUI_DOWNLOADS:/home/admin/.local/share/ziokt-production/downloads/gui}
+  file_server
+  header Cache-Control no-cache
+ }
+ handle /api/gateway/* {
+  reverse_proxy 127.0.0.1:8185
+ }
+ handle {
+  root * {$ZIOKT_GUI_ROOT:/home/admin/Ziokt/gateway/gui}
+  try_files {path} /index.html
+  file_server
+  header Cache-Control no-cache
+ }
+ header X-Content-Type-Options nosniff
+ header Referrer-Policy no-referrer
+}

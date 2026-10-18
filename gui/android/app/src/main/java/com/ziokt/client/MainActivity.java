@@ -19,6 +19,9 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "ZioktNative";
     private WebView webView;
+    private android.webkit.ValueCallback<android.net.Uri[]> fileChooser;
+    private android.webkit.PermissionRequest microphoneRequest;
+    private static final int PICK_FILE=1001, RECORD_AUDIO_PERMISSION=1002;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -45,7 +48,7 @@ public class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        settings.setAllowContentAccess(true);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
@@ -62,8 +65,27 @@ public class MainActivity extends Activity {
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
+            public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<android.net.Uri[]> callback, FileChooserParams params) {
+                if (fileChooser!=null) fileChooser.onReceiveValue(null);
+                fileChooser=callback;
+                try { startActivityForResult(params.createIntent(),PICK_FILE); }
+                catch (android.content.ActivityNotFoundException e) { fileChooser.onReceiveValue(null);fileChooser=null; }
+                return true;
+            }
+            @Override
+            public void onPermissionRequest(android.webkit.PermissionRequest request) {
+                if (!"https".equals(request.getOrigin().getScheme()) || !("appassets.ziokt.local".equals(request.getOrigin().getHost()) || "app.ziokt.com".equals(request.getOrigin().getHost()))) {request.deny();return;}
+                if (!java.util.Arrays.asList(request.getResources()).contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {request.deny();return;}
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    request.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                } else {if(microphoneRequest!=null)microphoneRequest.deny();microphoneRequest=request;requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},RECORD_AUDIO_PERMISSION);}
+            }
+            @Override
+            public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {if(microphoneRequest==request)microphoneRequest=null;}
+
+            @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
-                Log.d(TAG, "[" + cm.messageLevel() + "] " + cm.message() + " (" + cm.sourceId() + ":" + cm.lineNumber() + ")");
+                // Application payloads and credentials do not enter logcat.
                 return true;
             }
 
@@ -148,6 +170,21 @@ public class MainActivity extends Activity {
         });
         webView.loadUrl("https://appassets.ziokt.local/index.html");
     }
+
+    @Override
+    protected void onActivityResult(int code,int result,android.content.Intent data) {
+        super.onActivityResult(code,result,data);
+        if(code==PICK_FILE && fileChooser!=null){fileChooser.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileChooser=null;}
+    }
+    @Override
+    public void onRequestPermissionsResult(int code,String[] permissions,int[] results) {
+        super.onRequestPermissionsResult(code,permissions,results);
+        if(code==RECORD_AUDIO_PERMISSION && microphoneRequest!=null){
+            if(results.length>0 && results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)microphoneRequest.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE});else microphoneRequest.deny();microphoneRequest=null;
+        }
+    }
+    @Override
+    protected void onDestroy(){if(fileChooser!=null)fileChooser.onReceiveValue(null);if(microphoneRequest!=null)microphoneRequest.deny();if(webView!=null)webView.destroy();super.onDestroy();}
 
     @Override
     public void onBackPressed() {

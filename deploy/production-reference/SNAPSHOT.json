@@ -3,12 +3,12 @@
   "kind": "SANITIZED_REFERENCE_NOT_PRIVATE_BACKUP",
   "source_root": "/home/admin/.local/share/ziokt-production",
   "files": {
-    "runtime/config/gateway.json": "20ad62cfc959db5a00d794df6e30707bb1cb2d69972d32cfd3fd7537a6379c33",
+    "runtime/config/gateway.json": "892c41e7498fb5324e7bf1bdabdec91b99551ebecd64070832fc20dc90051e64",
     "runtime/config/federation.json": "bdf5572c4086b2ebc5a3a9d0dd7ccde41d18efeaac378e0fd26a0280ec9f1fa2",
     "runtime/config/shadow6-production.json": "e115ed4d96283bf98d8934c1d2502c3b0efd2f88d664ce327e0e1f6ee93921f8",
     "runtime/config/effort-web.json": "e90f8c2b5ec151cd1922f9abeb6657ff840d472d59b886ccdfdf4e0562651f8c",
     "runtime/config/runtime-digests.json": "b0eeeba55496693b12d47318770d75ef08c0b7018433c838014440a409952afd",
-    "runtime/mcp/mcp.json": "6751c4f36d503da5a45c012843b6e2628bae108e7c60d4697952b9c4ccf08cc9",
+    "runtime/mcp/mcp.json": "49a7e116fcb74359da868f2d476e79dbd3fb8d86ee8a9753d4e50af2b9feee25",
     "runtime/config/etp-bulk/node-0.json": "5df8a2e4c97b8533214b951b96878c31780ac347ac43d1681491366b07831101",
     "runtime/config/etp-bulk/node-1.json": "3b107219fb050600baacb8d6e55a02646047f4e094f4d67bbfca5589eaa8b015",
     "runtime/config/etp-bulk/node-2.json": "d40bb0be6693c57694c0ea29c6015117f463bef5b13fb0758f8475ac9aba665b",
@@ -43,7 +43,7 @@
     "systemd/ziokt-telegram-bot.service": "0e06c0699d9736a196b7811a999f441b99f0896fdb0cb8aac65e0eed54b80df4",
     "systemd/ziokt-ufs.service": "089c807b2383cf5a6396946b2a01772daee2133440a5b4083a4271bdf56b5416",
     "systemd/ziokt-watchat.service": "d344f25739f762fa71683e1e947d3854ff694c04ac5833c91292e7861320f7a5",
-    "runtime/config/Caddyfile": "a213a5a1b38b6b7a3d600caa9c5d2d705dbc81eb1075176a5ed5886182d2d9b0",
+    "runtime/config/Caddyfile": "33001a85f93a605234c72f8b9a7f80fe7f523aff0d002f7b4551d96f521971af",
     "runtime/bin/corium-service": "45cf00121efcb6e6dc2fcbac0eae1b021cbc6b33039c8a4b87aca81d1a52a028",
     "runtime/corium/etc/corix/networks/ziokt-main/corix.conf": "28d6ea8abf4d932774a152c1b360027af260405603ae53ea27538b891d6143c1",
     "user-config/dcpm-ufs/config.json": "f956f0ba963b664804664df34aabcd14410e42aff82abb02464847c0a41e3a66"

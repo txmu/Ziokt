@@ -9,7 +9,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base)).ok){ready=true;break}}catch(_){}await delay(50)}assert.ok(ready);
   browser=await chromium.launch({headless:true,args:['--use-fake-device-for-media-stream']});const aliceContext=await browser.newContext({viewport:desktop?{width:1280,height:900}:{width:360,height:800},permissions:['notifications','microphone']}),bobContext=await browser.newContext({viewport:desktop?{width:1280,height:900}:{width:360,height:800}});
   for(const context of [aliceContext,bobContext])await context.route('**/*',route=>{const host=new URL(route.request().url()).hostname;return host==='127.0.0.1'||host==='localhost'?route.continue():route.abort()});
-  await aliceContext.grantPermissions(['notifications'],{origin:base});
+  await aliceContext.grantPermissions(['notifications','microphone'],{origin:base});
   const alice=await aliceContext.newPage(),bob=await bobContext.newPage();alice.on('dialog',d=>d.accept());bob.on('dialog',d=>d.accept());
   await alice.goto(base);await alice.fill('#username','admin');await alice.fill('#password','browser-fixture-strong-password');await alice.click('#login button');await alice.locator('#workspace').waitFor({state:'visible'});await alice.selectOption('#ui-mode',uiMode);
   await alice.locator('#admin').evaluate(e=>e.open=true);await alice.fill('#new-user','bob');await alice.fill('#new-name','Bob');await alice.fill('#new-password','browser-fixture-bob-password');await alice.locator('#admin').evaluate(e=>e.open=true);await alice.click('#create-user button');await delay(200);

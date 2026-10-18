@@ -30,11 +30,11 @@ pub struct PingResult {
 }
 
 #[tauri::command]
-pub fn get_system_info() -> SystemInfo {
+fn get_system_info() -> SystemInfo {
     SystemInfo {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        client_version: "1.0.0".to_string(),
+        client_version: env!("CARGO_PKG_VERSION").to_string(),
         cores: std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1),
@@ -43,7 +43,7 @@ pub fn get_system_info() -> SystemInfo {
 }
 
 #[tauri::command]
-pub async fn manage_component(name: String, action: String) -> Result<ComponentStatus, String> {
+async fn manage_component(name: String, action: String) -> Result<ComponentStatus, String> {
     let (unit, port) = match name.as_str() {
         "corium" => ("ziokt-corium-consensus.service", 8545),
         "shadow6" => ("shadow6-cluster.service", 8186),
@@ -71,7 +71,7 @@ pub async fn manage_component(name: String, action: String) -> Result<ComponentS
 }
 
 #[tauri::command]
-pub async fn ping_gateway(endpoint: String) -> Result<PingResult, String> {
+async fn ping_gateway(endpoint: String) -> Result<PingResult, String> {
     let url = tauri::Url::parse(&endpoint).map_err(|_| "Invalid gateway URL")?;
     if !["https", "http"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() {
         return Err("HTTP(S) URL without embedded credentials required".into());
@@ -84,7 +84,7 @@ pub async fn ping_gateway(endpoint: String) -> Result<PingResult, String> {
 }
 
 #[tauri::command]
-pub fn send_native_notification(_title: String, _body: String) -> Result<(), String> {
+fn send_native_notification(_title: String, _body: String) -> Result<(), String> {
     Err("Native notification provider is not configured".into())
 }
 
@@ -99,4 +99,24 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running ziokt client application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn ping_observes_actual_socket_and_failures() {
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint=format!("http://{}",listener.local_addr().unwrap());
+        assert!(ping_gateway(endpoint.clone()).await.unwrap().reachable);
+        drop(listener);
+        assert!(!ping_gateway(endpoint).await.unwrap().reachable);
+        assert!(ping_gateway("file:///etc/passwd".into()).await.is_err());
+        assert!(ping_gateway("https://user:secret@example.com".into()).await.is_err());
+    }
+    #[tokio::test]
+    async fn lifecycle_rejects_unlisted_components_and_actions() {
+        assert!(manage_component("shell;id".into(),"start".into()).await.is_err());
+        assert!(manage_component("corium".into(),"exec".into()).await.is_err());
+    }
 }

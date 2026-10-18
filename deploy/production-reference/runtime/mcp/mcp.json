@@ -176,8 +176,9 @@
   "gateway": "/home/admin/.local/share/ziokt-production/config/gateway.json",
   "issuer": "https://mcp.ziokt.com",
   "origins": [
-    "https://mcp.ziokt.com",
-    "https://cor-web.ziokt.com"
+    "https://app.ziokt.com",
+    "https://cor-web.ziokt.com",
+    "https://mcp.ziokt.com"
   ],
   "port": 8186,
   "schema": "ziokt.mcp.v1",
@@ -253,10 +254,11 @@
     "ziokt:read"
   ],
   "hosts": [
-    "mcp.ziokt.com",
+    "127.0.0.1:8186",
+    "app.ziokt.com",
     "cor-web.ziokt.com",
-    "ziokt-gateway-43-207-75-185.sslip.io",
-    "127.0.0.1:8186"
+    "mcp.ziokt.com",
+    "ziokt-gateway-43-207-75-185.sslip.io"
   ],
   "telegram": {
     "enabled": true,
@@ -268,5 +270,13 @@
     "allowed_user_ids": [
       "<REGENERATE_OR_RESTORE_PRIVATE_VALUE>"
     ]
+  },
+  "native_package_handoff": {
+    "module": "/home/admin/Shadow6/Package-Manager/shadow6_pkg.py",
+    "module_digest": "sha256:28821f4d1482e041592edc2de3605c56d4cd79822a6cbcc2380e01d6233bc8fa",
+    "trust_file": "/home/admin/.local/share/ziokt-production/mcp/native-admission/trusted-signers.json",
+    "artifact_root": "/home/admin/.local/share/ziokt-production/mcp/native-admission/artifacts",
+    "package_root": "/home/admin/.local/share/ziokt-production/mcp/native-admission/packages",
+    "native_config": "/home/admin/.local/share/ziokt-production/config/shadow6-production.json"
   }
 }

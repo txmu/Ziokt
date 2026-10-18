@@ -10,19 +10,19 @@ import promptAction from '@ohos.promptAction';
 struct Index {
   controller: webview.WebviewController = new webview.WebviewController();
   @State localEndpoint: string = 'http://127.0.0.1:8185/gui';
-  @State isOnline: boolean = true;
+  @State isOnline: boolean = false;
 
   aboutToAppear() {
     // Enable modern web debugging for development builds
-    webview.WebviewController.setWebDebuggingAccess(true);
+    webview.WebviewController.setWebDebuggingAccess(false);
   }
 
   build() {
     Column() {
       // Main Webview Container running the Unified Ziokt GUI Client
-      Web({ src: $rawfile('index.html'), controller: this.controller })
+      Web({ src: 'https://app.ziokt.com/', controller: this.controller })
         .domStorageAccess(true)
-        .fileAccess(true)
+        .fileAccess(false)
         .imageAccess(true)
         .javaScriptAccess(true)
         .onlineImageAccess(true)
