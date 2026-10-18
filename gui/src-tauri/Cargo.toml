@@ -1,0 +1,23 @@
+[package]
+name = "ziokt-gui-native"
+version = "1.0.0"
+description = "Ziokt Native Desktop and Mobile Client"
+authors = ["Ziokt Project Team"]
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "ziokt_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

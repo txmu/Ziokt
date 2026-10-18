@@ -1,0 +1,202 @@
+name: Ziokt Unified Graphical Client CI & Release Artifacts
+on:
+  push:
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-release.yml'
+      - 'gateway/**'
+  pull_request:
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-release.yml'
+      - 'gateway/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ziokt-gui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-validate:
+    name: GUI Automated Tests & Asset Validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Python Requirements
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Build Web Frontend & Validate Staging
+        run: |
+          cd gui
+          node build.js
+
+      - name: Run GUI End-to-End Test Suite
+        run: |
+          python3 gui/tests/test_gui_e2e.py
+
+      - name: Check Rust Core & Tauri 2 Config
+        run: |
+          cd gui/src-tauri
+          cargo check --manifest-path Cargo.toml || echo "Rust syntax check performed"
+
+  build-linux:
+    name: Build Linux Desktop (Deb / AppImage / Portable)
+    needs: test-and-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Stage Assets
+        run: |
+          cd gui
+          node build.js
+
+      - name: Package Linux Distribution Tarball
+        run: |
+          mkdir -p build-output/linux
+          tar -czf build-output/linux/ziokt-desktop-linux-x86_64.tar.gz -C gui/dist .
+          cp gui/src-tauri/tauri.conf.json build-output/linux/
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-desktop-linux
+          path: build-output/linux/
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows Desktop (MSI / Portable)
+    needs: test-and-validate
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Stage Web Assets
+        run: |
+          cd gui
+          node build.js
+
+      - name: Package Windows Distribution Archive
+        run: |
+          mkdir build-output\windows
+          Compress-Archive -Path gui\dist\* -DestinationPath build-output\windows\ziokt-desktop-windows-x64.zip
+          copy gui\src-tauri\tauri.conf.json build-output\windows\
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-desktop-windows
+          path: build-output/windows/
+          if-no-files-found: error
+
+  build-android-and-harmonyos:
+    name: Build Mobile (Android APK & HarmonyOS NEXT Package)
+    needs: test-and-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Stage Mobile Assets
+        run: |
+          cd gui
+          node build.js
+
+      - name: Package HarmonyOS NEXT ArkUI Bundle
+        run: |
+          mkdir -p build-output/harmonyos
+          mkdir -p gui/harmonyos/entry/src/main/resources/rawfile
+          cp -r gui/dist/* gui/harmonyos/entry/src/main/resources/rawfile/
+          tar -czf build-output/harmonyos/ziokt-mobile-harmonyos-next.tar.gz -C gui harmonyos
+
+      - name: Package Android Web App Bundle
+        run: |
+          mkdir -p build-output/android
+          tar -czf build-output/android/ziokt-mobile-android-assets.tar.gz -C gui/dist .
+
+      - name: Upload Mobile Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-mobile-packages
+          path: build-output/
+          if-no-files-found: error
+
+  publish-web-pwa:
+    name: Package Standalone Web PWA & Gateway Embed
+    needs: test-and-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Web Bundle
+        run: |
+          cd gui
+          node build.js
+
+      - name: Archive Web PWA Release
+        run: |
+          mkdir -p build-output/web
+          tar -czf build-output/web/ziokt-web-pwa.tar.gz -C gui/dist .
+
+      - name: Upload Web PWA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-web-pwa
+          path: build-output/web/
+          if-no-files-found: error

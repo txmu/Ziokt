@@ -209,6 +209,15 @@ def handler(gateway):
                     return
                 if path.startswith('/gateway-assets/'):
                     name = path.removeprefix('/gateway-assets/')
+                    if name.startswith('gui/'):
+                        gui_sub = name.removeprefix('gui/')
+                        if '..' in gui_sub: return self.send(404,{'error':'not found'})
+                        target_file = (ASSETS / 'gui' / gui_sub).resolve()
+                        gui_root = (ASSETS / 'gui').resolve()
+                        if not str(target_file).startswith(str(gui_root)) or not target_file.is_file():
+                            return self.send(404,{'error':'not found'})
+                        ctype = 'text/html; charset=utf-8' if name.endswith('.html') else 'application/json' if name.endswith('.json') else 'text/css; charset=utf-8' if name.endswith('.css') else 'image/svg+xml' if name.endswith('.svg') else 'image/png' if name.endswith('.png') else 'text/javascript; charset=utf-8'
+                        return self.send(200, target_file.read_bytes(), ctype)
                     if name not in ('gateway.js','i18n.json','media.js','mcp-console.js','oauth-callback.html','oauth-callback.js','registry.html','registry.js'): return self.send(404,{'error':'not found'})
                     return self.send(200,(ASSETS/name).read_bytes(),'application/json' if name.endswith('.json') else 'text/html; charset=utf-8' if name.endswith('.html') else 'text/javascript; charset=utf-8')
                 return self.send(404,{'error':'not found'})

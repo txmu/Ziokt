@@ -55,13 +55,16 @@ ALIAS_MAP = {
     's6': 'shadow6',
     'vb': 'shadow6',
     'virtual-broker': 'shadow6',
+    'gui': 'gui',
+    'desktop': 'gui',
+    'client': 'gui',
 }
 subpath = ALIAS_MAP.get(subpath, subpath)
 
 VALID_SUBPATHS = (
     "overview", "ecosystem", "forum", "fileshare", "onion",
     "zda", "safefs", "ufsdcpm", "tc16", "blockchain",
-    "watchat", "sim", "effort", "nns", "board", "mcp", "shadow6"
+    "watchat", "sim", "effort", "nns", "board", "mcp", "shadow6", "gui"
 )
 if subpath not in VALID_SUBPATHS:
     subpath = "overview"
@@ -84,6 +87,7 @@ COMPONENTS = {
     'board': 'gateway',
     'mcp': 'gateway',
     'shadow6': 'shadow6',
+    'gui': 'gui',
 }
 current_component = COMPONENTS.get(subpath, 'gateway')
 
@@ -1839,6 +1843,112 @@ elif subpath == "shadow6":
     """
 
 # ==============================================================================
+# SUBPATH: GUI CLIENT
+# ==============================================================================
+elif subpath == "gui":
+    tab_html = f"""
+    <div class="card detail-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;">
+            <div>
+                <h2 style="margin:0;font-size:1.4rem;display:flex;align-items:center;gap:8px;">
+                    🖥️ {t('nav.gui')}
+                </h2>
+                <p style="color:var(--text-secondary);font-size:0.9rem;margin-top:4px;">
+                    Ziokt Desktop &amp; Mobile 统一图形客户端 &bull; 多平台原生 (Tauri 2 / ArkUI / Web PWA)
+                </p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <a href="/gateway-assets/gui/index.html" target="_blank" class="btn btn-green" style="font-size:0.88rem;padding:8px 16px;">
+                    🚀 立即进入 Web 应用 (PWA)
+                </a>
+                <a href="https://github.com/Ziokt/Ziokt/releases" target="_blank" class="btn btn-purple" style="font-size:0.88rem;padding:8px 16px;">
+                    📥 下载安装包 (Release)
+                </a>
+            </div>
+        </div>
+
+        <!-- Platform downloads grid -->
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:0.75rem;">📦 支持平台与原生安装包</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;margin-bottom:2rem;">
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                    🐧 Linux (x86_64 / arm64)
+                </div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
+                    .deb, .AppImage, tar.gz。提供独立沙盒与原生通知集成。
+                </div>
+                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
+            </div>
+
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                    🪟 Windows (x64)
+                </div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
+                    .msi 安装程序, .exe 单文件便携版。WebView2 原生驱动。
+                </div>
+                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
+            </div>
+
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                    🤖 Android (ARM64 / x86_64)
+                </div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
+                    .apk 独立安装包。支持移动端手势、底部导航栏与离线存储。
+                </div>
+                <span class="status-pill" style="background:#10b981;font-size:0.75rem;">CI RELEASE READY</span>
+            </div>
+
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                    🔴 HarmonyOS NEXT (鸿蒙原生)
+                </div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">
+                    ArkUI 原生 Web 容器集成方案 (Entry module &amp; Index.ets)。
+                </div>
+                <span class="status-pill" style="background:#a855f7;font-size:0.75rem;">ARKUI INTEGRATED</span>
+            </div>
+        </div>
+
+        <!-- 9 Modules Showcase -->
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">🧩 客户端 9 大全功能核心模块</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:2rem;">
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:var(--accent-blue);margin-bottom:4px;">💬 WATChat 实时加密通讯</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">支持<strong>简洁版</strong>与<strong>经典丰富版</strong>无缝自由切换，会话状态与端到端加密零中断保持。</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:var(--accent-green);margin-bottom:4px;">📦 dCPM 应用与软件包中心</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">与 UFS / Shadow6 深度打通，支持真实安装、依赖解析、一键更新、版本回滚与干净卸载。</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:var(--accent-purple);margin-bottom:4px;">🛡️ Shadow6 &amp; ETP 网络节点</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">13 种 Profile 并行运行矩阵，Virtual Broker 核心，S6P1 自定义信封解析与 ETP 洋葱拓扑。</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:var(--accent-amber);margin-bottom:4px;">🔐 UFS &amp; SafeFS 安全密室</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">文件分片加密存储，拖拽秒传与根哈希校验，隐形密室卷状态实时监控。</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#38bdf8;margin-bottom:4px;">⚙️ TC-16 &amp; ZDA 开发者套件</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">全功能 16 位虚拟机单步调试与内存监视，Corium 账本检索，ZDA 多项式零知识门验证。</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                <div style="font-weight:bold;color:#f43f5e;margin-bottom:4px;">🎛️ 本地 / 远端 / 混合生命周期</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary);">按需按量按角色启停底层组件，无需全量常驻，全套快捷键 (1-9, Esc, Ctrl+K) 与高对比度无障碍支持。</div>
+            </div>
+        </div>
+
+        <!-- Embedded Interactive Preview -->
+        <h3 style="color:var(--accent-amber);font-size:1.1rem;margin-bottom:0.75rem;">🖥️ 客户端在线嵌入式工作台</h3>
+        <div style="width:100%;height:650px;border:1px solid #334155;border-radius:8px;overflow:hidden;background:#000;">
+            <iframe src="/gateway-assets/gui/index.html" style="width:100%;height:100%;border:none;" title="Ziokt GUI Client"></iframe>
+        </div>
+    </div>
+    """
+
+# ==============================================================================
 # SUBPATH: DEFAULT OVERVIEW
 # ==============================================================================
 else:
@@ -1969,6 +2079,7 @@ nav_items = [
     ('ecosystem', 'nav.ecosystem', '⚡'),
     ('mcp', 'nav.mcp', '🤖'),
     ('shadow6', 'nav.shadow6', '🛡️'),
+    ('gui', 'nav.gui', '🖥️'),
 ]
 
 nav_links_html = ""
@@ -2153,12 +2264,25 @@ if subpath == 'ufsdcpm':
     </div>
     """
 
+if subpath == 'gui':
+    simple_content_html += f"""
+    <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
+        <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🖥️ {t('nav.gui')}</h2>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">Ziokt 跨平台统一图形客户端 (Desktop / Mobile)。集成 WATChat 双 UI、dCPM 包管理器、Shadow6 节点网络、SafeFS/UFS 存储密室与 TC-16 虚拟机。</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a class="btn btn-green" href="/gateway-assets/gui/index.html" target="_blank" style="font-size:0.85rem;padding:6px 14px;">🚀 启动 Web 客户端 (PWA)</a>
+            <a class="btn btn-purple" href="https://github.com/Ziokt/Ziokt/releases" target="_blank" style="font-size:0.85rem;padding:6px 14px;">📦 下载原生安装包</a>
+        </div>
+    </div>
+    """
+
 ext_links = {
     'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
     'sim': 'https://ziokt-sim-43-207-75-185.sslip.io/',
     'effort': 'https://ziokt-effort-43-207-75-185.sslip.io/',
     'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/',
-    'shadow6': 'https://ziokt-shadow6-43-207-75-185.sslip.io/'
+    'shadow6': 'https://ziokt-shadow6-43-207-75-185.sslip.io/',
+    'gui': '/gateway-assets/gui/index.html'
 }
 if subpath in ext_links:
     simple_content_html += f'<p style="margin:16px 0;"><a class="btn btn-green" href="{ext_links[subpath]}" rel="noreferrer" target="_blank">{t("app.open")}</a></p>'

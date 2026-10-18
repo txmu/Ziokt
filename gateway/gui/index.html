@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ziokt 统一图形客户端</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+</head>
+<body>
+
+<div id="app-root">
+
+  <!-- Desktop Sidebar -->
+  <aside id="sidebar">
+    <div class="brand-header">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">ZIOKT CLIENT</div>
+        <div class="brand-ver">Core Native v1.0.0</div>
+      </div>
+    </div>
+
+    <nav class="nav-menu">
+      <a href="#home" class="nav-item active" data-tab="home">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">首页总览</span>
+      </a>
+      <a href="#chat" class="nav-item" data-tab="chat">
+        <span class="nav-icon">💬</span>
+        <span class="nav-label">加密通讯</span>
+      </a>
+      <a href="#forum" class="nav-item" data-tab="forum">
+        <span class="nav-icon">📜</span>
+        <span class="nav-label">社区论坛</span>
+      </a>
+      <a href="#files" class="nav-item" data-tab="files">
+        <span class="nav-icon">🔒</span>
+        <span class="nav-label">安全存储</span>
+      </a>
+      <a href="#apps" class="nav-item" data-tab="apps">
+        <span class="nav-icon">📦</span>
+        <span class="nav-label">应用中心</span>
+      </a>
+      <a href="#network" class="nav-item" data-tab="network">
+        <span class="nav-icon">🌐</span>
+        <span class="nav-label">网络节点</span>
+      </a>
+      <a href="#identity" class="nav-item" data-tab="identity">
+        <span class="nav-icon">🔑</span>
+        <span class="nav-label">身份与贡献</span>
+      </a>
+      <a href="#devtools" class="nav-item" data-tab="devtools">
+        <span class="nav-icon">🛠️</span>
+        <span class="nav-label">开发工具</span>
+      </a>
+      <a href="#settings" class="nav-item" data-tab="settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">系统设置</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span>Gateway: 8185 (Connected)</span>
+      </div>
+      <div style="font-size: 0.7rem; color: var(--text-dim); text-align: center;">
+        Ziokt Desktop / Mobile GUI
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Viewport Area -->
+  <main id="main-viewport">
+    
+    <!-- Top Bar -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <h1 id="current-page-title" class="page-title">首页总览</h1>
+        <span class="mode-pill">NATIVE HYBRID</span>
+      </div>
+
+      <div class="topbar-right">
+        <button id="quick-lang-btn" class="btn btn-secondary btn-sm" title="切换语言">🌐 中/EN</button>
+        <button id="quick-theme-btn" class="btn btn-secondary btn-sm" title="切换主题">🌓</button>
+        <div id="user-did-pill" class="did-pill" title="点击复制当前 DID">
+          did:ziokt:800a3e...0065
+        </div>
+      </div>
+    </header>
+
+    <!-- Content Container -->
+    <section id="content-container"></section>
+
+  </main>
+
+  <!-- Mobile Bottom Navigation Bar -->
+  <nav id="bottombar">
+    <a href="#home" class="bottom-item active" data-tab="home">
+      <span class="bottom-icon">📊</span>
+      <span class="bottom-label">总览</span>
+    </a>
+    <a href="#chat" class="bottom-item" data-tab="chat">
+      <span class="bottom-icon">💬</span>
+      <span class="bottom-label">通讯</span>
+    </a>
+    <a href="#files" class="bottom-item" data-tab="files">
+      <span class="bottom-icon">🔒</span>
+      <span class="bottom-label">存储</span>
+    </a>
+    <a href="#apps" class="bottom-item" data-tab="apps">
+      <span class="bottom-icon">📦</span>
+      <span class="bottom-label">应用</span>
+    </a>
+    <a href="#network" class="bottom-item" data-tab="network">
+      <span class="bottom-icon">🌐</span>
+      <span class="bottom-label">网络</span>
+    </a>
+    <a href="#settings" class="bottom-item" data-tab="settings">
+      <span class="bottom-icon">⚙️</span>
+      <span class="bottom-label">设置</span>
+    </a>
+  </nav>
+
+</div>
+
+<!-- Universal Confirmation & JSON Modal Dialog -->
+<div id="modal-overlay" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modal-title" style="font-size: 1.05rem; font-weight: 600; color: var(--accent-cyan);">操作确认</h3>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+    <div id="modal-footer" class="modal-footer"></div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

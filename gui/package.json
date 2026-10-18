@@ -1,0 +1,24 @@
+{
+  "name": "ziokt-gui",
+  "version": "1.0.0",
+  "description": "Ziokt Unified Graphical Client (Desktop & Mobile)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 8200 --directory src",
+    "build": "node build.js",
+    "test": "python3 tests/test_gui_e2e.py",
+    "tauri": "cargo tauri"
+  },
+  "keywords": [
+    "ziokt",
+    "decentralized",
+    "p2p",
+    "tauri",
+    "gui",
+    "desktop",
+    "mobile"
+  ],
+  "author": "Ziokt Project Team",
+  "license": "Apache-2.0"
+}
