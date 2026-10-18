@@ -4,8 +4,8 @@ const messages={en:{language:'Language',install:'Install app',notifications:'Ena
 messages.en.pageTitle='Page title';messages.en.saveTitle='Save title';messages['zh-CN'].pageTitle='页面标题';messages['zh-CN'].saveTitle='保存标题';
 Object.assign(messages.en,{interface:'Interface',simple:'Simple',classic:'Classic',theme:'Theme',system:'System',light:'Light',dark:'Dark',back:'Back to contacts',photo:'Photo',video:'Video',record:'Record voice',stopRecording:'Stop and send',cancelRecording:'Cancel recording',recording:'Recording (60 seconds maximum)',recordUnsupported:'Voice recording is unavailable in this browser',microphoneDenied:'Microphone permission denied or unavailable',mediaLimit:'Attachment exceeds the 11 MiB limit',mediaBusy:'An attachment is being prepared',online:'Online',offlineContact:'Offline',sendingMedia:'Encrypting and uploading attachment',serverStored:'Stored by server',recipientConfirmed:'Recipient confirmed',clearMedia:'Cancel pending attachments',attachmentDigest:'Attachment integrity check failed'});
 Object.assign(messages['zh-CN'],{interface:'界面',simple:'简洁版',classic:'经典丰富版',theme:'主题',system:'跟随系统',light:'浅色',dark:'深色',back:'返回联系人',photo:'图片',video:'视频',record:'录制语音',stopRecording:'停止并发送',cancelRecording:'取消录音',recording:'录音中（最长 60 秒）',recordUnsupported:'当前浏览器不支持语音录制',microphoneDenied:'麦克风权限被拒绝或设备不可用',mediaLimit:'附件超过 11 MiB 上限',mediaBusy:'正在处理附件',online:'在线',offlineContact:'离线',sendingMedia:'正在加密并上传附件',serverStored:'服务器已存储',recipientConfirmed:'对端已确认',clearMedia:'取消待发送附件',attachmentDigest:'附件完整性校验失败'});
-Object.assign(messages.en,{MEDIA_TYPE:'Choose a photo, video or audio file',MEDIA_OUTBOX_LIMIT:'Four attachments are queued; retry or cancel pending attachments',UPLOAD_REFERENCE_CHANGED:'Server returned a different attachment reference',SESSION_CHANGED:'Session changed while preparing the attachment',playbackUnavailable:'This browser cannot play this media format',saveAttachment:'Save attachment'});
-Object.assign(messages['zh-CN'],{MEDIA_TYPE:'请选择图片、视频或音频文件',MEDIA_OUTBOX_LIMIT:'已有四个待发送附件，请重试或取消待发送附件',UPLOAD_REFERENCE_CHANGED:'服务器返回的附件引用不匹配',SESSION_CHANGED:'处理附件时会话已发生变化',playbackUnavailable:'当前浏览器无法播放此媒体格式',saveAttachment:'保存附件'});
+Object.assign(messages.en,{MEDIA_TYPE:'Choose a photo, video or audio file',MEDIA_OUTBOX_LIMIT:'Four attachments are queued; retry or cancel pending attachments',UPLOAD_REFERENCE_CHANGED:'Server returned a different attachment reference',SESSION_CHANGED:'Session changed while preparing the attachment',upgradeBlocked:'Close other WATChat tabs to finish the storage upgrade',dbReload:'Storage changed in another tab; reload this page',playbackUnavailable:'This browser cannot play this media format',saveAttachment:'Save attachment'});
+Object.assign(messages['zh-CN'],{MEDIA_TYPE:'请选择图片、视频或音频文件',MEDIA_OUTBOX_LIMIT:'已有四个待发送附件，请重试或取消待发送附件',UPLOAD_REFERENCE_CHANGED:'服务器返回的附件引用不匹配',SESSION_CHANGED:'处理附件时会话已发生变化',upgradeBlocked:'请关闭其他 WATChat 标签页以完成存储升级',dbReload:'其他标签页已升级存储，请刷新当前页面',playbackUnavailable:'当前浏览器无法播放此媒体格式',saveAttachment:'保存附件'});
 let uiMode=localStorage.getItem('watchat.ui')||'simple',theme=localStorage.getItem('watchat.theme')||'system';
 if(!['simple','classic'].includes(uiMode))uiMode='simple';if(!['system','light','dark'].includes(theme))theme='system';
 const systemTheme=matchMedia('(prefers-color-scheme: dark)');
@@ -17,7 +17,7 @@ function t(key){return messages[locale][key]||key}function status(key){$('status
 function language(){document.documentElement.lang=locale;$('language').value=locale;for(const el of document.querySelectorAll('[data-i18n]'))el.textContent=t(el.dataset.i18n);localStorage.setItem('watchat.locale',locale);navigator.serviceWorker?.controller?.postMessage({type:'locale',locale})}
 $('language').onchange=()=>{locale=$('language').value;language()};language();
 let db,me,pair,users=[],peer=null,ws,installEvent,serial=Promise.resolve(),generation=0;const rendered=new Set(),mediaUrls=new Set(),confirmed=new Set();
-function database(){return new Promise((resolve,reject)=>{const request=indexedDB.open('ziokt-watchat-v2',2);request.onupgradeneeded=()=>{for(const name of ['keys','pins','outbox','media'])if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name)};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+function database(){return new Promise((resolve,reject)=>{const request=indexedDB.open('ziokt-watchat-v2',2);request.onupgradeneeded=()=>{for(const name of ['keys','pins','outbox','media'])if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name)};request.onblocked=()=>status('upgradeBlocked');request.onsuccess=()=>{request.result.onversionchange=()=>{request.result.close();status('dbReload')};resolve(request.result)};request.onerror=()=>reject(request.error)})}
 function transaction(name,mode,run){return new Promise((resolve,reject)=>{const tx=db.transaction(name,mode),store=tx.objectStore(name),request=run(store);let value;request.onsuccess=()=>value=request.result;tx.oncomplete=()=>resolve(value);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)})}
 const get=(s,k)=>transaction(s,'readonly',o=>o.get(k)),put=(s,k,v)=>transaction(s,'readwrite',o=>o.put(v,k)),remove=(s,k)=>transaction(s,'readwrite',o=>o.delete(k));
 async function api(url,data,method=data?'POST':'GET'){const res=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined,cache:'no-store'});const value=await res.json();if(!res.ok){const error=Error(value.error||'REQUEST_REJECTED');error.status=res.status;throw error;}return value}
@@ -38,9 +38,10 @@ let flushing=false;
 async function flush(){
  if(flushing||!me)return;flushing=true;const owner=me.id;let failure=null;
  try{
-  const pending=await transaction('media','readonly',store=>store.getAll());
-  for(const item of pending){
-   if(item.frame.from!==owner||me?.id!==owner)continue;
+  const keys=await transaction('media','readonly',store=>store.getAllKeys());
+  for(const key of keys){
+   if(!key.startsWith(owner+'/')||me?.id!==owner)continue;
+   const item=await get('media',key);if(!item)continue;
    try{const response=await fetch('/api/upload',{method:'POST',credentials:'same-origin',headers:{'X-Upload-Id':item.upload},body:item.blob});
    const result=await response.json();if(!response.ok)throw Error(result.error||'UPLOAD_FAILED');
    if(result.url!==item.frame.attachments[0])throw Error('UPLOAD_REFERENCE_CHANGED');
@@ -49,11 +50,11 @@ async function flush(){
   }
   const frames=await transaction('outbox','readonly',store=>store.getAll());
   for(const frame of frames)if(frame.from===owner&&me?.id===owner&&ws?.readyState===1)ws.send(JSON.stringify(frame));
-  const media=await transaction('media','readonly',store=>store.getAll());$('status').textContent=(failure?t(failure)+' · ':'')+t('pending')+': '+frames.filter(frame=>frame.from===owner).length+' / '+media.filter(item=>item.frame.from===owner).length;
+  const media=await transaction('media','readonly',store=>store.getAllKeys());$('status').textContent=(failure?t(failure)+' · ':'')+t('pending')+': '+frames.filter(frame=>frame.from===owner).length+' / '+media.filter(key=>key.startsWith(owner+'/')).length;
  }catch(e){$('status').textContent=t(e.message)}
  finally{flushing=false}
 }
-$('clear-media').onclick=async()=>{if(!me)return;const owner=me.id;const entries=await transaction('media','readonly',store=>store.getAll());for(const item of entries)if(item.frame.from===owner)await remove('media',owner+'/'+item.frame.id);await flush()};
+$('clear-media').onclick=async()=>{if(!me)return;const owner=me.id;const entries=await transaction('media','readonly',store=>store.getAllKeys());for(const key of entries)if(key.startsWith(owner+'/'))await remove('media',key);await flush()};
 window.addEventListener('online',()=>flush());
 setInterval(()=>{if(me&&ws?.readyState===1)flush()},10000);
 async function presence(){if(!me)return;try{const state=await api('/api/presence');for(const item of state.contacts){const button=document.querySelector('[data-contact="'+item.id+'"]');if(button)button.textContent=(users.find(u=>u.id===item.id)?.name||'')+' · '+t(item.online?'online':'offlineContact')}}catch(e){if(navigator.onLine)$('status').textContent=t(e.message)}}
@@ -73,7 +74,7 @@ async function sendMedia(file,recipient=peer){
  const kind=file.type.split('/')[0];if(!['image','video','audio'].includes(kind))throw Error('MEDIA_TYPE');
  mediaBusy=true;status('sendingMedia');try{
  const raw=crypto.getRandomValues(new Uint8Array(32)),key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['encrypt']),nonce=crypto.getRandomValues(new Uint8Array(12)),cipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:nonce},key,await file.arrayBuffer())),blob=new Uint8Array(12+cipher.length);blob.set(nonce);blob.set(cipher,12);
- const waiting=await transaction('media','readonly',store=>store.getAll());if(waiting.filter(item=>item.frame.from===me.id).length>=4)throw Error('MEDIA_OUTBOX_LIMIT');
+ const waiting=await transaction('media','readonly',store=>store.getAllKeys());if(waiting.filter(key=>key.startsWith(owner+'/')).length>=4)throw Error('MEDIA_OUTBOX_LIMIT');
  const upload=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join(''),url='/uploads/'+upload+'.bin',id=crypto.randomUUID();
  const value={media:{url,key:b64(raw),mime:file.type,kind,name:file.name,digest:b64(await crypto.subtle.digest('SHA-256',blob))}};
  const ciphertext=await sealMessage(recipient,id,value);if(me?.id!==owner)throw Error('SESSION_CHANGED');
