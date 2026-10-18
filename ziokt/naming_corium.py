@@ -56,14 +56,26 @@ class CoriumNames:
                 raise ProtocolError('NAME_REJECTED','NNS target is not bound by current native owner in canonical block; rebind after transfer')
         manifest=strict_json(cs_content(target,self.store.get))
         naming=manifest.get('ziokt_naming') if isinstance(manifest,dict) else None
-        if not isinstance(naming,dict) or set(naming)!={'network_id','owner','revision','expires_at','delegations','published_suffixes'}:
+        if not isinstance(naming,dict) or set(naming)-{'identity_registration'}!={'network_id','owner','revision','expires_at','delegations','published_suffixes'}:
             raise ProtocolError('NAME_NOT_FOUND','NNS target has no explicit Ziokt naming publication')
         if naming['network_id'] != self.namespace:
             raise ProtocolError('NAME_REJECTED','publication belongs to another chain')
         if type(naming['expires_at']) is not int:
             raise ProtocolError('NAME_REJECTED','explicit publication expiry required')
-        return {'network_id':self.namespace,'owner':naming['owner'],'revision':naming['revision'],'expires_at':min(expiry,naming['expires_at']),
+        identity=None
+        if 'identity_registration' in naming:
+            query=naming['identity_registration']
+            if (not isinstance(query,dict) or set(query)!={'member_public','policy_digest','issuer'} or
+                    query['member_public']!=naming['owner'] or query['issuer']!=owner):
+                raise ProtocolError('NAME_REJECTED','identity registration must bind the native owner and delegated naming key')
+            chain_path=Path(self.chain_db).absolute()
+            state_root=chain_path.parents[6]
+            if state_root/'var/lib/corix/networks'/self.network_id/'blockchain/chain.db'!=chain_path:
+                raise ProtocolError('NAME_REJECTED','identity registration requires a matching native node layout')
+            identity=_runtime.asset_query(state_root,self.network_id,'identity.fact',query)
+        effective_expiry=naming['expires_at'] if expiry==0 else min(expiry,naming['expires_at'])
+        return {'network_id':self.namespace,'owner':naming['owner'],'revision':naming['revision'],'expires_at':effective_expiry,
                 'delegations':naming['delegations'],'published_suffixes':naming['published_suffixes'],
                 'proof':{'kind':'local-validating-corium-node','network_registry':'NNS','nns_key':root,
-                         'native_network_id':self.network_id,'native_owner':owner,'target_hash':target,'height':height,
+                         'identity_registration':identity,'native_network_id':self.network_id,'native_owner':owner,'target_hash':target,'height':height,
                          'transaction_hash':matched,'block_hash':block[0]}}

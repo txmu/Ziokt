@@ -37,6 +37,7 @@ def export(root,output):
   value=scrub(json.loads(path.read_text()),(str(relative),));write(relative,json.dumps(value,ensure_ascii=False,indent=2)+'\n')
  for name in ['gateway.json','federation.json','shadow6-production.json','effort-web.json','runtime-digests.json']:
   json_file(root/'config'/name,Path('runtime/config')/name)
+ if (root/'config/dns.json').is_file():json_file(root/'config/dns.json',Path('runtime/config/dns.json'))
  json_file(root/'mcp/mcp.json',Path('runtime/mcp/mcp.json'))
  mcp=json.loads((root/'mcp/mcp.json').read_text())
  selected=set(mcp.get('bridges',{}).values())|set(mcp.get('exchanges',{}).values())

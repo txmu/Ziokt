@@ -49,7 +49,7 @@ jobs:
           python -m unittest -v
           test_shielded_ownership test_naming test_naming_corium test_naming_community test_naming_private
           test_dns_wire test_dns_server test_tracker test_resilient_transport test_ibc_naming test_native_naming
-          test_static_blogs test_community_discovery test_community_discovery_native
+          test_static_blogs test_community_peer_proxy test_community_discovery test_community_discovery_native
           test_community_network test_mcp test_gateway_native
       - name: Actual Corium mine, stake vote and derived-state rebuild
         working-directory: Corium

@@ -84,6 +84,8 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
     class DoH(http.server.BaseHTTPRequestHandler):
         def setup(self):super().setup();self.connection.settimeout(5)
         def log_message(self,*_):pass
+        def send_response(self,code,message=None):
+            self.send_response_only(code,message);self.send_header('Date',self.date_time_string())
         def do_GET(self):self.serve(False)
         def do_POST(self):self.serve(True)
         def serve(self,post):

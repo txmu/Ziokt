@@ -12,6 +12,8 @@
 
 Corium NNS 保留无 TLD 设计。`community.corix` 查询原生 NNS 的 `community`，不会把 `.corix` 存进 NNS。NNS 默认不向 DNS 发布。发布清单 `ziokt_naming.published_suffixes` 明确选择 `.cor/.c/.corium/.corix`，未选择的后缀拒绝解析。没有有效链上登记的 Gateway 乐观缓存行不能成为名称所有权证明。原生所有权转移后，新所有者应重新绑定目标清单；旧所有者的目标不能自动继承为新所有者的有效发布。
 
+Corium 发布清单可带 `identity_registration`（`member_public/policy_digest/issuer`）。解析器独立验证原生身份登记的签名、区块包含关系与当前 NNS 拥有者，再检查它绑定的名称委托公钥；公共 DNS 不输出这份身份信息。身份登记通过仍不意味着获得服务访问权限。
+
 其他组件通过其专属 Companion 节点的加密社区发布。社区拥有者签署根登记，根拥有者逐级签署服务/子域委托。这种证明属于组件社区授权，不冒充 Corium 共识证明。组件桥的 `naming_namespaces` 明确列出可发布的名称空间，默认仅允许本社区 ID。Corium 后缀不能使用这种来源替代 NNS。
 
 公开解析只返回显式批准的 A、AAAA、HTTPS 和受限 TXT 记录。Shadow6 服务 ID、Profile、ETP 端点、身份和私聊路由应放在独立鉴权的内容对象或加密描述中。公共 TXT 只允许描述对象摘要，不允许任意身份/路由转储。私密服务描述使用 X25519、HKDF-SHA256、AES-GCM 和固定 4096 字节封装，绑定名称、名称空间和目标组件；秘密解密材料只能留在客户端。

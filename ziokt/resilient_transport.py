@@ -25,6 +25,8 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
     route=validate_route(endpoint.get('connection_policy'),endpoint)
     if route['mode']=='approved-paths':
         paths=[]
+        selected=resolve_endpoint(privacy,endpoint)
+        peer_only=(selected.get('carrier') or {}).get('kind')=='peer-multihop'
         # Check all routes before a connection; observed assertions alone never
         # substitute for a concrete Tor/I2P carrier and pinned mTLS credentials.
         from .policy import select_path
@@ -32,12 +34,19 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
             if not isinstance(candidate,dict):raise ProtocolError('INVALID_CONFIG','typed approved path required')
             if candidate.get('approved') is not True:continue
             try:
-                select_path(privacy,[candidate])
+                explicit_peer=(candidate.get('connection_policy') or {}).get('mode')=='peer-multihop'
+                profile='private' if privacy=='restricted' and peer_only and explicit_peer else privacy
+                select_path(profile,[candidate])
                 path=resolve_endpoint(privacy,_candidate_endpoint(endpoint,candidate))
             except ProtocolError as exc:
                 if exc.code=='NO_POLICY_COMPLIANT_PATH':continue
                 raise
-            if privacy=='restricted' and (path.get('carrier',{}).get('kind') not in {'tor-socks5','i2p-sam'}):continue
+            if privacy=='restricted':
+                kind=(path.get('carrier') or {}).get('kind')
+                # Preserve an explicit peer-only deployment without pretending
+                # it is Tor. Anonymous paths never fail over to peer-only/direct.
+                if peer_only and kind!='peer-multihop':continue
+                if not peer_only and kind not in {'tor-socks5','i2p-sam'}:continue
             paths.append(path)
         if not paths:raise ProtocolError('NO_POLICY_COMPLIANT_PATH','no approved concrete route satisfies privacy')
     else:paths=[resolve_endpoint(privacy,endpoint)]
