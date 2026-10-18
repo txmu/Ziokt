@@ -39,10 +39,12 @@ def valid_padding(value):
 
 
 WRITE_METHODS = {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile", "community.checkpoint.create", "community.checkpoint.release", "community.event.put", "community.blob.put"}
-WRITE_METHODS |= {"relay.start", "relay.part.put", "relay.ack"}
+WRITE_METHODS |= {"relay.start", "relay.part.put", "relay.ack", "tracker.register", "tracker.revoke"}
 
 
 def resource_for(method, params):
+    if method.startswith("tracker."):
+        return "tracker:directory"
     if method.startswith("relay."):
         return params.get("packet_id", "relay:queue")
     if method in {"community.checkpoint.get", "community.checkpoint.release", "community.event.put", "community.blob.put"}:

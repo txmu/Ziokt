@@ -1,6 +1,6 @@
 """Native signed registration receipts and transferable block-snapshot ZKN assets."""
 
-ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'}
+ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'} | ZS_TYPES
 
 
 def asset_tables(db):
@@ -29,13 +29,13 @@ def zkc_edition_id(payload):
 
 def asset_signed_gift(tx, network, kind='zkn_private_transfer'):
     if (not isinstance(tx,dict) or set(tx)!={'type','data','timestamp','public_key','signature'} or
-            kind not in {'zkn_private_transfer','zkc_issue'} or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
+            kind not in ({'zkn_private_transfer','zkc_issue'}|ZS_TYPES) or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
             not isinstance(tx['data'],dict) or tx['data'].get('network_id')!=network or
             not isinstance(tx['public_key'],str) or len(tx['public_key'])>1024 or
             not isinstance(tx['signature'],str) or len(tx['signature'])>160):
         fail('INVALID_ZKN','scoped signed private gift transaction required')
     raw=asset_transaction_bytes(tx)
-    if len(raw)>8192: fail('RESPONSE_LIMIT','gift transaction exceeds budget')
+    if len(raw)>(65536 if kind in ZS_TYPES else 8192): fail('RESPONSE_LIMIT','gift transaction exceeds budget')
     native_ec_verify(tx['public_key'],tx['signature'],raw)
     return tx,hashlib.sha256(raw).hexdigest(),hashlib.sha256(tx['public_key'].rstrip('\n').encode()).hexdigest()
 
@@ -45,7 +45,7 @@ def asset_publish_transaction(root, network, tx, tx_hash):
     private_mkdir(directory)
     target=directory/tx_hash;body=encoded(tx)
     if target.exists():
-        if secure_read(target,16384)!=body: fail('IDEMPOTENCY_CONFLICT','immutable P2P gift object changed')
+        if strict_json(secure_read(target,65536))!=tx: fail('IDEMPOTENCY_CONFLICT','immutable P2P gift object changed')
     else:
         fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
         make_private(target)
@@ -71,6 +71,14 @@ def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):
                 if tuple(old)!=expected: fail('IDEMPOTENCY_CONFLICT','gift transaction bytes changed')
             else:
                 asset_validate(db,network,tx['type'],tx['data'],sender)
+                if kind in ZS_TYPES:
+                    for raw,public in db.execute('SELECT data,public_key FROM transactions WHERE block_height IS NULL LIMIT 4097'):
+                        pending=strict_json(raw.encode())
+                        if not isinstance(pending,dict):continue
+                        if isinstance(pending.get('proof'),dict) and pending['proof'].get('image')==tx['data'].get('proof',{}).get('image') and 'proof' in tx['data']:fail('PRIVACY_CONFLICT','nullifier already pending')
+                        same_sender=hashlib.sha256(public.rstrip('\n').encode()).hexdigest()==sender
+                        if kind=='privacy_review_request' and same_sender and pending.get('nonce')==tx['data']['nonce']:fail('PRIVACY_CONFLICT','request nonce already pending')
+                        if kind=='privacy_review_vote' and same_sender and pending.get('request_id')==tx['data']['request_id'] and 'decision' in pending:fail('PRIVACY_CONFLICT','review vote already pending')
                 for (raw,) in db.execute("SELECT data FROM transactions WHERE type IN ('zkn_transfer','zkn_private_transfer','zkc_issue') AND block_height IS NULL LIMIT 4097"):
                     pending=strict_json(raw.encode())
                     if kind=='zkn_private_transfer' and 'nonce' in pending and pending.get('token_id')==tx['data']['token_id'] and pending.get('nonce')==tx['data']['nonce']:
@@ -93,7 +101,7 @@ def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):
 def asset_forward_pending(root, network):
     """Every packer republishes bounded signed collectible objects at no fee."""
     with closing(corium_db(root,network,'blockchain/chain.db')) as db:
-        rows=db.execute("SELECT hash,type,data,signature,public_key,timestamp FROM transactions WHERE type IN ('zkn_private_transfer','zkc_issue') ORDER BY timestamp DESC LIMIT 64").fetchall()
+        rows=db.execute("SELECT hash,type,data,signature,public_key,timestamp FROM transactions WHERE type IN ('zkn_private_transfer','zkc_issue','zkn_shield_deposit','zkn_shield_transfer','zkn_shield_withdraw','privacy_review_request','privacy_review_vote','privacy_review_revoke','privacy_review_disclose') ORDER BY timestamp DESC LIMIT 64").fetchall()
     for tx_hash,kind,data,signature,public,stamp in rows:
         tx={'type':kind,'data':strict_json(data.encode()),'signature':signature,'public_key':public,'timestamp':stamp}
         _,checked,_=asset_signed_gift(tx,network,kind)
@@ -134,6 +142,9 @@ def asset_manifest(envelope, network, db):
 
 
 def asset_validate(db, network, tx_type, payload, sender):
+    if tx_type in ZS_TYPES:
+        try:return zs_validate(db,network,tx_type,payload,sender)
+        except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
     if tx_type=='zkc_issue':
         fields={'network_id','token_id','kind','serial','contents_digest'}
         if (not isinstance(payload,dict) or set(payload)!=fields or payload['network_id']!=network or
@@ -200,6 +211,9 @@ def asset_validate(db, network, tx_type, payload, sender):
 
 
 def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
+    if tx_type in ZS_TYPES:
+        try:return zs_apply(db,network,tx_type,payload,sender,tx_hash,height)
+        except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
     value=asset_validate(db,network,tx_type,payload,sender)
     if tx_type=='ziokt_content': return
     asset_tables(db)
@@ -295,6 +309,17 @@ def asset_engine_main(args):
 def asset_preflight(root,network,params,config):
     action=params['action'];resource=params['resource'];arguments=params['arguments']
     if params['expected_revision'] is not None: fail('INVALID_PARAMS','native asset submit requires null revision')
+    if action=='privacy.submit':
+        if resource!='privacy:'+network or set(arguments)!={'transaction'}:fail('INVALID_PARAMS','exact signed privacy transaction required')
+        transaction=arguments['transaction']
+        if not isinstance(transaction,dict) or transaction.get('type') not in ZS_TYPES:fail('INVALID_PARAMS','known signed privacy transaction required')
+        tx,tx_hash,sender=asset_signed_gift(transaction,network,transaction['type'])
+        with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            existing=db.execute('SELECT type,data,signature,public_key,timestamp FROM transactions WHERE hash=?',(tx_hash,)).fetchone()
+            if existing:
+                if tuple(existing)!=(tx['type'],encoded(tx['data']).decode(),tx['signature'],tx['public_key'],tx['timestamp']):fail('IDEMPOTENCY_CONFLICT','privacy transaction changed')
+            else:asset_validate(db,network,tx['type'],tx['data'],sender)
+        return {'transaction_type':tx['type'],'payload':tx['data'],'issuer':sender,'transaction_hash':tx_hash}
     if action=='identity.register':
         if not resource.startswith('identity:') or set(arguments)!={'document_commitment','policy_digest'}:
             fail('INVALID_PARAMS','fixed identity registration arguments required')

@@ -101,6 +101,8 @@ def main(argv=None):
     register_gateway(sub)
     from .mcp import register as register_mcp
     register_mcp(sub)
+    from .dns_server import register as register_dns
+    register_dns(sub)
     sub.add_parser("airgap", help="activate and report local offline policy")
     effort=sub.add_parser("effort-web", help="serve opt-in public Engine Zero browser workers")
     effort.add_argument("--config", type=Path, required=True)
@@ -206,6 +208,9 @@ def main(argv=None):
             activate_airgap()
         if args.action == 'airgap':
             result = network_status()
+        elif args.action=='dns':
+            from .dns_server import execute as execute_dns
+            result=execute_dns(args)
         elif args.action=='mcp':
             from .mcp import execute as execute_mcp
             result=execute_mcp(args)

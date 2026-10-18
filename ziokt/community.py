@@ -96,7 +96,9 @@ def create_policy(private, community_id, members, *, epoch=0, privacy='restricte
 
 
 class Community:
-    def __init__(self, root, policy, owner, encryption_key):
+    def __init__(self, root, policy, owner, encryption_key, *, readonly=False):
+        if type(readonly) is not bool:raise ValueError('explicit community read mode required')
+        self.readonly=readonly
         self.policy = policy_document(policy, owner)
         self.policy_envelope, self.owner = policy, owner
         self.limits = self.policy.get('limits', {'events': MAX_EVENTS, 'objects': MAX_BLOBS,
@@ -111,8 +113,9 @@ class Community:
         self._read_ciphers = [self.cipher]
         self.root = Path(root)
         if self.root.is_symlink(): raise ProtocolError('UNSAFE_FILE', 'community directory cannot be a symlink')
+        if readonly and not self.root.is_dir():raise ProtocolError('NATIVE_STATE_UNAVAILABLE','read-only community node is not initialized')
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        make_private(self.root)
+        if not readonly:make_private(self.root)
         self._ring_path = self.root/'keyrings'/self.policy_id[7:]
         if self._ring_path.exists(): self._adopt_keys(self._decode_ring(secure_read(self._ring_path, 4096)))
         path = self.root/'community.sqlite'
@@ -120,6 +123,15 @@ class Community:
         self.store = ArtifactStore(self.root/'objects')
         self.lock = threading.RLock()
         self._event_cache = {}
+        if readonly:
+            self.db=sqlite3.connect(path.absolute().as_uri()+'?mode=ro',uri=True,timeout=5,check_same_thread=False)
+            try:
+                latest=self.db.execute('SELECT id,epoch,document FROM policies ORDER BY epoch DESC LIMIT 1').fetchone()
+                if not latest or latest[0]!=self.policy_id or latest[1]!=self.policy['epoch']:
+                    raise ProtocolError('STALE_POLICY','read-only naming node policy changed')
+                policy_document(strict_json(latest[2]),owner)
+            except BaseException:self.db.close();raise
+            return
         self.db = sqlite3.connect(path, timeout=5, check_same_thread=False)
         make_private(path)
         self.db.execute('PRAGMA synchronous=FULL')

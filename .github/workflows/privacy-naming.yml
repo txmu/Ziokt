@@ -1,0 +1,59 @@
+name: Privacy, naming, Tracker and static-site acceptance
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: privacy-naming-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: Ziokt
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Exact native source revisions
+        id: refs
+        run: python Ziokt/ci/native_refs.py
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Corium
+          ref: ${{ steps.refs.outputs.corium }}
+          path: Corium
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Shadow6
+          ref: ${{ steps.refs.outputs.shadow6 }}
+          path: Shadow6
+      - name: Prebuilt test dependencies only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsodium23 jq sqlite3 bc
+          python -m pip install -r Ziokt/requirements.txt
+      - name: Generated standalone provider alignment
+        working-directory: Ziokt
+        run: python tools/sync_providers.py --check
+      - name: Real cryptography, native ownership, DNS wire sockets, mTLS Tracker, failover and static content
+        working-directory: Ziokt
+        env:
+          PYTHONPATH: .:tests
+        run: >-
+          python -m unittest -v
+          test_shielded_ownership test_naming test_naming_corium test_naming_community test_naming_private
+          test_dns_wire test_dns_server test_tracker test_resilient_transport test_ibc_naming test_native_naming
+          test_static_blogs test_community_discovery test_community_discovery_native
+          test_community_network test_mcp test_gateway_native
+      - name: Actual Corium mine, stake vote and derived-state rebuild
+        working-directory: Corium
+        run: python -m unittest -v test_privacy_consensus test_naming_ibc
+      - name: Shell syntax and portable runtime
+        run: |
+          bash -n Corium/corix_v108.sh
+          python Ziokt/ci/build.py

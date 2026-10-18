@@ -20,6 +20,13 @@ def register(sub):
     relay.add_argument('--policy', type=Path, required=True)
     relay.add_argument('--owner', required=True)
     relay.add_argument('--tls-config', type=Path, required=True)
+    tracker = actions.add_parser('tracker-serve', help='optional leased signed peer directory; retains DHT and gossip')
+    tracker.add_argument('--root', type=Path, required=True)
+    tracker.add_argument('--policy', type=Path, required=True)
+    tracker.add_argument('--owner', required=True)
+    tracker.add_argument('--tls-config', type=Path, required=True)
+    tracker.add_argument('--anonymous-only', action='store_true')
+    tracker.add_argument('--relay-authorities', type=Path)
     proxy = actions.add_parser('proxy-serve', help='opt-in lightweight peer proxy; no community content key needed')
     proxy.add_argument('--config', type=Path, required=True)
     info = actions.add_parser('capsule-info', help='inspect air-gapped capsule envelope without community state')
@@ -136,6 +143,24 @@ def execute(args):
     if args.community_action == 'capsule-info':
         from .capsule import capsule_info
         return capsule_info(args.input)
+    if args.community_action == 'tracker-serve':
+        from .peer_directory import PeerDirectory
+        from .tracker import Tracker
+        from .remote import load_remote,tls_context,remote_server
+        directory=PeerDirectory(args.root,strict_json(secure_read(args.policy)),args.owner)
+        try:
+            backend=Tracker(directory,anonymous_only=args.anonymous_only,
+                            relay_authorities=strict_json(secure_read(args.relay_authorities)) if args.relay_authorities else [])
+            endpoint=load_remote(args.tls_config,serving=True)
+            context=tls_context(endpoint['certificate'],endpoint['private_key'],endpoint['ca'],server=True)
+            server=remote_server({'enabled':True,'federation_id':backend.community.community_id,'providers':[]},
+                                context,endpoint['replay_state'],endpoint['trusted_clients'],host=endpoint['host'],port=endpoint['port'],
+                                allow_mutations=endpoint['allow_mutations'],community=backend)
+            try:server.serve_forever()
+            except KeyboardInterrupt:pass
+            finally:server.server_close()
+        finally:directory.close()
+        return {'stopped':True}
     if args.community_action == 'relay-serve':
         from .rendezvous import OpaqueRendezvous
         from .remote import load_remote, tls_context, remote_server

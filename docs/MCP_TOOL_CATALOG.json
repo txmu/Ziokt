@@ -7,7 +7,7 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 340,
+  "tool_count": 361,
   "tools": [
     {
       "securitySchemes": [
@@ -30,6 +30,185 @@
       },
       "name": "ziokt_privacy_status",
       "description": "Report actual ownership and transport privacy boundaries; never claim shielded ledger ownership without native consensus support.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:read"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_naming_status",
+      "description": "Report suffix authorities and configured independent naming realms; DNS never grants service access.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:read"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_name_resolve",
+      "description": "Resolve explicitly published public records through the selected node-backed realm. No public DNS fallback.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "realm": {
+            "type": "string",
+            "maxLength": 63
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:names:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:names:read"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_name_service",
+      "description": "Verify naming ownership and retrieve content references or sealed service descriptors. Does not decrypt or authorize access.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "realm": {
+            "type": "string",
+            "maxLength": 63
+          },
+          "component": {
+            "type": "string",
+            "enum": [
+              "corium",
+              "shadow6",
+              "etp",
+              "safefs",
+              "sim",
+              "tri",
+              "ufs",
+              "dcpm",
+              "watchat",
+              "zda",
+              "ziokt"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "component"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:names:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:read"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_tracker_status",
+      "description": "Report optional Tracker deployments. Trackers supplement existing DHT, gossip and direct discovery.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -434,6 +613,132 @@
           }
         ]
       },
+      "name": "corium_production_privacy_review_get",
+      "description": "corium-production: native privacy.review.get. Parameters follow the pinned native contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "maxProperties": 64
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_privacy_review_list",
+      "description": "corium-production: native privacy.review.list. Parameters follow the pinned native contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "maxProperties": 64
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_privacy_status",
+      "description": "corium-production: native privacy.status. Parameters follow the pinned native contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "maxProperties": 64
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
       "name": "corium_production_status_get",
       "description": "corium-production: native status.get. Parameters follow the pinned native contract.",
       "inputSchema": {
@@ -604,6 +909,48 @@
       },
       "name": "corium_production_zkn_list",
       "description": "corium-production: native zkn.list. Parameters follow the pinned native contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "maxProperties": 64
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_zkn_shield_notes",
+      "description": "corium-production: native zkn.shield.notes. Parameters follow the pinned native contract.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1104,6 +1451,138 @@
         "openWorldHint": true
       },
       "scope": "corium:identity.register:plan"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:naming.submit:plan"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:naming.submit:plan"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_naming_submit_plan",
+      "description": "Create a reviewable corium-production naming.submit workflow; does not execute it. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "arguments": {
+            "type": "object",
+            "maxProperties": 64
+          },
+          "expected_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "resource",
+          "arguments",
+          "expected_revision",
+          "operation_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:naming.submit:plan"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:privacy.submit:plan"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:privacy.submit:plan"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_privacy_submit_plan",
+      "description": "Create a reviewable corium-production privacy.submit workflow; does not execute it. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "arguments": {
+            "type": "object",
+            "maxProperties": 64
+          },
+          "expected_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "resource",
+          "arguments",
+          "expected_revision",
+          "operation_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:privacy.submit:plan"
     },
     {
       "securitySchemes": [
@@ -4594,6 +5073,64 @@
           }
         ]
       },
+      "name": "dcpm_naming_publish",
+      "description": "dcpm: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "dcpm:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "dcpm:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "dcpm:write"
+            ]
+          }
+        ]
+      },
       "name": "dcpm_object_abort",
       "description": "dcpm: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -6033,6 +6570,64 @@
           }
         ]
       },
+      "name": "etp_naming_publish",
+      "description": "etp: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:write"
+            ]
+          }
+        ]
+      },
       "name": "etp_object_abort",
       "description": "etp: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -7063,6 +7658,64 @@
         "openWorldHint": true
       },
       "scope": "safefs:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "safefs:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "safefs:write"
+            ]
+          }
+        ]
+      },
+      "name": "safefs_naming_publish",
+      "description": "safefs: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "safefs:write"
     },
     {
       "securitySchemes": [
@@ -8133,6 +8786,64 @@
           }
         ]
       },
+      "name": "shadow6_naming_publish",
+      "description": "shadow6: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "shadow6:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "shadow6:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "shadow6:write"
+            ]
+          }
+        ]
+      },
       "name": "shadow6_object_abort",
       "description": "shadow6: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -9163,6 +9874,64 @@
         "openWorldHint": true
       },
       "scope": "sim-manager:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "sim-manager:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "sim-manager:write"
+            ]
+          }
+        ]
+      },
+      "name": "sim_manager_naming_publish",
+      "description": "sim-manager: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "sim-manager:write"
     },
     {
       "securitySchemes": [
@@ -11469,6 +12238,64 @@
           }
         ]
       },
+      "name": "tri_naming_publish",
+      "description": "tri: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "tri:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "tri:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "tri:write"
+            ]
+          }
+        ]
+      },
       "name": "tri_object_abort",
       "description": "tri: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -12671,6 +13498,64 @@
         "openWorldHint": true
       },
       "scope": "ufs:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ufs:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ufs:write"
+            ]
+          }
+        ]
+      },
+      "name": "ufs_naming_publish",
+      "description": "ufs: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ufs:write"
     },
     {
       "securitySchemes": [
@@ -14452,6 +15337,64 @@
           }
         ]
       },
+      "name": "watchat_naming_publish",
+      "description": "watchat: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "watchat:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "watchat:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "watchat:write"
+            ]
+          }
+        ]
+      },
       "name": "watchat_object_abort",
       "description": "watchat: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -15675,6 +16618,64 @@
           }
         ]
       },
+      "name": "zda_naming_publish",
+      "description": "zda: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "zda:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "zda:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "zda:write"
+            ]
+          }
+        ]
+      },
       "name": "zda_object_abort",
       "description": "zda: object.abort through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
       "inputSchema": {
@@ -16481,6 +17482,108 @@
         "openWorldHint": true
       },
       "scope": "zda:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:read"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_component_status",
+      "description": "ziokt: component.status through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ziokt:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ziokt:write"
+            ]
+          }
+        ]
+      },
+      "name": "ziokt_naming_publish",
+      "description": "ziokt: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ziokt:write"
     },
     {
       "securitySchemes": [

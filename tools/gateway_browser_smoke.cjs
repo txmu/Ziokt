@@ -7,6 +7,7 @@ try{
  const engine=process.env.BROWSER||'chromium';browser=await pw[engine].launch({headless:true});const page=await browser.newPage({viewport:{width:375,height:812}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(fixture.origin+'/app/forum?lang=en-US');await page.locator('select[aria-label="Language / 语言"]').waitFor();
  assert.equal(await page.locator('h1').innerText(),'Native Forum');await page.locator('input[name="topic"]').fill('Browser signed <script>alert(1)</script>');await page.locator('textarea[name="content"]').first().fill('Actual WebCrypto signature — 世界');
+ assert.equal(await page.locator('form button[type="submit"]').first().isDisabled(),true);await page.getByRole('button',{name:'Create my posting identity'}).first().click();await page.locator('[data-forum-identity]').first().filter({hasText:'fingerprint'}).waitFor();
  await page.locator('form button[type="submit"]').first().click();await page.waitForURL('**/app/forum');await page.getByRole('heading',{name:'Browser signed <script>alert(1)</script>'}).waitFor();
  assert.equal(await page.locator('article script').count(),0);const author=await page.locator('article .meta').innerText();assert.match(author,/^[a-f0-9]{64}/);
  await page.locator('select[aria-label="Language / 语言"]').selectOption('zh-CN');await page.waitForURL('**lang=zh-CN');assert.equal(await page.locator('h1').innerText(),'原生论坛');

@@ -28,6 +28,28 @@ class GatewayTests(unittest.TestCase):
   v=self.signed();status,_,raw=self.request('POST','/api/gateway/forum',json.dumps(v),{'Content-Type':'application/json'});self.assertEqual(status,201,raw)
   for payload in [v,self.signed()]:self.assertEqual(self.request('POST','/api/gateway/forum',json.dumps(payload),{'Content-Type':'application/json'})[0],403)
   with sqlite3.connect(self.forum) as db:self.assertEqual(db.execute('SELECT author FROM topics').fetchall(),[(verify_client(v,'test'),)])
+ def test_administrator_cannot_post_without_personal_signature(self):
+  payload=json.dumps({'title':'Borrow node identity','content':'No own signature','reply_to':''})
+  self.assertEqual(self.request('POST','/api/gateway/forum',payload,{'Content-Type':'application/json','Authorization':'Bearer '+'a'*64})[0],403)
+  with sqlite3.connect(self.forum) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM topics').fetchone()[0],0)
+ def test_failed_announcement_isolated_and_persistent_retry(self):
+  from unittest.mock import Mock
+  import subprocess
+  with sqlite3.connect(self.forum) as db:
+   db.executemany('INSERT INTO gateway_outbox(id,kind,topic) VALUES (?,?,?)',[('1'*64,'forum_topic',''),('2'*64,'forum_topic','')])
+  calls=[]
+  def announce(*args):
+   calls.append(args[2])
+   if args[2]=='1'*64:raise subprocess.CalledProcessError(1,'native')
+  self.gateway.native=announce;self.gateway.flush()
+  with sqlite3.connect(self.forum) as db:
+   rows=db.execute('SELECT sent,attempts FROM gateway_outbox ORDER BY id').fetchall()
+   self.assertEqual(rows,[(0,1),(1,0)])
+   db.execute('UPDATE gateway_outbox SET retry_at=0 WHERE sent=0')
+  recovered=Gateway(self.config);self.addCleanup(recovered.close);recovered.native=Mock();recovered.flush()
+  recovered.native.assert_called_once_with('announce','forum_topic','1'*64,'')
+  self.assertNotEqual(recovered.rate_identity('192.0.2.1'),self.gateway.rate_identity('192.0.2.1'))
+  self.assertNotEqual(self.gateway.rate_identity('192.0.2.1'),'192.0.2.1')
  def test_ranges_no_disk_download(self):
   data=os.urandom(2*1024*1024+37);root=self.gateway.store.publish(io.BytesIO(data),'movie');before=set((self.root/'objects').iterdir())
   for span,left,right in [('bytes=42-122',42,123),('bytes=-99',len(data)-99,len(data)),('bytes=1048570-',1048570,len(data))]:

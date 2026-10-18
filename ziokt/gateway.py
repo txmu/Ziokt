@@ -86,9 +86,13 @@ class Gateway:
                 thread=threading.Thread(target=serve_objects,args=(records,source,self.transport_stop),daemon=True)
                 self.transport_threads.append(thread);thread.start()
         self.lock = threading.Lock()
+        self.rate_key = os.urandom(32)
         with database(config['forum_db']) as db:
             db.execute('CREATE TABLE IF NOT EXISTS gateway_nonces (nonce TEXT PRIMARY KEY, author TEXT, ip TEXT, timestamp INTEGER)')
             db.execute('CREATE TABLE IF NOT EXISTS gateway_outbox (id TEXT PRIMARY KEY, kind TEXT, topic TEXT, sent INTEGER DEFAULT 0)')
+            columns={r[1] for r in db.execute('PRAGMA table_info(gateway_outbox)')}
+            for name,definition in {'attempts':'INTEGER NOT NULL DEFAULT 0','retry_at':'INTEGER NOT NULL DEFAULT 0','last_error':'TEXT'}.items():
+                if name not in columns:db.execute('ALTER TABLE gateway_outbox ADD COLUMN '+name+' '+definition)
 
     def close(self):
         self.transport_stop.set()
@@ -111,16 +115,32 @@ class Gateway:
         subprocess.run([str(ASSETS/'native.sh'), self.config['corix'], self.config['state_root'], self.config['network'], *args],
                        check=True, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def rate_identity(self, ip):
+        # Short-lived pseudonym for abuse control, never store the raw IP.
+        return hmac.new(self.rate_key,str(ip).encode(),hashlib.sha256).hexdigest()
+
     def flush(self):
+        now=int(time.time())
         with database(self.config['forum_db']) as db:
-            rows = db.execute('SELECT id,kind,topic FROM gateway_outbox WHERE sent=0 LIMIT 16').fetchall()
-        for digest, kind, topic in rows:
-            self.native('announce', kind, digest, topic)
+            db.execute('DELETE FROM gateway_nonces WHERE timestamp<?',(now-600,))
+            rows = db.execute('SELECT id,kind,topic,attempts FROM gateway_outbox WHERE sent=0 AND retry_at<=? ORDER BY retry_at,id LIMIT 16',(now,)).fetchall()
+        for digest, kind, topic, attempts in rows:
+            try:
+                self.native('announce', kind, digest, topic)
+            except (OSError,ValueError,subprocess.SubprocessError) as exc:
+                # Isolate a failed object; it must not starve healthy records.
+                delay=min(300,2**min(attempts+1,8))
+                with database(self.config['forum_db']) as db:
+                    db.execute('UPDATE gateway_outbox SET attempts=MIN(attempts+1,32),retry_at=?,last_error=? WHERE id=?',(now+delay,type(exc).__name__,digest))
+                continue
             with database(self.config['forum_db']) as db:
-                db.execute('UPDATE gateway_outbox SET sent=1 WHERE id=?', (digest,))
+                db.execute('UPDATE gateway_outbox SET sent=1,last_error=NULL WHERE id=?', (digest,))
+        with database(self.config['forum_db']) as db:
+            db.execute('DELETE FROM gateway_outbox WHERE sent=1 AND id NOT IN (SELECT id FROM gateway_outbox WHERE sent=1 ORDER BY rowid DESC LIMIT 10000)')
 
     def submit(self, payload, ip):
         author = verify_client(payload, self.config['network'])
+        ip = self.rate_identity(ip)
         now = int(time.time())
         content = payload['content'].encode()
         content_hash = hashlib.sha256(content).hexdigest()
@@ -289,23 +309,12 @@ def handler(gateway):
                     author=hashlib.sha256(bytes.fromhex(payload['public_key'])).hexdigest()
                     with database(gateway.config['forum_db']) as db:
                         now=int(time.time());db.execute('DELETE FROM gateway_nonces WHERE timestamp<?',(now-600,))
-                        ip=self.headers.get('X-Ziokt-Client-IP',self.client_address[0])
+                        ip=gateway.rate_identity(self.headers.get('X-Ziokt-Client-IP',self.client_address[0]))
                         if db.execute('SELECT count(*) FROM gateway_nonces WHERE (author=? OR ip=?) AND timestamp>?',(author,ip,now-300)).fetchone()[0]>=10:raise ValueError('rate limit')
                         db.execute('INSERT INTO gateway_nonces VALUES (?,?,?,?)',(payload['nonce'],author,ip,now))
                     return self.send(201,registry.submit(author,payload['entry']))
-                if auth:
-                    token = read_token(gateway.config['admin_token'])
-                    if not hmac.compare_digest(auth,'Bearer '+token): return self.send(403,{'error':'authentication failed'})
-                    if not isinstance(payload,dict) or set(payload) != {'title','content','reply_to'}: raise ValueError('invalid admin fields')
-                    if not all(isinstance(v,str) and len(v.encode())<=65536 and '\0' not in v for v in payload.values()): raise ValueError('invalid content')
-                    if not payload['content'].strip(): raise ValueError('empty content')
-                    if payload['reply_to']:
-                        if not digest_ok(payload['reply_to']): raise ValueError('invalid reply')
-                        gateway.native('post',payload['reply_to'],payload['content'])
-                    else:
-                        if not 0<len(payload['title'])<=256: raise ValueError('invalid title')
-                        gateway.native('topic',payload['title'],payload['content'])
-                    return self.send(201,{'published':True,'identity':'node-admin'})
+                # Every browser poster proves its own identity. Administrator
+                # authentication never borrows the node's signing identity.
                 digest = gateway.submit(payload,self.headers.get('X-Ziokt-Client-IP',self.client_address[0]))
                 return self.send(201,{'id':digest,'identity':'client','announcement':'queued'})
             except Exception as exc:
@@ -346,12 +355,25 @@ class Server(http.server.ThreadingHTTPServer):
 
 def serve(config):
     gateway=Gateway(config,transports=True)
+    stop=threading.Event();dns_servers=[];dns_threads=[];server=None
     def relay():
-        while True:
-            try: gateway.flush()
-            except (OSError,subprocess.SubprocessError): pass
-            time.sleep(10)
-    threading.Thread(target=relay,daemon=True).start()
-    server=Server(('127.0.0.1',config.get('port',8185)),handler(gateway))
-    try:server.serve_forever()
-    finally:server.server_close();gateway.close()
+        while not stop.is_set():
+            try:gateway.flush()
+            except (OSError,subprocess.SubprocessError,sqlite3.Error):pass
+            stop.wait(10)
+    worker=threading.Thread(target=relay,daemon=True);worker.start()
+    try:
+        if config.get('dns_config'):
+            from .dns_server import load as load_dns,servers as open_dns
+            dns_config,networks=load_dns(config['dns_config'])
+            dns_servers=open_dns(networks,host=dns_config['listen'],port=dns_config['port'],doh_port=dns_config['doh_port'])
+            for listener in dns_servers:
+                thread=threading.Thread(target=listener.serve_forever,daemon=True);thread.start();dns_threads.append(thread)
+        server=Server(('127.0.0.1',config.get('port',8185)),handler(gateway))
+        server.serve_forever()
+    finally:
+        stop.set()
+        if server is not None:server.server_close()
+        for listener in dns_servers:listener.shutdown();listener.server_close()
+        for thread in dns_threads:thread.join(2)
+        worker.join(2);gateway.close()

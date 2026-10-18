@@ -118,11 +118,12 @@ class RendezvousClient:
         from .remote import request_remote, resource_for
         with self.community.lock: self.community._current()
         from .routes import resolve_endpoint
-        endpoint = resolve_endpoint(self.community.policy['privacy'], self.endpoint)
+        endpoint = self.endpoint
         request = {'provider_id': self.community.community_id, 'method': method, 'params': params}
         token = lambda: grant(self.private, audience=self.community.community_id, action=method, resource=resource_for(method, params),
                       federation=self.community.community_id, request_digest=content_id(encoded(request)))
-        return request_remote(endpoint['host'], endpoint['port'], self.context, request, token, carrier=endpoint.get('carrier'))
+        from .resilient_transport import request_resilient
+        return request_resilient(self.community.policy['privacy'],endpoint,self.context,request,token)
 
     def send(self, recipient):
         # The approved archival sender signs a checkpoint; the relay gets only

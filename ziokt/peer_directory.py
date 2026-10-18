@@ -285,6 +285,19 @@ class DiscoveryWorker:
         if not isinstance(config.get('endpoints'), list) or not 1 <= len(config['endpoints']) <= 4:
             raise ProtocolError('INVALID_DISCOVERY', 'worker needs fixed local advertised endpoints')
         for endpoint in config['endpoints']: directory._endpoint(endpoint)
+        self.trackers=[]
+        configured_trackers=config.get('trackers',[])
+        if not isinstance(configured_trackers,list) or len(configured_trackers)>4:
+            raise ProtocolError('INVALID_DISCOVERY','at most four optional trackers allowed')
+        for tracker in configured_trackers:
+            exact(tracker,{'tls_config','publish','anonymous','relay_authorization'},'INVALID_DISCOVERY')
+            if type(tracker['publish']) is not bool or type(tracker['anonymous']) is not bool:
+                raise ProtocolError('INVALID_DISCOVERY','explicit tracker publication and privacy choices required')
+            from .remote import load_remote,tls_context
+            from .tracker import TrackerClient
+            endpoint=load_remote(tracker['tls_config'])
+            context=tls_context(endpoint['certificate'],endpoint['private_key'],endpoint['ca'])
+            self.trackers.append((TrackerClient(directory,self.private,endpoint,context),tracker))
         self.bootstrap = config.get('bootstrap', [])
         self.native = None
         if 'corium' in config:
@@ -333,6 +346,15 @@ class DiscoveryWorker:
         try:
             if self.stop.is_set(): return []
             own = self.directory.advertise(self.private, self.config['endpoints'], self.fingerprint)
+            # Each optional tracker feeds the same validated directory. A
+            # failed registration/query never prevents native DHT or gossip.
+            for client,settings in self.trackers:
+                if self.stop.is_set():break
+                if settings['publish']:
+                    try:client.call('tracker.register',{'envelope':own,'publish':True,'anonymous':settings['anonymous'],'relay_authorization':settings['relay_authorization']},cancellation=self.stop)
+                    except (ProtocolError,OSError,ValueError):pass
+                try:client.call('tracker.query',{'limit':8},cancellation=self.stop)
+                except (ProtocolError,OSError,ValueError):pass
             if self.native is not None:
                 from .discovery_native import fetch_records
                 client, sources = self.native
@@ -416,7 +438,7 @@ def load_directory(path):
         if len(_directories) >= 4: raise ProtocolError('BACKPRESSURE', 'discovery instance budget exhausted')
         config = strict_json(data)
         required = {'schema', 'enabled', 'root', 'policy', 'owner', 'allowed_networks', 'native_bindings', 'client_tls', 'hop_count'}
-        optional = {'signing_key', 'client_certificate', 'endpoints', 'bootstrap', 'interval', 'corium'}
+        optional = {'signing_key', 'client_certificate', 'endpoints', 'bootstrap', 'interval', 'corium', 'trackers'}
         if not isinstance(config, dict) or not required <= set(config) or set(config)-required-optional or config['schema'] != 'ziokt.discovery.v1' or config['enabled'] is not True:
             raise ProtocolError('DISCOVERY_DISABLED', 'exact explicitly enabled discovery config required')
         for field in ('root', 'policy', *(['signing_key'] if 'signing_key' in config else [])):

@@ -100,7 +100,7 @@
   translate();
   const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2,'0')).join('');
   const canonical = value => JSON.stringify(Object.fromEntries(Object.keys(value).sort().map(k => [k,value[k]])));
-  async function identity() {
+  async function identity(create = false, imported = null) {
     const database = await new Promise((resolve,reject) => {
       const request = indexedDB.open('ziokt-identity',1);
       request.onupgradeneeded = () => request.result.createObjectStore('keys');
@@ -111,7 +111,8 @@
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
     });
     if (existing) { database.close(); return existing; }
-    const keys = await crypto.subtle.generateKey('Ed25519',false,['sign','verify']);
+    if (!create && !imported) { database.close(); return null; }
+    const keys = imported || await crypto.subtle.generateKey('Ed25519',false,['sign','verify']);
     // Add rather than overwrite handles concurrent first-use tabs.
     await new Promise((resolve,reject) => {
       const tx = database.transaction('keys','readwrite'); tx.objectStore('keys').add(keys,'forum');
@@ -128,30 +129,43 @@
       fieldLabel.style.cssText='display:block;flex:1'; field.before(fieldLabel); fieldLabel.append(field);
       field.style.minHeight='44px';
     }
-    const modeLabel = document.createElement('label'); modeLabel.textContent=t('forum.mode');
-    const mode = document.createElement('select'); mode.add(new Option(t('forum.user'),'user')); mode.add(new Option(t('forum.admin'),'admin'));
-    mode.style.minHeight='44px'; modeLabel.append(mode); form.prepend(modeLabel);
-    const tokenLabel = document.createElement('label'); tokenLabel.textContent=t('forum.token'); tokenLabel.hidden=true;
-    const token = document.createElement('input'); token.type='password'; token.autocomplete='off'; token.style.minHeight='44px';
-    tokenLabel.append(token); modeLabel.after(tokenLabel);
-    mode.onchange = () => { tokenLabel.hidden = mode.value !== 'admin'; token.value=''; };
+    const identityPanel=document.createElement('div'),identityStatus=document.createElement('p');identityStatus.dataset.forumIdentity='';
+    const createIdentity=document.createElement('button');createIdentity.type='button';createIdentity.textContent=t('forum.createIdentity');
+    const importLabel=document.createElement('label');importLabel.textContent=t('forum.importIdentity');
+    const importIdentity=document.createElement('input');importIdentity.type='file';importIdentity.accept='application/json,.json';importLabel.append(importIdentity);
+    identityPanel.append(identityStatus,createIdentity,importLabel);form.prepend(identityPanel);
+    const submit=form.querySelector('button[type="submit"]');submit.disabled=true;
+    async function showIdentity() {
+      const keys=await identity();submit.disabled=!keys;
+      identityStatus.textContent=keys?t('forum.identity')+': '+hex(await crypto.subtle.digest('SHA-256',await crypto.subtle.exportKey('raw',keys.publicKey))):t('forum.readOnly');
+      createIdentity.disabled=!!keys;importIdentity.disabled=!!keys;
+    }
+    createIdentity.onclick=async()=>{try{await identity(true);await showIdentity()}catch(error){identityStatus.textContent=t('forum.failed')+' '+error.message}};
+    importIdentity.onchange=async()=>{try{
+      const file=importIdentity.files[0];if(!file||file.size>8192)throw new Error('Identity file limit');
+      const value=JSON.parse(await file.text());
+      if(Object.keys(value).sort().join(',')!=='private_key_pkcs8,public_key'||!/^[a-f0-9]{64}$/.test(value.public_key))throw new Error('Invalid identity format');
+      const privateKey=await crypto.subtle.importKey('pkcs8',Uint8Array.from(atob(value.private_key_pkcs8),c=>c.charCodeAt(0)),{name:'Ed25519'},false,['sign']);
+      const publicKey=await crypto.subtle.importKey('raw',Uint8Array.from(value.public_key.match(/../g),h=>parseInt(h,16)),{name:'Ed25519'},true,['verify']);
+      const challenge=crypto.getRandomValues(new Uint8Array(32)),signature=await crypto.subtle.sign('Ed25519',privateKey,challenge);
+      if(!await crypto.subtle.verify('Ed25519',publicKey,signature,challenge))throw new Error('Identity key mismatch');
+      await identity(false,{privateKey,publicKey});importIdentity.value='';await showIdentity();
+    }catch(error){identityStatus.textContent=t('forum.failed')+' '+error.message}};
+    await showIdentity();
     const status = document.createElement('p'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); form.append(status);
     form.addEventListener('submit',async event => {
       event.preventDefault(); const button=form.querySelector('button[type="submit"]'); button.disabled=true; status.textContent=t('forum.sending');
       try {
         const title=form.querySelector('[name="topic"]')?.value || '', content=form.querySelector('[name="content"]').value;
         const reply_to=form.querySelector('[name="reply_to"]')?.value || '';
-        let payload={title,content,reply_to}; const headers={'Content-Type':'application/json'};
-        if (mode.value==='admin') { if (!token.value) throw new Error(t('forum.token')); headers.Authorization='Bearer '+token.value; }
-        else {
-          const keys=await identity();
-          const node=await fetch('/api/gateway/status').then(r=>r.json());
-          payload={schema:'ziokt.forum.v3',network:node.network,title,content,reply_to,timestamp:Math.floor(Date.now()/1000),nonce:hex(crypto.getRandomValues(new Uint8Array(32))),public_key:hex(await crypto.subtle.exportKey('raw',keys.publicKey))};
-          payload.signature=hex(await crypto.subtle.sign('Ed25519',keys.privateKey,new TextEncoder().encode(canonical(payload))));
-        }
+        const keys=await identity();if(!keys)throw new Error(t('forum.readOnly'));
+        const headers={'Content-Type':'application/json'};
+        const node=await fetch('/api/gateway/status').then(r=>r.json());
+        const payload={schema:'ziokt.forum.v3',network:node.network,title,content,reply_to,timestamp:Math.floor(Date.now()/1000),nonce:hex(crypto.getRandomValues(new Uint8Array(32))),public_key:hex(await crypto.subtle.exportKey('raw',keys.publicKey))};
+        payload.signature=hex(await crypto.subtle.sign('Ed25519',keys.privateKey,new TextEncoder().encode(canonical(payload))));
         const response=await fetch('/api/gateway/forum',{method:'POST',headers,body:JSON.stringify(payload)});
         const result=await response.json(); if (!response.ok) throw new Error(result.error);
-        token.value=''; status.textContent=t('forum.sent');
+        status.textContent=t('forum.sent');
         setTimeout(()=>location.assign(location.pathname),800);
       } catch (error) { status.textContent=t('forum.failed')+' '+error.message; }
       finally { button.disabled=false; }

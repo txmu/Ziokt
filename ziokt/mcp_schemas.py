@@ -8,6 +8,7 @@ I={'type':'integer','minimum':1,'maximum':100000}
 def contract(fields,optional=()):
  return {'type':'object','properties':fields,'required':[k for k in fields if k not in optional],'additionalProperties':False}
 BRIDGE={
+ 'naming.publish':contract({'registration':O}),
  'object.begin':contract({'upload':S,'size':{'type':'integer','minimum':0,'maximum':536870912},'digest':D,'ttl':{'type':'integer','minimum':1,'maximum':86400}}),
  'object.status':contract({'upload':S}), 'object.finish':contract({'upload':S}), 'object.abort':contract({'upload':S}),
  'object.chunk.put':contract({'upload':S,'position':{'type':'integer','minimum':0,'maximum':32767},'digest':D,'data_base64':{'type':'string','maxLength':21848}}),

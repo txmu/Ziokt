@@ -82,7 +82,7 @@ _ziokt_native_dispatch() {
             corix_strata_create "$resource" "$package_manager"
             ;;
         chain.mine) blockchain_mine_block ;;
-        identity.register|content.publish|zkn.transfer|compute.submit)
+        identity.register|content.publish|zkn.transfer|compute.submit|naming.submit)
             local transaction_type transaction_payload
             transaction_type=$(jq -er '.binding_evidence.transaction_type' <<< "$descriptor") || return 2
             transaction_payload=$(jq -ec '.binding_evidence.payload' <<< "$descriptor") || return 2
@@ -170,12 +170,16 @@ def main():
     runtime += '\n' + (ROOT / "spec/recovery_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/compute_runtime.py").read_text()
+    runtime += '\n' + (ROOT / "spec/shielded_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/asset_runtime.py").read_text()
+    runtime += '\n' + (ROOT / "spec/naming_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/data_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/native_transport.py").read_text()
     zkt = (ROOT / "spec/zkt_runtime.py").read_text()
     target = args.shadow6 / "Ziokt-Support/zfcp_runtime.py"
     coordinator_target = ROOT / "ziokt/_runtime.py"
+    static_target = ROOT / "ziokt/static_site.py"
+    static_runtime=(ROOT/"spec/static_site_runtime.py").read_text()
     currency_target = ROOT / "ziokt/_zkt_runtime.py"
     currency = 'from ._runtime import *\n' + zkt
     script = args.corium / "corix_v108.sh"
@@ -204,10 +208,11 @@ def main():
         updated = prefix + actions + suffix
     else:
         updated = updated.replace(END, END + '\n' + actions, 1)
-    updated=updated.replace('ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)', 'ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)')
+    updated=updated.replace('ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer)', 'ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkn_shield_deposit|zkn_shield_transfer|zkn_shield_withdraw|privacy_review_request|privacy_review_vote|privacy_review_revoke|privacy_review_disclose)')
     updated=updated.replace('zkn_transfer|zkn_private_transfer)', 'zkn_transfer|zkn_private_transfer|zkc_issue)')
+    updated=updated.replace('ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)','ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkn_shield_deposit|zkn_shield_transfer|zkn_shield_withdraw|privacy_review_request|privacy_review_vote|privacy_review_revoke|privacy_review_disclose)')
     validation_anchor='    # --- Step 3: State & Logic Verification by Type ---\n    case "$tx_type" in\n'
-    validation_hook='''        ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)
+    validation_hook='''        ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkn_shield_deposit|zkn_shield_transfer|zkn_shield_withdraw|privacy_review_request|privacy_review_vote|privacy_review_revoke|privacy_review_disclose)
             _ziokt_asset_engine validate "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" || return 1
             ;;
 '''
@@ -215,7 +220,7 @@ def main():
         if updated.count(validation_anchor)!=1: raise SystemExit('native asset validation anchor ambiguous')
         updated=updated.replace(validation_anchor,validation_anchor+validation_hook,1)
     apply_anchor='            # case 语句现在只负责改变数据库状态。\n            case "$tx_type" in\n'
-    apply_hook='''                ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue)
+    apply_hook='''                ziokt_identity_register|ziokt_content|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkn_shield_deposit|zkn_shield_transfer|zkn_shield_withdraw|privacy_review_request|privacy_review_vote|privacy_review_revoke|privacy_review_disclose)
                     _ziokt_asset_engine apply "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$tx_type" "$tx_payload" "$sender_id" "$tx_hash" "$height" || return 1
                     ;;
 '''
@@ -227,10 +232,21 @@ def main():
     if mint_hook not in updated:
         if updated.count(mint_anchor)!=1: raise SystemExit('native packed NFT anchor ambiguous')
         updated=updated.replace(mint_anchor,mint_anchor+mint_hook,1)
+    # Static frontend helpers execute in Corium's separate Gateway namespace.
+    static_start='# BEGIN ZIOKT STATIC SITE HELPERS\n'
+    static_end='# END ZIOKT STATIC SITE HELPERS\n'
+    static_block=static_start+(ROOT/'spec/static_site_runtime.py').read_text()+'\n'+static_end
+    if static_start in updated:
+        left,tail=updated.split(static_start,1);_,right=tail.split(static_end,1)
+        updated=left+static_block+right
+    else:
+        anchor='class CoriumGatewayHandler(http.server.BaseHTTPRequestHandler):'
+        if updated.count(anchor)!=1:raise SystemExit('native Gateway static helper anchor ambiguous')
+        updated=updated.replace(anchor,static_block+'\n'+anchor,1)
     if args.check:
         mismatches = []
         for path, expected in ((target, runtime), (script, updated),
-                               (coordinator_target, runtime), (currency_target, currency)):
+                               (coordinator_target, runtime), (currency_target, currency), (static_target,static_runtime)):
             if not path.is_file() or path.read_text() != expected:
                 mismatches.append(str(path))
         if mismatches:
@@ -241,6 +257,7 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(runtime)
         coordinator_target.write_text(runtime)
+        static_target.write_text(static_runtime)
         currency_target.write_text(currency)
         script.write_text(updated)
 

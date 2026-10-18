@@ -23,8 +23,8 @@ from .protocol import ProtocolError, secure_read, strict_json
 LATEST='2026-07-28'
 VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
 BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
-BRIDGE_WRITE={'package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
-READ_NATIVE={'capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
+BRIDGE_WRITE={'naming.publish','package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
+READ_NATIVE={'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
 log=logging.getLogger(__name__)
 
 
@@ -97,6 +97,17 @@ class Service:
         self.tools={}
         self.dispatch={}
         self.add('ziokt_privacy_status','Report actual ownership and transport privacy boundaries; never claim shielded ledger ownership without native consensus support.',schema(),False,'ziokt:read',('privacy-status',))
+        self.add('ziokt_naming_status','Report suffix authorities and configured independent naming realms; DNS never grants service access.',schema(),False,'ziokt:read',('naming-status',))
+        if config.get('dns_config'):
+            self.add('ziokt_name_resolve','Resolve explicitly published public records through the selected node-backed realm. No public DNS fallback.',schema({'name':{'type':'string','maxLength':254},'realm':{'type':'string','maxLength':63}},('name',)),False,'ziokt:read',('name-resolve',))
+            self.add('ziokt_name_service','Verify naming ownership and retrieve content references or sealed service descriptors. Does not decrypt or authorize access.',schema({'name':{'type':'string','maxLength':254},'realm':{'type':'string','maxLength':63},'component':{'type':'string','enum':['corium','shadow6','etp','safefs','sim','tri','ufs','dcpm','watchat','zda','ziokt']}},('name','component')),False,'ziokt:names:read',('name-service',))
+        self.add('ziokt_tracker_status','Report optional Tracker deployments. Trackers supplement existing DHT, gossip and direct discovery.',schema(),False,'ziokt:read',('tracker-status',))
+        for alias in config.get('trackers',{}):
+            if not re.fullmatch('[a-z][a-z0-9_]{0,31}',alias):raise ValueError('bounded tracker alias required')
+            for method in ('status','query','register','revoke'):
+                write=method in {'register','revoke'}
+                fields={} if method=='status' else {'limit':{'type':'integer','minimum':1,'maximum':8}} if method=='query' else {'sequence':{'type':'integer','minimum':0,'maximum':2**53-1}} if method=='revoke' else {'envelope':PARAMS,'publish':{'type':'boolean','const':True},'anonymous':{'type':'boolean'},'relay_authorization':{'type':['object','null']}}
+                self.add('tracker_'+alias+'_'+method,'Explicit optional Tracker '+method+'; signed federation scope, lease expiry and member permissions apply.',schema(fields,tuple(fields)),write,'ziokt:discovery:'+('write' if write else 'read'),('tracker',alias,method))
         self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
         if config.get('federation'):
             from .config import load
@@ -105,7 +116,7 @@ class Service:
             for provider in federation['providers']:
                 project=provider['native_project'];pid=provider['provider_id']
                 for method in sorted(READ_NATIVE):
-                    if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge'}):continue
+                    if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge','privacy.status','privacy.review.list','privacy.review.get'}):continue
                     if project=='corium' and method=='service.binding':continue
                     self.add(pid.replace('-','_')+'_'+method.replace('.','_'),f'{pid}: native {method}. Parameters follow the pinned native contract.',schema({'params':PARAMS},('params',)),False,project+':read',('native',pid,method))
                 for action in sorted(OPERATIONS[project]):
@@ -128,6 +139,8 @@ class Service:
         for app in config.get('bridges',{}):
             if not re.fullmatch('[a-z0-9-]{1,64}',app):raise ValueError('invalid bridge name')
             for method in sorted(BRIDGE_READ|BRIDGE_WRITE):
+                if app=='ziokt' and method not in {'naming.publish','component.status'}:continue
+                if method=='naming.publish' and app not in {'ziokt','shadow6','etp','safefs','sim-manager','sim','tri','ufs','dcpm','watchat','zda'}:continue
                 settings=strict_json(secure_read(config['bridges'][app]))
                 if method.startswith('object.') and not settings.get('vault_root'):continue
                 if method.startswith('file.') and not settings.get('inbox'):continue
@@ -322,6 +335,31 @@ class Service:
 
     def execute(self,principal,name,args):
         route=self.dispatch[name];kind=route[0]
+        if kind=='tracker-status':
+            return {'schema':'ziokt.tracker-capability.v1','configured':sorted(self.config.get('trackers',{})),
+                    'optional':True,'replaces_dht':False,'registration_opt_in':True,'maximum_lease_seconds':600,
+                    'anonymous_real_ip_registration_allowed':False,'discovery_confers_membership':False}
+        if kind=='tracker':
+            from .peer_directory import load_directory
+            from .tracker import TrackerClient
+            from .remote import load_remote,tls_context
+            material=self.config['trackers'][route[1]]
+            if not isinstance(material,dict) or set(material)!={'discovery_config','tls_config'}:raise ValueError('fixed tracker and discovery configurations required')
+            directory,discovery=load_directory(material['discovery_config'])
+            endpoint=load_remote(material['tls_config'])
+            context=tls_context(endpoint['certificate'],endpoint['private_key'],endpoint['ca'])
+            client=TrackerClient(directory,secure_read(discovery['signing_key'],32),endpoint,context)
+            return client.call('tracker.'+route[2],args)
+        if kind in {'naming-status','name-resolve','name-service'}:
+            from .naming import SUFFIXES
+            from .dns_server import load as load_dns
+            networks=None
+            if self.config.get('dns_config'):
+                _,networks=load_dns(self.config['dns_config'])
+            if kind=='naming-status':
+                return {'suffix_authorities':SUFFIXES,'realms':{} if networks is None else {key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False,'dns_confers_authorization':False,'nns_default_publication':False,'ech_tls_termination_verified':False}
+            if networks is None:raise ValueError('DNS node configuration unavailable')
+            return networks.resolve(args['name'],realm=args.get('realm'),component=args.get('component'),public=kind=='name-resolve')
         if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False)}
         if kind=='registry':
             from .registry import Registry
@@ -399,8 +437,10 @@ class Service:
         if kind=='privacy-status':
             return {'transport_encryption':True,'fresh_receiver_keys':True,'sealed_receipts':True,
                     'authenticated_receiver_can_identify_caller':True,'ledger_ownership_transitions_observable':True,
-                    'shielded_ownership_supported':False,'anonymous_against_global_observer':False,
-                    'required_for_shielded_ownership':['native consensus transaction type','audited commitment and nullifier proof system','private wallet recovery','migration and consensus acceptance tests']}
+                    'shielded_ownership_supported':False,'shielded_testnet_implementation':True,'shielded_proof_version':'zkn-rct-experimental-v1','independently_audited':False,
+                    'review_request_consensus_implemented':True,'universal_decryption_key':False,'review_approval_decrypts_data':False,'holder_disclosure_consent_required':True,
+                    'anonymous_against_global_observer':False,
+                    'required_for_shielded_ownership':['independent cryptographic audit of experimental ring protocol','versioned whole-network consensus rollout','production wallet recovery and operational audit','production migration and consensus acceptance tests']}
         if kind=='native-admission':
             from .package_handoff import approve_native_admission
             return approve_native_admission(self.current().get('native_package_handoff'),args['receipt_digest'],args['selector'])

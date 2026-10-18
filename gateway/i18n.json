@@ -173,7 +173,11 @@
     "watchat.public_title": "Public gateway board and WATChat PWA",
     "watchat.public_notice": "Public board text is visible to this web service and visitors. Open WATChat PWA to use its authenticated end-to-end encrypted private conversations.",
     "watchat.public_channel": "Public plaintext board",
-    "watchat.public_write_failed": "The board entry was not stored. Check native write permission and storage."
+    "watchat.public_write_failed": "The board entry was not stored. Check native write permission and storage.",
+    "forum.createIdentity": "Create my posting identity",
+    "forum.importIdentity": "Or import my Ed25519 identity JSON (processed only on this device)",
+    "forum.identity": "Posting identity fingerprint",
+    "forum.readOnly": "Read-only: select your own signing identity before posting."
   },
   "zh-CN": {
     "language.name": "简体中文",
@@ -349,6 +353,10 @@
     "watchat.public_title": "Gateway 公开留言板与 WATChat PWA",
     "watchat.public_notice": "公开留言的明文可被网页服务和访问者读取。私密会话请打开 WATChat PWA，使用其认证和端到端加密。",
     "watchat.public_channel": "公开明文留言板",
-    "watchat.public_write_failed": "留言未保存，请检查原生写入权限和存储状态。"
+    "watchat.public_write_failed": "留言未保存，请检查原生写入权限和存储状态。",
+    "forum.createIdentity": "创建我自己的发帖身份",
+    "forum.importIdentity": "或导入我的 Ed25519 身份 JSON（仅在本机处理）",
+    "forum.identity": "发帖身份指纹",
+    "forum.readOnly": "当前只读：请先选择自己的签名身份再发帖。"
   }
 }

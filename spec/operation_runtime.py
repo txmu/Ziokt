@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -216,11 +216,13 @@ def operation_preflight(provider, root, network, params, config):
         fail("POLICY_DENIED", "native resource is not allowed")
     if action.startswith("recovery."):
         return recovery_preflight(provider, root, network, params, config)
+    if action == "naming.submit":
+        return naming_preflight(root,network,params,config)
     if action == "compute.submit":
         return compute_submit_preflight(root,network,params,config)
     if action == "compute.run":
         return compute_preflight(root, network, params, config)
-    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}:
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit'}:
         return asset_preflight(root,network,params,config)
     if action in {"service.stop", "service.run"}:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resource) or args:
@@ -315,10 +317,10 @@ def operation_preflight(provider, root, network, params, config):
 
 def operation_execute(provider, root, network, plan, config=None):
     resource = plan["resource"]
-    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue'}:
+    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue','privacy.submit'}:
         if asset_preflight(root,network,plan,config)!=plan['binding_evidence']:
             fail('STALE_PLAN','private gift evidence changed')
-        return asset_submit_gift(root,network,plan['arguments']['transaction'],'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
+        return asset_submit_gift(root,network,plan['arguments']['transaction'],plan['arguments']['transaction']['type'] if plan['action']=='privacy.submit' else 'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
     if provider == "shadow6" and plan["action"].startswith("recovery."):
         return recovery_execute(provider, root, network, plan, config)
     if plan["action"] in {"service.stop", "service.run"}:
@@ -346,7 +348,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -444,7 +446,7 @@ def operation_reconcile(provider, root, network, plan, config):
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
     if action == "compute.run": return compute_receipt(root, network, plan)
-    if action in {'compute.submit','identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}: return asset_receipt(root,network,plan)
+    if action in {'compute.submit','identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit','naming.submit'}: return asset_receipt(root,network,plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:

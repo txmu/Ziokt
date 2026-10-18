@@ -21,7 +21,7 @@ class CompanionBridge:
         self.path=Path(path);self.config_bytes=secure_read(path)
         config=strict_json(self.config_bytes)
         required={'schema','community_root','policy','owner','encryption_key','signing_key','application','application_key'}
-        if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'inbox','vault_root','exchange_key','component_peers'} or config['schema']!='ziokt.companion-bridge.v1':raise ProtocolError('INVALID_BRIDGE','exact explicitly configured community application bridge required')
+        if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'inbox','vault_root','exchange_key','component_peers','naming_namespaces'} or config['schema']!='ziokt.companion-bridge.v1':raise ProtocolError('INVALID_BRIDGE','exact explicitly configured community application bridge required')
         identifier(config['application'],'application')
         self.inbox=None
         if 'inbox' in config:
@@ -43,6 +43,10 @@ class CompanionBridge:
             if not isinstance(config[name],str) or not Path(config[name]).is_absolute() or '..' in Path(config[name]).parts:raise ProtocolError('INVALID_BRIDGE','fixed private application paths required')
         self.private=secure_read(config['signing_key'],32);self.appkey=secure_read(config['application_key'],32);self.app=config['application'];self._outbox_lock=threading.RLock()
         self.community=Community(config['community_root'],strict_json(secure_read(config['policy'])),config['owner'],secure_read(config['encryption_key'],32))
+        self.naming_namespaces=config.get('naming_namespaces',[self.community.community_id])
+        if (not isinstance(self.naming_namespaces,list) or not 1<=len(self.naming_namespaces)<=32 or
+                any(not isinstance(value,str) or not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}',value) for value in self.naming_namespaces)):
+            self.community.close();raise ProtocolError('INVALID_BRIDGE','explicit bounded naming namespaces required')
         with self.community.db:
             self.community.db.execute('CREATE TABLE IF NOT EXISTS watchat_delivery_acks (channel TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(channel,event))')
             self.community.db.execute('CREATE TABLE IF NOT EXISTS companion_outbox (application TEXT NOT NULL,id TEXT NOT NULL,sealed BLOB NOT NULL,PRIMARY KEY(application,id))')
@@ -119,6 +123,10 @@ class CompanionBridge:
     def call(self,method,params):
         if secure_read(self.path)!=self.config_bytes:raise ProtocolError('STALE_PLAN','application bridge configuration changed')
         if not isinstance(params,dict):raise ProtocolError('INVALID_BRIDGE','typed local parameters required')
+        if method=='naming.publish':
+            if set(params)!={'registration'}:raise ProtocolError('INVALID_PARAMS','explicit signed naming registration required')
+            from .naming_community import publish
+            return publish(self,params['registration'])
         if method in {'package.build.references','package.verify.references','package.release.references'} or method.startswith('object.') or method in {'component.status','ano.laws','ano.calculate','ano.defence','tc16.run','vault.put','vault.get','vault.publish','tri.put','tri.get','tri.publish','package.build','package.verify','package.publish','sim.reminders.replace','sim.reminders.pull'}:
             from .companion_operations import execute
             return execute(self,method,params)

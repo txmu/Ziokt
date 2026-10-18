@@ -147,10 +147,7 @@ if subpath == "forum":
     
     msg_notice = ""
     if new_content:
-        if reply_to_id:
-            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>{tr('✅ 回复已由节点签名并持久存入原生 forum.db 及 P2P 内容寻址网络！', '✅ Reply signed and persisted to native forum.db and P2P content-addressed mesh!')}</div>"
-        elif new_topic:
-            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>{tr('✅ 新话题已成功创建，SHA-256 密码学摘要与区块链信标已上链广播！', '✅ New topic created; SHA-256 digest and blockchain beacon broadcasted on-chain!')}</div>"
+        msg_notice = f"<div class='notice'>{tr('当前请求只读。发帖必须通过自己的签名身份提交，URL 参数不会发布内容。', 'This request is read-only. Posting requires your own signing identity; URL parameters never publish content.')}</div>"
 
     topics_html = ""
     for item in forum_data:
