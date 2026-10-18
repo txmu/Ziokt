@@ -29,9 +29,9 @@ export function renderChat(container) {
   const isMinimalist = chatUiMode === 'minimalist';
 
   container.innerHTML = `
-    <div style="height: calc(100vh - var(--topbar-height) - 48px); display: flex; flex-direction: column;">
+    <div class="chat-page-wrapper">
       <!-- WATChat Sub-Header: Dual UI Switcher -->
-      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md) var(--radius-md) 0 0; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: none;">
+      <div class="chat-subheader">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-weight: 700; color: var(--accent-cyan); font-size: 0.95rem;">💬 ${t('chat.title')}</span>
           <span class="status-badge" style="font-size: 0.7rem; color: var(--accent-green);">
@@ -48,7 +48,7 @@ export function renderChat(container) {
       </div>
 
       <!-- Main Chat Body -->
-      <div class="chat-container" style="border-radius: 0 0 var(--radius-md) var(--radius-md); flex: 1;">
+      <div class="chat-container">
         
         <!-- Sidebar Contacts -->
         <div class="chat-sidebar">
@@ -113,7 +113,7 @@ export function renderChat(container) {
           </div>
 
           <!-- Input Bar -->
-          <div style="padding: 12px 16px; border-top: 1px solid var(--border-subtle); background: var(--bg-sidebar);">
+          <div class="chat-input-bar">
             ${!isMinimalist ? `
               <!-- Classic Rich Bar with Attachment & Code Trigger -->
               <div style="display: flex; gap: 6px; margin-bottom: 8px;">
@@ -186,6 +186,13 @@ export function renderChat(container) {
   inputEl.onkeydown = (e) => {
     if (e.key === 'Enter') doSend();
   };
+  inputEl.addEventListener('focus', () => {
+    setTimeout(() => {
+      inputEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 200);
+  });
+  const box = container.querySelector('#messages-box');
+  if (box) box.scrollTop = box.scrollHeight;
 
   // Add Contact Prompt
   const addBtn = container.querySelector('#add-contact-btn');

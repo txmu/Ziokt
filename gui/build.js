@@ -99,23 +99,47 @@ function buildStandaloneAppBundle() {
     setupKeyboardShortcuts();
     setupPwaInstallPrompt();
 
-    const initialTab = getHashTab() || State.currentTab || 'home';
-    navigate(initialTab);
-    updateAppNodeBadge();
+    // Probe local node first if in local mode before setting initial route
     if (State.runtimeMode === 'local') {
-      checkLocalNodeHealth();
+      await checkLocalNodeHealth();
     }
 
+    updateAppNodeBadge();
+
+    let initialTab = getHashTab() || State.currentTab || 'home';
+    if (isLocalNodeOffline() && initialTab !== 'settings') {
+      initialTab = 'settings';
+    }
+    navigate(initialTab);
+
     window.addEventListener('hashchange', () => {
-      const tab = getHashTab();
+      let tab = getHashTab();
       if (tab && tab !== State.currentTab) {
+        if (isLocalNodeOffline() && tab !== 'settings') {
+          navigate('settings');
+          return;
+        }
         navigate(tab);
       }
     });
 
     Events.on('navigate', (tab) => navigate(tab));
+    Events.on('local_node_offline', () => {
+      if (State.currentTab !== 'settings') {
+        navigate('settings');
+      }
+    });
+    Events.on('local_node_status_changed', () => {
+      updateAppNodeBadge();
+      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+        navigate('settings');
+      }
+    });
     Events.on('mode_changed', () => {
       updateAppNodeBadge();
+      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+        navigate('settings');
+      }
     });
     Events.on('active_node_changed', () => {
       updateAppNodeBadge();
@@ -133,7 +157,16 @@ function buildStandaloneAppBundle() {
   }
 
   function navigate(tabName) {
-    if (!routes[tabName]) tabName = 'home';
+    // Local Node Offline Gatekeeping: only Settings can be viewed
+    if (isLocalNodeOffline() && tabName !== 'settings') {
+      const msg = State.language === 'en'
+        ? 'Local node is offline. Local mode requires a running node; only Settings is accessible.'
+        : '本地节点未启动。使用本地节点需要用户本地真实有节点运行，当前仅开放【系统设置】页。';
+      showToast(msg, 'warning');
+      tabName = 'settings';
+    }
+
+    if (!routes[tabName]) tabName = isLocalNodeOffline() ? 'settings' : 'home';
     State.currentTab = tabName;
     if (window.location.hash !== '#' + tabName) {
       history.replaceState(null, '', '#' + tabName);
@@ -167,14 +200,32 @@ function buildStandaloneAppBundle() {
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
-        navigate(item.dataset.tab);
+        const targetTab = item.dataset.tab;
+        if (isLocalNodeOffline() && targetTab !== 'settings') {
+          const msg = State.language === 'en'
+            ? 'Local node is offline. Only Settings is accessible.'
+            : '本地节点未启动，当前仅开放【系统设置】页。';
+          showToast(msg, 'warning');
+          navigate('settings');
+          return;
+        }
+        navigate(targetTab);
       });
     });
 
     document.querySelectorAll('.bottom-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
-        navigate(item.dataset.tab);
+        const targetTab = item.dataset.tab;
+        if (isLocalNodeOffline() && targetTab !== 'settings') {
+          const msg = State.language === 'en'
+            ? 'Local node is offline. Only Settings is accessible.'
+            : '本地节点未启动，当前仅开放【系统设置】页。';
+          showToast(msg, 'warning');
+          navigate('settings');
+          return;
+        }
+        navigate(targetTab);
       });
     });
 

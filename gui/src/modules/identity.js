@@ -1,19 +1,67 @@
 // ==============================================================================
 // Module: Decentralized Identity (DID), Keys & PoUW Governance Management
 // ==============================================================================
-import { State, t, showToast, showConfirm, showJsonModal, setStorage } from '../core.js';
+import { State, t, showToast, showConfirm, showJsonModal, setStorage, isLocalNodeOffline, getActiveRemoteNode } from '../core.js';
 
-let pouwActive = true;
-let hashrate = '2,840 H/s';
-let acceptedShares = 1420;
+let pouwActive = false;
+let hashrate = '0 H/s';
+let acceptedShares = 0;
 
 export function renderIdentity(container) {
+  const isEn = State.language === 'en';
+
+  if (isLocalNodeOffline()) {
+    container.innerHTML = `
+      <div style="max-width: 800px; margin: 40px auto; text-align: center;">
+        <div class="card" style="padding: 36px 20px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🔒</div>
+          <h3 style="color: var(--accent-red); margin-bottom: 8px;">
+            ${isEn ? 'Local Node Offline — Identity Unavailable' : '本地节点未运行 — 身份与密钥不可用'}
+          </h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 520px; margin: 0 auto 20px; line-height: 1.6;">
+            ${isEn
+              ? 'Local node mode requires an active Ziokt daemon at http://127.0.0.1:8185 to manage Ed25519 validator credentials and PoUW compute. Only the Settings tab is accessible.'
+              : '本地节点模式需要本机真实运行有 Ziokt 节点服务 (http://127.0.0.1:8185) 提供 Ed25519 验证者身份及 PoUW 有用功驱动。当前仅开放【系统设置】。'}
+          </p>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button id="id-go-settings-btn" class="btn btn-primary">⚙️ ${t('nav.settings')}</button>
+            <button id="id-retry-probe-btn" class="btn btn-secondary">⚡ ${t('settings.local_node_probe')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const sBtn = container.querySelector('#id-go-settings-btn');
+    if (sBtn) sBtn.onclick = () => { location.hash = '#settings'; };
+    const pBtn = container.querySelector('#id-retry-probe-btn');
+    if (pBtn) pBtn.onclick = async () => {
+      pBtn.disabled = true;
+      pBtn.textContent = '...';
+      const { checkLocalNodeHealth } = await import('../core.js');
+      const res = await checkLocalNodeHealth();
+      pBtn.disabled = false;
+      pBtn.textContent = `⚡ ${t('settings.local_node_probe')}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地真实节点检测通过，状态在线！', 'success');
+        renderIdentity(container);
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+    };
+    return;
+  }
+
+  const isLocal = State.runtimeMode === 'local';
+  const activeNode = getActiveRemoteNode();
+  const identityName = isLocal ? (isEn ? 'Local Sovereign Node' : '本地主权节点') : (activeNode?.name || 'Remote Gateway');
+  const activeDid = isLocal ? (State.localNodeDetails?.identity || State.userDid || 'did:ziokt:local:node0') : (State.userDid || `did:ziokt:${activeNode?.id || 'guest'}`);
+  const domain = isLocal ? (State.localNodeDetails?.network || 'ziokt-main') + '.local' : 'gateway.ziokt';
+
   container.innerHTML = `
     <div style="max-width: 1000px; margin: 0 auto;">
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('identity.title')}</h2>
-        <p style="font-size: 0.82rem; color: var(--text-muted);">管理去中心化 Ed25519 密钥对、NNS 命名空间与 PoUW 有用功证明贡献</p>
+        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Manage Ed25519 cryptographic keys, NNS namespaces, and PoUW compute governance' : '管理去中心化 Ed25519 密钥对、NNS 命名空间与 PoUW 有用功证明贡献'}</p>
       </div>
 
       <!-- Identity Profile Card -->
@@ -24,8 +72,8 @@ export function renderIdentity(container) {
               Z
             </div>
             <div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Genesis Node Owner</div>
-              <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 500;">✓ Ed25519 验证者身份</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">${identityName}</div>
+              <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 500;">✓ ${isEn ? 'Ed25519 Node Verified' : 'Ed25519 验证者身份'}</div>
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
@@ -37,11 +85,11 @@ export function renderIdentity(container) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
           <div style="background: var(--bg-input); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
             <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px;">${t('identity.did')}</div>
-            <div style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan); word-break: break-all;">${State.userDid}</div>
+            <div style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan); word-break: break-all;">${activeDid}</div>
           </div>
           <div style="background: var(--bg-input); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
             <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px;">${t('identity.nns_domain')}</div>
-            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green);">genesis.ziokt</div>
+            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green);">${domain}</div>
           </div>
         </div>
       </div>

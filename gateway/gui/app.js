@@ -123,7 +123,7 @@ const State = {
   remoteNodes: getRemoteNodes(),
   activeRemoteNodeId: getStorage('ziokt_active_node_id', 'node-official-tokyo'),
   authToken: getStorage('ziokt_auth_token', 'ziokt_sec_genesis_community_token_2026'),
-  userDid: getStorage('ziokt_did', 'did:ziokt:800a3e4c08b13a41b41632a2bd8f0065'),
+  userDid: getStorage('ziokt_did', ''),
   components: {
     corium: { name: 'Corium Blockchain', status: 'online', port: 8545 },
     shadow6: { name: 'Shadow6 Mesh Cluster', status: 'online', port: 8186 },
@@ -290,6 +290,7 @@ async function checkLocalNodeHealth() {
     State.localNodeStatus = 'offline';
     State.localNodeDetails = { error: err.message };
     Events.emit('local_node_status_changed', { status: 'offline', error: err.message });
+    Events.emit('local_node_offline', { error: err.message });
     updateAppNodeBadge();
     return { ok: false, error: err.message };
   }
@@ -356,37 +357,82 @@ async function verifyRemoteNodeAuth(nodeId) {
   }
 }
 
+// Check if client is in local mode without a running local node
+function isLocalNodeOffline() {
+  return State.runtimeMode === 'local' && State.localNodeStatus === 'offline';
+}
+
+// Update Navigation Lock State for Non-Settings tabs
+function updateNavLockState() {
+  const isOffline = isLocalNodeOffline();
+  const isEn = State.language === 'en';
+
+  document.querySelectorAll('.nav-item, .bottom-item').forEach(item => {
+    const tab = item.dataset.tab;
+    if (tab !== 'settings') {
+      if (isOffline) {
+        item.classList.add('nav-locked');
+        item.setAttribute('title', isEn ? 'Locked: Local node is offline (Settings only)' : '已锁定: 本地节点未运行 (仅开放系统设置)');
+      } else {
+        item.classList.remove('nav-locked');
+        item.removeAttribute('title');
+      }
+    }
+  });
+
+  const didPill = document.getElementById('user-did-pill');
+  if (didPill) {
+    if (isOffline) {
+      didPill.textContent = isEn ? 'Local: Offline (No Node)' : '本地节点离线 (无可用身份)';
+      didPill.style.color = 'var(--accent-red)';
+      didPill.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+    } else if (State.runtimeMode === 'local' && State.localNodeStatus === 'online') {
+      const did = State.localNodeDetails?.identity || State.userDid || 'did:ziokt:local:node0';
+      didPill.textContent = did.length > 24 ? did.substring(0, 14) + '...' + did.substring(did.length - 6) : did;
+      didPill.style.color = 'var(--accent-green)';
+      didPill.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+    } else {
+      const activeNode = getActiveRemoteNode();
+      const did = State.userDid || (activeNode ? `did:ziokt:${activeNode.name || activeNode.id}` : 'did:ziokt:remote:guest');
+      didPill.textContent = did.length > 24 ? did.substring(0, 14) + '...' + did.substring(did.length - 6) : did;
+      didPill.style.color = 'var(--accent-cyan)';
+      didPill.style.borderColor = 'var(--border-subtle)';
+    }
+  }
+}
+
 // Update Topbar and Sidebar Badges
 function updateAppNodeBadge() {
   const labelEl = document.getElementById('sidebar-node-label');
   const dotEl = document.querySelector('#sidebar .status-dot');
-  if (!labelEl) return;
-
-  const isEn = State.language === 'en';
-  if (State.runtimeMode === 'local') {
-    if (State.localNodeStatus === 'online') {
-      labelEl.textContent = isEn ? 'Local Node: Online (8185)' : '本地节点: 在线 (8185)';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
-    } else if (State.localNodeStatus === 'checking') {
-      labelEl.textContent = isEn ? 'Local Node: Checking...' : '本地节点: 检测中...';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+  if (labelEl) {
+    const isEn = State.language === 'en';
+    if (State.runtimeMode === 'local') {
+      if (State.localNodeStatus === 'online') {
+        labelEl.textContent = isEn ? 'Local Node: Online (8185)' : '本地节点: 在线 (8185)';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+      } else if (State.localNodeStatus === 'checking') {
+        labelEl.textContent = isEn ? 'Local Node: Checking...' : '本地节点: 检测中...';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+      } else {
+        labelEl.textContent = isEn ? 'Local Node: Offline (Not Running)' : '本地节点: 离线 (未启动)';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      }
     } else {
-      labelEl.textContent = isEn ? 'Local Node: Offline (Not Running)' : '本地节点: 离线 (未启动)';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
-    }
-  } else {
-    const active = getActiveRemoteNode();
-    if (active.status === 'online') {
-      labelEl.textContent = isEn ? `Remote: ${active.name} (${active.latency})` : `远程网关: ${active.name} (${active.latency})`;
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
-    } else if (active.status === 'unauthenticated') {
-      labelEl.textContent = isEn ? 'Remote: Auth Required' : '远程网关: 待鉴权凭证';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
-    } else {
-      labelEl.textContent = isEn ? 'Remote: Disconnected' : '远程网关: 无法连接';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      const active = getActiveRemoteNode();
+      if (active.status === 'online') {
+        labelEl.textContent = isEn ? `Remote: ${active.name} (${active.latency})` : `远程网关: ${active.name} (${active.latency})`;
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+      } else if (active.status === 'unauthenticated') {
+        labelEl.textContent = isEn ? 'Remote: Auth Required' : '远程网关: 待鉴权凭证';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+      } else {
+        labelEl.textContent = isEn ? 'Remote: Disconnected' : '远程网关: 无法连接';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      }
     }
   }
+  updateNavLockState();
 }
 
 // Unified Gateway API Client with Real Local Probe & Mandatory Remote Auth
@@ -463,21 +509,56 @@ function renderHome(container) {
   const activeNode = getActiveRemoteNode();
   const isRemoteUnauth = !isLocal && (!activeNode?.authToken || activeNode?.status === 'unauthenticated' || activeNode?.status === 'auth_failed');
 
-  container.innerHTML = `
-    <div style="max-width: 1100px; margin: 0 auto;">
-      <!-- Node Status Alert Banners -->
-      ${isLocalOffline ? `
-        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-red); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-          <div style="color: var(--accent-red); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 1.2rem;">⚠️</span>
-            <span>${t('home.local_offline_alert')}</span>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button id="home-probe-local-btn" class="btn btn-secondary btn-sm">⚡ ${t('home.probe_local')}</button>
-            <button id="home-switch-remote-btn" class="btn btn-primary btn-sm">🌐 ${t('home.switch_remote')}</button>
+  if (isLocalOffline) {
+    container.innerHTML = `
+      <div style="max-width: 820px; margin: 40px auto; text-align: center;">
+        <div class="card" style="padding: 40px 24px; border: 1.5px solid var(--accent-red); background: rgba(239,68,68,0.06);">
+          <div style="font-size: 3rem; margin-bottom: 14px;">⚠️</div>
+          <h2 style="color: var(--accent-red); font-size: 1.25rem; font-weight: 700; margin-bottom: 10px;">
+            ${isEn ? 'Local Node Offline — Only Settings Accessible' : '本地节点未运行 — 当前仅开放系统设置'}
+          </h2>
+          <p style="color: var(--text-main); font-size: 0.9rem; max-width: 580px; margin: 0 auto 20px; line-height: 1.6;">
+            ${isEn
+              ? 'Local node mode requires an active Ziokt daemon at http://127.0.0.1:8185. Since no local node is detected, overview metrics and functional tabs are locked. Please start your local daemon or switch to a remote gateway in Settings.'
+              : '当前处于【本地节点】运行模式，但未检测到本地运行中的 Ziokt 节点服务 (http://127.0.0.1:8185)。在本地真实节点启动前，首页总览与功能模块已锁定，当前仅开放【系统设置】页。请启动本地进程，或切换至官方远程网关。'}
+          </p>
+          <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+            <button id="home-go-settings-btn" class="btn btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">⚙️ ${isEn ? 'Go to Settings' : '前往系统设置'}</button>
+            <button id="home-probe-local-btn" class="btn btn-secondary" style="padding: 10px 18px; font-size: 0.9rem;">⚡ ${isEn ? 'Retry Local Probe' : '重试探测本地节点'}</button>
+            <button id="home-switch-remote-btn" class="btn btn-secondary" style="padding: 10px 18px; font-size: 0.9rem;">🌐 ${isEn ? 'Switch to Remote Gateway' : '一键切换至远程网关'}</button>
           </div>
         </div>
-      ` : ''}
+      </div>
+    `;
+    const sBtn = container.querySelector('#home-go-settings-btn');
+    if (sBtn) sBtn.onclick = () => { location.hash = '#settings'; };
+    const pBtn = container.querySelector('#home-probe-local-btn');
+    if (pBtn) pBtn.onclick = async () => {
+      pBtn.disabled = true;
+      pBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      pBtn.disabled = false;
+      pBtn.textContent = `⚡ ${isEn ? 'Retry Local Probe' : '重试探测本地节点'}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地节点已连接！', 'success');
+        renderHome(container);
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+    };
+    const rBtn = container.querySelector('#home-switch-remote-btn');
+    if (rBtn) rBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'success');
+      renderHome(container);
+    };
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="max-width: 1100px; margin: 0 auto;">
 
       ${isRemoteUnauth ? `
         <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid var(--accent-amber); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -708,9 +789,9 @@ function renderChat(container) {
   const isMinimalist = chatUiMode === 'minimalist';
 
   container.innerHTML = `
-    <div style="height: calc(100vh - var(--topbar-height) - 48px); display: flex; flex-direction: column;">
+    <div class="chat-page-wrapper">
       <!-- WATChat Sub-Header: Dual UI Switcher -->
-      <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md) var(--radius-md) 0 0; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: none;">
+      <div class="chat-subheader">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-weight: 700; color: var(--accent-cyan); font-size: 0.95rem;">💬 ${t('chat.title')}</span>
           <span class="status-badge" style="font-size: 0.7rem; color: var(--accent-green);">
@@ -727,7 +808,7 @@ function renderChat(container) {
       </div>
 
       <!-- Main Chat Body -->
-      <div class="chat-container" style="border-radius: 0 0 var(--radius-md) var(--radius-md); flex: 1;">
+      <div class="chat-container">
         
         <!-- Sidebar Contacts -->
         <div class="chat-sidebar">
@@ -792,7 +873,7 @@ function renderChat(container) {
           </div>
 
           <!-- Input Bar -->
-          <div style="padding: 12px 16px; border-top: 1px solid var(--border-subtle); background: var(--bg-sidebar);">
+          <div class="chat-input-bar">
             ${!isMinimalist ? `
               <!-- Classic Rich Bar with Attachment & Code Trigger -->
               <div style="display: flex; gap: 6px; margin-bottom: 8px;">
@@ -865,6 +946,13 @@ function renderChat(container) {
   inputEl.onkeydown = (e) => {
     if (e.key === 'Enter') doSend();
   };
+  inputEl.addEventListener('focus', () => {
+    setTimeout(() => {
+      inputEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 200);
+  });
+  const box = container.querySelector('#messages-box');
+  if (box) box.scrollTop = box.scrollHeight;
 
   // Add Contact Prompt
   const addBtn = container.querySelector('#add-contact-btn');
@@ -1097,13 +1185,55 @@ function renderForum(container) {
 // ==============================================================================
 
 let currentVault = 'ufs'; // 'ufs' | 'safefs'
-let vaultFiles = [
-  { name: 'WELCOME.txt', size: '758 B', date: '2026-10-17 16:50', isDir: false, type: 'txt' },
-  { name: 'contracts', size: '-', date: '2026-10-16 11:20', isDir: true, type: 'dir' },
-  { name: 'whitepaper-v2.pdf', size: '2.4 MB', date: '2026-10-15 09:30', isDir: false, type: 'pdf' },
-  { name: 'genesis_block.json', size: '14.2 KB', date: '2026-10-14 20:15', isDir: false, type: 'json' }
-];
+let vaultFiles = [];
+try {
+  const raw = getStorage('ziokt_vault_files');
+  if (raw) vaultFiles = JSON.parse(raw);
+} catch (e) {
+  vaultFiles = [];
+}
 function renderFiles(container) {
+  const isEn = State.language === 'en';
+
+  if (isLocalNodeOffline()) {
+    container.innerHTML = `
+      <div style="max-width: 800px; margin: 40px auto; text-align: center;">
+        <div class="card" style="padding: 36px 20px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🔒</div>
+          <h3 style="color: var(--accent-red); margin-bottom: 8px;">
+            ${isEn ? 'Local Node Offline — Storage Unavailable' : '本地节点未运行 — 存储功能不可用'}
+          </h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 520px; margin: 0 auto 20px; line-height: 1.6;">
+            ${isEn
+              ? 'Local mode requires an active Ziokt node daemon at http://127.0.0.1:8185 to mount UFS & SafeFS storage partitions and descriptors. Only Settings is accessible.'
+              : '本地节点模式需要本机真实运行有 Ziokt 节点服务 (http://127.0.0.1:8185) 挂载 UFS 与 SafeFS 存储卷。本地未启动时无法创建目录或存储文件，当前仅开放【系统设置】。'}
+          </p>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button id="files-go-settings-btn" class="btn btn-primary">⚙️ ${t('nav.settings')}</button>
+            <button id="files-retry-probe-btn" class="btn btn-secondary">⚡ ${t('settings.local_node_probe')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const sBtn = container.querySelector('#files-go-settings-btn');
+    if (sBtn) sBtn.onclick = () => { location.hash = '#settings'; };
+    const pBtn = container.querySelector('#files-retry-probe-btn');
+    if (pBtn) pBtn.onclick = async () => {
+      pBtn.disabled = true;
+      pBtn.textContent = '...';
+      const { checkLocalNodeHealth } = await import('../core.js');
+      const res = await checkLocalNodeHealth();
+      pBtn.disabled = false;
+      pBtn.textContent = `⚡ ${t('settings.local_node_probe')}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地真实节点检测通过，状态在线！', 'success');
+        renderFiles(container);
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+    };
+    return;
+  }
   container.innerHTML = `
     <div style="max-width: 1050px; margin: 0 auto;">
       <!-- Vault Header -->
@@ -1200,14 +1330,22 @@ function renderFiles(container) {
 
   // Upload Button Trigger
   container.querySelector('#upload-file-btn').onclick = () => {
+    if (isLocalNodeOffline()) {
+      showToast(State.language === 'en' ? 'Local node is offline, storage operations unavailable' : '本地真实节点未启动 (127.0.0.1:8185)，无法执行存储操作', 'error');
+      return;
+    }
     container.querySelector('#vault-file-input').click();
   };
 
   // Upload Logic
   window.handleVaultUpload = (files) => {
+    if (isLocalNodeOffline()) {
+      showToast(State.language === 'en' ? 'Local node is offline, upload disabled' : '本地真实节点未启动 (127.0.0.1:8185)，无法上传文件', 'error');
+      return;
+    }
     if (!files || !files.length) return;
     const file = files[0];
-    showToast(`正在上传文件 "${file.name}" ...`, 'info');
+    showToast(isEn ? `Encrypting & storing "${file.name}" ...` : `正在加密并存储文件 "${file.name}" ...`, 'info');
     setTimeout(() => {
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -1219,23 +1357,29 @@ function renderFiles(container) {
         isDir: false,
         type: 'file'
       });
-      showToast(`文件 "${file.name}" 已持久化保存至原生保险库`, 'success');
+      setStorage('ziokt_vault_files', JSON.stringify(vaultFiles));
+      showToast(isEn ? `"${file.name}" safely stored in native vault` : `文件 "${file.name}" 已持久化保存至原生保险库`, 'success');
       renderFiles(container);
-    }, 600);
+    }, 400);
   };
 
   // Create Folder
   container.querySelector('#create-folder-btn').onclick = () => {
-    const name = prompt('请输入新目录名称:');
+    if (isLocalNodeOffline()) {
+      showToast(State.language === 'en' ? 'Local node is offline, cannot create folder' : '本地真实节点未启动 (127.0.0.1:8185)，无法创建目录', 'error');
+      return;
+    }
+    const name = prompt(isEn ? 'Enter directory name:' : '请输入新目录名称:');
     if (name) {
       vaultFiles.push({
         name,
         size: '-',
-        date: '刚刚',
+        date: isEn ? 'Just now' : '刚刚',
         isDir: true,
         type: 'dir'
       });
-      showToast(`目录 "${name}" 创建成功`, 'success');
+      setStorage('ziokt_vault_files', JSON.stringify(vaultFiles));
+      showToast(isEn ? `Directory "${name}" created successfully` : `目录 "${name}" 创建成功`, 'success');
       renderFiles(container);
     }
   };
@@ -1243,11 +1387,19 @@ function renderFiles(container) {
   // Delete Action with Confirmation
   container.querySelectorAll('.del-btn').forEach(btn => {
     btn.onclick = async () => {
+      if (isLocalNodeOffline()) {
+        showToast(isEn ? 'Local node is offline' : '本地节点未启动', 'error');
+        return;
+      }
       const name = btn.dataset.name;
-      const ok = await showConfirm('确认删除文件', `确定要彻底删除 "${name}" 吗？此操作不可逆。`);
+      const ok = await showConfirm(
+        isEn ? 'Delete File' : '确认删除文件',
+        isEn ? `Are you sure you want to permanently delete "${name}"?` : `确定要彻底删除 "${name}" 吗？此操作不可逆。`
+      );
       if (ok) {
         vaultFiles = vaultFiles.filter(f => f.name !== name);
-        showToast(`已删除 "${name}"`, 'success');
+        setStorage('ziokt_vault_files', JSON.stringify(vaultFiles));
+        showToast(isEn ? `Deleted "${name}"` : `已删除 "${name}"`, 'success');
         renderFiles(container);
       }
     };
@@ -1738,16 +1890,64 @@ function renderNetwork(container) {
 // Module: Decentralized Identity (DID), Keys & PoUW Governance Management
 // ==============================================================================
 
-let pouwActive = true;
-let hashrate = '2,840 H/s';
-let acceptedShares = 1420;
+let pouwActive = false;
+let hashrate = '0 H/s';
+let acceptedShares = 0;
 function renderIdentity(container) {
+  const isEn = State.language === 'en';
+
+  if (isLocalNodeOffline()) {
+    container.innerHTML = `
+      <div style="max-width: 800px; margin: 40px auto; text-align: center;">
+        <div class="card" style="padding: 36px 20px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🔒</div>
+          <h3 style="color: var(--accent-red); margin-bottom: 8px;">
+            ${isEn ? 'Local Node Offline — Identity Unavailable' : '本地节点未运行 — 身份与密钥不可用'}
+          </h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 520px; margin: 0 auto 20px; line-height: 1.6;">
+            ${isEn
+              ? 'Local node mode requires an active Ziokt daemon at http://127.0.0.1:8185 to manage Ed25519 validator credentials and PoUW compute. Only the Settings tab is accessible.'
+              : '本地节点模式需要本机真实运行有 Ziokt 节点服务 (http://127.0.0.1:8185) 提供 Ed25519 验证者身份及 PoUW 有用功驱动。当前仅开放【系统设置】。'}
+          </p>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button id="id-go-settings-btn" class="btn btn-primary">⚙️ ${t('nav.settings')}</button>
+            <button id="id-retry-probe-btn" class="btn btn-secondary">⚡ ${t('settings.local_node_probe')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const sBtn = container.querySelector('#id-go-settings-btn');
+    if (sBtn) sBtn.onclick = () => { location.hash = '#settings'; };
+    const pBtn = container.querySelector('#id-retry-probe-btn');
+    if (pBtn) pBtn.onclick = async () => {
+      pBtn.disabled = true;
+      pBtn.textContent = '...';
+      const { checkLocalNodeHealth } = await import('../core.js');
+      const res = await checkLocalNodeHealth();
+      pBtn.disabled = false;
+      pBtn.textContent = `⚡ ${t('settings.local_node_probe')}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地真实节点检测通过，状态在线！', 'success');
+        renderIdentity(container);
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+    };
+    return;
+  }
+
+  const isLocal = State.runtimeMode === 'local';
+  const activeNode = getActiveRemoteNode();
+  const identityName = isLocal ? (isEn ? 'Local Sovereign Node' : '本地主权节点') : (activeNode?.name || 'Remote Gateway');
+  const activeDid = isLocal ? (State.localNodeDetails?.identity || State.userDid || 'did:ziokt:local:node0') : (State.userDid || `did:ziokt:${activeNode?.id || 'guest'}`);
+  const domain = isLocal ? (State.localNodeDetails?.network || 'ziokt-main') + '.local' : 'gateway.ziokt';
+
   container.innerHTML = `
     <div style="max-width: 1000px; margin: 0 auto;">
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('identity.title')}</h2>
-        <p style="font-size: 0.82rem; color: var(--text-muted);">管理去中心化 Ed25519 密钥对、NNS 命名空间与 PoUW 有用功证明贡献</p>
+        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Manage Ed25519 cryptographic keys, NNS namespaces, and PoUW compute governance' : '管理去中心化 Ed25519 密钥对、NNS 命名空间与 PoUW 有用功证明贡献'}</p>
       </div>
 
       <!-- Identity Profile Card -->
@@ -1758,8 +1958,8 @@ function renderIdentity(container) {
               Z
             </div>
             <div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Genesis Node Owner</div>
-              <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 500;">✓ Ed25519 验证者身份</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">${identityName}</div>
+              <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 500;">✓ ${isEn ? 'Ed25519 Node Verified' : 'Ed25519 验证者身份'}</div>
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
@@ -1771,11 +1971,11 @@ function renderIdentity(container) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
           <div style="background: var(--bg-input); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
             <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px;">${t('identity.did')}</div>
-            <div style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan); word-break: break-all;">${State.userDid}</div>
+            <div style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan); word-break: break-all;">${activeDid}</div>
           </div>
           <div style="background: var(--bg-input); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
             <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px;">${t('identity.nns_domain')}</div>
-            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green);">genesis.ziokt</div>
+            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green);">${domain}</div>
           </div>
         </div>
       </div>
@@ -2247,6 +2447,29 @@ function renderSettings(container) {
 
   container.innerHTML = `
     <div style="max-width: 950px; margin: 0 auto;">
+      ${isLocal && !isLocalOnline ? `
+        <!-- Local Node Required Top Warning Banner -->
+        <div style="background: rgba(239, 68, 68, 0.12); border: 1.5px solid var(--accent-red); border-radius: var(--radius-md); padding: 18px 20px; margin-bottom: 24px;">
+          <div style="display: flex; align-items: flex-start; gap: 14px;">
+            <span style="font-size: 1.8rem; line-height: 1;">⚠️</span>
+            <div style="flex: 1;">
+              <h3 style="color: var(--accent-red); margin-bottom: 6px; font-size: 1.05rem; font-weight: 700;">
+                ${isEn ? 'Local Node Required — Only Settings Accessible' : '本地真实节点未运行 — 当前仅开放系统设置'}
+              </h3>
+              <p style="color: var(--text-main); font-size: 0.85rem; line-height: 1.6; margin-bottom: 12px;">
+                ${isEn
+                  ? 'You are currently in Local Node Mode, but no Ziokt daemon is detected at http://127.0.0.1:8185. All other tabs (Home, Chat, Files, Apps, Identity, etc.) are locked until a real node is verified, or until you switch to a remote gateway.'
+                  : '当前客户端处于【本地节点】模式，但未在本地检测到运行中的 Ziokt 节点服务 (http://127.0.0.1:8185)。在本地真实节点启动前，总览、聊天、文件存储、身份等其他选项卡已锁定。您可以启动本地节点后重试探测，或在此直接切换至远程网关。'}
+              </p>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button id="settings-probe-top-btn" class="btn btn-primary btn-sm">⚡ ${isEn ? 'Probe Local Node (8185)' : '立即探测本地节点 (8185)'}</button>
+                <button id="settings-switch-remote-top-btn" class="btn btn-secondary btn-sm">🌐 ${isEn ? 'One-Click Switch to Remote Gateway' : '一键切换至远程网关'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('settings.title')}</h2>
@@ -2478,6 +2701,34 @@ function renderSettings(container) {
     };
   }
 
+  // Top Offline Banner Buttons
+  const topProbeBtn = container.querySelector('#settings-probe-top-btn');
+  if (topProbeBtn) {
+    topProbeBtn.onclick = async () => {
+      topProbeBtn.disabled = true;
+      topProbeBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      topProbeBtn.disabled = false;
+      topProbeBtn.textContent = `⚡ ${isEn ? 'Probe Local Node (8185)' : '立即探测本地节点 (8185)'}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  }
+  const topSwitchBtn = container.querySelector('#settings-switch-remote-top-btn');
+  if (topSwitchBtn) {
+    topSwitchBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'success');
+      renderSettings(container);
+    };
+  }
+
   // Local Node Probe Button
   const probeLocalBtn = container.querySelector('#probe-local-node-btn');
   const localUrlInput = container.querySelector('#setting-local-url-input');
@@ -2685,23 +2936,47 @@ function renderSettings(container) {
     setupKeyboardShortcuts();
     setupPwaInstallPrompt();
 
-    const initialTab = getHashTab() || State.currentTab || 'home';
-    navigate(initialTab);
-    updateAppNodeBadge();
+    // Probe local node first if in local mode before setting initial route
     if (State.runtimeMode === 'local') {
-      checkLocalNodeHealth();
+      await checkLocalNodeHealth();
     }
 
+    updateAppNodeBadge();
+
+    let initialTab = getHashTab() || State.currentTab || 'home';
+    if (isLocalNodeOffline() && initialTab !== 'settings') {
+      initialTab = 'settings';
+    }
+    navigate(initialTab);
+
     window.addEventListener('hashchange', () => {
-      const tab = getHashTab();
+      let tab = getHashTab();
       if (tab && tab !== State.currentTab) {
+        if (isLocalNodeOffline() && tab !== 'settings') {
+          navigate('settings');
+          return;
+        }
         navigate(tab);
       }
     });
 
     Events.on('navigate', (tab) => navigate(tab));
+    Events.on('local_node_offline', () => {
+      if (State.currentTab !== 'settings') {
+        navigate('settings');
+      }
+    });
+    Events.on('local_node_status_changed', () => {
+      updateAppNodeBadge();
+      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+        navigate('settings');
+      }
+    });
     Events.on('mode_changed', () => {
       updateAppNodeBadge();
+      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+        navigate('settings');
+      }
     });
     Events.on('active_node_changed', () => {
       updateAppNodeBadge();
@@ -2719,7 +2994,16 @@ function renderSettings(container) {
   }
 
   function navigate(tabName) {
-    if (!routes[tabName]) tabName = 'home';
+    // Local Node Offline Gatekeeping: only Settings can be viewed
+    if (isLocalNodeOffline() && tabName !== 'settings') {
+      const msg = State.language === 'en'
+        ? 'Local node is offline. Local mode requires a running node; only Settings is accessible.'
+        : '本地节点未启动。使用本地节点需要用户本地真实有节点运行，当前仅开放【系统设置】页。';
+      showToast(msg, 'warning');
+      tabName = 'settings';
+    }
+
+    if (!routes[tabName]) tabName = isLocalNodeOffline() ? 'settings' : 'home';
     State.currentTab = tabName;
     if (window.location.hash !== '#' + tabName) {
       history.replaceState(null, '', '#' + tabName);
@@ -2753,14 +3037,32 @@ function renderSettings(container) {
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
-        navigate(item.dataset.tab);
+        const targetTab = item.dataset.tab;
+        if (isLocalNodeOffline() && targetTab !== 'settings') {
+          const msg = State.language === 'en'
+            ? 'Local node is offline. Only Settings is accessible.'
+            : '本地节点未启动，当前仅开放【系统设置】页。';
+          showToast(msg, 'warning');
+          navigate('settings');
+          return;
+        }
+        navigate(targetTab);
       });
     });
 
     document.querySelectorAll('.bottom-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
-        navigate(item.dataset.tab);
+        const targetTab = item.dataset.tab;
+        if (isLocalNodeOffline() && targetTab !== 'settings') {
+          const msg = State.language === 'en'
+            ? 'Local node is offline. Only Settings is accessible.'
+            : '本地节点未启动，当前仅开放【系统设置】页。';
+          showToast(msg, 'warning');
+          navigate('settings');
+          return;
+        }
+        navigate(targetTab);
       });
     });
 

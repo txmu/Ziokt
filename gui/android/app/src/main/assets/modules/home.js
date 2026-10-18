@@ -19,21 +19,56 @@ export function renderHome(container) {
   const activeNode = getActiveRemoteNode();
   const isRemoteUnauth = !isLocal && (!activeNode?.authToken || activeNode?.status === 'unauthenticated' || activeNode?.status === 'auth_failed');
 
-  container.innerHTML = `
-    <div style="max-width: 1100px; margin: 0 auto;">
-      <!-- Node Status Alert Banners -->
-      ${isLocalOffline ? `
-        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-red); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-          <div style="color: var(--accent-red); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 1.2rem;">⚠️</span>
-            <span>${t('home.local_offline_alert')}</span>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button id="home-probe-local-btn" class="btn btn-secondary btn-sm">⚡ ${t('home.probe_local')}</button>
-            <button id="home-switch-remote-btn" class="btn btn-primary btn-sm">🌐 ${t('home.switch_remote')}</button>
+  if (isLocalOffline) {
+    container.innerHTML = `
+      <div style="max-width: 820px; margin: 40px auto; text-align: center;">
+        <div class="card" style="padding: 40px 24px; border: 1.5px solid var(--accent-red); background: rgba(239,68,68,0.06);">
+          <div style="font-size: 3rem; margin-bottom: 14px;">⚠️</div>
+          <h2 style="color: var(--accent-red); font-size: 1.25rem; font-weight: 700; margin-bottom: 10px;">
+            ${isEn ? 'Local Node Offline — Only Settings Accessible' : '本地节点未运行 — 当前仅开放系统设置'}
+          </h2>
+          <p style="color: var(--text-main); font-size: 0.9rem; max-width: 580px; margin: 0 auto 20px; line-height: 1.6;">
+            ${isEn
+              ? 'Local node mode requires an active Ziokt daemon at http://127.0.0.1:8185. Since no local node is detected, overview metrics and functional tabs are locked. Please start your local daemon or switch to a remote gateway in Settings.'
+              : '当前处于【本地节点】运行模式，但未检测到本地运行中的 Ziokt 节点服务 (http://127.0.0.1:8185)。在本地真实节点启动前，首页总览与功能模块已锁定，当前仅开放【系统设置】页。请启动本地进程，或切换至官方远程网关。'}
+          </p>
+          <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+            <button id="home-go-settings-btn" class="btn btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">⚙️ ${isEn ? 'Go to Settings' : '前往系统设置'}</button>
+            <button id="home-probe-local-btn" class="btn btn-secondary" style="padding: 10px 18px; font-size: 0.9rem;">⚡ ${isEn ? 'Retry Local Probe' : '重试探测本地节点'}</button>
+            <button id="home-switch-remote-btn" class="btn btn-secondary" style="padding: 10px 18px; font-size: 0.9rem;">🌐 ${isEn ? 'Switch to Remote Gateway' : '一键切换至远程网关'}</button>
           </div>
         </div>
-      ` : ''}
+      </div>
+    `;
+    const sBtn = container.querySelector('#home-go-settings-btn');
+    if (sBtn) sBtn.onclick = () => { location.hash = '#settings'; };
+    const pBtn = container.querySelector('#home-probe-local-btn');
+    if (pBtn) pBtn.onclick = async () => {
+      pBtn.disabled = true;
+      pBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      pBtn.disabled = false;
+      pBtn.textContent = `⚡ ${isEn ? 'Retry Local Probe' : '重试探测本地节点'}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地节点已连接！', 'success');
+        renderHome(container);
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+    };
+    const rBtn = container.querySelector('#home-switch-remote-btn');
+    if (rBtn) rBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'success');
+      renderHome(container);
+    };
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="max-width: 1100px; margin: 0 auto;">
 
       ${isRemoteUnauth ? `
         <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid var(--accent-amber); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">

@@ -172,7 +172,7 @@
   // PWA Service Worker Registration with Immediate Cache Invalidation
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('sw.js?v=1.0.2').then(function(reg) {
+      navigator.serviceWorker.register('sw.js?v=1.0.3').then(function(reg) {
         console.log('[Ziokt PWA] ServiceWorker registered with scope:', reg.scope);
         reg.update();
       }).catch(function(err) {

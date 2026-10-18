@@ -219,6 +219,34 @@ class TestZioktGuiE2E(unittest.TestCase):
         self.assertIn('MATCH_PARENT', main_activity)
         self.assertIn('setStatusBarColor', main_activity)
 
+    def test_12_local_node_offline_gatekeeping_and_chat_layout(self):
+        """Verify local node offline gatekeeping (only settings accessible) and chat input bar clearance."""
+        core_js = (SRC_DIR / "core.js").read_text(encoding="utf-8")
+        build_js = (GUI_DIR / "build.js").read_text(encoding="utf-8")
+        style_css = (SRC_DIR / "style.css").read_text(encoding="utf-8")
+        chat_js = (SRC_DIR / "modules" / "chat.js").read_text(encoding="utf-8")
+        files_js = (SRC_DIR / "modules" / "files.js").read_text(encoding="utf-8")
+        identity_js = (SRC_DIR / "modules" / "identity.js").read_text(encoding="utf-8")
+        settings_js = (SRC_DIR / "modules" / "settings.js").read_text(encoding="utf-8")
+
+        # 1. Gatekeeping when local node is offline
+        self.assertIn("isLocalNodeOffline", core_js)
+        self.assertIn("updateNavLockState", core_js)
+        self.assertIn(".nav-locked", style_css)
+        self.assertIn("isLocalNodeOffline() && tabName !== 'settings'", build_js)
+        self.assertIn("settings-probe-top-btn", settings_js)
+
+        # 2. Files & Identity guarded when local node offline
+        self.assertIn("isLocalNodeOffline", files_js)
+        self.assertIn("isLocalNodeOffline", identity_js)
+
+        # 3. Chat input bar unobstructed & responsive
+        self.assertIn("chat-page-wrapper", chat_js)
+        self.assertIn("chat-input-bar", chat_js)
+        self.assertIn(".chat-page-wrapper", style_css)
+        self.assertIn(".chat-input-bar", style_css)
+        self.assertIn("var(--bottombar-height)", style_css)
+
 
 if __name__ == "__main__":
     unittest.main()

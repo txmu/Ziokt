@@ -125,7 +125,7 @@ export const State = {
   remoteNodes: getRemoteNodes(),
   activeRemoteNodeId: getStorage('ziokt_active_node_id', 'node-official-tokyo'),
   authToken: getStorage('ziokt_auth_token', 'ziokt_sec_genesis_community_token_2026'),
-  userDid: getStorage('ziokt_did', 'did:ziokt:800a3e4c08b13a41b41632a2bd8f0065'),
+  userDid: getStorage('ziokt_did', ''),
   components: {
     corium: { name: 'Corium Blockchain', status: 'online', port: 8545 },
     shadow6: { name: 'Shadow6 Mesh Cluster', status: 'online', port: 8186 },
@@ -296,6 +296,7 @@ export async function checkLocalNodeHealth() {
     State.localNodeStatus = 'offline';
     State.localNodeDetails = { error: err.message };
     Events.emit('local_node_status_changed', { status: 'offline', error: err.message });
+    Events.emit('local_node_offline', { error: err.message });
     updateAppNodeBadge();
     return { ok: false, error: err.message };
   }
@@ -362,37 +363,82 @@ export async function verifyRemoteNodeAuth(nodeId) {
   }
 }
 
+// Check if client is in local mode without a running local node
+export function isLocalNodeOffline() {
+  return State.runtimeMode === 'local' && State.localNodeStatus === 'offline';
+}
+
+// Update Navigation Lock State for Non-Settings tabs
+export function updateNavLockState() {
+  const isOffline = isLocalNodeOffline();
+  const isEn = State.language === 'en';
+
+  document.querySelectorAll('.nav-item, .bottom-item').forEach(item => {
+    const tab = item.dataset.tab;
+    if (tab !== 'settings') {
+      if (isOffline) {
+        item.classList.add('nav-locked');
+        item.setAttribute('title', isEn ? 'Locked: Local node is offline (Settings only)' : '已锁定: 本地节点未运行 (仅开放系统设置)');
+      } else {
+        item.classList.remove('nav-locked');
+        item.removeAttribute('title');
+      }
+    }
+  });
+
+  const didPill = document.getElementById('user-did-pill');
+  if (didPill) {
+    if (isOffline) {
+      didPill.textContent = isEn ? 'Local: Offline (No Node)' : '本地节点离线 (无可用身份)';
+      didPill.style.color = 'var(--accent-red)';
+      didPill.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+    } else if (State.runtimeMode === 'local' && State.localNodeStatus === 'online') {
+      const did = State.localNodeDetails?.identity || State.userDid || 'did:ziokt:local:node0';
+      didPill.textContent = did.length > 24 ? did.substring(0, 14) + '...' + did.substring(did.length - 6) : did;
+      didPill.style.color = 'var(--accent-green)';
+      didPill.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+    } else {
+      const activeNode = getActiveRemoteNode();
+      const did = State.userDid || (activeNode ? `did:ziokt:${activeNode.name || activeNode.id}` : 'did:ziokt:remote:guest');
+      didPill.textContent = did.length > 24 ? did.substring(0, 14) + '...' + did.substring(did.length - 6) : did;
+      didPill.style.color = 'var(--accent-cyan)';
+      didPill.style.borderColor = 'var(--border-subtle)';
+    }
+  }
+}
+
 // Update Topbar and Sidebar Badges
 export function updateAppNodeBadge() {
   const labelEl = document.getElementById('sidebar-node-label');
   const dotEl = document.querySelector('#sidebar .status-dot');
-  if (!labelEl) return;
-
-  const isEn = State.language === 'en';
-  if (State.runtimeMode === 'local') {
-    if (State.localNodeStatus === 'online') {
-      labelEl.textContent = isEn ? 'Local Node: Online (8185)' : '本地节点: 在线 (8185)';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
-    } else if (State.localNodeStatus === 'checking') {
-      labelEl.textContent = isEn ? 'Local Node: Checking...' : '本地节点: 检测中...';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+  if (labelEl) {
+    const isEn = State.language === 'en';
+    if (State.runtimeMode === 'local') {
+      if (State.localNodeStatus === 'online') {
+        labelEl.textContent = isEn ? 'Local Node: Online (8185)' : '本地节点: 在线 (8185)';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+      } else if (State.localNodeStatus === 'checking') {
+        labelEl.textContent = isEn ? 'Local Node: Checking...' : '本地节点: 检测中...';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+      } else {
+        labelEl.textContent = isEn ? 'Local Node: Offline (Not Running)' : '本地节点: 离线 (未启动)';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      }
     } else {
-      labelEl.textContent = isEn ? 'Local Node: Offline (Not Running)' : '本地节点: 离线 (未启动)';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
-    }
-  } else {
-    const active = getActiveRemoteNode();
-    if (active.status === 'online') {
-      labelEl.textContent = isEn ? `Remote: ${active.name} (${active.latency})` : `远程网关: ${active.name} (${active.latency})`;
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
-    } else if (active.status === 'unauthenticated') {
-      labelEl.textContent = isEn ? 'Remote: Auth Required' : '远程网关: 待鉴权凭证';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
-    } else {
-      labelEl.textContent = isEn ? 'Remote: Disconnected' : '远程网关: 无法连接';
-      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      const active = getActiveRemoteNode();
+      if (active.status === 'online') {
+        labelEl.textContent = isEn ? `Remote: ${active.name} (${active.latency})` : `远程网关: ${active.name} (${active.latency})`;
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+      } else if (active.status === 'unauthenticated') {
+        labelEl.textContent = isEn ? 'Remote: Auth Required' : '远程网关: 待鉴权凭证';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+      } else {
+        labelEl.textContent = isEn ? 'Remote: Disconnected' : '远程网关: 无法连接';
+        if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+      }
     }
   }
+  updateNavLockState();
 }
 
 // Unified Gateway API Client with Real Local Probe & Mandatory Remote Auth

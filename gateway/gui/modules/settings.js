@@ -33,6 +33,29 @@ export function renderSettings(container) {
 
   container.innerHTML = `
     <div style="max-width: 950px; margin: 0 auto;">
+      ${isLocal && !isLocalOnline ? `
+        <!-- Local Node Required Top Warning Banner -->
+        <div style="background: rgba(239, 68, 68, 0.12); border: 1.5px solid var(--accent-red); border-radius: var(--radius-md); padding: 18px 20px; margin-bottom: 24px;">
+          <div style="display: flex; align-items: flex-start; gap: 14px;">
+            <span style="font-size: 1.8rem; line-height: 1;">⚠️</span>
+            <div style="flex: 1;">
+              <h3 style="color: var(--accent-red); margin-bottom: 6px; font-size: 1.05rem; font-weight: 700;">
+                ${isEn ? 'Local Node Required — Only Settings Accessible' : '本地真实节点未运行 — 当前仅开放系统设置'}
+              </h3>
+              <p style="color: var(--text-main); font-size: 0.85rem; line-height: 1.6; margin-bottom: 12px;">
+                ${isEn
+                  ? 'You are currently in Local Node Mode, but no Ziokt daemon is detected at http://127.0.0.1:8185. All other tabs (Home, Chat, Files, Apps, Identity, etc.) are locked until a real node is verified, or until you switch to a remote gateway.'
+                  : '当前客户端处于【本地节点】模式，但未在本地检测到运行中的 Ziokt 节点服务 (http://127.0.0.1:8185)。在本地真实节点启动前，总览、聊天、文件存储、身份等其他选项卡已锁定。您可以启动本地节点后重试探测，或在此直接切换至远程网关。'}
+              </p>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button id="settings-probe-top-btn" class="btn btn-primary btn-sm">⚡ ${isEn ? 'Probe Local Node (8185)' : '立即探测本地节点 (8185)'}</button>
+                <button id="settings-switch-remote-top-btn" class="btn btn-secondary btn-sm">🌐 ${isEn ? 'One-Click Switch to Remote Gateway' : '一键切换至远程网关'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('settings.title')}</h2>
@@ -261,6 +284,34 @@ export function renderSettings(container) {
         setStorage('ziokt_gateway', val);
       }
       showToast(isEn ? 'Endpoint saved' : '端点已更新', 'success');
+    };
+  }
+
+  // Top Offline Banner Buttons
+  const topProbeBtn = container.querySelector('#settings-probe-top-btn');
+  if (topProbeBtn) {
+    topProbeBtn.onclick = async () => {
+      topProbeBtn.disabled = true;
+      topProbeBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      topProbeBtn.disabled = false;
+      topProbeBtn.textContent = `⚡ ${isEn ? 'Probe Local Node (8185)' : '立即探测本地节点 (8185)'}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified online!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  }
+  const topSwitchBtn = container.querySelector('#settings-switch-remote-top-btn');
+  if (topSwitchBtn) {
+    topSwitchBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'success');
+      renderSettings(container);
     };
   }
 
