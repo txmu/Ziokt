@@ -51,7 +51,7 @@ async function flush(){
   }
   const frames=await transaction('outbox','readonly',store=>store.getAll());
   for(const frame of frames)if(frame.from===owner&&me?.id===owner&&ws?.readyState===1)ws.send(JSON.stringify(frame));
-  const media=await transaction('media','readonly',store=>store.getAllKeys());$('status').textContent=(failure?t(failure)+' · ':'')+t('pending')+': '+frames.filter(frame=>frame.from===owner).length+' / '+media.filter(key=>key.startsWith(owner+'/')).length;
+  const media=await transaction('media','readonly',store=>store.getAllKeys());if(recorder?.state!=='recording')$('status').textContent=(failure?t(failure)+' · ':'')+t('pending')+': '+frames.filter(frame=>frame.from===owner).length+' / '+media.filter(key=>key.startsWith(owner+'/')).length;
  }catch(e){$('status').textContent=t(e.message)}
  finally{flushing=false}
 }
@@ -73,7 +73,7 @@ async function sendMedia(file,recipient=peer){
  const owner=me?.id;
  if(!recipient)throw Error(t('selectContact'));if(mediaBusy)throw Error(t('mediaBusy'));if(!file||file.size>11*1024*1024)throw Error(t('mediaLimit'));
  const kind=file.type.split('/')[0];if(!['image','video','audio'].includes(kind))throw Error('MEDIA_TYPE');
- mediaBusy=true;status('sendingMedia');try{
+ mediaBusy=true;$('record').disabled=true;$('media').disabled=true;$('pick-image').disabled=true;$('pick-video').disabled=true;status('sendingMedia');try{
  const raw=crypto.getRandomValues(new Uint8Array(32)),key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['encrypt']),nonce=crypto.getRandomValues(new Uint8Array(12)),cipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:nonce},key,await file.arrayBuffer())),blob=new Uint8Array(12+cipher.length);blob.set(nonce);blob.set(cipher,12);
  const waiting=await transaction('media','readonly',store=>store.getAllKeys());if(waiting.filter(key=>key.startsWith(owner+'/')).length>=4)throw Error('MEDIA_OUTBOX_LIMIT');
  const upload=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join(''),url='/uploads/'+upload+'.bin',id=crypto.randomUUID();
@@ -81,7 +81,7 @@ async function sendMedia(file,recipient=peer){
  const ciphertext=await sealMessage(recipient,id,value);if(me?.id!==owner)throw Error('SESSION_CHANGED');
  const frame={action:'send',id,from:owner,to:recipient.id,kind:'sealed',ciphertext,attachments:[url]};
  await put('media',owner+'/'+id,{upload,blob,frame});await flush();$('media').value='';
- }finally{mediaBusy=false;$('media').accept='image/*,video/*,audio/*'}
+ }finally{mediaBusy=false;$('record').disabled=false;$('media').disabled=false;$('pick-image').disabled=false;$('pick-video').disabled=false;$('media').accept='image/*,video/*,audio/*'}
 }
 $('media').onchange=async()=>{try{await sendMedia($('media').files[0])}catch(e){$('status').textContent=t(e.message)}};
 for(const [id,type] of [['pick-image','image/*'],['pick-video','video/*']])$(id).onclick=()=>{$('media').accept=type;$('media').click()};

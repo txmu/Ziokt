@@ -44,7 +44,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    await bob.waitForFunction(tag=>{const element=document.querySelector('#messages '+tag);return element&&element.readyState>=2&&element.duration>0},tag);
    const player=bob.locator('#messages '+tag).first();await player.evaluate(e=>e.play());await player.evaluate(e=>e.pause());
   }
-  await alice.click('#record');await alice.getByText('Recording (60 seconds maximum)',{exact:true}).waitFor();await delay(1100);await alice.click('#record');
+  await alice.waitForFunction(()=>!document.querySelector('#record').disabled);await alice.click('#record');await alice.getByText('Recording (60 seconds maximum)',{exact:true}).waitFor();await delay(1100);await alice.click('#record');
   await bob.waitForFunction(()=>document.querySelectorAll('#messages audio').length===2);
   await bob.click('#record');await bob.getByText('Microphone permission denied or unavailable',{exact:true}).waitFor();
   await alice.selectOption('#theme','system');
