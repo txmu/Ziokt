@@ -96,7 +96,14 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
                 if len(segments)!=4 or segments[1]!='realms' or segments[3]!='dns-query' or not isinstance(resolver,NameNetworks):return self.send_error(404)
                 try:active=resolver.view(segments[2])
                 except ProtocolError:return self.send_error(404)
-            if not limits.admit(self.client_address[0]):return self.send_error(429)
+            address=self.client_address[0]
+            forwarded=self.headers.get_all('X-Ziokt-Client-IP',[])
+            if forwarded:
+                try:
+                    if len(forwarded)!=1 or len(forwarded[0])>45:raise ValueError()
+                    address=str(ipaddress.ip_address(forwarded[0]))
+                except ValueError:return self.send_error(400)
+            if not limits.admit(address):return self.send_error(429)
             try:
                 if post:
                     if self.headers.get('Content-Type')!='application/dns-message' or self.headers.get('Transfer-Encoding'):raise ValueError()
@@ -122,7 +129,10 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0):
         udp=udp_type((host,port),Datagram);opened.append(udp)
         tcp=tcp_type((host,udp.server_address[1]),Stream);opened.append(tcp)
         if doh_port is not None:opened.append(HTTP(('127.0.0.1',doh_port),DoH))
-        for server in opened:server.workers=threading.BoundedSemaphore(16)
+        # Share one finite budget across all transports, including expensive
+        # encrypted-community projections. DoH must not bypass UDP/TCP limits.
+        workers=threading.BoundedSemaphore(8)
+        for server in opened:server.workers=workers
         return opened
     except BaseException:
         for server in opened:server.server_close()

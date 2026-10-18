@@ -55,7 +55,7 @@ python3 -m ziokt.dns_server --config /path/to/dns.json
 }
 ```
 
-DoH 监听仅绑定回环地址，必须由可信 HTTPS 反向代理暴露 `/dns-query` 和 `/realms/*/dns-query`。UDP/TCP 可通过 `listen` 显式公开，普通部署默认不开放明文外网端口。DNS 包大小、问题数、EDNS、TCP 会话、工作线程和按来源临时 HMAC 限流都有上限；不记录完整查询日志，不设置伪造的 DNSSEC AD 位。不属于 Ziokt 的后缀返回 REFUSED，绝不调用系统/公共 DNS。未配置某组件的来源返回失败，不能偷偷查询其他组件。
+DoH 监听仅绑定回环地址，可信反向代理应覆盖 `X-Ziokt-Client-IP` 为实际来源地址以隔离限流桶，不应转发未经覆盖的客户端值；必须由可信 HTTPS 反向代理暴露 `/dns-query` 和 `/realms/*/dns-query`。UDP/TCP 可通过 `listen` 显式公开，普通部署默认不开放明文外网端口。DNS 包大小、问题数、EDNS、TCP 会话、工作线程和按来源临时 HMAC 限流都有上限；不记录完整查询日志，不设置伪造的 DNSSEC AD 位。不属于 Ziokt 的后缀返回 REFUSED，绝不调用系统/公共 DNS。未配置某组件的来源返回失败，不能偷偷查询其他组件。
 
 `.chat` 等私有使用后缀可能与公共命名空间冲突。只有显式使用本解析器/分域解析配置的客户端才采用这里的含义。普通浏览器还需要正确的解析配置和可信 TLS 证书；新增私有 TLD 不会自动获得公共 CA 证书。
 
