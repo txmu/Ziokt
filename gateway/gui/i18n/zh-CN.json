@@ -62,7 +62,12 @@
     "act_files": "打开原生文件保险库",
     "act_forum": "浏览社区最新提案",
     "act_apps": "管理与运行扩展包",
-    "act_network": "查看 Shadow6 / ETP 网格"
+    "act_network": "查看 Shadow6 / ETP 网格",
+    "local_offline_alert": "⚠️ 未检测到本地真实节点: 当前处于本地模式，但 http://127.0.0.1:8185 未响应。使用本地节点需要用户本地真实有节点运行。",
+    "remote_unauth_alert": "🔒 远程节点需要身份鉴权: 当前活跃远程节点尚未配置有效的 Auth Token 凭证。",
+    "switch_remote": "切换至远程网关",
+    "config_auth": "前往配置凭证",
+    "probe_local": "重新检测本地节点"
   },
   "chat": {
     "title": "WATChat 端到端加密通讯",
@@ -130,7 +135,11 @@
     "etp_title": "ETP 原生洋葱多跳链路",
     "hops": "跳路由路径",
     "ping_test": "网络延迟诊断",
-    "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥"
+    "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥",
+    "node_topology": "节点与网关拓扑",
+    "local_node": "本地节点",
+    "remote_nodes": "远程节点集群",
+    "manage_nodes": "管理自定义节点"
   },
   "identity": {
     "title": "身份管理与贡献证明 (PoUW)",
@@ -169,6 +178,29 @@
     "comp_watchat": "WATChat 联邦通讯桥接",
     "comp_etp": "ETP 洋葱网关路由",
     "accessibility": "无障碍与键盘导航",
-    "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索"
+    "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索",
+    "local_node_title": "本地节点连接与真实状态",
+    "local_node_desc": "使用本地节点需要用户本地真实有节点运行。若本地未启动，客户端将无法进行写操作与本地 RPC 交互。",
+    "local_node_probe": "探测本地节点",
+    "local_node_online": "本地真实节点在线",
+    "local_node_offline": "未检测到本地真实节点",
+    "local_node_checking": "检测本地节点中...",
+    "local_node_help": "本地启动指引: 请在终端执行 systemctl start ziokt-gateway 或运行 ./tools/control_center.sh",
+    "remote_nodes_title": "远程节点网关与鉴权管理",
+    "remote_nodes_desc": "使用远程节点需要身份鉴权 (Auth Token)。您可以自定义添加新的远程节点并测试连接与鉴权有效性。",
+    "add_node": "添加新远程节点",
+    "node_name": "节点名称",
+    "node_url": "节点地址 (URL)",
+    "auth_token": "鉴权凭证 (Auth Token)",
+    "auth_token_tip": "用于 Bearer / X-Ziokt-Auth 远程身份验证",
+    "test_auth": "测试鉴权",
+    "set_active": "设为活跃",
+    "active_badge": "当前活跃",
+    "auth_valid": "鉴权通过",
+    "auth_invalid": "鉴权失败",
+    "auth_required": "待鉴权",
+    "delete_node": "删除节点",
+    "cannot_delete_default": "系统默认节点不可删除",
+    "add_node_btn": "添加并测试该节点"
   }
 }

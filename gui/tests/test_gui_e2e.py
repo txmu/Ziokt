@@ -169,6 +169,51 @@ class TestZioktGuiE2E(unittest.TestCase):
         self.assertIn('webview.WebviewController', arkui_page)
         self.assertIn('Web({ src:', arkui_page)
 
+    def test_10_local_node_probe_and_remote_node_auth(self):
+        """Verify real local node probing, mandatory remote authentication, and custom remote node management."""
+        core_js = (SRC_DIR / "core.js").read_text(encoding="utf-8")
+        settings_js = (SRC_DIR / "modules" / "settings.js").read_text(encoding="utf-8")
+        home_js = (SRC_DIR / "modules" / "home.js").read_text(encoding="utf-8")
+
+        # 1. Real Local Node health check requirement
+        self.assertIn('checkLocalNodeHealth', core_js)
+        self.assertIn('localNodeStatus', core_js)
+        self.assertIn('/api/gateway/status', core_js)
+        self.assertIn('probe-local-node-btn', settings_js)
+        self.assertIn('home-probe-local-btn', home_js)
+
+        # 2. Mandatory Remote Node authentication credentials
+        self.assertIn('Authorization', core_js)
+        self.assertIn('X-Ziokt-Auth', core_js)
+        self.assertIn('verifyRemoteNodeAuth', core_js)
+        self.assertIn('test-node-btn', settings_js)
+        self.assertIn('node-token-input', settings_js)
+
+        # 3. Custom Remote Node addition, switching, and deletion
+        self.assertIn('addRemoteNode', core_js)
+        self.assertIn('removeRemoteNode', core_js)
+        self.assertIn('setActiveRemoteNode', core_js)
+        self.assertIn('add-node-btn', settings_js)
+        self.assertIn('activate-node-btn', settings_js)
+        self.assertIn('delete-node-btn', settings_js)
+
+    def test_11_android_configuration_and_resolution_adaptation(self):
+        """Verify Android App manifest versioning, API levels, screen resolution adaptation, and WebView parameters."""
+        manifest_xml = (GUI_DIR / "android" / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
+        self.assertIn('android:versionCode="10000"', manifest_xml)
+        self.assertIn('android:versionName="1.0.0"', manifest_xml)
+        self.assertIn('android:minSdkVersion="24"', manifest_xml)
+        self.assertIn('android:targetSdkVersion="34"', manifest_xml)
+        self.assertIn('<supports-screens', manifest_xml)
+        self.assertIn('android:anyDensity="true"', manifest_xml)
+        self.assertIn('android:resizeableActivity="true"', manifest_xml)
+
+        main_activity = (GUI_DIR / "android" / "app" / "src" / "main" / "java" / "com" / "ziokt" / "client" / "MainActivity.java").read_text(encoding="utf-8")
+        self.assertIn('setUseWideViewPort(true)', main_activity)
+        self.assertIn('setLoadWithOverviewMode(true)', main_activity)
+        self.assertIn('MATCH_PARENT', main_activity)
+        self.assertIn('setStatusBarColor', main_activity)
+
 
 if __name__ == "__main__":
     unittest.main()

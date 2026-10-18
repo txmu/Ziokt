@@ -27,6 +27,8 @@
   --sidebar-width: 250px;
   --topbar-height: 56px;
   --bottombar-height: 60px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -228,14 +230,15 @@ body {
 }
 
 #topbar {
-  height: var(--topbar-height);
+  height: calc(var(--topbar-height) + var(--safe-top));
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: var(--safe-top) 20px 0 20px;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .topbar-left {
@@ -599,6 +602,9 @@ tr:hover td {
     display: flex;
     justify-content: space-around;
     align-items: center;
+    height: calc(var(--bottombar-height) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    box-sizing: border-box;
   }
   .bottom-item {
     display: flex;
@@ -616,7 +622,7 @@ tr:hover td {
     font-size: 1.25rem;
   }
   #content-container {
-    padding: 16px 14px calc(var(--bottombar-height) + 16px) 14px;
+    padding: 16px 14px calc(var(--bottombar-height) + var(--safe-bottom) + 16px) 14px;
   }
   .grid-cards {
     grid-template-columns: 1fr;

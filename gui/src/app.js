@@ -29,6 +29,88 @@ function getInitialLang() {
   const raw = getStorage('ziokt_lang') || (typeof navigator !== 'undefined' ? navigator.language : 'zh') || 'zh';
   return raw.toLowerCase().startsWith('en') ? 'en' : 'zh';
 }
+const DEFAULT_REMOTE_NODES = [
+  {
+    id: 'node-official-tokyo',
+    name: 'Ziokt Mainnet Gateway (Tokyo)',
+    url: 'https://cor-web.ziokt.com',
+    authToken: 'ziokt_sec_genesis_community_token_2026',
+    isDefault: true,
+    status: 'online',
+    latency: '15ms',
+    verifiedAt: null
+  }
+];
+function getRemoteNodes() {
+  try {
+    const raw = localStorage.getItem('ziokt_remote_nodes');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {}
+  return [...DEFAULT_REMOTE_NODES];
+}
+function saveRemoteNodes(nodes) {
+  setStorage('ziokt_remote_nodes', JSON.stringify(nodes));
+  State.remoteNodes = nodes;
+  Events.emit('remote_nodes_changed', nodes);
+}
+function getActiveRemoteNode() {
+  const nodes = State.remoteNodes || getRemoteNodes();
+  const activeId = State.activeRemoteNodeId || getStorage('ziokt_active_node_id', 'node-official-tokyo');
+  return nodes.find(n => n.id === activeId) || nodes[0] || DEFAULT_REMOTE_NODES[0];
+}
+function setActiveRemoteNode(id) {
+  const nodes = State.remoteNodes || getRemoteNodes();
+  const target = nodes.find(n => n.id === id);
+  if (target) {
+    State.activeRemoteNodeId = target.id;
+    State.gatewayUrl = target.url;
+    setStorage('ziokt_active_node_id', target.id);
+    setStorage('ziokt_gateway', target.url);
+    if (target.authToken) {
+      setStorage('ziokt_auth_token', target.authToken);
+    }
+    Events.emit('active_node_changed', target);
+    updateAppNodeBadge();
+    return true;
+  }
+  return false;
+}
+function addRemoteNode({ name, url, authToken }) {
+  const nodes = getRemoteNodes();
+  const cleanUrl = url.trim().replace(/\/+$/, '');
+  const cleanName = name.trim() || cleanUrl;
+  const cleanToken = (authToken || '').trim();
+  const newNode = {
+    id: 'node-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 5),
+    name: cleanName,
+    url: cleanUrl,
+    authToken: cleanToken,
+    isDefault: false,
+    status: cleanToken ? 'unverified' : 'unauthenticated',
+    latency: '--',
+    verifiedAt: null
+  };
+  nodes.push(newNode);
+  saveRemoteNodes(nodes);
+  return newNode;
+}
+function removeRemoteNode(id) {
+  let nodes = getRemoteNodes();
+  const target = nodes.find(n => n.id === id);
+  if (!target) return false;
+  if (target.isDefault) {
+    throw new Error('Default system node cannot be deleted');
+  }
+  nodes = nodes.filter(n => n.id !== id);
+  saveRemoteNodes(nodes);
+  if (State.activeRemoteNodeId === id) {
+    setActiveRemoteNode(nodes[0].id);
+  }
+  return true;
+}
 const State = {
   currentTab: 'home',
   language: getInitialLang(),
@@ -36,6 +118,11 @@ const State = {
   runtimeMode: getStorage('ziokt_mode', 'local'), // 'local' | 'remote' | 'hybrid'
   gatewayUrl: getStorage('ziokt_gateway', 'https://cor-web.ziokt.com'),
   localGatewayUrl: 'http://127.0.0.1:8185',
+  localNodeStatus: 'checking', // 'checking' | 'online' | 'offline'
+  localNodeDetails: null,
+  remoteNodes: getRemoteNodes(),
+  activeRemoteNodeId: getStorage('ziokt_active_node_id', 'node-official-tokyo'),
+  authToken: getStorage('ziokt_auth_token', 'ziokt_sec_genesis_community_token_2026'),
   userDid: getStorage('ziokt_did', 'did:ziokt:800a3e4c08b13a41b41632a2bd8f0065'),
   components: {
     corium: { name: 'Corium Blockchain', status: 'online', port: 8545 },
@@ -60,7 +147,7 @@ const Events = {
     }
   }
 };
-const BUILTIN_I18N = {"zh": {"app": {"title": "Ziokt 统一图形客户端", "subtitle": "去中心化原生操作系统与应用生态控制中心", "version": "v1.0.0 (Core Native)", "status_online": "正常运行", "status_offline": "已断开", "status_connecting": "连接中...", "mode_local": "本地节点", "mode_remote": "远程网关", "mode_hybrid": "混合模式", "switch_lang": "语言 / Language", "theme_dark": "赛博深黑", "theme_light": "清爽明亮", "theme_contrast": "高对比度"}, "nav": {"home": "首页总览", "chat": "加密通讯", "forum": "社区论坛", "files": "安全存储", "apps": "应用中心", "network": "网络节点", "identity": "身份与贡献", "devtools": "开发工具", "settings": "系统设置"}, "common": {"confirm": "确认", "cancel": "取消", "delete": "删除", "save": "保存", "edit": "编辑", "copy": "复制", "copied": "已复制到剪贴板", "refresh": "刷新", "search": "搜索...", "loading": "加载中...", "success": "操作成功", "error": "操作失败", "details": "查看详情", "actions": "操作", "status": "状态", "name": "名称", "version": "版本", "size": "大小", "date": "时间", "upload": "上传", "download": "下载", "view_raw": "查看原始数据", "advanced": "高级选项", "close": "关闭"}, "home": {"welcome": "欢迎使用 Ziokt 统一图形客户端", "welcome_sub": "集成零知识加密通讯、去中心化包管理、多协议隧道及链上可信微架构", "quick_actions": "快捷功能入口", "system_health": "核心组件健康状态", "gateway_telemetry": "网关实时遥测", "recent_activity": "近期网络活动", "act_chat": "快速发起加密对话", "act_files": "打开原生文件保险库", "act_forum": "浏览社区最新提案", "act_apps": "管理与运行扩展包", "act_network": "查看 Shadow6 / ETP 网格"}, "chat": {"title": "WATChat 端到端加密通讯", "dual_ui": "界面风格切换", "ui_minimalist": "现代简约版", "ui_classic": "经典丰富版", "ui_switch_tip": "随时切换界面布局，聊天记录与加密密钥实时同步无损保留", "contacts": "联系人 / 对话列表", "new_conversation": "新建加密对话", "enter_recipient": "输入对方 DID 或公钥地址", "send": "发送", "input_placeholder": "输入加密消息...", "attach_file": "发送文件附件", "encryption_badge": "XChaCha20-Poly1305 端到端保密", "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧"}, "forum": {"title": "Corium 去中心化社区论坛", "new_post": "发布新帖 / 提案", "post_title": "标题", "post_category": "分类", "post_content": "正文内容 (支持 Markdown)", "sign_and_publish": "使用当前身份签名并发布", "cat_governance": "生态治理", "cat_technical": "核心技术", "cat_apps": "应用开发", "cat_general": "综合讨论", "signature_verified": "Ed25519 链上签名已验证", "replies": "条回复"}, "files": {"title": "UFS & SafeFS 安全存储保险库", "vault_type": "存储驱动", "vault_ufs": "UFS 原生文件系统", "vault_safefs": "SafeFS AEAD 加密保险箱", "upload_file": "上传文件", "create_folder": "新建目录", "stealth_mode": "双层可抵赖卷 (Outer Decoy / Inner Stealth)", "drop_tip": "拖拽文件至此处，自动执行安全分块持久化", "download": "下载文件", "delete_confirm": "确定永久删除此文件吗？此操作不可逆。"}, "apps": {"title": "dCPM 去中心化应用中心", "subtitle": "基于 UFS 与 dCPM 签名软件包体系，支持依赖审查、自动验签与安全沙箱执行", "install_pkg": "安装 / 导入 .dcpm 软件包", "installed_tab": "已安装应用", "market_tab": "生态软件包仓库", "rollback": "版本回滚", "uninstall": "卸载", "update": "检查更新", "publisher": "发布者签名", "digest": "SHA-256 校验摘要", "dependencies": "依赖组件", "dep_check_ok": "依赖项完整", "install_confirm": "确定安装此签名软件包吗？将严格在隔离沙箱中运行。", "uninstall_confirm": "确定卸载该应用及其本地缓存吗？"}, "network": {"title": "Shadow6 & ETP 网络节点网格", "subtitle": "管理 13 核心 Profile 运行集群、Virtual Broker 以及洋葱代理链路", "profiles_title": "13 语言核心 Profile 实时集群", "virtual_broker": "虚拟 Broker 代理状态", "s6p1_import": "粘贴导入自定义 S6P1 凭据信封", "etp_title": "ETP 原生洋葱多跳链路", "hops": "跳路由路径", "ping_test": "网络延迟诊断", "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥"}, "identity": {"title": "身份管理与贡献证明 (PoUW)", "did": "去中心化身份 (DID)", "nns_domain": "NNS 绑定域名", "pouw_status": "PoUW 算力与共识贡献状态", "engine_reward": "治理奖励权重", "apply_weight": "申请加入验证者权重白名单", "export_keys": "导出加密密钥备份", "switch_account": "切换身份"}, "devtools": {"title": "原生组件全功能开发工具箱", "subtitle": "提供 Corium、Tri、ZDA、TC-16 虚拟机及 MCP 接口全功能调试与执行界面", "tab_corium": "Corium 控制台", "tab_tri": "Tri 状态机快照", "tab_zda": "ZDA / Ano 门限计算", "tab_tc16": "TC-16 虚拟机工作台", "tab_mcp": "MCP 211 工具探针", "corium_query": "查询区块与交易事实", "tri_run": "执行快照离线隔离沙箱", "zda_calc": "验证精确 ZDA 证据算术", "tc16_asm": "TC-16 汇编与字节码单步调试", "tc16_run": "运行虚拟机", "tc16_step": "单步执行 (Step)", "tc16_reset": "重置寄存器"}, "settings": {"title": "系统与组件生命周期设置", "runtime_mode": "客户端运行模式配置", "local_gateway_url": "本地/远程网关地址", "components_lifecycle": "按需组件启动管理 (On-demand Launcher)", "comp_corium": "Corium 原生区块链服务", "comp_shadow6": "Shadow6 多核心代理网络", "comp_ufs": "UFS & dCPM 安全存储引擎", "comp_watchat": "WATChat 联邦通讯桥接", "comp_etp": "ETP 洋葱网关路由", "accessibility": "无障碍与键盘导航", "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索"}}, "en": {"app": {"title": "Ziokt Unified Graphical Client", "subtitle": "Decentralized Native OS & Application Ecosystem Console", "version": "v1.0.0 (Core Native)", "status_online": "Online", "status_offline": "Disconnected", "status_connecting": "Connecting...", "mode_local": "Local Node", "mode_remote": "Remote Gateway", "mode_hybrid": "Hybrid Mode", "switch_lang": "Language / 语言", "theme_dark": "Cyber Dark", "theme_light": "Clean Light", "theme_contrast": "High Contrast"}, "nav": {"home": "Home", "chat": "WATChat", "forum": "Forum", "files": "Files & Vault", "apps": "App Store", "network": "Network Nodes", "identity": "Identity & PoUW", "devtools": "Dev Tools", "settings": "Settings"}, "common": {"confirm": "Confirm", "cancel": "Cancel", "delete": "Delete", "save": "Save", "edit": "Edit", "copy": "Copy", "copied": "Copied to clipboard", "refresh": "Refresh", "search": "Search...", "loading": "Loading...", "success": "Success", "error": "Error", "details": "Details", "actions": "Actions", "status": "Status", "name": "Name", "version": "Version", "size": "Size", "date": "Date", "upload": "Upload", "download": "Download", "view_raw": "View Raw JSON", "advanced": "Advanced", "close": "Close"}, "home": {"welcome": "Welcome to Ziokt Unified Graphical Client", "welcome_sub": "Integrating Zero-Knowledge communications, dCPM packages, Shadow6 mesh tunnels, and verifiable native compute", "quick_actions": "Quick Actions", "system_health": "Component Health", "gateway_telemetry": "Gateway Telemetry", "recent_activity": "Recent Activity", "act_chat": "Start Encrypted Chat", "act_files": "Open Secure File Vault", "act_forum": "Browse Latest Proposals", "act_apps": "Manage dCPM Packages", "act_network": "Inspect Shadow6 & ETP Mesh"}, "chat": {"title": "WATChat End-to-End Encrypted Messenger", "dual_ui": "UI Switcher", "ui_minimalist": "Modern Minimalist", "ui_classic": "Classic Rich", "ui_switch_tip": "Seamlessly switch between layouts; message history and cryptographic keys are synchronized without loss", "contacts": "Contacts / Dialogs", "new_conversation": "New Secure Chat", "enter_recipient": "Enter recipient DID or public key", "send": "Send", "input_placeholder": "Type encrypted message...", "attach_file": "Attach Vault File", "encryption_badge": "XChaCha20-Poly1305 Sealed", "empty_messages": "No messages yet. Send a greeting to start secure chatting."}, "forum": {"title": "Corium Decentralized Community Forum", "new_post": "New Post / Proposal", "post_title": "Title", "post_category": "Category", "post_content": "Content (Markdown supported)", "sign_and_publish": "Sign with Ed25519 & Publish", "cat_governance": "Governance", "cat_technical": "Technical", "cat_apps": "App Development", "cat_general": "General Discussion", "signature_verified": "Ed25519 On-Chain Signature Verified", "replies": "replies"}, "files": {"title": "UFS & SafeFS Secure Storage Vault", "vault_type": "Storage Driver", "vault_ufs": "UFS Native Storage", "vault_safefs": "SafeFS AEAD Encrypted Vault", "upload_file": "Upload File", "create_folder": "New Folder", "stealth_mode": "Deniable Volume (Outer Decoy / Inner Stealth)", "drop_tip": "Drag and drop files here for chunked persistent storage", "download": "Download File", "delete_confirm": "Are you sure you want to permanently delete this file? This cannot be undone."}, "apps": {"title": "dCPM Decentralized App Center", "subtitle": "Built on UFS and signed dCPM package architecture with dependency verification and sandbox isolation", "install_pkg": "Install / Import .dcpm Package", "installed_tab": "Installed Applications", "market_tab": "Ecosystem Repository", "rollback": "Rollback Version", "uninstall": "Uninstall", "update": "Check Updates", "publisher": "Publisher Key", "digest": "SHA-256 Digest", "dependencies": "Dependencies", "dep_check_ok": "All Dependencies Satisfied", "install_confirm": "Confirm installation of this signed package? It will execute inside an isolated sandbox.", "uninstall_confirm": "Confirm uninstallation of this package and its local cache?"}, "network": {"title": "Shadow6 & ETP Network Mesh", "subtitle": "Manage 13 language core Profile cluster, Virtual Broker, and onion routing paths", "profiles_title": "13 Core Language Profiles Cluster", "virtual_broker": "Virtual Broker Status", "s6p1_import": "Import Custom S6P1 Credential Envelope", "etp_title": "ETP Native Onion Multi-Hop Paths", "hops": "hop route path", "ping_test": "Latency Diagnostics", "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys"}, "identity": {"title": "Identity & Proof of Useful Work (PoUW)", "did": "Decentralized ID (DID)", "nns_domain": "NNS Bound Domain", "pouw_status": "PoUW Compute & Consensus Contribution", "engine_reward": "Governance Reward Weight", "apply_weight": "Apply for Validator Weight Whitelist", "export_keys": "Export Encrypted Backup", "switch_account": "Switch Identity"}, "devtools": {"title": "Native Component Developer Studio", "subtitle": "Fully functional GUIs for Corium, Tri, ZDA, TC-16 Virtual Machine, and MCP diagnostics", "tab_corium": "Corium Console", "tab_tri": "Tri Snapshots", "tab_zda": "ZDA / Ano Gate", "tab_tc16": "TC-16 VM Studio", "tab_mcp": "MCP 211 Probes", "corium_query": "Query Ledger Facts & Blocks", "tri_run": "Execute Isolated Sandbox Snapshot", "zda_calc": "Verify Exact ZDA Evidence Arithmetic", "tc16_asm": "TC-16 Assembly & Bytecode Debugger", "tc16_run": "Run Virtual Machine", "tc16_step": "Step Execution", "tc16_reset": "Reset Registers"}, "settings": {"title": "System & Component Lifecycle Settings", "runtime_mode": "Client Runtime Mode", "local_gateway_url": "Gateway Endpoint", "components_lifecycle": "On-Demand Component Launcher", "comp_corium": "Corium Native Blockchain", "comp_shadow6": "Shadow6 Multi-Core Tunnel", "comp_ufs": "UFS & dCPM Storage Engine", "comp_watchat": "WATChat Federation Bridge", "comp_etp": "ETP Onion Gateway Router", "accessibility": "Accessibility & Keyboard Navigation", "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search"}}};
+const BUILTIN_I18N = {"zh": {"app": {"title": "Ziokt 统一图形客户端", "subtitle": "去中心化原生操作系统与应用生态控制中心", "version": "v1.0.0 (Core Native)", "status_online": "正常运行", "status_offline": "已断开", "status_connecting": "连接中...", "mode_local": "本地节点", "mode_remote": "远程网关", "mode_hybrid": "混合模式", "switch_lang": "语言 / Language", "theme_dark": "赛博深黑", "theme_light": "清爽明亮", "theme_contrast": "高对比度"}, "nav": {"home": "首页总览", "chat": "加密通讯", "forum": "社区论坛", "files": "安全存储", "apps": "应用中心", "network": "网络节点", "identity": "身份与贡献", "devtools": "开发工具", "settings": "系统设置"}, "common": {"confirm": "确认", "cancel": "取消", "delete": "删除", "save": "保存", "edit": "编辑", "copy": "复制", "copied": "已复制到剪贴板", "refresh": "刷新", "search": "搜索...", "loading": "加载中...", "success": "操作成功", "error": "操作失败", "details": "查看详情", "actions": "操作", "status": "状态", "name": "名称", "version": "版本", "size": "大小", "date": "时间", "upload": "上传", "download": "下载", "view_raw": "查看原始数据", "advanced": "高级选项", "close": "关闭"}, "home": {"welcome": "欢迎使用 Ziokt 统一图形客户端", "welcome_sub": "集成零知识加密通讯、去中心化包管理、多协议隧道及链上可信微架构", "quick_actions": "快捷功能入口", "system_health": "核心组件健康状态", "gateway_telemetry": "网关实时遥测", "recent_activity": "近期网络活动", "act_chat": "快速发起加密对话", "act_files": "打开原生文件保险库", "act_forum": "浏览社区最新提案", "act_apps": "管理与运行扩展包", "act_network": "查看 Shadow6 / ETP 网格", "local_offline_alert": "⚠️ 未检测到本地真实节点: 当前处于本地模式，但 http://127.0.0.1:8185 未响应。使用本地节点需要用户本地真实有节点运行。", "remote_unauth_alert": "🔒 远程节点需要身份鉴权: 当前活跃远程节点尚未配置有效的 Auth Token 凭证。", "switch_remote": "切换至远程网关", "config_auth": "前往配置凭证", "probe_local": "重新检测本地节点"}, "chat": {"title": "WATChat 端到端加密通讯", "dual_ui": "界面风格切换", "ui_minimalist": "现代简约版", "ui_classic": "经典丰富版", "ui_switch_tip": "随时切换界面布局，聊天记录与加密密钥实时同步无损保留", "contacts": "联系人 / 对话列表", "new_conversation": "新建加密对话", "enter_recipient": "输入对方 DID 或公钥地址", "send": "发送", "input_placeholder": "输入加密消息...", "attach_file": "发送文件附件", "encryption_badge": "XChaCha20-Poly1305 端到端保密", "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧"}, "forum": {"title": "Corium 去中心化社区论坛", "new_post": "发布新帖 / 提案", "post_title": "标题", "post_category": "分类", "post_content": "正文内容 (支持 Markdown)", "sign_and_publish": "使用当前身份签名并发布", "cat_governance": "生态治理", "cat_technical": "核心技术", "cat_apps": "应用开发", "cat_general": "综合讨论", "signature_verified": "Ed25519 链上签名已验证", "replies": "条回复"}, "files": {"title": "UFS & SafeFS 安全存储保险库", "vault_type": "存储驱动", "vault_ufs": "UFS 原生文件系统", "vault_safefs": "SafeFS AEAD 加密保险箱", "upload_file": "上传文件", "create_folder": "新建目录", "stealth_mode": "双层可抵赖卷 (Outer Decoy / Inner Stealth)", "drop_tip": "拖拽文件至此处，自动执行安全分块持久化", "download": "下载文件", "delete_confirm": "确定永久删除此文件吗？此操作不可逆。"}, "apps": {"title": "dCPM 去中心化应用中心", "subtitle": "基于 UFS 与 dCPM 签名软件包体系，支持依赖审查、自动验签与安全沙箱执行", "install_pkg": "安装 / 导入 .dcpm 软件包", "installed_tab": "已安装应用", "market_tab": "生态软件包仓库", "rollback": "版本回滚", "uninstall": "卸载", "update": "检查更新", "publisher": "发布者签名", "digest": "SHA-256 校验摘要", "dependencies": "依赖组件", "dep_check_ok": "依赖项完整", "install_confirm": "确定安装此签名软件包吗？将严格在隔离沙箱中运行。", "uninstall_confirm": "确定卸载该应用及其本地缓存吗？"}, "network": {"title": "Shadow6 & ETP 网络节点网格", "subtitle": "管理 13 核心 Profile 运行集群、Virtual Broker 以及洋葱代理链路", "profiles_title": "13 语言核心 Profile 实时集群", "virtual_broker": "虚拟 Broker 代理状态", "s6p1_import": "粘贴导入自定义 S6P1 凭据信封", "etp_title": "ETP 原生洋葱多跳链路", "hops": "跳路由路径", "ping_test": "网络延迟诊断", "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥", "node_topology": "节点与网关拓扑", "local_node": "本地节点", "remote_nodes": "远程节点集群", "manage_nodes": "管理自定义节点"}, "identity": {"title": "身份管理与贡献证明 (PoUW)", "did": "去中心化身份 (DID)", "nns_domain": "NNS 绑定域名", "pouw_status": "PoUW 算力与共识贡献状态", "engine_reward": "治理奖励权重", "apply_weight": "申请加入验证者权重白名单", "export_keys": "导出加密密钥备份", "switch_account": "切换身份"}, "devtools": {"title": "原生组件全功能开发工具箱", "subtitle": "提供 Corium、Tri、ZDA、TC-16 虚拟机及 MCP 接口全功能调试与执行界面", "tab_corium": "Corium 控制台", "tab_tri": "Tri 状态机快照", "tab_zda": "ZDA / Ano 门限计算", "tab_tc16": "TC-16 虚拟机工作台", "tab_mcp": "MCP 211 工具探针", "corium_query": "查询区块与交易事实", "tri_run": "执行快照离线隔离沙箱", "zda_calc": "验证精确 ZDA 证据算术", "tc16_asm": "TC-16 汇编与字节码单步调试", "tc16_run": "运行虚拟机", "tc16_step": "单步执行 (Step)", "tc16_reset": "重置寄存器"}, "settings": {"title": "系统与组件生命周期设置", "runtime_mode": "客户端运行模式配置", "local_gateway_url": "本地/远程网关地址", "components_lifecycle": "按需组件启动管理 (On-demand Launcher)", "comp_corium": "Corium 原生区块链服务", "comp_shadow6": "Shadow6 多核心代理网络", "comp_ufs": "UFS & dCPM 安全存储引擎", "comp_watchat": "WATChat 联邦通讯桥接", "comp_etp": "ETP 洋葱网关路由", "accessibility": "无障碍与键盘导航", "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索", "local_node_title": "本地节点连接与真实状态", "local_node_desc": "使用本地节点需要用户本地真实有节点运行。若本地未启动，客户端将无法进行写操作与本地 RPC 交互。", "local_node_probe": "探测本地节点", "local_node_online": "本地真实节点在线", "local_node_offline": "未检测到本地真实节点", "local_node_checking": "检测本地节点中...", "local_node_help": "本地启动指引: 请在终端执行 systemctl start ziokt-gateway 或运行 ./tools/control_center.sh", "remote_nodes_title": "远程节点网关与鉴权管理", "remote_nodes_desc": "使用远程节点需要身份鉴权 (Auth Token)。您可以自定义添加新的远程节点并测试连接与鉴权有效性。", "add_node": "添加新远程节点", "node_name": "节点名称", "node_url": "节点地址 (URL)", "auth_token": "鉴权凭证 (Auth Token)", "auth_token_tip": "用于 Bearer / X-Ziokt-Auth 远程身份验证", "test_auth": "测试鉴权", "set_active": "设为活跃", "active_badge": "当前活跃", "auth_valid": "鉴权通过", "auth_invalid": "鉴权失败", "auth_required": "待鉴权", "delete_node": "删除节点", "cannot_delete_default": "系统默认节点不可删除", "add_node_btn": "添加并测试该节点"}}, "en": {"app": {"title": "Ziokt Unified Graphical Client", "subtitle": "Decentralized Native OS & Application Ecosystem Console", "version": "v1.0.0 (Core Native)", "status_online": "Online", "status_offline": "Disconnected", "status_connecting": "Connecting...", "mode_local": "Local Node", "mode_remote": "Remote Gateway", "mode_hybrid": "Hybrid Mode", "switch_lang": "Language / 语言", "theme_dark": "Cyber Dark", "theme_light": "Clean Light", "theme_contrast": "High Contrast"}, "nav": {"home": "Home", "chat": "WATChat", "forum": "Forum", "files": "Files & Vault", "apps": "App Store", "network": "Network Nodes", "identity": "Identity & PoUW", "devtools": "Dev Tools", "settings": "Settings"}, "common": {"confirm": "Confirm", "cancel": "Cancel", "delete": "Delete", "save": "Save", "edit": "Edit", "copy": "Copy", "copied": "Copied to clipboard", "refresh": "Refresh", "search": "Search...", "loading": "Loading...", "success": "Success", "error": "Error", "details": "Details", "actions": "Actions", "status": "Status", "name": "Name", "version": "Version", "size": "Size", "date": "Date", "upload": "Upload", "download": "Download", "view_raw": "View Raw JSON", "advanced": "Advanced", "close": "Close"}, "home": {"welcome": "Welcome to Ziokt Unified Graphical Client", "welcome_sub": "Integrating Zero-Knowledge communications, dCPM packages, Shadow6 mesh tunnels, and verifiable native compute", "quick_actions": "Quick Actions", "system_health": "Component Health", "gateway_telemetry": "Gateway Telemetry", "recent_activity": "Recent Activity", "act_chat": "Start Encrypted Chat", "act_files": "Open Secure File Vault", "act_forum": "Browse Latest Proposals", "act_apps": "Manage dCPM Packages", "act_network": "Inspect Shadow6 & ETP Mesh", "local_offline_alert": "⚠️ No local real node detected: Currently in local mode, but http://127.0.0.1:8185 is not responding. Local mode requires an actual running Ziokt node.", "remote_unauth_alert": "🔒 Remote node requires authentication: Active remote node does not have a valid Auth Token configured.", "switch_remote": "Switch to Remote Gateway", "config_auth": "Configure Auth Credentials", "probe_local": "Probe Local Node"}, "chat": {"title": "WATChat End-to-End Encrypted Messenger", "dual_ui": "UI Switcher", "ui_minimalist": "Modern Minimalist", "ui_classic": "Classic Rich", "ui_switch_tip": "Seamlessly switch between layouts; message history and cryptographic keys are synchronized without loss", "contacts": "Contacts / Dialogs", "new_conversation": "New Secure Chat", "enter_recipient": "Enter recipient DID or public key", "send": "Send", "input_placeholder": "Type encrypted message...", "attach_file": "Attach Vault File", "encryption_badge": "XChaCha20-Poly1305 Sealed", "empty_messages": "No messages yet. Send a greeting to start secure chatting."}, "forum": {"title": "Corium Decentralized Community Forum", "new_post": "New Post / Proposal", "post_title": "Title", "post_category": "Category", "post_content": "Content (Markdown supported)", "sign_and_publish": "Sign with Ed25519 & Publish", "cat_governance": "Governance", "cat_technical": "Technical", "cat_apps": "App Development", "cat_general": "General Discussion", "signature_verified": "Ed25519 On-Chain Signature Verified", "replies": "replies"}, "files": {"title": "UFS & SafeFS Secure Storage Vault", "vault_type": "Storage Driver", "vault_ufs": "UFS Native Storage", "vault_safefs": "SafeFS AEAD Encrypted Vault", "upload_file": "Upload File", "create_folder": "New Folder", "stealth_mode": "Deniable Volume (Outer Decoy / Inner Stealth)", "drop_tip": "Drag and drop files here for chunked persistent storage", "download": "Download File", "delete_confirm": "Are you sure you want to permanently delete this file? This cannot be undone."}, "apps": {"title": "dCPM Decentralized App Center", "subtitle": "Built on UFS and signed dCPM package architecture with dependency verification and sandbox isolation", "install_pkg": "Install / Import .dcpm Package", "installed_tab": "Installed Applications", "market_tab": "Ecosystem Repository", "rollback": "Rollback Version", "uninstall": "Uninstall", "update": "Check Updates", "publisher": "Publisher Key", "digest": "SHA-256 Digest", "dependencies": "Dependencies", "dep_check_ok": "All Dependencies Satisfied", "install_confirm": "Confirm installation of this signed package? It will execute inside an isolated sandbox.", "uninstall_confirm": "Confirm uninstallation of this package and its local cache?"}, "network": {"title": "Shadow6 & ETP Network Mesh", "subtitle": "Manage 13 language core Profile cluster, Virtual Broker, and onion routing paths", "profiles_title": "13 Core Language Profiles Cluster", "virtual_broker": "Virtual Broker Status", "s6p1_import": "Import Custom S6P1 Credential Envelope", "etp_title": "ETP Native Onion Multi-Hop Paths", "hops": "hop route path", "ping_test": "Latency Diagnostics", "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys", "node_topology": "Node & Gateway Topology", "local_node": "Local Node", "remote_nodes": "Remote Nodes Cluster", "manage_nodes": "Manage Custom Nodes"}, "identity": {"title": "Identity & Proof of Useful Work (PoUW)", "did": "Decentralized ID (DID)", "nns_domain": "NNS Bound Domain", "pouw_status": "PoUW Compute & Consensus Contribution", "engine_reward": "Governance Reward Weight", "apply_weight": "Apply for Validator Weight Whitelist", "export_keys": "Export Encrypted Backup", "switch_account": "Switch Identity"}, "devtools": {"title": "Native Component Developer Studio", "subtitle": "Fully functional GUIs for Corium, Tri, ZDA, TC-16 Virtual Machine, and MCP diagnostics", "tab_corium": "Corium Console", "tab_tri": "Tri Snapshots", "tab_zda": "ZDA / Ano Gate", "tab_tc16": "TC-16 VM Studio", "tab_mcp": "MCP 211 Probes", "corium_query": "Query Ledger Facts & Blocks", "tri_run": "Execute Isolated Sandbox Snapshot", "zda_calc": "Verify Exact ZDA Evidence Arithmetic", "tc16_asm": "TC-16 Assembly & Bytecode Debugger", "tc16_run": "Run Virtual Machine", "tc16_step": "Step Execution", "tc16_reset": "Reset Registers"}, "settings": {"title": "System & Component Lifecycle Settings", "runtime_mode": "Client Runtime Mode", "local_gateway_url": "Gateway Endpoint", "components_lifecycle": "On-Demand Component Launcher", "comp_corium": "Corium Native Blockchain", "comp_shadow6": "Shadow6 Multi-Core Tunnel", "comp_ufs": "UFS & dCPM Storage Engine", "comp_watchat": "WATChat Federation Bridge", "comp_etp": "ETP Onion Gateway Router", "accessibility": "Accessibility & Keyboard Navigation", "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search", "local_node_title": "Local Node Connection & Real Verification", "local_node_desc": "Using local node requires an actual Ziokt node daemon running locally. If not running, local RPC and write operations are blocked.", "local_node_probe": "Probe Local Node", "local_node_online": "Local Real Node Online", "local_node_offline": "No Local Real Node Detected", "local_node_checking": "Probing Local Node...", "local_node_help": "Start local node daemon: run 'systemctl start ziokt-gateway' or './tools/control_center.sh' in terminal.", "remote_nodes_title": "Remote Node Gateways & Auth Management", "remote_nodes_desc": "Using a remote node requires authentication (Auth Token). You can add custom remote nodes and test their connection and auth validity.", "add_node": "Add New Remote Node", "node_name": "Node Name", "node_url": "Node Endpoint (URL)", "auth_token": "Auth Token", "auth_token_tip": "Used for Bearer / X-Ziokt-Auth remote authentication", "test_auth": "Test Auth", "set_active": "Set Active", "active_badge": "Active", "auth_valid": "Auth Verified", "auth_invalid": "Auth Failed", "auth_required": "Auth Required", "delete_node": "Delete Node", "cannot_delete_default": "Default system node cannot be deleted", "add_node_btn": "Add & Verify Node"}}};
 
 // i18n Translation Engine
 async function initI18n() {
@@ -95,6 +182,7 @@ async function setLanguage(lang) {
   setStorage('ziokt_lang', lang);
   await initI18n();
   Events.emit('language_changed', lang);
+  updateAppNodeBadge();
 }
 function setTheme(theme) {
   State.theme = theme;
@@ -173,15 +261,179 @@ function showJsonModal(title, data) {
   };
 }
 
-// Unified Gateway API Client
+// Probe Real Local Node Health
+async function checkLocalNodeHealth() {
+  State.localNodeStatus = 'checking';
+  Events.emit('local_node_status_changed', { status: 'checking' });
+  updateAppNodeBadge();
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${State.localGatewayUrl}/api/gateway/status`, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      State.localNodeStatus = 'online';
+      State.localNodeDetails = data;
+      Events.emit('local_node_status_changed', { status: 'online', data });
+      updateAppNodeBadge();
+      return { ok: true, data };
+    } else {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+  } catch (err) {
+    State.localNodeStatus = 'offline';
+    State.localNodeDetails = { error: err.message };
+    Events.emit('local_node_status_changed', { status: 'offline', error: err.message });
+    updateAppNodeBadge();
+    return { ok: false, error: err.message };
+  }
+}
+
+// Verify Remote Node Authentication and Connectivity
+async function verifyRemoteNodeAuth(nodeId) {
+  const nodes = getRemoteNodes();
+  const node = nodes.find(n => n.id === nodeId);
+  if (!node) throw new Error('Node not found');
+
+  if (!node.authToken || node.authToken.trim() === '') {
+    node.status = 'unauthenticated';
+    node.verifiedAt = Date.now();
+    saveRemoteNodes(nodes);
+    updateAppNodeBadge();
+    return { ok: false, error: 'Auth Token is empty' };
+  }
+
+  const startTime = performance.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${node.url}/api/gateway/status`, {
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${node.authToken}`,
+        'X-Ziokt-Auth': node.authToken
+      }
+    });
+    clearTimeout(timeoutId);
+    const latency = Math.round(performance.now() - startTime);
+
+    if (res.status === 401 || res.status === 403) {
+      node.status = 'auth_failed';
+      node.latency = `${latency}ms`;
+      node.verifiedAt = Date.now();
+      saveRemoteNodes(nodes);
+      updateAppNodeBadge();
+      return { ok: false, error: `Authentication failed (HTTP ${res.status})` };
+    } else if (res.ok) {
+      node.status = 'online';
+      node.latency = `${latency}ms`;
+      node.verifiedAt = Date.now();
+      saveRemoteNodes(nodes);
+      updateAppNodeBadge();
+      return { ok: true, latency: `${latency}ms` };
+    } else {
+      node.status = 'error';
+      node.latency = `${latency}ms`;
+      node.verifiedAt = Date.now();
+      saveRemoteNodes(nodes);
+      updateAppNodeBadge();
+      return { ok: false, error: `HTTP ${res.status}: ${res.statusText}` };
+    }
+  } catch (err) {
+    node.status = 'offline';
+    node.latency = '--';
+    node.verifiedAt = Date.now();
+    saveRemoteNodes(nodes);
+    updateAppNodeBadge();
+    return { ok: false, error: err.message };
+  }
+}
+
+// Update Topbar and Sidebar Badges
+function updateAppNodeBadge() {
+  const labelEl = document.getElementById('sidebar-node-label');
+  const dotEl = document.querySelector('#sidebar .status-dot');
+  if (!labelEl) return;
+
+  const isEn = State.language === 'en';
+  if (State.runtimeMode === 'local') {
+    if (State.localNodeStatus === 'online') {
+      labelEl.textContent = isEn ? 'Local Node: Online (8185)' : '本地节点: 在线 (8185)';
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+    } else if (State.localNodeStatus === 'checking') {
+      labelEl.textContent = isEn ? 'Local Node: Checking...' : '本地节点: 检测中...';
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+    } else {
+      labelEl.textContent = isEn ? 'Local Node: Offline (Not Running)' : '本地节点: 离线 (未启动)';
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+    }
+  } else {
+    const active = getActiveRemoteNode();
+    if (active.status === 'online') {
+      labelEl.textContent = isEn ? `Remote: ${active.name} (${active.latency})` : `远程网关: ${active.name} (${active.latency})`;
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-green)';
+    } else if (active.status === 'unauthenticated') {
+      labelEl.textContent = isEn ? 'Remote: Auth Required' : '远程网关: 待鉴权凭证';
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-amber)';
+    } else {
+      labelEl.textContent = isEn ? 'Remote: Disconnected' : '远程网关: 无法连接';
+      if (dotEl) dotEl.style.backgroundColor = 'var(--accent-red)';
+    }
+  }
+}
+
+// Unified Gateway API Client with Real Local Probe & Mandatory Remote Auth
 async function apiRequest(endpoint, options = {}) {
-  const base = State.runtimeMode === 'local' ? State.localGatewayUrl : State.gatewayUrl;
+  const isLocalMode = State.runtimeMode === 'local';
+
+  if (isLocalMode) {
+    // Mandate real running local node
+    if (State.localNodeStatus === 'checking') {
+      await checkLocalNodeHealth();
+    }
+    if (State.localNodeStatus === 'offline') {
+      const msg = State.language === 'en'
+        ? 'Local node is offline or unreachable (http://127.0.0.1:8185). Local mode requires an actual running Ziokt node daemon.'
+        : '本地节点未启动或无法连接 (http://127.0.0.1:8185)。使用本地节点需要用户本地真实有节点运行。请启动本地进程或切换至远程网关。';
+      showToast(msg, 'error');
+      throw new Error(msg);
+    }
+  } else {
+    // Mandate authentication for remote nodes
+    const activeNode = getActiveRemoteNode();
+    const token = activeNode?.authToken || State.authToken || getStorage('ziokt_auth_token');
+    if (!token || token.trim() === '') {
+      const msg = State.language === 'en'
+        ? 'Remote node requires authentication credentials (Auth Token). Please configure a valid token in Settings.'
+        : '使用远程节点需要身份鉴权 (Auth Token)。请在“系统设置”中配置有效的访问凭证。';
+      showToast(msg, 'error');
+      throw new Error(msg);
+    }
+  }
+
+  const base = isLocalMode ? State.localGatewayUrl : (getActiveRemoteNode()?.url || State.gatewayUrl);
   const url = endpoint.startsWith('http') ? endpoint : `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
-  
+
   const headers = {
     'Accept': 'application/json',
     ...(options.headers || {})
   };
+
+  if (!isLocalMode) {
+    const activeNode = getActiveRemoteNode();
+    const token = activeNode?.authToken || State.authToken || getStorage('ziokt_auth_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Ziokt-Auth'] = token;
+    }
+  }
 
   try {
     const res = await fetch(url, { ...options, headers });
@@ -194,7 +446,6 @@ async function apiRequest(endpoint, options = {}) {
     }
     return await res.text();
   } catch (err) {
-    // If local mode failed, try fallback or notify
     console.warn(`API call failed for ${url}:`, err);
     throw err;
   }
@@ -205,9 +456,49 @@ async function apiRequest(endpoint, options = {}) {
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
+
+  State,
+  t,
+  showToast,
+  Events,
+  setStorage,
+  checkLocalNodeHealth,
+  getActiveRemoteNode,
+  updateAppNodeBadge
+} from '../core.js';
 function renderHome(container) {
+  const isEn = State.language === 'en';
+  const isLocal = State.runtimeMode === 'local';
+  const isLocalOffline = isLocal && State.localNodeStatus === 'offline';
+  const activeNode = getActiveRemoteNode();
+  const isRemoteUnauth = !isLocal && (!activeNode?.authToken || activeNode?.status === 'unauthenticated' || activeNode?.status === 'auth_failed');
+
   container.innerHTML = `
     <div style="max-width: 1100px; margin: 0 auto;">
+      <!-- Node Status Alert Banners -->
+      ${isLocalOffline ? `
+        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-red); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="color: var(--accent-red); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.2rem;">⚠️</span>
+            <span>${t('home.local_offline_alert')}</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="home-probe-local-btn" class="btn btn-secondary btn-sm">⚡ ${t('home.probe_local')}</button>
+            <button id="home-switch-remote-btn" class="btn btn-primary btn-sm">🌐 ${t('home.switch_remote')}</button>
+          </div>
+        </div>
+      ` : ''}
+
+      ${isRemoteUnauth ? `
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid var(--accent-amber); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="color: var(--accent-amber); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.2rem;">🔒</span>
+            <span>${t('home.remote_unauth_alert')}</span>
+          </div>
+          <button id="home-config-auth-btn" class="btn btn-primary btn-sm">⚙️ ${t('home.config_auth')}</button>
+        </div>
+      ` : ''}
+
       <!-- Welcome Banner -->
       <div style="background: linear-gradient(135deg, rgba(2,132,199,0.15), rgba(129,140,248,0.1)); border: 1px solid var(--border-bright); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div>
@@ -218,7 +509,7 @@ function renderHome(container) {
           <span style="font-size: 0.8rem; color: var(--text-muted);">${t('settings.runtime_mode')}:</span>
           <select id="home-mode-select" class="input-select" style="width: auto; padding: 6px 10px; font-weight: 600;">
             <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (127.0.0.1:8185)</option>
-            <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (cor-web.ziokt.com)</option>
+            <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (${activeNode?.name || 'cor-web.ziokt.com'})</option>
             <option value="hybrid" ${State.runtimeMode === 'hybrid' ? 'selected' : ''}>${t('app.mode_hybrid')}</option>
           </select>
         </div>
@@ -338,18 +629,60 @@ function renderHome(container) {
 
   const modeSelect = container.querySelector('#home-mode-select');
   if (modeSelect) {
-    modeSelect.onchange = (e) => {
+    modeSelect.onchange = async (e) => {
       State.runtimeMode = e.target.value;
       setStorage('ziokt_mode', e.target.value);
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      updateAppNodeBadge();
       showToast(`已切换至: ${e.target.options[e.target.selectedIndex].text}`, 'info');
       Events.emit('mode_changed', e.target.value);
+      renderHome(container);
+    };
+  }
+
+  const probeLocalBtn = container.querySelector('#home-probe-local-btn');
+  if (probeLocalBtn) {
+    probeLocalBtn.onclick = async () => {
+      probeLocalBtn.disabled = true;
+      probeLocalBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified successfully!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderHome(container);
+    };
+  }
+
+  const switchRemoteBtn = container.querySelector('#home-switch-remote-btn');
+  if (switchRemoteBtn) {
+    switchRemoteBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'info');
+      renderHome(container);
+    };
+  }
+
+  const configAuthBtn = container.querySelector('#home-config-auth-btn');
+  if (configAuthBtn) {
+    configAuthBtn.onclick = () => {
+      Events.emit('navigate', 'settings');
     };
   }
 
   const refreshBtn = container.querySelector('#refresh-health-btn');
   if (refreshBtn) {
-    refreshBtn.onclick = () => {
-      showToast('核心组件状态已刷新，所有节点正常在线', 'success');
+    refreshBtn.onclick = async () => {
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      showToast(isEn ? 'Component and node health refreshed' : '核心组件与节点状态已刷新', 'success');
+      renderHome(container);
     };
   }
 }
@@ -1206,6 +1539,16 @@ function renderApps(container) {
 // Module: Shadow6 Multi-Core Mesh & ETP Onion Gateway Network Panel
 // ==============================================================================
 
+  State,
+  t,
+  showToast,
+  showJsonModal,
+  Events,
+  getActiveRemoteNode,
+  getRemoteNodes,
+  checkLocalNodeHealth
+} from '../core.js';
+
 const shadow6Profiles = [
   { id: 'profile-go', core: 'Go', transport: 'kcp', port: 14433, status: 'RUNNING', latency: '12ms' },
   { id: 'profile-rust', core: 'Rust', transport: 'quic', port: 14434, status: 'RUNNING', latency: '8ms' },
@@ -1224,6 +1567,11 @@ const shadow6Profiles = [
 
 let showSensitive = false;
 function renderNetwork(container) {
+  const isEn = State.language === 'en';
+  const activeRemote = getActiveRemoteNode();
+  const remoteNodes = getRemoteNodes();
+  const isLocalOnline = State.localNodeStatus === 'online';
+
   container.innerHTML = `
     <div style="max-width: 1050px; margin: 0 auto;">
       <!-- Header -->
@@ -1236,6 +1584,45 @@ function renderNetwork(container) {
           <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" class="btn btn-primary">🪐 打开 Shadow6 Web UI</a>
           <button id="toggle-sensitive-btn" class="btn btn-secondary">${showSensitive ? '🔒 隐藏敏感内容' : '👁️ 显示敏感内容'}</button>
           <button id="ping-all-btn" class="btn btn-secondary">⚡ ${t('network.ping_test')}</button>
+        </div>
+      </div>
+
+      <!-- Gateway & Node Topology Overview -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-title" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <span>🌐 ${t('network.node_topology')}</span>
+          <button id="nav-settings-nodes-btn" class="btn btn-secondary btn-sm">⚙️ ${t('network.manage_nodes')}</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
+          <!-- Local Node Card -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: 600; color: var(--text-main); font-size: 0.9rem;">💻 ${t('network.local_node')}</span>
+              <span class="status-badge" style="color: ${isLocalOnline ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                <span class="status-dot" style="background-color: ${isLocalOnline ? 'var(--accent-green)' : 'var(--accent-red)'}"></span>
+                ${isLocalOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px;">http://127.0.0.1:8185</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              ${isLocalOnline ? (isEn ? '✓ Local process active, zero latency' : '✓ 本地节点运行中，直连无延迟') : (isEn ? '✕ No local node process detected' : '✕ 未检测到本机节点进程，本地写操作将受阻')}
+            </div>
+          </div>
+
+          <!-- Active Remote Node Card -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: 600; color: var(--text-main); font-size: 0.9rem;">☁️ ${activeRemote?.name || 'Remote Gateway'}</span>
+              <span class="status-badge" style="color: ${activeRemote?.status === 'online' ? 'var(--accent-green)' : 'var(--accent-amber)'}">
+                <span class="status-dot" style="background-color: ${activeRemote?.status === 'online' ? 'var(--accent-green)' : 'var(--accent-amber)'}"></span>
+                ${activeRemote?.status === 'online' ? `VERIFIED (${activeRemote.latency || '15ms'})` : 'AUTH REQUIRED'}
+              </span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px;">${activeRemote?.url}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              ${activeRemote?.authToken ? (isEn ? '✓ Token attached (Bearer + X-Ziokt-Auth)' : '✓ 已配置鉴权凭证') : (isEn ? '✕ Missing Auth Token' : '✕ 缺少鉴权 Token，不可直接通信')}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1313,6 +1700,14 @@ function renderNetwork(container) {
 
     </div>
   `;
+
+  // Navigate to settings for managing nodes
+  const navSettingsBtn = container.querySelector('#nav-settings-nodes-btn');
+  if (navSettingsBtn) {
+    navSettingsBtn.onclick = () => {
+      Events.emit('navigate', 'settings');
+    };
+  }
 
   // Toggle sensitive masking
   container.querySelector('#toggle-sensitive-btn').onclick = () => {
@@ -1857,39 +2252,159 @@ function renderMcpProbes(container) {
 
   // --- Module: modules/settings.js ---
 // ==============================================================================
-// Module: System Settings, On-Demand Component Launcher & Accessibility
+// Module: System Settings, Local/Remote Node Management, Auth & Lifecycle
 // ==============================================================================
+
+  State,
+  t,
+  showToast,
+  showConfirm,
+  setLanguage,
+  setTheme,
+  Events,
+  setStorage,
+  getRemoteNodes,
+  getActiveRemoteNode,
+  setActiveRemoteNode,
+  addRemoteNode,
+  removeRemoteNode,
+  checkLocalNodeHealth,
+  verifyRemoteNodeAuth,
+  updateAppNodeBadge
+} from '../core.js';
 function renderSettings(container) {
   if (!container) return;
   const isEn = State.language === 'en';
   const comps = State.components || {};
+  const remoteNodes = getRemoteNodes();
+  const activeNode = getActiveRemoteNode();
+
+  const isLocal = State.runtimeMode === 'local';
+  const isLocalOnline = State.localNodeStatus === 'online';
+  const isLocalChecking = State.localNodeStatus === 'checking';
 
   container.innerHTML = `
     <div style="max-width: 950px; margin: 0 auto;">
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('settings.title')}</h2>
-        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Configure network endpoints, on-demand component lifecycle, themes and accessibility' : '配置网络端点、组件按需生命周期、外观主题与无障碍交互'}</p>
+        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Configure local/remote node topology, authentication credentials, component lifecycle, themes and accessibility' : '配置本地/远程节点拓扑、身份鉴权凭证、组件按需生命周期、外观主题与无障碍交互'}</p>
       </div>
 
-      <!-- Runtime Mode & Gateway Connection -->
+      <!-- Runtime Mode Selection -->
       <div class="card" style="margin-bottom: 20px;">
         <div class="card-title" style="margin-bottom: 14px;">
           <span>${t('settings.runtime_mode')}</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 12px;">
           <div>
-            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Runtime Mode' : '运行模式'}</label>
+            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Runtime Mode' : '客户端运行模式'}</label>
             <select id="setting-mode-select" class="input-select">
-              <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (${isEn ? 'Local Private Environment' : '纯本地私有环境'})</option>
+              <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (${isEn ? 'Local Private Environment' : '纯本地私有节点环境'})</option>
               <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (${isEn ? 'Remote Gateway Node' : '连接远程主网关'})</option>
               <option value="hybrid" ${State.runtimeMode === 'hybrid' ? 'selected' : ''}>${t('app.mode_hybrid')} (${isEn ? 'Local Storage + Remote Relay' : '本地存储 + 远程共识中继'})</option>
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${t('settings.local_gateway_url')}</label>
-            <input type="text" id="setting-gateway-input" class="input-text" value="${State.gatewayUrl || 'https://cor-web.ziokt.com'}">
+            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Active Gateway Endpoint' : '当前生效网关端点'}</label>
+            <input type="text" id="setting-gateway-input" class="input-text" value="${isLocal ? State.localGatewayUrl : (activeNode?.url || State.gatewayUrl)}">
           </div>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-dim); line-height: 1.5;">
+          ${isLocal
+            ? (isEn ? '💡 Local mode routes all RPC and transactions directly to localhost. A real running Ziokt node is required.' : '💡 本地模式将所有 RPC 与交互直接打入本地主机。本机必须真实运行有 Ziokt 节点服务。')
+            : (isEn ? '💡 Remote mode routes traffic through an authenticated cloud gateway. Authentication token is mandatory.' : '💡 远程模式通过云端可信网关中继访问，必须配置有效的访问鉴权 Token。')}
+        </div>
+      </div>
+
+      <!-- Local Node Real Probe & Health (Mandatory for Local Mode) -->
+      <div class="card" style="margin-bottom: 20px; border-left: 4px solid ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};">
+        <div class="card-title" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <span>${t('settings.local_node_title')}</span>
+          <span class="status-badge" style="color: ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};">
+            <span class="status-dot" style="background-color: ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};"></span>
+            ${isLocalChecking ? t('settings.local_node_checking') : (isLocalOnline ? t('settings.local_node_online') : t('settings.local_node_offline'))}
+          </span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">${t('settings.local_node_desc')}</p>
+        
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;">
+          <input type="text" id="setting-local-url-input" class="input-text" style="max-width: 300px; font-family: var(--font-mono); font-size: 0.85rem;" value="${State.localGatewayUrl}">
+          <button id="probe-local-node-btn" class="btn btn-secondary btn-sm">⚡ ${t('settings.local_node_probe')}</button>
+          ${isLocalOnline ? `<span style="font-size: 0.78rem; color: var(--accent-green);">✓ HTTP 200 OK (${State.localNodeDetails?.network || 'ziokt-main'})</span>` : ''}
+        </div>
+
+        ${!isLocalOnline && !isLocalChecking ? `
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 12px; font-size: 0.78rem; color: var(--accent-red);">
+            <strong>${isEn ? 'Notice:' : '节点未就绪提示:'}</strong> ${t('settings.local_node_help')}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Remote Node Gateways & Auth Management -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title" style="margin-bottom: 12px;">
+          <span>${t('settings.remote_nodes_title')}</span>
+          <span style="font-size: 0.72rem; color: var(--accent-purple); font-weight: normal;">${isEn ? 'Custom Endpoints & Auth Tokens' : '支持多节点切换与鉴权配置'}</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">${t('settings.remote_nodes_desc')}</p>
+
+        <!-- Configured Nodes List -->
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+          ${remoteNodes.map(node => {
+            const isActive = node.id === activeNode?.id;
+            const hasToken = !!(node.authToken && node.authToken.trim());
+            const statusColor = node.status === 'online' ? 'var(--accent-green)' : (node.status === 'unauthenticated' ? 'var(--accent-amber)' : (node.status === 'auth_failed' ? 'var(--accent-red)' : 'var(--text-dim)'));
+            const statusText = node.status === 'online' ? `${t('settings.auth_valid')} (${node.latency || '15ms'})` : (node.status === 'unauthenticated' ? t('settings.auth_required') : (node.status === 'auth_failed' ? t('settings.auth_invalid') : (node.status === 'offline' ? t('app.status_offline') : '未验证')));
+
+            return `
+              <div style="background: var(--bg-input); border: 1px solid ${isActive ? 'var(--accent-cyan)' : 'var(--border-subtle)'}; border-radius: var(--radius-sm); padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 0.92rem; color: var(--text-main);">${node.name}</span>
+                      ${isActive ? `<span class="badge" style="background: rgba(2,132,199,0.2); color: var(--accent-cyan); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px;">${t('settings.active_badge')}</span>` : ''}
+                      ${node.isDefault ? `<span class="badge" style="background: rgba(147,51,234,0.15); color: var(--accent-purple); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px;">${isEn ? 'System Default' : '官方默认'}</span>` : ''}
+                    </div>
+                    <div style="font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-dim); margin-top: 3px;">${node.url}</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.75rem; color: ${statusColor}; font-weight: 600;">● ${statusText}</span>
+                    <button class="btn btn-secondary btn-sm test-node-btn" data-id="${node.id}" title="${t('settings.test_auth')}">⚡ ${t('settings.test_auth')}</button>
+                    ${!isActive ? `<button class="btn btn-primary btn-sm activate-node-btn" data-id="${node.id}">${t('settings.set_active')}</button>` : ''}
+                    ${!node.isDefault ? `<button class="btn btn-danger btn-sm delete-node-btn" data-id="${node.id}" title="${t('settings.delete_node')}">🗑️</button>` : ''}
+                  </div>
+                </div>
+
+                <!-- Auth Token row -->
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                  <span style="font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0;">${t('settings.auth_token')}:</span>
+                  <input type="password" class="input-text node-token-input" data-id="${node.id}" value="${node.authToken || ''}" placeholder="${t('settings.auth_token_tip')}" style="font-size: 0.78rem; font-family: var(--font-mono); height: 30px; padding: 4px 8px;">
+                  <button class="btn btn-secondary btn-sm save-token-btn" data-id="${node.id}" style="height: 30px; padding: 2px 10px; font-size: 0.75rem;">${t('common.save')}</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Add Custom Remote Node Form -->
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+          <h4 style="font-size: 0.88rem; font-weight: 600; color: var(--text-main); margin-bottom: 12px;">+ ${t('settings.add_node')}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.node_name')}</label>
+              <input type="text" id="new-node-name" class="input-text" placeholder="e.g. 自建私有网关 / Private Cloud Gateway">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.node_url')}</label>
+              <input type="text" id="new-node-url" class="input-text" placeholder="https://gateway.example.com">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.auth_token')}</label>
+              <input type="password" id="new-node-token" class="input-text" placeholder="ziokt_sec_...">
+            </div>
+          </div>
+          <button id="add-node-btn" class="btn btn-primary btn-sm">+ ${t('settings.add_node_btn')}</button>
         </div>
       </div>
 
@@ -1971,22 +2486,165 @@ function renderSettings(container) {
     </div>
   `;
 
-  // Safe Event Listeners
+  // Runtime Mode Switcher
   const modeSelect = container.querySelector('#setting-mode-select');
   if (modeSelect) {
-    modeSelect.onchange = (e) => {
+    modeSelect.onchange = async (e) => {
       State.runtimeMode = e.target.value;
       setStorage('ziokt_mode', e.target.value);
-      showToast(isEn ? 'Client runtime mode updated' : '客户端运行模式已更新', 'success');
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      updateAppNodeBadge();
+      showToast(isEn ? `Runtime mode switched to ${e.target.value.toUpperCase()}` : `客户端运行模式已切换为: ${e.target.value.toUpperCase()}`, 'info');
+      renderSettings(container);
     };
   }
 
+  // Gateway input listener
   const gwInput = container.querySelector('#setting-gateway-input');
   if (gwInput) {
     gwInput.onchange = (e) => {
-      State.gatewayUrl = e.target.value.trim();
-      setStorage('ziokt_gateway', State.gatewayUrl);
-      showToast(isEn ? 'Gateway URL saved' : '网关地址已保存', 'success');
+      const val = e.target.value.trim();
+      if (State.runtimeMode === 'local') {
+        State.localGatewayUrl = val;
+      } else {
+        State.gatewayUrl = val;
+        setStorage('ziokt_gateway', val);
+      }
+      showToast(isEn ? 'Endpoint saved' : '端点已更新', 'success');
+    };
+  }
+
+  // Local Node Probe Button
+  const probeLocalBtn = container.querySelector('#probe-local-node-btn');
+  const localUrlInput = container.querySelector('#setting-local-url-input');
+  if (probeLocalBtn) {
+    probeLocalBtn.onclick = async () => {
+      if (localUrlInput) {
+        State.localGatewayUrl = localUrlInput.value.trim();
+      }
+      probeLocalBtn.disabled = true;
+      probeLocalBtn.textContent = isEn ? 'Probing...' : '正在探测...';
+      const res = await checkLocalNodeHealth();
+      probeLocalBtn.disabled = false;
+      probeLocalBtn.textContent = `⚡ ${t('settings.local_node_probe')}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified successfully!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  }
+
+  // Remote Node - Test Auth
+  container.querySelectorAll('.test-node-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = '...';
+      const res = await verifyRemoteNodeAuth(id);
+      btn.disabled = false;
+      btn.textContent = `⚡ ${t('settings.test_auth')}`;
+      if (res.ok) {
+        showToast(isEn ? `Node auth verified! Latency: ${res.latency}` : `节点鉴权成功！延迟: ${res.latency}`, 'success');
+      } else {
+        showToast(isEn ? `Auth failed: ${res.error}` : `节点鉴权未通过: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  });
+
+  // Remote Node - Activate Node
+  container.querySelectorAll('.activate-node-btn').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      setActiveRemoteNode(id);
+      showToast(isEn ? 'Active node updated' : '当前生效远程节点已切换', 'success');
+      renderSettings(container);
+    };
+  });
+
+  // Remote Node - Save Token
+  container.querySelectorAll('.save-token-btn').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const input = container.querySelector(`.node-token-input[data-id="${id}"]`);
+      if (input) {
+        const val = input.value.trim();
+        const nodes = getRemoteNodes();
+        const target = nodes.find(n => n.id === id);
+        if (target) {
+          target.authToken = val;
+          setStorage('ziokt_remote_nodes', JSON.stringify(nodes));
+          if (State.activeRemoteNodeId === id) {
+            setStorage('ziokt_auth_token', val);
+            State.authToken = val;
+          }
+          showToast(isEn ? 'Auth token saved for node' : '节点鉴权凭证已保存', 'success');
+          renderSettings(container);
+        }
+      }
+    };
+  });
+
+  // Remote Node - Delete Node
+  container.querySelectorAll('.delete-node-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      const ok = await showConfirm(
+        isEn ? 'Delete Remote Node' : '删除远程节点',
+        isEn ? 'Are you sure you want to remove this custom remote node?' : '确定要删除此自定义远程节点吗？'
+      );
+      if (ok) {
+        try {
+          removeRemoteNode(id);
+          showToast(isEn ? 'Remote node removed' : '远程节点已删除', 'success');
+          renderSettings(container);
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      }
+    };
+  });
+
+  // Add Custom Remote Node
+  const addBtn = container.querySelector('#add-node-btn');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const nameInput = container.querySelector('#new-node-name');
+      const urlInput = container.querySelector('#new-node-url');
+      const tokenInput = container.querySelector('#new-node-token');
+
+      const name = nameInput.value.trim();
+      const url = urlInput.value.trim();
+      const token = tokenInput.value.trim();
+
+      if (!url) {
+        showToast(isEn ? 'Node URL is required' : '节点 URL 不能为空', 'error');
+        return;
+      }
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        showToast(isEn ? 'URL must start with http:// or https://' : '节点 URL 必须以 http:// 或 https:// 开头', 'error');
+        return;
+      }
+      if (!token) {
+        showToast(isEn ? 'Auth Token is required for remote node' : '使用远程节点必须配置鉴权凭证 (Auth Token)', 'error');
+        return;
+      }
+
+      const newNode = addRemoteNode({ name: name || url, url, authToken: token });
+      showToast(isEn ? 'Custom remote node added, testing authentication...' : '自定义远程节点已添加，正在测试鉴权...', 'info');
+
+      // Immediate verify
+      const res = await verifyRemoteNodeAuth(newNode.id);
+      if (res.ok) {
+        showToast(isEn ? 'New node authenticated and ready!' : '新节点鉴权成功，随时可切换使用！', 'success');
+      } else {
+        showToast(isEn ? `Node added but auth failed: ${res.error}` : `节点已添加，但鉴权未通过: ${res.error}`, 'error');
+      }
+      renderSettings(container);
     };
   }
 
@@ -2067,6 +2725,10 @@ function renderSettings(container) {
 
     const initialTab = getHashTab() || State.currentTab || 'home';
     navigate(initialTab);
+    updateAppNodeBadge();
+    if (State.runtimeMode === 'local') {
+      checkLocalNodeHealth();
+    }
 
     window.addEventListener('hashchange', () => {
       const tab = getHashTab();
@@ -2076,8 +2738,15 @@ function renderSettings(container) {
     });
 
     Events.on('navigate', (tab) => navigate(tab));
+    Events.on('mode_changed', () => {
+      updateAppNodeBadge();
+    });
+    Events.on('active_node_changed', () => {
+      updateAppNodeBadge();
+    });
     Events.on('language_changed', () => {
       updateNavLabels();
+      updateAppNodeBadge();
       navigate(State.currentTab);
     });
     Events.on('theme_changed', () => {

@@ -1,39 +1,158 @@
 // ==============================================================================
-// Module: System Settings, On-Demand Component Launcher & Accessibility
+// Module: System Settings, Local/Remote Node Management, Auth & Lifecycle
 // ==============================================================================
-import { State, t, showToast, showConfirm, setLanguage, setTheme, Events, setStorage } from '../core.js';
+import {
+  State,
+  t,
+  showToast,
+  showConfirm,
+  setLanguage,
+  setTheme,
+  Events,
+  setStorage,
+  getRemoteNodes,
+  getActiveRemoteNode,
+  setActiveRemoteNode,
+  addRemoteNode,
+  removeRemoteNode,
+  checkLocalNodeHealth,
+  verifyRemoteNodeAuth,
+  updateAppNodeBadge
+} from '../core.js';
 
 export function renderSettings(container) {
   if (!container) return;
   const isEn = State.language === 'en';
   const comps = State.components || {};
+  const remoteNodes = getRemoteNodes();
+  const activeNode = getActiveRemoteNode();
+
+  const isLocal = State.runtimeMode === 'local';
+  const isLocalOnline = State.localNodeStatus === 'online';
+  const isLocalChecking = State.localNodeStatus === 'checking';
 
   container.innerHTML = `
     <div style="max-width: 950px; margin: 0 auto;">
       <!-- Header -->
       <div style="margin-bottom: 24px;">
         <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('settings.title')}</h2>
-        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Configure network endpoints, on-demand component lifecycle, themes and accessibility' : '配置网络端点、组件按需生命周期、外观主题与无障碍交互'}</p>
+        <p style="font-size: 0.82rem; color: var(--text-muted);">${isEn ? 'Configure local/remote node topology, authentication credentials, component lifecycle, themes and accessibility' : '配置本地/远程节点拓扑、身份鉴权凭证、组件按需生命周期、外观主题与无障碍交互'}</p>
       </div>
 
-      <!-- Runtime Mode & Gateway Connection -->
+      <!-- Runtime Mode Selection -->
       <div class="card" style="margin-bottom: 20px;">
         <div class="card-title" style="margin-bottom: 14px;">
           <span>${t('settings.runtime_mode')}</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 12px;">
           <div>
-            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Runtime Mode' : '运行模式'}</label>
+            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Runtime Mode' : '客户端运行模式'}</label>
             <select id="setting-mode-select" class="input-select">
-              <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (${isEn ? 'Local Private Environment' : '纯本地私有环境'})</option>
+              <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (${isEn ? 'Local Private Environment' : '纯本地私有节点环境'})</option>
               <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (${isEn ? 'Remote Gateway Node' : '连接远程主网关'})</option>
               <option value="hybrid" ${State.runtimeMode === 'hybrid' ? 'selected' : ''}>${t('app.mode_hybrid')} (${isEn ? 'Local Storage + Remote Relay' : '本地存储 + 远程共识中继'})</option>
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${t('settings.local_gateway_url')}</label>
-            <input type="text" id="setting-gateway-input" class="input-text" value="${State.gatewayUrl || 'https://cor-web.ziokt.com'}">
+            <label style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">${isEn ? 'Active Gateway Endpoint' : '当前生效网关端点'}</label>
+            <input type="text" id="setting-gateway-input" class="input-text" value="${isLocal ? State.localGatewayUrl : (activeNode?.url || State.gatewayUrl)}">
           </div>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-dim); line-height: 1.5;">
+          ${isLocal
+            ? (isEn ? '💡 Local mode routes all RPC and transactions directly to localhost. A real running Ziokt node is required.' : '💡 本地模式将所有 RPC 与交互直接打入本地主机。本机必须真实运行有 Ziokt 节点服务。')
+            : (isEn ? '💡 Remote mode routes traffic through an authenticated cloud gateway. Authentication token is mandatory.' : '💡 远程模式通过云端可信网关中继访问，必须配置有效的访问鉴权 Token。')}
+        </div>
+      </div>
+
+      <!-- Local Node Real Probe & Health (Mandatory for Local Mode) -->
+      <div class="card" style="margin-bottom: 20px; border-left: 4px solid ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};">
+        <div class="card-title" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <span>${t('settings.local_node_title')}</span>
+          <span class="status-badge" style="color: ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};">
+            <span class="status-dot" style="background-color: ${isLocalOnline ? 'var(--accent-green)' : (isLocalChecking ? 'var(--accent-amber)' : 'var(--accent-red)')};"></span>
+            ${isLocalChecking ? t('settings.local_node_checking') : (isLocalOnline ? t('settings.local_node_online') : t('settings.local_node_offline'))}
+          </span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">${t('settings.local_node_desc')}</p>
+        
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;">
+          <input type="text" id="setting-local-url-input" class="input-text" style="max-width: 300px; font-family: var(--font-mono); font-size: 0.85rem;" value="${State.localGatewayUrl}">
+          <button id="probe-local-node-btn" class="btn btn-secondary btn-sm">⚡ ${t('settings.local_node_probe')}</button>
+          ${isLocalOnline ? `<span style="font-size: 0.78rem; color: var(--accent-green);">✓ HTTP 200 OK (${State.localNodeDetails?.network || 'ziokt-main'})</span>` : ''}
+        </div>
+
+        ${!isLocalOnline && !isLocalChecking ? `
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 12px; font-size: 0.78rem; color: var(--accent-red);">
+            <strong>${isEn ? 'Notice:' : '节点未就绪提示:'}</strong> ${t('settings.local_node_help')}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Remote Node Gateways & Auth Management -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title" style="margin-bottom: 12px;">
+          <span>${t('settings.remote_nodes_title')}</span>
+          <span style="font-size: 0.72rem; color: var(--accent-purple); font-weight: normal;">${isEn ? 'Custom Endpoints & Auth Tokens' : '支持多节点切换与鉴权配置'}</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">${t('settings.remote_nodes_desc')}</p>
+
+        <!-- Configured Nodes List -->
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+          ${remoteNodes.map(node => {
+            const isActive = node.id === activeNode?.id;
+            const hasToken = !!(node.authToken && node.authToken.trim());
+            const statusColor = node.status === 'online' ? 'var(--accent-green)' : (node.status === 'unauthenticated' ? 'var(--accent-amber)' : (node.status === 'auth_failed' ? 'var(--accent-red)' : 'var(--text-dim)'));
+            const statusText = node.status === 'online' ? `${t('settings.auth_valid')} (${node.latency || '15ms'})` : (node.status === 'unauthenticated' ? t('settings.auth_required') : (node.status === 'auth_failed' ? t('settings.auth_invalid') : (node.status === 'offline' ? t('app.status_offline') : '未验证')));
+
+            return `
+              <div style="background: var(--bg-input); border: 1px solid ${isActive ? 'var(--accent-cyan)' : 'var(--border-subtle)'}; border-radius: var(--radius-sm); padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 0.92rem; color: var(--text-main);">${node.name}</span>
+                      ${isActive ? `<span class="badge" style="background: rgba(2,132,199,0.2); color: var(--accent-cyan); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px;">${t('settings.active_badge')}</span>` : ''}
+                      ${node.isDefault ? `<span class="badge" style="background: rgba(147,51,234,0.15); color: var(--accent-purple); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px;">${isEn ? 'System Default' : '官方默认'}</span>` : ''}
+                    </div>
+                    <div style="font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-dim); margin-top: 3px;">${node.url}</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.75rem; color: ${statusColor}; font-weight: 600;">● ${statusText}</span>
+                    <button class="btn btn-secondary btn-sm test-node-btn" data-id="${node.id}" title="${t('settings.test_auth')}">⚡ ${t('settings.test_auth')}</button>
+                    ${!isActive ? `<button class="btn btn-primary btn-sm activate-node-btn" data-id="${node.id}">${t('settings.set_active')}</button>` : ''}
+                    ${!node.isDefault ? `<button class="btn btn-danger btn-sm delete-node-btn" data-id="${node.id}" title="${t('settings.delete_node')}">🗑️</button>` : ''}
+                  </div>
+                </div>
+
+                <!-- Auth Token row -->
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                  <span style="font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0;">${t('settings.auth_token')}:</span>
+                  <input type="password" class="input-text node-token-input" data-id="${node.id}" value="${node.authToken || ''}" placeholder="${t('settings.auth_token_tip')}" style="font-size: 0.78rem; font-family: var(--font-mono); height: 30px; padding: 4px 8px;">
+                  <button class="btn btn-secondary btn-sm save-token-btn" data-id="${node.id}" style="height: 30px; padding: 2px 10px; font-size: 0.75rem;">${t('common.save')}</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Add Custom Remote Node Form -->
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+          <h4 style="font-size: 0.88rem; font-weight: 600; color: var(--text-main); margin-bottom: 12px;">+ ${t('settings.add_node')}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.node_name')}</label>
+              <input type="text" id="new-node-name" class="input-text" placeholder="e.g. 自建私有网关 / Private Cloud Gateway">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.node_url')}</label>
+              <input type="text" id="new-node-url" class="input-text" placeholder="https://gateway.example.com">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('settings.auth_token')}</label>
+              <input type="password" id="new-node-token" class="input-text" placeholder="ziokt_sec_...">
+            </div>
+          </div>
+          <button id="add-node-btn" class="btn btn-primary btn-sm">+ ${t('settings.add_node_btn')}</button>
         </div>
       </div>
 
@@ -115,22 +234,165 @@ export function renderSettings(container) {
     </div>
   `;
 
-  // Safe Event Listeners
+  // Runtime Mode Switcher
   const modeSelect = container.querySelector('#setting-mode-select');
   if (modeSelect) {
-    modeSelect.onchange = (e) => {
+    modeSelect.onchange = async (e) => {
       State.runtimeMode = e.target.value;
       setStorage('ziokt_mode', e.target.value);
-      showToast(isEn ? 'Client runtime mode updated' : '客户端运行模式已更新', 'success');
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      updateAppNodeBadge();
+      showToast(isEn ? `Runtime mode switched to ${e.target.value.toUpperCase()}` : `客户端运行模式已切换为: ${e.target.value.toUpperCase()}`, 'info');
+      renderSettings(container);
     };
   }
 
+  // Gateway input listener
   const gwInput = container.querySelector('#setting-gateway-input');
   if (gwInput) {
     gwInput.onchange = (e) => {
-      State.gatewayUrl = e.target.value.trim();
-      setStorage('ziokt_gateway', State.gatewayUrl);
-      showToast(isEn ? 'Gateway URL saved' : '网关地址已保存', 'success');
+      const val = e.target.value.trim();
+      if (State.runtimeMode === 'local') {
+        State.localGatewayUrl = val;
+      } else {
+        State.gatewayUrl = val;
+        setStorage('ziokt_gateway', val);
+      }
+      showToast(isEn ? 'Endpoint saved' : '端点已更新', 'success');
+    };
+  }
+
+  // Local Node Probe Button
+  const probeLocalBtn = container.querySelector('#probe-local-node-btn');
+  const localUrlInput = container.querySelector('#setting-local-url-input');
+  if (probeLocalBtn) {
+    probeLocalBtn.onclick = async () => {
+      if (localUrlInput) {
+        State.localGatewayUrl = localUrlInput.value.trim();
+      }
+      probeLocalBtn.disabled = true;
+      probeLocalBtn.textContent = isEn ? 'Probing...' : '正在探测...';
+      const res = await checkLocalNodeHealth();
+      probeLocalBtn.disabled = false;
+      probeLocalBtn.textContent = `⚡ ${t('settings.local_node_probe')}`;
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified successfully!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  }
+
+  // Remote Node - Test Auth
+  container.querySelectorAll('.test-node-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = '...';
+      const res = await verifyRemoteNodeAuth(id);
+      btn.disabled = false;
+      btn.textContent = `⚡ ${t('settings.test_auth')}`;
+      if (res.ok) {
+        showToast(isEn ? `Node auth verified! Latency: ${res.latency}` : `节点鉴权成功！延迟: ${res.latency}`, 'success');
+      } else {
+        showToast(isEn ? `Auth failed: ${res.error}` : `节点鉴权未通过: ${res.error}`, 'error');
+      }
+      renderSettings(container);
+    };
+  });
+
+  // Remote Node - Activate Node
+  container.querySelectorAll('.activate-node-btn').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      setActiveRemoteNode(id);
+      showToast(isEn ? 'Active node updated' : '当前生效远程节点已切换', 'success');
+      renderSettings(container);
+    };
+  });
+
+  // Remote Node - Save Token
+  container.querySelectorAll('.save-token-btn').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const input = container.querySelector(`.node-token-input[data-id="${id}"]`);
+      if (input) {
+        const val = input.value.trim();
+        const nodes = getRemoteNodes();
+        const target = nodes.find(n => n.id === id);
+        if (target) {
+          target.authToken = val;
+          setStorage('ziokt_remote_nodes', JSON.stringify(nodes));
+          if (State.activeRemoteNodeId === id) {
+            setStorage('ziokt_auth_token', val);
+            State.authToken = val;
+          }
+          showToast(isEn ? 'Auth token saved for node' : '节点鉴权凭证已保存', 'success');
+          renderSettings(container);
+        }
+      }
+    };
+  });
+
+  // Remote Node - Delete Node
+  container.querySelectorAll('.delete-node-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      const ok = await showConfirm(
+        isEn ? 'Delete Remote Node' : '删除远程节点',
+        isEn ? 'Are you sure you want to remove this custom remote node?' : '确定要删除此自定义远程节点吗？'
+      );
+      if (ok) {
+        try {
+          removeRemoteNode(id);
+          showToast(isEn ? 'Remote node removed' : '远程节点已删除', 'success');
+          renderSettings(container);
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      }
+    };
+  });
+
+  // Add Custom Remote Node
+  const addBtn = container.querySelector('#add-node-btn');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const nameInput = container.querySelector('#new-node-name');
+      const urlInput = container.querySelector('#new-node-url');
+      const tokenInput = container.querySelector('#new-node-token');
+
+      const name = nameInput.value.trim();
+      const url = urlInput.value.trim();
+      const token = tokenInput.value.trim();
+
+      if (!url) {
+        showToast(isEn ? 'Node URL is required' : '节点 URL 不能为空', 'error');
+        return;
+      }
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        showToast(isEn ? 'URL must start with http:// or https://' : '节点 URL 必须以 http:// 或 https:// 开头', 'error');
+        return;
+      }
+      if (!token) {
+        showToast(isEn ? 'Auth Token is required for remote node' : '使用远程节点必须配置鉴权凭证 (Auth Token)', 'error');
+        return;
+      }
+
+      const newNode = addRemoteNode({ name: name || url, url, authToken: token });
+      showToast(isEn ? 'Custom remote node added, testing authentication...' : '自定义远程节点已添加，正在测试鉴权...', 'info');
+
+      // Immediate verify
+      const res = await verifyRemoteNodeAuth(newNode.id);
+      if (res.ok) {
+        showToast(isEn ? 'New node authenticated and ready!' : '新节点鉴权成功，随时可切换使用！', 'success');
+      } else {
+        showToast(isEn ? `Node added but auth failed: ${res.error}` : `节点已添加，但鉴权未通过: ${res.error}`, 'error');
+      }
+      renderSettings(container);
     };
   }
 

@@ -44,6 +44,11 @@ aapt package -f -m \
     -S "$SCRIPT_DIR/android/app/src/main/res" \
     -I "$ANDROID_JAR" \
     -A "$SCRIPT_DIR/android/app/src/main/assets" \
+    --min-sdk-version 24 \
+    --target-sdk-version 34 \
+    --version-code 10000 \
+    --version-name 1.0.0 \
+    --replace-version \
     -F "$WORK_DIR/unaligned.apk" \
     -J "$WORK_DIR/gen"
 

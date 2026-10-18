@@ -1,7 +1,16 @@
 // ==============================================================================
 // Module: Shadow6 Multi-Core Mesh & ETP Onion Gateway Network Panel
 // ==============================================================================
-import { State, t, showToast, showJsonModal } from '../core.js';
+import {
+  State,
+  t,
+  showToast,
+  showJsonModal,
+  Events,
+  getActiveRemoteNode,
+  getRemoteNodes,
+  checkLocalNodeHealth
+} from '../core.js';
 
 const shadow6Profiles = [
   { id: 'profile-go', core: 'Go', transport: 'kcp', port: 14433, status: 'RUNNING', latency: '12ms' },
@@ -22,6 +31,11 @@ const shadow6Profiles = [
 let showSensitive = false;
 
 export function renderNetwork(container) {
+  const isEn = State.language === 'en';
+  const activeRemote = getActiveRemoteNode();
+  const remoteNodes = getRemoteNodes();
+  const isLocalOnline = State.localNodeStatus === 'online';
+
   container.innerHTML = `
     <div style="max-width: 1050px; margin: 0 auto;">
       <!-- Header -->
@@ -34,6 +48,45 @@ export function renderNetwork(container) {
           <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" class="btn btn-primary">🪐 打开 Shadow6 Web UI</a>
           <button id="toggle-sensitive-btn" class="btn btn-secondary">${showSensitive ? '🔒 隐藏敏感内容' : '👁️ 显示敏感内容'}</button>
           <button id="ping-all-btn" class="btn btn-secondary">⚡ ${t('network.ping_test')}</button>
+        </div>
+      </div>
+
+      <!-- Gateway & Node Topology Overview -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-title" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <span>🌐 ${t('network.node_topology')}</span>
+          <button id="nav-settings-nodes-btn" class="btn btn-secondary btn-sm">⚙️ ${t('network.manage_nodes')}</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
+          <!-- Local Node Card -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: 600; color: var(--text-main); font-size: 0.9rem;">💻 ${t('network.local_node')}</span>
+              <span class="status-badge" style="color: ${isLocalOnline ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                <span class="status-dot" style="background-color: ${isLocalOnline ? 'var(--accent-green)' : 'var(--accent-red)'}"></span>
+                ${isLocalOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px;">http://127.0.0.1:8185</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              ${isLocalOnline ? (isEn ? '✓ Local process active, zero latency' : '✓ 本地节点运行中，直连无延迟') : (isEn ? '✕ No local node process detected' : '✕ 未检测到本机节点进程，本地写操作将受阻')}
+            </div>
+          </div>
+
+          <!-- Active Remote Node Card -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: 600; color: var(--text-main); font-size: 0.9rem;">☁️ ${activeRemote?.name || 'Remote Gateway'}</span>
+              <span class="status-badge" style="color: ${activeRemote?.status === 'online' ? 'var(--accent-green)' : 'var(--accent-amber)'}">
+                <span class="status-dot" style="background-color: ${activeRemote?.status === 'online' ? 'var(--accent-green)' : 'var(--accent-amber)'}"></span>
+                ${activeRemote?.status === 'online' ? `VERIFIED (${activeRemote.latency || '15ms'})` : 'AUTH REQUIRED'}
+              </span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px;">${activeRemote?.url}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              ${activeRemote?.authToken ? (isEn ? '✓ Token attached (Bearer + X-Ziokt-Auth)' : '✓ 已配置鉴权凭证') : (isEn ? '✕ Missing Auth Token' : '✕ 缺少鉴权 Token，不可直接通信')}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -111,6 +164,14 @@ export function renderNetwork(container) {
 
     </div>
   `;
+
+  // Navigate to settings for managing nodes
+  const navSettingsBtn = container.querySelector('#nav-settings-nodes-btn');
+  if (navSettingsBtn) {
+    navSettingsBtn.onclick = () => {
+      Events.emit('navigate', 'settings');
+    };
+  }
 
   // Toggle sensitive masking
   container.querySelector('#toggle-sensitive-btn').onclick = () => {

@@ -99,6 +99,10 @@ function buildStandaloneAppBundle() {
 
     const initialTab = getHashTab() || State.currentTab || 'home';
     navigate(initialTab);
+    updateAppNodeBadge();
+    if (State.runtimeMode === 'local') {
+      checkLocalNodeHealth();
+    }
 
     window.addEventListener('hashchange', () => {
       const tab = getHashTab();
@@ -108,8 +112,15 @@ function buildStandaloneAppBundle() {
     });
 
     Events.on('navigate', (tab) => navigate(tab));
+    Events.on('mode_changed', () => {
+      updateAppNodeBadge();
+    });
+    Events.on('active_node_changed', () => {
+      updateAppNodeBadge();
+    });
     Events.on('language_changed', () => {
       updateNavLabels();
+      updateAppNodeBadge();
       navigate(State.currentTab);
     });
     Events.on('theme_changed', () => {

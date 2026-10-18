@@ -62,7 +62,12 @@
     "act_files": "Open Secure File Vault",
     "act_forum": "Browse Latest Proposals",
     "act_apps": "Manage dCPM Packages",
-    "act_network": "Inspect Shadow6 & ETP Mesh"
+    "act_network": "Inspect Shadow6 & ETP Mesh",
+    "local_offline_alert": "⚠️ No local real node detected: Currently in local mode, but http://127.0.0.1:8185 is not responding. Local mode requires an actual running Ziokt node.",
+    "remote_unauth_alert": "🔒 Remote node requires authentication: Active remote node does not have a valid Auth Token configured.",
+    "switch_remote": "Switch to Remote Gateway",
+    "config_auth": "Configure Auth Credentials",
+    "probe_local": "Probe Local Node"
   },
   "chat": {
     "title": "WATChat End-to-End Encrypted Messenger",
@@ -130,7 +135,11 @@
     "etp_title": "ETP Native Onion Multi-Hop Paths",
     "hops": "hop route path",
     "ping_test": "Latency Diagnostics",
-    "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys"
+    "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys",
+    "node_topology": "Node & Gateway Topology",
+    "local_node": "Local Node",
+    "remote_nodes": "Remote Nodes Cluster",
+    "manage_nodes": "Manage Custom Nodes"
   },
   "identity": {
     "title": "Identity & Proof of Useful Work (PoUW)",
@@ -169,6 +178,29 @@
     "comp_watchat": "WATChat Federation Bridge",
     "comp_etp": "ETP Onion Gateway Router",
     "accessibility": "Accessibility & Keyboard Navigation",
-    "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search"
+    "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search",
+    "local_node_title": "Local Node Connection & Real Verification",
+    "local_node_desc": "Using local node requires an actual Ziokt node daemon running locally. If not running, local RPC and write operations are blocked.",
+    "local_node_probe": "Probe Local Node",
+    "local_node_online": "Local Real Node Online",
+    "local_node_offline": "No Local Real Node Detected",
+    "local_node_checking": "Probing Local Node...",
+    "local_node_help": "Start local node daemon: run 'systemctl start ziokt-gateway' or './tools/control_center.sh' in terminal.",
+    "remote_nodes_title": "Remote Node Gateways & Auth Management",
+    "remote_nodes_desc": "Using a remote node requires authentication (Auth Token). You can add custom remote nodes and test their connection and auth validity.",
+    "add_node": "Add New Remote Node",
+    "node_name": "Node Name",
+    "node_url": "Node Endpoint (URL)",
+    "auth_token": "Auth Token",
+    "auth_token_tip": "Used for Bearer / X-Ziokt-Auth remote authentication",
+    "test_auth": "Test Auth",
+    "set_active": "Set Active",
+    "active_badge": "Active",
+    "auth_valid": "Auth Verified",
+    "auth_invalid": "Auth Failed",
+    "auth_required": "Auth Required",
+    "delete_node": "Delete Node",
+    "cannot_delete_default": "Default system node cannot be deleted",
+    "add_node_btn": "Add & Verify Node"
   }
 }

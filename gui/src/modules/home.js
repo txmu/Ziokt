@@ -1,11 +1,50 @@
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
-import { State, t, showToast, Events, setStorage } from '../core.js';
+import {
+  State,
+  t,
+  showToast,
+  Events,
+  setStorage,
+  checkLocalNodeHealth,
+  getActiveRemoteNode,
+  updateAppNodeBadge
+} from '../core.js';
 
 export function renderHome(container) {
+  const isEn = State.language === 'en';
+  const isLocal = State.runtimeMode === 'local';
+  const isLocalOffline = isLocal && State.localNodeStatus === 'offline';
+  const activeNode = getActiveRemoteNode();
+  const isRemoteUnauth = !isLocal && (!activeNode?.authToken || activeNode?.status === 'unauthenticated' || activeNode?.status === 'auth_failed');
+
   container.innerHTML = `
     <div style="max-width: 1100px; margin: 0 auto;">
+      <!-- Node Status Alert Banners -->
+      ${isLocalOffline ? `
+        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-red); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="color: var(--accent-red); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.2rem;">⚠️</span>
+            <span>${t('home.local_offline_alert')}</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="home-probe-local-btn" class="btn btn-secondary btn-sm">⚡ ${t('home.probe_local')}</button>
+            <button id="home-switch-remote-btn" class="btn btn-primary btn-sm">🌐 ${t('home.switch_remote')}</button>
+          </div>
+        </div>
+      ` : ''}
+
+      ${isRemoteUnauth ? `
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid var(--accent-amber); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="color: var(--accent-amber); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.2rem;">🔒</span>
+            <span>${t('home.remote_unauth_alert')}</span>
+          </div>
+          <button id="home-config-auth-btn" class="btn btn-primary btn-sm">⚙️ ${t('home.config_auth')}</button>
+        </div>
+      ` : ''}
+
       <!-- Welcome Banner -->
       <div style="background: linear-gradient(135deg, rgba(2,132,199,0.15), rgba(129,140,248,0.1)); border: 1px solid var(--border-bright); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div>
@@ -16,7 +55,7 @@ export function renderHome(container) {
           <span style="font-size: 0.8rem; color: var(--text-muted);">${t('settings.runtime_mode')}:</span>
           <select id="home-mode-select" class="input-select" style="width: auto; padding: 6px 10px; font-weight: 600;">
             <option value="local" ${State.runtimeMode === 'local' ? 'selected' : ''}>${t('app.mode_local')} (127.0.0.1:8185)</option>
-            <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (cor-web.ziokt.com)</option>
+            <option value="remote" ${State.runtimeMode === 'remote' ? 'selected' : ''}>${t('app.mode_remote')} (${activeNode?.name || 'cor-web.ziokt.com'})</option>
             <option value="hybrid" ${State.runtimeMode === 'hybrid' ? 'selected' : ''}>${t('app.mode_hybrid')}</option>
           </select>
         </div>
@@ -136,18 +175,60 @@ export function renderHome(container) {
 
   const modeSelect = container.querySelector('#home-mode-select');
   if (modeSelect) {
-    modeSelect.onchange = (e) => {
+    modeSelect.onchange = async (e) => {
       State.runtimeMode = e.target.value;
       setStorage('ziokt_mode', e.target.value);
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      updateAppNodeBadge();
       showToast(`已切换至: ${e.target.options[e.target.selectedIndex].text}`, 'info');
       Events.emit('mode_changed', e.target.value);
+      renderHome(container);
+    };
+  }
+
+  const probeLocalBtn = container.querySelector('#home-probe-local-btn');
+  if (probeLocalBtn) {
+    probeLocalBtn.onclick = async () => {
+      probeLocalBtn.disabled = true;
+      probeLocalBtn.textContent = '...';
+      const res = await checkLocalNodeHealth();
+      if (res.ok) {
+        showToast(isEn ? 'Local node verified successfully!' : '本地真实节点检测通过，状态在线！', 'success');
+      } else {
+        showToast(isEn ? `Local node unreachable: ${res.error}` : `本地真实节点未响应: ${res.error}`, 'error');
+      }
+      renderHome(container);
+    };
+  }
+
+  const switchRemoteBtn = container.querySelector('#home-switch-remote-btn');
+  if (switchRemoteBtn) {
+    switchRemoteBtn.onclick = () => {
+      State.runtimeMode = 'remote';
+      setStorage('ziokt_mode', 'remote');
+      updateAppNodeBadge();
+      showToast(isEn ? 'Switched to Remote Gateway mode' : '已切换至远程网关模式', 'info');
+      renderHome(container);
+    };
+  }
+
+  const configAuthBtn = container.querySelector('#home-config-auth-btn');
+  if (configAuthBtn) {
+    configAuthBtn.onclick = () => {
+      Events.emit('navigate', 'settings');
     };
   }
 
   const refreshBtn = container.querySelector('#refresh-health-btn');
   if (refreshBtn) {
-    refreshBtn.onclick = () => {
-      showToast('核心组件状态已刷新，所有节点正常在线', 'success');
+    refreshBtn.onclick = async () => {
+      if (State.runtimeMode === 'local') {
+        await checkLocalNodeHealth();
+      }
+      showToast(isEn ? 'Component and node health refreshed' : '核心组件与节点状态已刷新', 'success');
+      renderHome(container);
     };
   }
 }

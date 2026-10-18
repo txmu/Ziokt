@@ -25,7 +25,19 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Edge-to-edge / Full resolution system UI colors
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            getWindow().setStatusBarColor(android.graphics.Color.parseColor("#0b0f19"));
+            getWindow().setNavigationBarColor(android.graphics.Color.parseColor("#0b0f19"));
+        }
+
         webView = new WebView(this);
+        webView.setLayoutParams(new android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        webView.setBackgroundColor(android.graphics.Color.parseColor("#0b0f19"));
         setContentView(webView);
 
         WebSettings settings = webView.getSettings();
@@ -40,6 +52,13 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Screen resolution, High-DPI and responsive viewport adaptation
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setSupportZoom(false);
+        settings.setDisplayZoomControls(false);
+        settings.setTextZoom(100);
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
