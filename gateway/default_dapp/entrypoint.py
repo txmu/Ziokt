@@ -2529,7 +2529,7 @@ response = f"""<!DOCTYPE html>
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:1rem;">
                     <div>
                         <span class="badge" style="display:inline-block;background:rgba(56,189,248,0.15);color:var(--accent-blue);border:1px solid rgba(56,189,248,0.3);padding:3px 12px;border-radius:9999px;font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;">COR-WEB 全景版 (Panoramic Studio)</span>
-                        <h1 style="font-size:2rem;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</h1>
+                        <div style="font-size:2rem;font-weight:bold;margin-bottom:0.25rem;">⚡ Corium &amp; Ziokt 统一去中心化应用网关</div>
                         <p class="subtitle" style="margin:0;">深度承载 Corium、Ziokt 与 ETP 协议栈所有原生应用 &bull; 纯浏览器零门槛访问</p>
                     </div>
                     <div>
