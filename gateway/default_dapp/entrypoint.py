@@ -1909,7 +1909,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载 zip (117 KB)', 'Download zip (117 KB)')}
+                        ⬇️ {tr('直接下载 zip (118 KB)', 'Download zip (118 KB)')}
                     </a>
                 </div>
             </div>
@@ -1941,7 +1941,7 @@ elif subpath == "gui":
                 </div>
                 <div style="margin-top:auto;">
                     <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn btn-purple" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载工程包 (98 KB)', 'Download ArkUI (98 KB)')}
+                        ⬇️ {tr('直接下载工程包 (99 KB)', 'Download ArkUI (99 KB)')}
                     </a>
                 </div>
             </div>
