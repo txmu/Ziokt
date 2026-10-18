@@ -40,7 +40,7 @@ def configure(mcp_path,gateway_path,output,namespace):
         path=base/'ziokt/bridge.json';write(path,template);mcp['bridges']['ziokt']=str(path)
     sources={}
     for app,path in mcp['bridges'].items():
-        if app not in {'ziokt','shadow6','etp','safefs','sim-manager','sim','tri','ufs','dcpm','watchat','zda'}:continue
+        if app not in {'ziokt','shadow6','etp','safefs','sim-manager','sim','tri','ufs','dcpm','watchat','zda','tc16'}:continue
         bridge=strict_json(secure_read(path));community_id=strict_json(secure_read(bridge['policy']))['payload']['community_id']
         namespaces=bridge.get('naming_namespaces',[community_id])
         if namespace not in namespaces:bridge['naming_namespaces']=[*namespaces,namespace];write(path,bridge)

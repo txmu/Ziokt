@@ -18,17 +18,43 @@ def key_for(component,network_id,root):
 
 
 def check_record(bridge,envelope,network_id,root):
-    record=verify(envelope,bridge.community.owner,DOMAIN)
+    authorities = []
+    if hasattr(bridge, 'signing_public') and bridge.signing_public:
+        authorities.append(bridge.signing_public)
+    if hasattr(bridge, 'signing_key') and bridge.signing_key:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+            key_bytes = secure_read(bridge.signing_key, 32) if isinstance(bridge.signing_key, (str, bytes)) and (isinstance(bridge.signing_key, bytes) or len(bridge.signing_key) != 32) else bridge.signing_key
+            if isinstance(key_bytes, (str, Path)): key_bytes = secure_read(key_bytes, 32)
+            authorities.append(Ed25519PrivateKey.from_private_bytes(key_bytes).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex())
+        except Exception:pass
+    if hasattr(bridge, 'community') and hasattr(bridge.community, 'owner') and bridge.community.owner:
+        authorities.append(bridge.community.owner)
+    record = None
+    verified_authority = None
+    for auth in authorities:
+        for domain in (DOMAIN, 'Ziokt/tc16-name-registration/v1'):
+            try:
+                record = verify(envelope, auth, domain)
+                verified_authority = auth
+                break
+            except ProtocolError:pass
+        if record is not None:break
+    if record is None:
+        raise ProtocolError('SCOPE_MISMATCH', 'registration is not authorized by companion native signing authority')
     fields={'network_id','component','root','owner','revision','expires_at','delegations','published_suffixes'}
     if (not isinstance(record,dict) or set(record)!=fields or record['network_id']!=network_id or
             record['component']!=component_of(bridge) or record['root']!=root or (not isinstance(root,str) or not LABEL.fullmatch(root)) or
             component_of(bridge) not in GROUPS or component_of(bridge)=='corium' or network_id not in bridge.naming_namespaces):
         raise ProtocolError('SCOPE_MISMATCH','component node, community network and root must match registration')
+    comp=component_of(bridge)
     native={k:v for k,v in record.items() if k not in {'root','component'}}
-    native['proof']={'kind':'signed-component-community-authority','community_id':bridge.community.community_id,
-                     'authority':bridge.community.owner,'registration':envelope}
+    native['proof']={'kind':f'native-{comp}-authority','component':comp,'application':bridge.app,
+                     'community_id':getattr(bridge.community,'community_id',None),
+                     'authority':verified_authority,'vault_root':getattr(bridge,'vault_root',None),'registration':envelope}
     if record['published_suffixes']:
-        Names({component_of(bridge):lambda _:native},network_id=network_id).resolve(root+'.'+record['published_suffixes'][0])
+        Names({comp:lambda _:native},network_id=network_id).resolve(root+'.'+record['published_suffixes'][0])
     elif type(record['revision']) is not int or record['revision']<1:
         raise ProtocolError('NAME_REJECTED','positive registration revision required')
     return record,native
@@ -70,7 +96,8 @@ class ComponentNames:
         config=strict_json(secure_read(self.path))
         if config.get('schema')!='ziokt.companion-bridge.v1':raise ProtocolError('INVALID_BRIDGE','configured component node required')
         community=Community(config['community_root'],strict_json(secure_read(config['policy'])),config['owner'],secure_read(config['encryption_key'],32),readonly=True)
-        bridge=SimpleNamespace(app=config['application'],community=community,naming_namespaces=config.get('naming_namespaces',[community.community_id]))
+        bridge=SimpleNamespace(app=config['application'],community=community,naming_namespaces=config.get('naming_namespaces',[community.community_id]),
+                               signing_key=config.get('signing_key'),vault_root=config.get('vault_root'),application_key=config.get('application_key'))
         try:
             if component_of(bridge)!=self.component or self.network_id not in bridge.naming_namespaces:
                 raise ProtocolError('SCOPE_MISMATCH','configured node belongs to another component or network')

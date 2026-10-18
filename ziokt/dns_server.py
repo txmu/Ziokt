@@ -159,6 +159,14 @@ def load(path):
                         raise ValueError('Corium suffixes exclusively require native NNS or native IBC node paths')
                     native_source={key:value for key,value in source.items() if key!='native_network_id'}
                     sources[component]=CoriumNames(**native_source,network_id=source.get('native_network_id',profile['network_id']),namespace=profile['network_id'])
+            elif component=='tc16':
+                from .naming_tc16 import TC16Names
+                if isinstance(source,dict) and 'component_bridge' in source:
+                    sources[component]=TC16Names(source['component_bridge'],network_id=profile['network_id'])
+                elif isinstance(source,dict) and set(source)-{'network_id'}<={'vault_root','signing_key','application_key'}:
+                    sources[component]=TC16Names(**source,network_id=profile['network_id'])
+                else:
+                    raise ValueError('TC-16 requires native node paths or component bridge')
             else:
                 if not isinstance(source,dict) or set(source)!={'component_bridge'}:
                     raise ValueError('component-owned naming node required; cross-component fallback forbidden')

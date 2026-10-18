@@ -24,7 +24,7 @@ class NamingTests(unittest.TestCase):
         self.resolver=Names({'corium':source},clock=lambda:1000)
 
     def test_suffix_routes_and_nns_has_no_tld(self):
-        self.assertEqual(len(SUFFIXES),54)
+        self.assertEqual(len(SUFFIXES),57)
         for tld in ('cor','c','corium','corix'):
             self.assertEqual(self.resolver.resolve('community.'+tld)['records'][0]['value'],'8.8.8.8')
         self.assertEqual(self.calls,['community']*4)
