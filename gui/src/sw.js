@@ -2,7 +2,7 @@
 // Ziokt Unified Graphical Client - Progressive Web App Service Worker
 // ==============================================================================
 
-const CACHE_NAME = 'ziokt-gui-cache-v1.0.0';
+const CACHE_NAME = 'ziokt-gui-cache-v1.0.2';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -36,7 +36,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[Ziokt PWA] Clearing superseded cache:', key);
+            console.log('[Ziokt PWA] Purging superseded cache:', key);
             return caches.delete(key);
           }
         })
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Dynamic Gateway and Node APIs: Network first with graceful fallback
+  // Dynamic Gateway and Node APIs: Network only/first with graceful fallback
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/app/')) {
     event.respondWith(
       fetch(event.request).catch(() => caches.match(event.request))
@@ -58,7 +58,32 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell and static GUI assets: Stale-While-Revalidate strategy
+  // Scripts, HTML and navigation documents: Network-First to guarantee immediate delivery of fixes
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.html') || event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // Fallback to cache when offline
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            return caches.match('./index.html') || caches.match('/gateway-assets/gui/index.html');
+          }
+          return null;
+        });
+      })
+    );
+    return;
+  }
+
+  // Static images, fonts and styling: Stale-While-Revalidate strategy
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
@@ -69,13 +94,7 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        // Fallback for document navigation when completely offline
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html') || caches.match('/gateway-assets/gui/index.html');
-        }
-        return null;
-      });
+      }).catch(() => null);
 
       return cachedResponse || fetchPromise;
     })
