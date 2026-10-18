@@ -55,8 +55,8 @@ export function renderChat(container) {
               <form id="chat-login-form">
                 <h1 style="font-size: 28px; margin: 0; color: #f4f7f8; font-weight: 800;">腕聊</h1>
                 <p style="color: #9fb0b8; margin: 5px 0 14px; font-size: 14px;">登录你的账户</p>
-                <input id="chat-username" autocomplete="username" maxlength="24" placeholder="用户名" aria-label="用户名" required value="admin" class="input-text">
-                <input id="chat-passphrase" type="password" autocomplete="current-password" maxlength="64" placeholder="密码" aria-label="密码" required value="123456789012" class="input-text">
+                <input id="chat-username" autocomplete="username" maxlength="24" placeholder="用户名" aria-label="用户名" required class="input-text">
+                <input id="chat-passphrase" type="password" autocomplete="current-password" maxlength="64" placeholder="密码" aria-label="密码" required class="input-text">
                 <button type="submit" id="chat-login-btn">进入</button>
                 <output id="loginError" class="error" aria-live="polite" style="color: #ff7d7d; font-size: 13px; margin-top: 8px; display: block;"></output>
               </form>

@@ -1,6 +1,6 @@
 [package]
 name = "ziokt-gui-native"
-version = "1.0.0"
+version = "1.1.0"
 description = "Ziokt Native Desktop and Mobile Client"
 authors = ["Ziokt Project Team"]
 edition = "2021"

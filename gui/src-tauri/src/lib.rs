@@ -43,50 +43,49 @@ pub fn get_system_info() -> SystemInfo {
 }
 
 #[tauri::command]
-pub fn manage_component(name: String, action: String) -> Result<ComponentStatus, String> {
-    // Validated safe component lifecycle controller
-    let (port, comp_name) = match name.as_str() {
-        "corium" => (8545, "Corium Blockchain"),
-        "shadow6" => (8186, "Shadow6 Mesh Cluster"),
-        "ufs" => (8184, "UFS & dCPM Storage"),
-        "watchat" => (8181, "WATChat Bridge"),
-        "etp" => (9050, "ETP Onion Gateway"),
-        _ => return Err(format!("Unknown component: {}", name)),
+pub async fn manage_component(name: String, action: String) -> Result<ComponentStatus, String> {
+    let (unit, port) = match name.as_str() {
+        "corium" => ("ziokt-corium-consensus.service", 8545),
+        "shadow6" => ("shadow6-cluster.service", 8186),
+        "ufs" => ("ziokt-gateway.service", 8185),
+        "watchat" => ("ziokt-watchat.service", 8181),
+        "etp" => ("ziokt-etp.service", 9050),
+        _ => return Err("Unknown component".into()),
     };
-
-    let status = match action.as_str() {
-        "start" => "online",
-        "stop" => "offline",
-        "status" => "online",
-        _ => return Err(format!("Invalid action: {}", action)),
-    };
-
-    Ok(ComponentStatus {
-        name: comp_name.to_string(),
-        status: status.to_string(),
-        port,
-        message: format!("Component {} is now {}", comp_name, status),
-    })
-}
-
-#[tauri::command]
-pub async fn ping_gateway(endpoint: String) -> PingResult {
-    let start = Instant::now();
-    // Simulate connection check or perform real TCP connect
-    let reachable = true;
-    let elapsed = start.elapsed().as_millis() as u64;
-
-    PingResult {
-        endpoint,
-        latency_ms: if elapsed == 0 { 12 } else { elapsed },
-        reachable,
+    if !["start", "stop", "status"].contains(&action.as_str()) { return Err("Invalid action".into()); }
+    if !cfg!(target_os = "linux") { return Err("Local service management requires Linux systemd; use the configured native gateway on this platform".into()); }
+    if action != "status" {
+        let mut command = tokio::process::Command::new("systemctl");
+        command.args(["--no-ask-password", &action, unit]).kill_on_drop(true);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(20), command.output()).await
+            .map_err(|_| "Service operation timed out")?.map_err(|_| "Cannot invoke system service manager")?;
+        if !result.status.success() { return Err("Service operation rejected; verify installed unit and local privileges".into()); }
     }
+    let mut command = tokio::process::Command::new("systemctl");
+    command.args(["is-active", unit]).kill_on_drop(true);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), command.output()).await
+        .map_err(|_| "Service status timed out")?.map_err(|_| "Cannot read service status")?;
+    let state = String::from_utf8_lossy(&result.stdout).trim().to_string();
+    if state.is_empty() { return Err("Service state unavailable".into()); }
+    Ok(ComponentStatus { name, status: state, port, message: format!("Observed systemd unit {}", unit) })
 }
 
 #[tauri::command]
-pub fn send_native_notification(title: String, body: String) -> bool {
-    println!("[Native Notification] {}: {}", title, body);
-    true
+pub async fn ping_gateway(endpoint: String) -> Result<PingResult, String> {
+    let url = tauri::Url::parse(&endpoint).map_err(|_| "Invalid gateway URL")?;
+    if !["https", "http"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() {
+        return Err("HTTP(S) URL without embedded credentials required".into());
+    }
+    let host = url.host_str().ok_or("Gateway host required")?;
+    let port = url.port_or_known_default().ok_or("Gateway port required")?;
+    let start = Instant::now();
+    let reachable = matches!(tokio::time::timeout(std::time::Duration::from_secs(4), tokio::net::TcpStream::connect((host, port))).await, Ok(Ok(_)));
+    Ok(PingResult { endpoint: endpoint.clone(), latency_ms: start.elapsed().as_millis() as u64, reachable })
+}
+
+#[tauri::command]
+pub fn send_native_notification(_title: String, _body: String) -> Result<(), String> {
+    Err("Native notification provider is not configured".into())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -41,7 +41,7 @@ class TelegramWorker:
         log.info('Telegram command worker initialized; %d MCP tools available', len(self.service.tools))
 
     def _commands(self):
-        command_map={'start':None,'help':None,'status':None,'tools':None,'mcp':None,'confirm':None,'cancel':None}
+        command_map={'start':None,'help':None,'status':None,'tools':None,'mcp':None,'confirm':None,'cancel':None,'objects':None,'packages':None,'privacy':None,'gui':None}
         candidates=[]
         for name,tool in sorted(self.service.tools.items()):
             if re.fullmatch('[a-z0-9_]{1,32}',name) and name not in command_map:
@@ -56,9 +56,10 @@ class TelegramWorker:
             {'command':'confirm','description':'Confirm a pending write by its one-time code'},
             {'command':'cancel','description':'Cancel a pending write by its one-time code'},
         ]
+        menu.extend([{'command':'objects','description':'List all chunked object tools'},{'command':'packages','description':'List signed package and native admission tools'},{'command':'privacy','description':'Show actual ledger and transport privacy boundaries'},{'command':'gui','description':'Open the web application and platform downloads'}])
         # Keep a little space below Telegram's documented 100-command ceiling;
         # some bot scopes reserve slots for BotFather-managed commands.
-        menu.extend(candidates[:18])
+        menu.extend(candidates[:14])
         self.bot.set_commands(menu)
         self.command_map=command_map
         return menu
@@ -140,6 +141,10 @@ class TelegramWorker:
             status=self.service.execute(self.principal,'ziokt_components',{})
             return json.dumps({'mcp':'online','telegram':'online','webhook':False,'components':status.get('components',[]),'native_providers':status.get('native_providers',[]),'mcp_tools':len(self.service.tools),'writes_enabled':status.get('writes_enabled',False)},ensure_ascii=False,indent=2)
         if command=='tools':return self.list_tools(rest)
+        if command=='objects':return ', '.join(n for n in sorted(self.service.tools) if '_object_' in n)
+        if command=='packages':return ', '.join(n for n in sorted(self.service.tools) if 'package_' in n)
+        if command=='privacy':return self.render(self.service.call(self.principal,'ziokt_privacy_status',{}))
+        if command=='gui':return 'Web 应用：https://app.ziokt.com/\n平台下载：https://app.ziokt.com/downloads/'
         if command=='confirm':return self.confirm(chat_id,user_id,rest)
         if command=='cancel':return self.cancel(chat_id,user_id,rest)
         if command=='mcp':
@@ -158,7 +163,7 @@ class TelegramWorker:
         return ('Ziokt MCP Bot 命令：\n'
             '/start — 开始使用\n/help [工具名] — 查看用法或工具参数\n/status — MCP、组件与 Telegram 状态\n'
             '/tools [页码或前缀] — 分页列出工具\n/mcp 工具名 {JSON参数} — 调用全部 MCP 工具\n'
-            '/confirm 一次性代码 — 确认待执行写操作\n/cancel 一次性代码 — 取消写操作\n\n'
+            '/confirm 一次性代码 — 确认待执行写操作\n/cancel 一次性代码 — 取消写操作\n/objects — 分块对象工具\n/packages — v1/v2 软件包及原生验签暂存\n/privacy — 实际隐私边界\n/gui — Web 与各平台下载\n\n'
             '示例：/mcp gateway_forum_list {"limit":10}\n'
             '也可直接调用命令菜单中的短工具名；未显示在菜单中的工具仍可用 /mcp 调用。写操作先返回确认码，不确认不会执行。')
 

@@ -165,12 +165,35 @@ def handler(gateway):
             raw = encoded(data) if not isinstance(data, bytes) else data
             self.send_response(status); self.send_header('Content-Type',mime)
             self.send_header('Content-Length',str(len(raw))); self.send_header('Cache-Control','no-store')
-            self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Referrer-Policy','no-referrer'); self.end_headers()
+            self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Referrer-Policy','no-referrer')
+            origin=self.headers.get('Origin')
+            if origin in gateway.config.get('gui_origins',[]):
+                self.send_header('Access-Control-Allow-Origin',origin);self.send_header('Vary','Origin')
+                self.send_header('Access-Control-Allow-Methods','GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers','Authorization, Content-Type, X-Ziokt-Auth')
+            self.end_headers()
             if self.command != 'HEAD': self.wfile.write(raw)
+        def check_gui_origin(self):
+            origin=self.headers.get('Origin')
+            host=self.headers.get('Host','')
+            if origin and origin not in gateway.config.get('gui_origins',[]) and origin!='https://'+host and not (host.startswith(('127.0.0.1:', 'localhost:')) and origin=='http://'+host):
+                from .gui_api import GuiError
+                raise GuiError(403,'GUI origin rejected')
+        def do_OPTIONS(self):
+            from .gui_api import GuiError
+            try:
+                self.check_gui_origin()
+                if urlsplit(self.path).path not in {'/api/gateway/tools','/api/gateway/tools/call'}:return self.send(404,{'error':'not found'})
+                self.send(204,b'')
+            except GuiError as exc:self.send(exc.status,{'error':str(exc)})
         def do_HEAD(self): self.do_GET()
         def do_GET(self):
             path = urlsplit(self.path).path
             try:
+                if path == '/api/gateway/tools':
+                    self.check_gui_origin()
+                    from .gui_api import dispatch
+                    return self.send(200, dispatch(gateway, self.headers.get('Authorization')))
                 if path == '/api/gateway/status':
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
@@ -229,10 +252,12 @@ def handler(gateway):
                     if name not in ('gateway.js','i18n.json','media.js','mcp-console.js','oauth-callback.html','oauth-callback.js','registry.html','registry.js'): return self.send(404,{'error':'not found'})
                     return self.send(200,(ASSETS/name).read_bytes(),'application/json' if name.endswith('.json') else 'text/html; charset=utf-8' if name.endswith('.html') else 'text/javascript; charset=utf-8')
                 return self.send(404,{'error':'not found'})
-            except (ValueError, FileNotFoundError): self.send(404,{'error':'object unavailable'})
+            except (ValueError, FileNotFoundError) as exc:
+                from .gui_api import GuiError
+                self.send(exc.status if isinstance(exc,GuiError) else 404,{'error':str(exc) if isinstance(exc,GuiError) else 'object unavailable'})
         def do_POST(self):
             path=urlsplit(self.path).path
-            if path not in ('/api/gateway/forum','/api/gateway/registrations','/api/gateway/registrations/decide'):return self.send(404,{'error':'not found'})
+            if path not in ('/api/gateway/forum','/api/gateway/registrations','/api/gateway/registrations/decide','/api/gateway/tools/call'):return self.send(404,{'error':'not found'})
             try:
                 lengths = self.headers.get_all('Content-Length',[])
                 if len(lengths)!=1 or not lengths[0].isdigit() or not 0<int(lengths[0])<=100000 or self.headers.get('Transfer-Encoding'):
@@ -240,6 +265,10 @@ def handler(gateway):
                 if self.headers.get_content_type() != 'application/json': raise ValueError('JSON required')
                 payload = json.loads(self.rfile.read(int(lengths[0])), object_pairs_hook=unique)
                 auth = self.headers.get('Authorization','')
+                if path == '/api/gateway/tools/call':
+                    self.check_gui_origin()
+                    from .gui_api import dispatch
+                    return self.send(200,dispatch(gateway,auth,payload))
                 if path.startswith('/api/gateway/registrations'):
                     from .registry import Registry
                     registry=Registry(gateway.config['registry_db'],gateway.config['network'])
@@ -280,6 +309,11 @@ def handler(gateway):
                 digest = gateway.submit(payload,self.headers.get('X-Ziokt-Client-IP',self.client_address[0]))
                 return self.send(201,{'id':digest,'identity':'client','announcement':'queued'})
             except Exception as exc:
+                from .gui_api import GuiError
+                from .mcp import McpError
+                if isinstance(exc,GuiError):return self.send(exc.status,{'error':str(exc)})
+                if isinstance(exc,McpError):return self.send(exc.status,{'error':exc.message})
+                if path=='/api/gateway/tools/call' and isinstance(exc,ValueError):return self.send(400,{'error':'Tool arguments or idempotency key rejected'})
                 from cryptography.exceptions import InvalidSignature
                 if isinstance(exc,(ValueError,InvalidSignature,sqlite3.IntegrityError)):
                     return self.send(403,{'error':'write rejected: signature, replay, rate or content invalid'})

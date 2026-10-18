@@ -122,10 +122,32 @@ class NativeUFSDCPMIntegration(unittest.IsolatedAsyncioTestCase):
             artifacts=ArtifactStore(fixture.base/'artifacts');packages=fixture.base/'packages';packages.mkdir(mode=0o700)
             receipt=stage_native_package(fetched,self.source.package_store.public,native,trust,artifacts,packages)
             self.assertFalse(receipt['installation_authorized']);self.assertEqual(artifacts.get(receipt['source_artifact']),blob)
-            config=json.loads(fixture.sconfig.read_text());config.update(allow_mutations=True,
-                allowed_operations=['package.install','package.activate'],allowed_resources=[receipt['selector']],
-                package_root=str(packages),package_trust_file=str(trust),artifact_root=str(artifacts.root))
-            fixture.sconfig.write_text(json.dumps(config))
+            # The same real native archive also crosses the v2 chunk-reference admission path.
+            from ziokt.chunkstore import ChunkStore, CHUNK_BYTES
+            from ziokt.safefs import Vault
+            from ziokt.ufsdcpm import reference_package
+            chunkstore=ChunkStore(Vault(fixture.base/'reference-vault','dcpm',b'q'*32))
+            try:
+                raw=archive.read_bytes();sha=lambda b:'sha256:'+hashlib.sha256(b).hexdigest()
+                chunkstore.begin('native-v2',len(raw),sha(raw),3600)
+                for i,start in enumerate(range(0,len(raw),CHUNK_BYTES)):
+                    chunk=raw[start:start+CHUNK_BYTES];chunkstore.put('native-v2',i,sha(chunk),chunk)
+                obj=chunkstore.finish('native-v2')['manifest_digest']
+                v2=reference_package(chunkstore,'handoff-demo','1.0.0',{NATIVE_PATH:obj},[],self.source.package_store.private)
+                v2receipt=stage_native_package(v2,self.source.package_store.public,native,trust,artifacts,packages,reference_store=chunkstore)
+                self.assertEqual(v2receipt['artifact_digest'],receipt['artifact_digest'])
+                self.assertEqual(v2receipt['schema'],'ziokt.dcpm-shadow6-handoff.v2')
+                self.assertFalse(v2receipt['installed'])
+                with self.assertRaises(ProtocolError):stage_native_package(v2,'0'*64,native,trust,artifacts,packages,reference_store=chunkstore)
+            finally:chunkstore.close()
+            receipt=v2receipt
+
+            from ziokt.package_handoff import approve_native_admission,update_native_signer
+            module=S/'Package-Manager/shadow6_pkg.py'
+            settings={'module':str(module),'module_digest':'sha256:'+hashlib.sha256(module.read_bytes()).hexdigest(),'trust_file':str(trust),'artifact_root':str(artifacts.root),'package_root':str(packages),'native_config':str(fixture.sconfig)}
+            self.assertIn('native-publisher',update_native_signer(settings)['signers'])
+            approval=approve_native_admission(settings,receipt['receipt_digest'],receipt['selector'])
+            self.assertTrue(approval['admission_approved']);self.assertFalse(approval['installed'])
             client=NativeClient('test',fixture.providers[0])
             for action,args in [('package.install',{'artifact_digest':receipt['artifact_digest']}),('package.activate',{})]:
                 prepared=client.call('operation.prepare',{'operation_id':action.replace('.','-'),

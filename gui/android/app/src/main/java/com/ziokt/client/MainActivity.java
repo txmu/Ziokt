@@ -44,13 +44,13 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         // Screen resolution, High-DPI and responsive viewport adaptation
@@ -131,22 +131,22 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
-                return true;
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                android.net.Uri uri=request.getUrl();
+                if (!"https".equals(uri.getScheme()) || !"appassets.ziokt.local".equals(uri.getHost())) return null;
+                String path=uri.getPath();
+                if (path==null || path.contains("..") || path.contains("\\")) return new android.webkit.WebResourceResponse("text/plain","UTF-8",null);
+                String asset=path.equals("/")?"index.html":path.substring(1);
+                String mime=asset.endsWith(".js")?"application/javascript":asset.endsWith(".css")?"text/css":asset.endsWith(".png")?"image/png":asset.endsWith(".svg")?"image/svg+xml":asset.endsWith(".json")?"application/json":"text/html";
+                try { return new android.webkit.WebResourceResponse(mime,"UTF-8",getAssets().open(asset)); }
+                catch (java.io.IOException e) { return new android.webkit.WebResourceResponse("text/plain","UTF-8",null); }
             }
-
             @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                Log.w(TAG, "WebView error " + errorCode + ": " + description + " for " + failingUrl);
-                if (failingUrl != null && !failingUrl.startsWith("file:///android_asset/")) {
-                    view.loadUrl("file:///android_asset/index.html");
-                }
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return !url.startsWith("https://appassets.ziokt.local/");
             }
         });
-
-        // Load offline-first bundled application assets
-        webView.loadUrl("file:///android_asset/index.html");
+        webView.loadUrl("https://appassets.ziokt.local/index.html");
     }
 
     @Override

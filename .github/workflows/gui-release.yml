@@ -23,7 +23,7 @@ jobs:
   test-and-validate:
     name: GUI Automated Tests & Asset Validation
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -56,16 +56,26 @@ jobs:
         run: |
           python3 gui/tests/test_gui_e2e.py
 
+      - run: npm ci --prefix gui --no-audit --no-fund
+      - run: cd gui && npx tauri icon src/icons/icon-512.png
+
+      - name: Install isolated browser for actual GUI interaction
+        run: |
+          npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
+          node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
+      - name: Real browser GUI upload and read-back verification
+        run: node tools/gui_browser_smoke.cjs
+
       - name: Check Rust Core & Tauri 2 Config
         run: |
           cd gui/src-tauri
-          cargo check --manifest-path Cargo.toml || echo "Rust syntax check performed"
+          cargo check --locked --manifest-path Cargo.toml
 
   build-linux:
-    name: Build Linux Desktop (Deb / AppImage / Portable)
+    name: Build Linux Desktop (Deb / AppImage)
     needs: test-and-validate
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -87,24 +97,26 @@ jobs:
           cd gui
           node build.js
 
-      - name: Package Linux Distribution Tarball
-        run: |
-          mkdir -p build-output/linux
-          tar -czf build-output/linux/ziokt-desktop-linux-x86_64.tar.gz -C gui/dist .
-          cp gui/src-tauri/tauri.conf.json build-output/linux/
-
-      - name: Upload Linux Artifacts
+      - run: npm ci --prefix gui --no-audit --no-fund
+      - run: cd gui && npx tauri icon src/icons/icon-512.png
+      - uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: gui
+          args: --bundles deb,appimage
+      - name: Upload Real Linux Installers
         uses: actions/upload-artifact@v4
         with:
           name: ziokt-desktop-linux
-          path: build-output/linux/
+          path: |
+            gui/src-tauri/target/release/bundle/deb/*.deb
+            gui/src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
   build-windows:
-    name: Build Windows Desktop (MSI / Portable)
+    name: Build Windows Desktop (MSI / NSIS)
     needs: test-and-validate
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -121,21 +133,55 @@ jobs:
           cd gui
           node build.js
 
-      - name: Package Windows Distribution Archive
-        run: |
-          mkdir build-output\windows
-          Compress-Archive -Path gui\dist\* -DestinationPath build-output\windows\ziokt-desktop-windows-x64.zip
-          copy gui\src-tauri\tauri.conf.json build-output\windows\
-
-      - name: Upload Windows Artifacts
+      - run: npm ci --prefix gui --no-audit --no-fund
+      - run: cd gui && npx tauri icon src/icons/icon-512.png
+      - uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: gui
+          args: --bundles nsis,msi
+      - name: Upload Real Windows Installers
         uses: actions/upload-artifact@v4
         with:
           name: ziokt-desktop-windows
-          path: build-output/windows/
+          path: |
+            gui/src-tauri/target/release/bundle/nsis/*.exe
+            gui/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS GUI (${{ matrix.target }})
+    needs: test-and-validate
+    runs-on: macos-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: node gui/build.js
+      - run: npm ci --prefix gui --no-audit --no-fund
+      - run: cd gui && npx tauri icon src/icons/icon-512.png
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        with:
+          projectPath: gui
+          args: --target ${{ matrix.target }} --bundles dmg,app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ziokt-desktop-macos-${{ matrix.target }}
+          path: gui/src-tauri/target/${{ matrix.target }}/release/bundle/
           if-no-files-found: error
 
   build-android-and-harmonyos:
-    name: Build Mobile (Android APK & HarmonyOS NEXT Package)
+    name: Build Android APK (HarmonyOS source wrapper is not a signed HAP)
     needs: test-and-validate
     runs-on: ubuntu-24.04
     timeout-minutes: 20

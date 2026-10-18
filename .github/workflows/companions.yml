@@ -90,6 +90,8 @@ jobs:
         run: |
           node tools/effort_browser_smoke.cjs
           node tools/explorer_browser_smoke.cjs
+          node gui/build.js
+          node tools/gui_browser_smoke.cjs
   native-etp:
     strategy:
       fail-fast: false

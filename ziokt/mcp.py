@@ -96,6 +96,7 @@ class Service:
                 ensure_telegram_schema(db)
         self.tools={}
         self.dispatch={}
+        self.add('ziokt_privacy_status','Report actual ownership and transport privacy boundaries; never claim shielded ledger ownership without native consensus support.',schema(),False,'ziokt:read',('privacy-status',))
         self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
         if config.get('federation'):
             from .config import load
@@ -137,6 +138,13 @@ class Service:
                 if method.startswith('chat.') and app!='watchat':continue
                 if method.startswith('package.') and app not in {'ufs','dcpm'}:continue
                 self.add(app.replace('-','_')+'_'+method.replace('.','_'),f'{app}: {method} through its authenticated application bridge.',schema({'params':BRIDGE.get(method,PARAMS)},('params',)),method in BRIDGE_WRITE,app+(':write' if method in BRIDGE_WRITE else ':read'),('bridge',app,method))
+        if config.get('native_package_handoff'):
+            self.add('ziokt_package_admission_approve','Owner: whitelist an exact staged, independently signed native package for later install/activate plans. Does not install or run code.',schema({'receipt_digest':STRING,'selector':STRING,'confirm':{'type':'boolean','const':True}},('receipt_digest','selector','confirm')),True,'ziokt:admin',('native-admission',))
+            self.add('ziokt_package_signer_list','Owner: inspect the native package publisher allowlist.',schema(),False,'ziokt:admin',('native-signers','list'))
+            self.add('ziokt_package_signer_update','Owner: explicitly approve or revoke an Ed25519 native package publisher. Does not install or activate code.',schema({'signer':STRING,'public_key':{'type':'string','pattern':'^[a-f0-9]{64}$'},'decision':{'type':'string','enum':['approve','revoke']},'confirm':{'type':'boolean','const':True}},('signer','decision','confirm')),True,'ziokt:admin',('native-signers','update'))
+            for app in ('dcpm','ufs'):
+                if app in config.get('bridges',{}):
+                    self.add(app+'_package_stage_native','Verify both DCPM and native signatures and stage a v1/v2 reference package. Does not install, activate or run it.',schema({'digest':STRING,'authority':STRING},('digest','authority')),True,app+':write',('native-package-stage',app))
         self.add('ziokt_workflow_status','Read the caller-owned workflow.',schema({'workflow_id':STRING},('workflow_id',)),False,'ziokt:read',('workflow-status',))
         self.add('ziokt_workflow_apply','Execute a caller-owned reviewed plan with exact digest and explicit confirmation.',schema({'workflow_id':STRING,'plan_digest':STRING,'confirm':{'type':'boolean','const':True}},('workflow_id','plan_digest','confirm')),True,'ziokt:apply',('workflow-apply',))
         if config.get('gateway'):
@@ -388,6 +396,25 @@ class Service:
             if action=='new':values=['--invite',args['invite']] if args['invite'] else []
             text=gateway.native_text('cbb-game',action,*values)
             return {'action':action,'native_result':text,'consensus_confirmed':False}
+        if kind=='privacy-status':
+            return {'transport_encryption':True,'fresh_receiver_keys':True,'sealed_receipts':True,
+                    'authenticated_receiver_can_identify_caller':True,'ledger_ownership_transitions_observable':True,
+                    'shielded_ownership_supported':False,'anonymous_against_global_observer':False,
+                    'required_for_shielded_ownership':['native consensus transaction type','audited commitment and nullifier proof system','private wallet recovery','migration and consensus acceptance tests']}
+        if kind=='native-admission':
+            from .package_handoff import approve_native_admission
+            return approve_native_admission(self.current().get('native_package_handoff'),args['receipt_digest'],args['selector'])
+        if kind=='native-signers':
+            from .package_handoff import update_native_signer
+            settings=self.current().get('native_package_handoff')
+            if route[1]=='list':return update_native_signer(settings)
+            return update_native_signer(settings,args['signer'],args.get('public_key'),args['decision'])
+        if kind=='native-package-stage':
+            from .companion_bridge import CompanionBridge
+            from .package_handoff import stage_bridge_package
+            bridge=CompanionBridge(self.config['bridges'][route[1]])
+            try:return stage_bridge_package(self.current().get('native_package_handoff'),bridge,args['digest'],args['authority'])
+            finally:bridge.close()
         if kind=='bridge':
             from .companion_bridge import CompanionBridge
             bridge=CompanionBridge(self.config.get('exchanges',{}).get(route[1],self.config['bridges'][route[1]]) if route[2].startswith('component.') and route[2]!='component.status' else self.config['bridges'][route[1]])

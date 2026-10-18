@@ -47,7 +47,9 @@ def execute(bridge, method, params):
                 item=vault.put('packages/'+params['name']+'/'+params['version']+'.zpkg2',data)
                 manifest=strict_json(data)['manifest']['payload']
                 store.pin(item['digest'],[entry['object'] for entry in manifest['files']])
-                return item
+                from .security import sign
+                publisher=sign({},bridge.private,'Ziokt/package-publisher/v1')['public_key']
+                return {**item,'publisher':publisher,'package_schema':'ziokt.dcpm-package.v2','installed':False}
             exact(['digest','authority'])
             report=verify_reference_package(store,vault.get(params['digest'])[1],params['authority'],verify_content=method!='package.release.references')
             if method=='package.release.references':return store.unpin(params['digest'])

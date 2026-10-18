@@ -48,7 +48,9 @@ def provision(root,issuer,federation,gateway,existing=None,portal_origin=None):
  readonly=[s for s in service.scopes if s.endswith(':read')]
  config['clients']={'ziokt-reader':{'redirect_uris':['http://127.0.0.1:8765/callback'],'scopes':readonly},'ziokt-operator':{'redirect_uris':['http://127.0.0.1:8765/callback'],'scopes':service.scopes}}
  config['clients']['ziokt-browser']={'redirect_uris':[portal_origin+'/gateway-assets/oauth-callback.html'],'scopes':service.scopes}
- destination=root/'mcp.json';write(destination,encoded(config));return destination,len(service.tools)
+ destination=root/'mcp.json';write(destination,encoded(config))
+ gateway_config=strict_json(secure_read(gateway));gateway_config['mcp_config']=str(destination);write(gateway,encoded(gateway_config))
+ return destination,len(service.tools)
 
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--issuer',required=True);p.add_argument('--federation',type=Path,required=True);p.add_argument('--gateway',type=Path,required=True);p.add_argument('--bridge',action='append',default=[]);p.add_argument('--portal-origin',help='exact HTTPS portal origin when separate from the MCP issuer')

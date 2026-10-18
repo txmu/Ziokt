@@ -1,15 +1,15 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ziokt Client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.ziokt.client",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
-        "title": "Ziokt 统一图形客户端",
+        "title": "Ziokt \u7edf\u4e00\u56fe\u5f62\u5ba2\u6237\u7aef",
         "width": 1240,
         "height": 820,
         "minWidth": 360,
@@ -19,8 +19,9 @@
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost https://cor-web.ziokt.com wss://cor-web.ziokt.com http://127.0.0.1:8185 https://mcp.ziokt.com https://app.ziokt.com"
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
@@ -43,9 +44,6 @@
       "appimage": {
         "bundleMediaFramework": false
       }
-    },
-    "android": {
-      "v4Signing": true
     }
   }
 }

@@ -126,7 +126,7 @@ export function renderSettings(container) {
             const isActive = node.id === activeNode?.id;
             const hasToken = !!(node.authToken && node.authToken.trim());
             const statusColor = node.status === 'online' ? 'var(--accent-green)' : (node.status === 'unauthenticated' ? 'var(--accent-amber)' : (node.status === 'auth_failed' ? 'var(--accent-red)' : 'var(--text-dim)'));
-            const statusText = node.status === 'online' ? `${t('settings.auth_valid')} (${node.latency || '15ms'})` : (node.status === 'unauthenticated' ? t('settings.auth_required') : (node.status === 'auth_failed' ? t('settings.auth_invalid') : (node.status === 'offline' ? t('app.status_offline') : '未验证')));
+            const statusText = node.status === 'online' ? `${t('settings.auth_valid')} (${node.latency || '--'})` : (node.status === 'unauthenticated' ? t('settings.auth_required') : (node.status === 'auth_failed' ? t('settings.auth_invalid') : (node.status === 'offline' ? t('app.status_offline') : '未验证')));
 
             return `
               <div style="background: var(--bg-input); border: 1px solid ${isActive ? 'var(--accent-cyan)' : 'var(--border-subtle)'}; border-radius: var(--radius-sm); padding: 14px 16px;">
@@ -150,7 +150,7 @@ export function renderSettings(container) {
                 <!-- Auth Token row -->
                 <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
                   <span style="font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0;">${t('settings.auth_token')}:</span>
-                  <input type="password" class="input-text node-token-input" data-id="${node.id}" value="${node.authToken || ''}" placeholder="${t('settings.auth_token_tip')}" style="font-size: 0.78rem; font-family: var(--font-mono); height: 30px; padding: 4px 8px;">
+                  <input type="password" class="input-text node-token-input" data-id="${node.id}" value="" placeholder="${t('settings.auth_token_tip')}" style="font-size: 0.78rem; font-family: var(--font-mono); height: 30px; padding: 4px 8px;">
                   <button class="btn btn-secondary btn-sm save-token-btn" data-id="${node.id}" style="height: 30px; padding: 2px 10px; font-size: 0.75rem;">${t('common.save')}</button>
                 </div>
               </div>
@@ -447,16 +447,20 @@ export function renderSettings(container) {
     };
   }
 
-  // Component Toggles
+  // Lifecycle operations require an actual native service manager; browser UIs cannot claim process control.
   container.querySelectorAll('.toggle-comp-btn').forEach(btn => {
-    btn.onclick = () => {
-      const key = btn.dataset.key;
-      const comp = State.components[key];
-      if (comp) {
-        comp.status = comp.status === 'online' ? 'offline' : 'online';
-        showToast(isEn ? `${comp.name} status updated: ${comp.status.toUpperCase()}` : `${comp.name} 状态已更新为: ${comp.status.toUpperCase()}`, comp.status === 'online' ? 'success' : 'info');
-        renderSettings(container);
-      }
+    btn.onclick = async () => {
+      const invoke = window.__TAURI_INTERNALS__?.invoke;
+      if (!invoke) { showToast('此浏览器没有本地进程管理权限；请通过原生客户端或服务管理器操作', 'error'); return; }
+      btn.disabled = true;
+      try {
+        const key = btn.dataset.key;
+        const observed = await invoke('manage_component', {name:key,action:'status'});
+        const result = await invoke('manage_component', {name:key,action:observed.status==='active'?'stop':'start'});
+        State.components[key].status = result.status === 'active' ? 'online' : result.status;
+        showToast(result.message, 'info'); renderSettings(container);
+      } catch (error) { showToast(String(error), 'error'); }
+      finally { btn.disabled = false; }
     };
   });
 
