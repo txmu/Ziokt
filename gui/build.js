@@ -288,19 +288,13 @@ function copyDir(src, dest) {
 
 copyDir(SRC_DIR, DIST_DIR);
 
-// Copy downloads if available
-const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-if (fs.existsSync(DOWNLOADS_DIR)) {
-  copyDir(DOWNLOADS_DIR, path.join(DIST_DIR, 'downloads'));
-}
-
 // Sync into Android assets directory (exclude downloads)
 const ANDROID_ASSETS_DIR = path.join(__dirname, 'android', 'app', 'src', 'main', 'assets');
 if (fs.existsSync(path.dirname(ANDROID_ASSETS_DIR))) {
   if (fs.existsSync(ANDROID_ASSETS_DIR)) {
     fs.rmSync(ANDROID_ASSETS_DIR, { recursive: true, force: true });
   }
-  copyDir(SRC_DIR, ANDROID_ASSETS_DIR);
+  copyDir(DIST_DIR, ANDROID_ASSETS_DIR);
 }
 
 const distFiles = fs.readdirSync(DIST_DIR, { recursive: true });
@@ -308,8 +302,6 @@ console.log(`>> [Ziokt GUI] Build complete! ${distFiles.length} files staged int
 
 // 5. Also stage into gateway/gui for direct Web Console / Gateway integration
 const GATEWAY_GUI_DIR = path.join(__dirname, '..', 'gateway', 'gui');
-if (fs.existsSync(GATEWAY_GUI_DIR)) {
-  fs.rmSync(GATEWAY_GUI_DIR, { recursive: true, force: true });
-}
+fs.mkdirSync(GATEWAY_GUI_DIR, { recursive: true });
 copyDir(DIST_DIR, GATEWAY_GUI_DIR);
 console.log(`>> [Ziokt GUI] Assets synced into gateway/gui/ for /gateway-assets/gui/ serving.`);

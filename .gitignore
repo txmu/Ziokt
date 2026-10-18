@@ -9,3 +9,4 @@ node_modules/
 companions/**/dist/
 gui/src-tauri/target/
 gui/dist/
+gui/downloads/

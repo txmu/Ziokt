@@ -10,6 +10,7 @@ echo ">> [Ziokt Android] Packaging standalone Android APK application..."
 # 1. Sync assets into Android project
 mkdir -p "$SCRIPT_DIR/android/app/src/main/assets"
 cp -r "$SCRIPT_DIR/dist"/* "$SCRIPT_DIR/android/app/src/main/assets/"
+rm -rf "$SCRIPT_DIR/android/app/src/main/assets/downloads"
 
 # 2. Check if Gradle is present and can build APK directly
 if command -v ./gradlew >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/android/gradlew" ]; then
@@ -42,7 +43,7 @@ aapt package -f -m \
     -M "$SCRIPT_DIR/android/app/src/main/AndroidManifest.xml" \
     -S "$SCRIPT_DIR/android/app/src/main/res" \
     -I "$ANDROID_JAR" \
-    -A "$SCRIPT_DIR/dist" \
+    -A "$SCRIPT_DIR/android/app/src/main/assets" \
     -F "$WORK_DIR/unaligned.apk" \
     -J "$WORK_DIR/gen"
 

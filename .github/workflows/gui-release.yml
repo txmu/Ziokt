@@ -157,6 +157,7 @@ jobs:
           mkdir -p build-output/harmonyos
           mkdir -p gui/harmonyos/entry/src/main/resources/rawfile
           cp -r gui/dist/* gui/harmonyos/entry/src/main/resources/rawfile/
+          rm -rf gui/harmonyos/entry/src/main/resources/rawfile/downloads
           tar -czf build-output/harmonyos/ziokt-mobile-harmonyos-next.tar.gz -C gui harmonyos
 
       - name: Setup Java 21
