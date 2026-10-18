@@ -1,5 +1,5 @@
 'use strict';
-const assert=require('node:assert/strict'),cp=require('node:child_process'),readline=require('node:readline');
+const assert=require('node:assert/strict'),cp=require('node:child_process'),crypto=require('node:crypto'),readline=require('node:readline');
 let pw;try{pw=require('../ci/browser/node_modules/playwright')}catch(_){pw=require('../.runtime/browser/node_modules/playwright')}
 (async()=>{let browser;const child=cp.spawn(process.env.PYTHON||'python3',['ci/gateway_browser_fixture.py'],{stdio:['ignore','pipe','inherit']});
 try{
@@ -13,6 +13,18 @@ try{
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.locator('#mcp-connect').click();await page.waitForURL('**/oauth/authorize?**');await page.locator('input[name="admin_token"]').fill(fixture.admin_token);await page.getByRole('button',{name:'Approve scopes'}).click();await page.waitForURL('**/app/forum?lang=zh-CN');await page.locator('#mcp-form').waitFor();
  await page.locator('#mcp-tool').selectOption('gateway_status');await page.locator('#mcp-form button').click();await page.waitForFunction(()=>document.querySelector('#mcp-result').textContent.includes('browser-test'));
+ await page.goto(fixture.origin+'/app/ufsdcpm?lang=en-US');await page.locator('[data-object-uploader]').waitFor();
+ const uploader=page.locator('[data-object-uploader]');await uploader.locator('summary').click();
+ const source=Buffer.alloc(50000,123),digest='sha256:'+crypto.createHash('sha256').update(source).digest('hex');
+ await uploader.locator('input[type="file"]').setInputFiles({name:'actual-object.bin',mimeType:'application/octet-stream',buffer:source});
+ await uploader.locator('input[pattern]').fill(digest);await uploader.locator('button').first().click();
+ await page.waitForFunction(()=>document.querySelector('[data-object-uploader] [role=status]')?.textContent.startsWith('Integrity verified:'));
+ assert.equal(await uploader.locator('progress').evaluate(e=>e.value),source.length);
+ const reference=JSON.parse(await page.locator('#mcp-result').textContent());assert.equal(reference.digest,digest);assert.equal(reference.execution_authorized,false);
+ await page.reload();await page.locator('[data-object-uploader]').waitFor();const resumed=page.locator('[data-object-uploader]');await resumed.locator('summary').click();
+ await resumed.locator('input[type="file"]').setInputFiles({name:'actual-object.bin',mimeType:'application/octet-stream',buffer:source});await resumed.locator('input[pattern]').fill(digest);await resumed.locator('button').first().click();
+ await page.waitForFunction(()=>document.querySelector('[data-object-uploader] [role=status]')?.textContent.startsWith('Integrity verified:'));
+ assert.equal(JSON.parse(await page.locator('#mcp-result').textContent()).manifest_digest,reference.manifest_digest);
  await page.locator('#mcp-disconnect').click();await page.locator('#mcp-connect').waitFor();assert.deepEqual(errors,[]);
  await page.goto(fixture.origin+'/gateway-assets/registry.html');await page.locator('#registration[data-ready="true"]').waitFor();await page.locator('#entry').fill(JSON.stringify({kind:'external_chain',target:'browser-chain',description:'Actual WebCrypto registration',weight:100,genesis_hash:'a'.repeat(64),verifier_hash:'b'.repeat(64)}));await page.locator('#registration button').click();await page.waitForFunction(()=>document.querySelector('#result').textContent.trim().length>0);assert.match(await page.locator('#result').innerText(),/pending/);assert.match(await page.locator('#approved').innerText(),/"registrations": \[\]/);
  console.log('PASS '+engine+': actual browser Ed25519 -> native SQLite, escaped forum, bilingual mobile, OAuth PKCE callback -> authenticated MCP tool -> revoke');

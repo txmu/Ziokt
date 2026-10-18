@@ -1,10 +1,12 @@
 """Loopback real database, signature verifier, OAuth and MCP browser fixture."""
-import json,sqlite3,sys,tempfile,threading
+import json,sqlite3,sys,tempfile,threading,signal
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from ziokt.gateway import Gateway,Server,handler,ASSETS
 from ziokt.gateway_store import database
 from ziokt.mcp import Service,http_handler
+
+signal.signal(signal.SIGTERM,lambda *_:sys.exit(0))
 
 with tempfile.TemporaryDirectory(prefix='ziokt-browser-') as directory:
  root=Path(directory);forum=root/'forum.db';token=root/'token';token.write_text('browser-test-token');token.chmod(0o600)
@@ -13,6 +15,15 @@ with tempfile.TemporaryDirectory(prefix='ziokt-browser-') as directory:
  path=root/'gateway.json';path.write_text(json.dumps(config));path.chmod(0o600)
  gateway=Gateway(config)
  settings={'state':str(root/'mcp'),'issuer':'http://127.0.0.1','origins':[],'admin_token':str(token),'gateway':str(path),'writes_enabled':True,'clients':{'ziokt-browser':{'redirect_uris':[],'scopes':['ziokt:read','ziokt:apply','gateway:read','gateway:write']}}}
+ from ziokt.cli import write_exclusive,write_binary_exclusive
+ from ziokt.community import create_policy,RIGHTS
+ from ziokt.security import sign
+ area=root/'ufs';area.mkdir(mode=0o700);(area/'vault').mkdir(mode=0o700)
+ private=b'u'*32;public=sign({},private,'test')['public_key']
+ for name,key in [('signing',private),('encryption',b'e'*32),('application',b'a'*32)]:write_binary_exclusive(area/(name+'.key'),key)
+ write_exclusive(area/'policy.json',create_policy(private,'browser-objects',{public:sorted(RIGHTS)}))
+ write_exclusive(area/'bridge.json',{'schema':'ziokt.companion-bridge.v1','community_root':str(area/'community'),'policy':str(area/'policy.json'),'owner':public,'encryption_key':str(area/'encryption.key'),'signing_key':str(area/'signing.key'),'application':'ufs','application_key':str(area/'application.key'),'vault_root':str(area/'vault')})
+ settings['bridges']={'ufs':str(area/'bridge.json')}
  mcp=Service(settings);settings['clients']['ziokt-browser']['scopes']=mcp.scopes;GW=handler(gateway);MCP=http_handler(mcp)
  class API:
   def get_node_context(self):

@@ -3,6 +3,7 @@ import hashlib
 import base64
 import time
 import hmac
+from html import unescape
 
 # Bootstrap embeds the versioned, external dictionary when publishing to P2P.
 MESSAGES = {}
@@ -96,10 +97,10 @@ except Exception:
 chain_ctx = node_ctx.get('blockchain', {})
 dht_ctx = node_ctx.get('dht', {})
 nns_ctx = node_ctx.get('nns', [])
-cur_h = chain_ctx.get('height', 0)
-tx_c = chain_ctx.get('tx_count', 0)
-n_cnt = dht_ctx.get('nodes_count', 0)
-c_cnt = dht_ctx.get('chunks_count', 0)
+cur_h = esc(chain_ctx.get('height', t('runtime.unobserved')))
+tx_c = esc(chain_ctx.get('tx_count', t('runtime.unobserved')))
+n_cnt = esc(dht_ctx.get('nodes_count', t('runtime.unobserved')))
+c_cnt = esc(dht_ctx.get('chunks_count', t('runtime.unobserved')))
 
 # 3. Visitor Tracking in Data Vault
 visit_count = 0
@@ -681,17 +682,17 @@ elif subpath == "safefs":
 # SUBPATH: UFS / DCPM
 # ==============================================================================
 elif subpath == "ufsdcpm":
-    tab_html = """
+    tab_html = f"""
     <div class="card detail-card">
         <h2>🔐 UFS / DCPM 零知识双重加密磁盘与软件包管理器</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            原生结合可否认加密 (Plausible Deniability) 虚构卷与 DCPM 精确签名软件包。保障离线数据即便在极端主机检查下亦不泄露内部隐藏分区。
+            以下展示原生存储设计与签名包能力；本页面没有验证隐藏卷、挂载状态或主机隔离。
         </p>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
                 <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">💾 外部诱饵卷 (Outer Decoy Volume)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">主口令解锁后呈现的标准合法文件系统，无法在统计学上探测是否存在内层。</p>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">主口令解锁后呈现的标准合法文件系统，隐藏性取决于原生实现与使用环境，页面不提供此保证。</p>
                 <div class="table-row">
                     <span class="label">虚拟扇区大小</span>
                     <span class="val">512 Bytes / Sector</span>
@@ -702,36 +703,36 @@ elif subpath == "ufsdcpm":
                 </div>
                 <div class="table-row">
                     <span class="label">状态</span>
-                    <span class="status-pill" style="background:#0284c7;">ACTIVE / MOUNTED</span>
+                    <span class="status-pill" style="background:#0284c7;">{t('runtime.unobserved')}</span>
                 </div>
             </div>
             
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--accent-purple);">
                 <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">🛡️ 隐藏内层密室卷 (Inner Hidden Volume)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">次级零知识口令解锁，数据隐藏于伪随机自由块中，具备不可区分性。</p>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">次级零知识口令解锁，数据隐藏于伪随机自由块中，本页面未验证其不可区分性。</p>
                 <div class="table-row">
                     <span class="label">加密算法</span>
                     <span class="val">XTS-AES-256 + Argon2id</span>
                 </div>
                 <div class="table-row">
                     <span class="label">零知识凭证</span>
-                    <span class="val">Zero Leakage</span>
+                    <span class="val">{t('runtime.unobserved')}</span>
                 </div>
                 <div class="table-row">
                     <span class="label">状态</span>
-                    <span class="status-pill" style="background:#7c3aed;">SEALED / STEALTH</span>
+                    <span class="status-pill" style="background:#7c3aed;">{t('runtime.unobserved')}</span>
                 </div>
             </div>
         </div>
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem;">
-                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin:0;">🌐 UFS 原生安全存储 HTTP 服务 (Live Service)</h3>
-                <span class="status-pill" style="background:#059669;font-size:0.75rem;">RUNNING &bull; 127.0.0.1:8184</span>
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin:0;">🌐 UFS 原生安全存储 HTTP 服务（状态待查询）</h3>
+                <span class="status-pill" style="background:#059669;font-size:0.75rem;">{t('runtime.unobserved')}</span>
             </div>
             <div class="table-row">
                 <span class="label">节点 ID (Node ID)</span>
-                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green)">800a3e4c08b13a41b41632a2bd8f0065340dbb99d32f8f94fc307c6d52fa9f3d</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green)">{t('runtime.unobserved')}</span>
             </div>
             <div class="table-row">
                 <span class="label">公网访问网关</span>
@@ -743,7 +744,7 @@ elif subpath == "ufsdcpm":
             </div>
             <div class="table-row">
                 <span class="label">鉴权凭据存储</span>
-                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green);"><span class="status-pill" style="background:#059669;">PROTECTED (0600)</span> 本地 ~/.config/dcpm-ufs/config.json</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green);"><span class="status-pill" style="background:#059669;">{t('runtime.unobserved')}</span> 本地 ~/.config/dcpm-ufs/config.json</span>
             </div>
             <div class="table-row">
                 <span class="label">安全凭据说明</span>
@@ -759,18 +760,18 @@ elif subpath == "ufsdcpm":
             </div>
         </div>
 
-        <h3 style="color:var(--accent-green);font-size:1.05rem;margin-bottom:0.75rem;">📦 DCPM 签名软件包清单 (Exact Digests)</h3>
+        <h3 style="color:var(--accent-green);font-size:1.05rem;margin-bottom:0.75rem;">📦 DCPM 软件包格式示例（不是已安装清单）</h3>
         <div class="table-row">
             <span class="label"><strong>ziokt-core-1.0.8.dcpm</strong> (核心微架构运行时)</span>
-            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:4a8f9b...12c &bull; <span class="status-pill">VERIFIED</span></span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
             <span class="label"><strong>tc16-vm-isa.dcpm</strong> (16位虚拟机指令集包)</span>
-            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:7b1e2c...90f &bull; <span class="status-pill">VERIFIED</span></span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
             <span class="label"><strong>etp-onion-gateway.dcpm</strong> (ETP 洋葱网关原生包)</span>
-            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">sha256:91df3e...44a &bull; <span class="status-pill">VERIFIED</span></span>
+            <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
     </div>
     """
@@ -1014,8 +1015,8 @@ HALT"""
 # ==============================================================================
 elif subpath == "blockchain":
     blocks = chain_ctx.get('blocks', [])
-    cur_height = chain_ctx.get('height', 0)
-    tx_count = chain_ctx.get('tx_count', 0)
+    cur_height = esc(chain_ctx.get('height', t('runtime.unobserved')))
+    tx_count = esc(chain_ctx.get('tx_count', t('runtime.unobserved')))
     block_count = chain_ctx.get('block_count', len(blocks))
     
     b_rows = ""
@@ -1085,6 +1086,7 @@ elif subpath == "blockchain":
 # ==============================================================================
 elif subpath == "watchat":
     chat_list = []
+    chat_notice = ""
     try:
         c_raw = api.read_from_vault('watchat_msgs.json')
         if c_raw.get('status') == 'success' and c_raw.get('data'):
@@ -1095,46 +1097,52 @@ elif subpath == "watchat":
     c_user = query.get('user', [''])[0].strip() or 'MeshPeer'
     c_msg = query.get('msg', [''])[0].strip()
     if c_msg:
+        prior_chat_list=list(chat_list)
         chat_list.append({
-            "user": esc(c_user[:32]),
-            "msg": esc(c_msg[:512]),
+            "user": c_user[:32],
+            "msg": c_msg[:512],
+            "text_format":"plain",
             "timestamp": int(time.time()),
             "channel": "public-p2p"
         })
         chat_list = chat_list[-50:]
         try:
-            api.write_to_vault('watchat_msgs.json', json.dumps(chat_list))
+            saved=api.write_to_vault('watchat_msgs.json', json.dumps(chat_list))
+            if not isinstance(saved,dict) or saved.get('status')!='success':raise ValueError('write rejected')
         except Exception:
-            pass
+            chat_list=prior_chat_list
+            chat_notice=t('watchat.public_write_failed')
 
     chat_bubble_html = ""
     for m in chat_list:
+        user_text=str(m.get('user',''));message_text=str(m.get('msg',''))
+        if m.get('text_format')!='plain':user_text=unescape(user_text);message_text=unescape(message_text)
         chat_bubble_html += f"""
         <div style="margin-bottom:0.75rem;padding:0.75rem;background:#0f172a;border-radius:6px;border-left:3px solid var(--accent-blue);">
             <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.25rem;">
-                <strong style="color:var(--accent-blue)">👤 {m.get('user')}</strong>
+                <strong style="color:var(--accent-blue)">👤 {esc(user_text)}</strong>
                 <span>{time.strftime('%H:%M:%S', time.gmtime(m.get('timestamp', 0)))}</span>
             </div>
-            <div style="font-size:0.95rem;color:var(--text-primary);">{m.get('msg')}</div>
+            <div style="font-size:0.95rem;color:var(--text-primary);">{esc(message_text)}</div>
         </div>
         """
     if not chat_bubble_html:
-        chat_bubble_html = "<div style='color:var(--text-secondary);padding:1rem;text-align:center;'>频道暂无消息，欢迎发送首条端到端密聊！</div>"
+        chat_bubble_html = "<div style='color:var(--text-secondary);padding:1rem;text-align:center;'>公开留言板暂无内容。</div>"
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>📨 WATChat 端到端即时通讯网关桥 (Decentralized Chat)</h2>
+        <h2>📨 {t('watchat.public_title')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            WATChat 是 Ziokt 生态中的端侧密封通讯套件。网关提供基于 Data Vault 的公网双向接入桥，亦可直达独立部署的 WATChat PWA。
+            {t('watchat.public_notice')}
         </p>
         
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
-            <span class="status-pill" style="background:#0284c7;">ENCRYPTED P2P CHANNEL: #public-mesh</span>
+            <span class="status-pill" style="background:#0284c7;">{t('watchat.public_channel')}</span>
             <a href="https://ziokt-chat-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple">打开独立 WATChat PWA 界面 &rarr;</a>
         </div>
         
         <div style="background:#1e293b;padding:1rem;border-radius:8px;border:1px solid var(--border-color);height:300px;overflow-y:auto;margin-bottom:1rem;">
-            {chat_bubble_html}
+            <p role="status">{chat_notice}</p>{chat_bubble_html}
         </div>
         
         <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
@@ -1162,11 +1170,11 @@ elif subpath == "sim":
                 <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">🎮 虚拟仿真集群节点拓扑</h3>
                 <div class="table-row">
                     <span class="label"><strong>Node-Alpha (Leader)</strong></span>
-                    <span class="status-pill" style="background:#10b981;">HEALTHY / 100%</span>
+                    <span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span>
                 </div>
                 <div class="table-row">
                     <span class="label"><strong>Node-Beta (PoUW Miner)</strong></span>
-                    <span class="status-pill" style="background:#10b981;">MINING ACTIVE</span>
+                    <span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span>
                 </div>
                 <div class="table-row">
                     <span class="label"><strong>Node-Gamma (ETP Relay)</strong></span>
@@ -1483,7 +1491,7 @@ elif subpath == "mcp":
             </div>
             <div class="table-row">
                 <span class="label">安全保障</span>
-                <span class="val" style="color:var(--accent-green);"><span class="status-pill">ACTIVE</span> 写入计划交互确认 &bull; 幂等重试保护</span>
+                <span class="val" style="color:var(--accent-green);"><span class="status-pill">{t('runtime.unobserved')}</span> 写入计划交互确认 &bull; 幂等重试保护</span>
             </div>
         </div>
     </div>
@@ -1518,19 +1526,19 @@ elif subpath == "shadow6":
             s6_notice = f"<div class='notice' style='background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;'>❌ 密室保存失败: {esc(str(e))}</div>"
 
     s6_profiles = [
-        ("go-kcp", "Go", "KCP Stream", "14433", "TCP", "LISTENING"),
-        ("rust-quic", "Rust", "QUIC Datagram", "14434", "TCP", "LISTENING"),
-        ("gleam-secure-stream", "Gleam", "Secure-Stream", "14435", "TCP", "LISTENING"),
-        ("ada-cell-relay", "Ada", "Cell-Relay", "14436", "TCP", "LISTENING"),
-        ("nim-webrtc", "Nim", "WebRTC DataChannel", "14437", "TCP", "LISTENING"),
-        ("pony-udp", "Pony", "Actor UDP", "14438", "UDP", "LISTENING"),
-        ("zig-enet", "Zig", "ENet Reliable UDP", "14439", "UDP", "LISTENING"),
-        ("d-secure-stream", "D", "Secure-Stream", "14440", "TCP", "LISTENING"),
-        ("cpp-sctp-tls13", "C++", "SCTP / TLS 1.3", "14441", "TCP", "LISTENING"),
-        ("idris-udp", "Idris", "Dependent UDP", "14442", "UDP", "LISTENING"),
-        ("hare-udp", "Hare", "Zero-overhead UDP", "14443", "UDP", "LISTENING"),
-        ("carp-udp", "Carp", "Memory-safe UDP", "14444", "UDP", "LISTENING"),
-        ("gleam-micro-mux", "Gleam", "Micro-Multiplexer", "14445", "UDP", "LISTENING"),
+        ("go-kcp", "Go", "KCP Stream", "14433", "TCP", t('runtime.unobserved')),
+        ("rust-quic", "Rust", "QUIC Datagram", "14434", "TCP", t('runtime.unobserved')),
+        ("gleam-secure-stream", "Gleam", "Secure-Stream", "14435", "TCP", t('runtime.unobserved')),
+        ("ada-cell-relay", "Ada", "Cell-Relay", "14436", "TCP", t('runtime.unobserved')),
+        ("nim-webrtc", "Nim", "WebRTC DataChannel", "14437", "TCP", t('runtime.unobserved')),
+        ("pony-udp", "Pony", "Actor UDP", "14438", "UDP", t('runtime.unobserved')),
+        ("zig-enet", "Zig", "ENet Reliable UDP", "14439", "UDP", t('runtime.unobserved')),
+        ("d-secure-stream", "D", "Secure-Stream", "14440", "TCP", t('runtime.unobserved')),
+        ("cpp-sctp-tls13", "C++", "SCTP / TLS 1.3", "14441", "TCP", t('runtime.unobserved')),
+        ("idris-udp", "Idris", "Dependent UDP", "14442", "UDP", t('runtime.unobserved')),
+        ("hare-udp", "Hare", "Zero-overhead UDP", "14443", "UDP", t('runtime.unobserved')),
+        ("carp-udp", "Carp", "Memory-safe UDP", "14444", "UDP", t('runtime.unobserved')),
+        ("gleam-micro-mux", "Gleam", "Micro-Multiplexer", "14445", "UDP", t('runtime.unobserved')),
     ]
     
     profiles_rows_html = ""
@@ -1681,12 +1689,12 @@ elif subpath == "shadow6":
             </div>
         </div>
 
-        <!-- 3. LIVE 13 NATIVE PROFILES TELEMETRY -->
+        <!-- Native Profile catalog; runtime requires an authorized observation. -->
         <h3 style="color:var(--accent-green);font-size:1.15rem;margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;">
             📡 {t('shadow6.profiles_title')}
         </h3>
         <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem;">
-            当前服务宿主机拉起的 13 种 Profile 守护监听进程全部在线，支持 Virtual Broker 统一流量分发。
+            以下是 Profile 能力目录和示例端口；实际进程、监听和健康状态需授权后查询原生系统。
         </p>
         <div style="overflow-x:auto;margin-bottom:1.5rem;">
             <table style="width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;font-size:0.85rem;">
@@ -1709,11 +1717,11 @@ elif subpath == "shadow6":
         <!-- 4. VIRTUAL BROKER TELEMETRY -->
         <div class="table-row">
             <span class="label">虚拟 Broker 控制台 (Virtual Broker Core)</span>
-            <span class="val" style="color:var(--accent-green);"><span class="status-pill" style="background:#10b981;">ACTIVE</span> 127.0.0.1:9443 (12 Cores + Datagram, Gate &amp; Guard Enforced)</span>
+            <span class="val" style="color:var(--accent-green);"><span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span> 127.0.0.1:9443 (12 Cores + Datagram, Gate &amp; Guard Enforced)</span>
         </div>
         <div class="table-row">
             <span class="label">Web UI 控制中心网关 (Control Center)</span>
-            <span class="val" style="color:var(--accent-blue);"><span class="status-pill" style="background:#0284c7;">RUNNING</span> 127.0.0.1:9467 &bull; Backend: 9466</span>
+            <span class="val" style="color:var(--accent-blue);"><span class="status-pill" style="background:#0284c7;">{t('runtime.unobserved')}</span> 127.0.0.1:9467 &bull; Backend: 9466</span>
         </div>
         <div class="table-row">
             <span class="label">公共 HTTPS 域名网关 (Public Ingress)</span>
@@ -1834,10 +1842,10 @@ elif subpath == "shadow6":
 # SUBPATH: DEFAULT OVERVIEW
 # ==============================================================================
 else:
-    cur_h = chain_ctx.get('height', 0)
-    tx_c = chain_ctx.get('tx_count', 0)
-    n_cnt = dht_ctx.get('nodes_count', 0)
-    c_cnt = dht_ctx.get('chunks_count', 0)
+    cur_h = esc(chain_ctx.get('height', t('runtime.unobserved')))
+    tx_c = esc(chain_ctx.get('tx_count', t('runtime.unobserved')))
+    n_cnt = esc(dht_ctx.get('nodes_count', t('runtime.unobserved')))
+    c_cnt = esc(dht_ctx.get('chunks_count', t('runtime.unobserved')))
     
     tab_html = f"""
     <div class="card detail-card">
@@ -1883,7 +1891,7 @@ else:
         
         <div class="table-row">
             <span class="label">网关运行状态</span>
-            <span class="val"><span class="status-pill" style="background:#10b981;">HEALTHY (Port 8080 &bull; HTTPS Active)</span></span>
+            <span class="val"><span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
             <span class="label">沙箱双层隔离体系</span>
@@ -1898,12 +1906,12 @@ else:
         <div class="terminal-box" style="background:#090d16;border:1px solid #334155;border-radius:8px;padding:1rem 1.25rem;margin-top:1.5rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:inset 0 0 12px rgba(0,0,0,0.6);">
             <div class="terminal-header" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.5rem;margin-bottom:0.75rem;border-bottom:1px solid #1e293b;font-size:0.85rem;color:var(--text-secondary);">
                 <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ Corium / Ziokt 架构控制台 &bull; 终端说明规范 (Terminal Console Telemetry)</span>
-                <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">ONLINE &bull; ETP-v2 / Corix-v108</span>
+                <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">{t('runtime.unobserved')}</span>
             </div>
             <div class="terminal-body" style="font-size:0.85rem;line-height:1.7;color:#cbd5e1;">
                 <div class="terminal-line"><span class="cmd-prompt" style="color:var(--accent-green);font-weight:bold;">$</span> <span class="cmd-code" style="color:#f8fafc;font-weight:bold;">ziokt-sys --telemetry --gateway</span></div>
                 <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[COR-NET]</span> P2P Mesh: 8080 | UFS DCPM: 8184 | Gateway: 8185 | MCP Agent: 8186 | HTTPS: 443</div>
-                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 双架构运行中；支持零延迟无损平滑热切换。</div>
+                <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 共用功能入口，可切换布局。</div>
                 <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> 浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。</div>
                 <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。</div>
             </div>
@@ -2018,12 +2026,12 @@ if subpath == 'overview':
     <div class="terminal-box" style="background:#090d16;border:1px solid #334155;border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:inset 0 0 12px rgba(0,0,0,0.6);">
         <div class="terminal-header" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.5rem;margin-bottom:0.75rem;border-bottom:1px solid #1e293b;font-size:0.85rem;color:var(--text-secondary);">
             <span class="terminal-title" style="color:var(--accent-blue);font-weight:600;">🖥️ Corium / Ziokt 架构控制台 &bull; 终端说明规范 (Terminal Console Telemetry)</span>
-            <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">ONLINE &bull; ETP-v2 / Corix-v108</span>
+            <span class="terminal-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">{t('runtime.unobserved')}</span>
         </div>
         <div class="terminal-body" style="font-size:0.85rem;line-height:1.7;color:#cbd5e1;">
             <div class="terminal-line"><span class="cmd-prompt" style="color:var(--accent-green);font-weight:bold;">$</span> <span class="cmd-code" style="color:#f8fafc;font-weight:bold;">ziokt-sys --telemetry --gateway</span></div>
             <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[COR-NET]</span> P2P Mesh: 8080 | UFS DCPM: 8184 | Gateway: 8185 | MCP Agent: 8186 | HTTPS: 443</div>
-            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 双架构运行中；支持零延迟无损平滑热切换。</div>
+            <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[UI-MODE]</span> ⚡ 简约版 (Minimalist View) 与 🌐 全景版 (Panoramic Studio) 共用功能入口，可切换布局。</div>
             <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[KEY-SEC]</span> 浏览器 WebCrypto Ed25519 纯客户端私钥隔离签名，节点私钥永不出域；写入操作严格经过人机防越权确认。</div>
             <div class="terminal-line"><span class="terminal-accent" style="color:var(--accent-amber);font-weight:bold;">[STORAGE]</span> Range 流式分片与 3-Hop 洋葱路由保护，SafeFS 本地双重加密；支持 MCP JSON-RPC 2.0 智能体自省。</div>
         </div>
@@ -2445,3 +2453,5 @@ response = f"""<!DOCTYPE html>
 </body>
 </html>
 """
+
+response=response.replace('<body>', '<body><p id="runtime-evidence-note" role="status">'+t('runtime.evidence_note')+'</p>',1)
