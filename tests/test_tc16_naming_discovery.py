@@ -98,7 +98,7 @@ class TC16NamingAndDiscoveryTests(unittest.TestCase):
             'owner': self.tc16_public,
             'revision': 1,
             'expires_at': self.expiry,
-            'published_suffixes': ['tc16', 'tcc', 'tc'],
+            'published_suffixes': ['tc16', 'tcc', 'ttc'],
             'delegations': {
                 'compute': sign(self.root_delegation, self.tc16_key, DELEGATION_DOMAIN),
             },
@@ -109,8 +109,8 @@ class TC16NamingAndDiscoveryTests(unittest.TestCase):
         self.resolver = Names({'tc16': self.adapter}, network_id='ziokt-main', clock=lambda: self.now)
 
     def test_tc16_and_tcc_suffix_resolution(self):
-        """TC-16 standard (.tc16) and compute (.tcc) namespaces resolve with authentic records."""
-        for suffix in ('tc16', 'tcc', 'tc'):
+        """TC-16 standard (.tc16), compute (.tcc), and (.ttc) namespaces resolve with authentic records."""
+        for suffix in ('tc16', 'tcc', 'ttc'):
             answer = self.resolver.resolve(f'compute.{suffix}')
             self.assertEqual(answer['name'], f'compute.{suffix}')
             self.assertEqual(len(answer['records']), 4)

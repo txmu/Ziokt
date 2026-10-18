@@ -16,7 +16,7 @@ from .naming import LABEL, KEY, DOMAIN as DELEGATION_DOMAIN, Names, descriptor a
 
 DOMAIN = 'Ziokt/tc16-name-registration/v1'
 COMMUNITY_DOMAIN = 'Ziokt/component-name-registration/v1'
-TC16_SUFFIXES = frozenset({'tc16', 'tcc', 'tc'})
+TC16_SUFFIXES = frozenset({'tc16', 'tcc', 'ttc'})
 FORBIDDEN_RUNTIME_KEYS = frozenset({'registers', 'pc', 'sp', 'flags', 'mode', 'cycles', 'trace', 'memory'})
 
 
@@ -148,7 +148,7 @@ class TC16Names:
             raise ProtocolError('NAME_REJECTED', 'canonical root label required')
         suffixes = record['published_suffixes']
         if not isinstance(suffixes, list) or not set(suffixes).issubset(TC16_SUFFIXES):
-            raise ProtocolError('SCOPE_MISMATCH', 'published suffixes must be subset of tc16, tcc, tc')
+            raise ProtocolError('SCOPE_MISMATCH', 'published suffixes must be subset of tc16, tcc, ttc')
         if type(record['revision']) is not int or record['revision'] < 1:
             raise ProtocolError('NAME_REJECTED', 'positive revision required')
         if type(record['expires_at']) is not int or record['expires_at'] <= self.clock():

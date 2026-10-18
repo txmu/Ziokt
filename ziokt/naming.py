@@ -15,7 +15,7 @@ GROUPS = {
     'etp': 'etp e', 'safefs': 'safefs fs f', 'sim': 'sim m',
     'tri': 'tri t 3c', 'ufs': 'ufs u', 'dcpm': 'dcpm dr d',
     'watchat': 'wat w chat', 'zda': 'zda ano a num',
-    'tc16': 'tc16 tcc tc',
+    'tc16': 'tc16 tcc ttc',
     'ziokt': 'ziokt ziokn ziok zioktruk zio zi zioktriuk zioktruik z',
 }
 SUFFIXES = {s: component for component, suffixes in GROUPS.items() for s in suffixes.split()}
