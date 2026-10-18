@@ -30,6 +30,8 @@ jobs:
           python -m unittest discover -s tests -p test_component_links.py -v
           python -m unittest discover -s tests -p test_application_workflow.py -v
           python -m unittest discover -s tests -p test_web_deployment.py -v
+          python -m unittest discover -s tests -p test_chunkstore.py -v
+          python -m unittest discover -s tests -p test_reference_packages.py -v
           python -m unittest discover -s tests -p test_ufsdcpm.py -v
           python -m unittest discover -s tests -p test_dcpm_native_security.py -v
           python -m unittest discover -s tests -p 'test_ufs_*native*.py' -v
@@ -50,6 +52,7 @@ jobs:
         run: |
           npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
+          command -v ffmpeg || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
           node tools/browser_smoke.cjs
           node tools/sim_browser_smoke.cjs
           node tools/sim_storage_race_smoke.cjs

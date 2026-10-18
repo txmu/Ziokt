@@ -12,6 +12,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 
 测试默认使用相邻的 `../Shadow6` 与 `../Corium`；可通过 `ZIOKT_SHADOW6_ROOT`、`ZIOKT_CORIUM_ROOT` 指定源码位置。测试只使用临时状态目录，不启用真实部署。
 
+## 2026-10-18 互通与双界面工程批次
+
+新增作用域分块对象、签名引用包、DCPM→Shadow6双签名交接、WATChat双界面与密文附件重试，并修正无原生证据的门户状态显示。本批未完成全部跨节点服务部署验收；浏览器和大型CI尚待执行。接口、验证、迁移和剩余边界见 [交付记录](docs/INTEROPERABILITY-DELIVERY-2026-10-18.zh-CN.md)，逐组件证据见 [互通矩阵](docs/INTEROPERABILITY-AUDIT-2026-10-18.zh-CN.md)。
+
 ## 私有社区与节点恢复
 
 `python3 -m ziokt community --help` 提供签名论坛/聊天/Wiki、加密文件和软件材料、收件人私信、身份与命名、治理记录、原生工作流回执、加密副本及冷恢复。本地浏览器门户可连接明确配置的 mTLS 对端；restricted 网络同步只使用显式 Tor v3 SOCKS5 路径，失败不直连。社区状态可在联邦协调器离线时继续使用，并保留并发编辑和原作者签名。
