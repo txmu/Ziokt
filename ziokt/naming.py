@@ -144,7 +144,7 @@ class Names:
         if native['network_id'] != self.network_id:
             fail('native registration belongs to another network')
         suffixes = native['published_suffixes']
-        if (not isinstance(suffixes, list) or not 1 <= len(suffixes) <= 32 or
+        if (not isinstance(suffixes, list) or not 0 <= len(suffixes) <= 32 or
                 any(not isinstance(s, str) for s in suffixes) or len(set(suffixes)) != len(suffixes) or any(SUFFIXES.get(s) != authority for s in suffixes)):
             fail('explicit component-owned publication suffixes required')
         if canonical.rsplit('.', 1)[1] not in suffixes:

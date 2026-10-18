@@ -78,7 +78,7 @@ def verify_binding(proof,target,body,*,anchor,destination,source,namespace,activ
     fields={'namespace','root','source_chain_id','epoch','expires_at','record'}
     if not isinstance(body,dict) or set(body)!=fields or body['namespace']!=namespace or body['source_chain_id']!=source:reject('shared namespace authority differs')
     if type(body['epoch']) is not int or not 1<=body['epoch']<=2**53-1:reject('bounded lease sequence required')
-    if type(tx['timestamp']) is not int or type(body['expires_at']) is not int or not now<body['expires_at']<=tx['timestamp']+600:reject('binding lease expired or exceeds budget')
+    if type(tx['timestamp']) is not int or type(body['expires_at']) is not int or not now<body['expires_at']<=min(tx['timestamp'],final['timestamp'])+600:reject('binding lease expired or exceeds budget')
     record=body['record']
     fields={'network_id','owner','revision','expires_at','delegations','published_suffixes'}
     if not isinstance(record,dict) or set(record)!=fields or record['network_id']!=namespace or record['expires_at']>body['expires_at']:reject('record not bounded by its shared namespace lease')

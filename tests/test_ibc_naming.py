@@ -45,6 +45,17 @@ class IBCNamingTests(unittest.TestCase):
             with self.assertRaises(ProtocolError):verify_binding(proof,tx,binding,**{**args,**changes})
         forged=copy.deepcopy(binding);forged['record']['owner']='f'*64
         with self.assertRaises(ProtocolError):verify_binding(proof,tx,forged,**args)
+        # Even an authenticated historical block must not turn a future-dated
+        # transaction into an arbitrarily long-lived naming lease.
+        import hashlib
+        future=copy.deepcopy(binding);future['expires_at']=expiry+7200;future['record']['expires_at']=expiry+7200
+        future_proof=copy.deepcopy(proof)
+        raw=json.dumps({'type':'ibc_dispatch','data':{'target_chain_id':'source-b','message_type':'ZIOKT_NAME_BINDING_V1','message_payload':future},'timestamp':expiry+7000},ensure_ascii=False,separators=(',',':'))
+        future_tx=hashlib.sha256(raw.encode()).hexdigest();future_proof['source_transaction']=raw
+        header=future_proof['final_header'];header['transactions']=[future_tx];header['transactions_root']=future_tx
+        header['hash']=hashlib.sha256(json.dumps({key:header[key] for key in ('height','previous_hash','timestamp','transactions')},ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        future_proof['merkle_proof']={'target_tx_hash':future_tx,'siblings':[]};future_proof['header_chain']=[]
+        with self.assertRaisesRegex(ProtocolError,'lease'):verify_binding(future_proof,future_tx,future,**{**args,'anchor':header['hash']})
         with self.assertRaises(ProtocolError):names.resolve('corium.cor')
         with sqlite3.connect(destination.chain) as db:db.execute('UPDATE ibc_verifiers SET is_active=0')
         with self.assertRaises(ProtocolError):names.resolve('corium.corix')
