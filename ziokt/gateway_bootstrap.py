@@ -34,7 +34,7 @@ def bootstrap(args):
     dest=config_dir/'gateway.json'
     if dest.exists():config={**json.loads(dest.read_text()),**config}
     dest.write_text(json.dumps(config,indent=2)+'\n'); dest.chmod(0o600)
-    if args.publish: publish(config)
+    publication=publish(config) if args.publish else None
     repo=Path(__file__).resolve().parents[1]
     values={'ROOT':str(root),'REPO':str(repo),'PYTHON':args.python,'USER':getpass.getuser(),'CONFIG':str(dest)}
     for key,value in values.items():
@@ -47,7 +47,7 @@ def bootstrap(args):
         subprocess.run(['sudo','systemctl','daemon-reload'],check=True)
         subprocess.run(['sudo','systemctl','enable','--now','ziokt-gateway.service'],check=True)
         subprocess.run(['sudo','systemctl','restart','ziokt-gateway.service'],check=True)
-    return {'config':str(dest),'unit':str(unit),'published':args.publish,'installed':args.install}
+    return {'config':str(dest),'unit':str(unit),'published':False,'publication_requested':args.publish,'publication':publication,'installed':args.install}
 
 
 def publish(config):
@@ -67,29 +67,23 @@ def publish(config):
     records=[]
     with database(config['forum_db'],timeout=10) as db:
         registered={name:target for name,target in db.execute('SELECT domain_name,target_hash FROM nns_records')}
-    for name,target in mappings:
-        if name not in registered:
-            try:
-                native.native('register',name,target)
-            except Exception:
-                pass
-        elif registered[name]!=target:records.append({'domain_name':name,'target_hash':target})
-    if records:
-        try:
-            native.native('bind',json.dumps({'records':records},separators=(',',':')))
-        except Exception:
-            pass
-    # Optimistic local visibility follows successful signed submission. Chain replay
-    # reproduces the same updates once consensus includes the pending transaction.
-    with database(config['forum_db'],timeout=10) as db:
+    registrations=0;updates=0
+    try:
         for name,target in mappings:
-            exists = db.execute('SELECT 1 FROM nns_records WHERE domain_name=?', (name,)).fetchone()
-            if exists:
-                db.execute('UPDATE nns_records SET target_hash=? WHERE domain_name=?',(target,name))
-            else:
-                db.execute('INSERT INTO nns_records VALUES (?,?,?,?,?,?)',
-                           (name, 'f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415', target, 57, 'ecosystem_app', 0))
-    return {'portal':directory,'dapp':dapp}
+            if name not in registered:
+                native.native('register',name,target);registrations+=1
+            elif registered[name]!=target:
+                records.append({'domain_name':name,'target_hash':target})
+        # Native consensus bounds NNS updates to 32 records per transaction.
+        for offset in range(0,len(records),32):
+            batch=records[offset:offset+32]
+            native.native('bind',json.dumps({'records':batch},separators=(',',':')));updates+=len(batch)
+    finally:native.close()
+    # The native consensus replayer alone projects ownership and target changes.
+    # Never insert optimistic NNS rows or hide a rejected signed submission.
+    return {'portal':directory,'dapp':dapp,'submitted_registrations':registrations,
+            'submitted_updates':updates,'phase':'pending-native-consensus' if registrations or updates else 'no-submission-required',
+            'consensus_confirmed':False}
 
 
 def register(sub):
