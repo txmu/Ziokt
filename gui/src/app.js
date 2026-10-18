@@ -90,7 +90,19 @@ function navigate(tabName) {
   const container = document.getElementById('content-container');
   if (container) {
     container.innerHTML = '';
-    route.render(container);
+    try {
+      route.render(container);
+    } catch (err) {
+      console.error(`[Router] Error rendering '${tabName}':`, err);
+      container.innerHTML = `
+        <div style="max-width: 800px; margin: 40px auto; padding: 24px; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red); border-radius: var(--radius-md);">
+          <h3 style="color: var(--accent-red); margin-bottom: 8px;">⚠️ 模块加载异常 / Component Render Error</h3>
+          <p style="font-size: 0.88rem; color: var(--text-main); margin-bottom: 12px;">无法加载模块 <strong>${tabName}</strong>: ${err?.message || err}</p>
+          <pre style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); background: var(--bg-card); padding: 10px; border-radius: 4px; overflow-x: auto;">${err?.stack || ''}</pre>
+          <button class="btn btn-primary btn-sm" style="margin-top: 12px;" onclick="location.reload()">重新载入应用 (Reload)</button>
+        </div>
+      `;
+    }
   }
 }
 

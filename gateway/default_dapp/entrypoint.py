@@ -147,9 +147,9 @@ if subpath == "forum":
     msg_notice = ""
     if new_content:
         if reply_to_id:
-            msg_notice = "<div class='notice' style='color:var(--accent-green)'>✅ 回复已由节点签名并持久存入原生 forum.db 及 P2P 内容寻址网络！</div>"
+            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>{tr('✅ 回复已由节点签名并持久存入原生 forum.db 及 P2P 内容寻址网络！', '✅ Reply signed and persisted to native forum.db and P2P content-addressed mesh!')}</div>"
         elif new_topic:
-            msg_notice = "<div class='notice' style='color:var(--accent-green)'>✅ 新话题已成功创建，SHA-256 密码学摘要与区块链信标已上链广播！</div>"
+            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>{tr('✅ 新话题已成功创建，SHA-256 密码学摘要与区块链信标已上链广播！', '✅ New topic created; SHA-256 digest and blockchain beacon broadcasted on-chain!')}</div>"
 
     topics_html = ""
     for item in forum_data:
@@ -186,52 +186,52 @@ if subpath == "forum":
                 <span class="status-pill" style="font-size:0.7rem;font-family:monospace;">ID: {t_id[:16]}...</span>
             </div>
             <p class="meta" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">
-                {t_author} · {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_ts))} · 内容哈希: <code>{t_chash[:16]}...</code>
+                {t_author} · {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_ts))} · {tr('内容哈希', 'Content Hash')}: <code>{t_chash[:16]}...</code>
             </p>
             <p class="content" style="font-size:0.95rem;line-height:1.6;color:var(--text-primary);margin-bottom:1rem;background:#1e293b;padding:0.75rem;border-radius:6px;">
                 {t_content}
             </p>
             
             <div style="margin-left:0.5rem;">
-                <h4 style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">💬 讨论回复 ({len(item.get('replies', []))} 条)</h4>
-                {rep_html if rep_html else '<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.5rem;">暂无回复，抢先参与讨论！</div>'}
+                <h4 style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">💬 {tr('讨论回复', 'Replies')} ({len(item.get('replies', []))})</h4>
+                {rep_html if rep_html else f'<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.5rem;">{tr("暂无回复，抢先参与讨论！", "No replies yet. Be the first to join the discussion!")}</div>'}
                 
                 <details style="margin-top:0.75rem;">
-                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.85rem;padding:0.3rem 0;">✍️ 回复此话题</summary>
+                    <summary style="cursor:pointer;color:var(--accent-blue);font-size:0.85rem;padding:0.3rem 0;">✍️ {tr('回复此话题', 'Reply to this topic')}</summary>
                     <form method="POST" action="/api/gateway/forum" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.5rem;">
                         <input type="hidden" name="reply_to" value="{t_id}" />
-                        <textarea name="content" maxlength="65536" placeholder="输入回复内容..." style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:4px;resize:vertical;" required></textarea>
-                        <button type="submit" class="btn" style="align-self:flex-start;background:#0284c7;border:none;cursor:pointer;">签署并回复</button>
+                        <textarea name="content" maxlength="65536" placeholder="{tr('输入回复内容...', 'Enter your reply...')}" style="background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:4px;resize:vertical;" required></textarea>
+                        <button type="submit" class="btn" style="align-self:flex-start;background:#0284c7;border:none;cursor:pointer;">{tr('签署并回复', 'Sign &amp; Reply')}</button>
                     </form>
                 </details>
             </div>
-        </div>
+        </article>
         """
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>💬 Corium 原生去中心化论坛 (forum.db Native)</h2>
+        <h2>💬 {tr('Corium 原生去中心化论坛 (forum.db Native)', 'Corium Native Decentralized Forum (forum.db Native)')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            基于底层原生 <code>forum.db</code> 与 P2P 内容寻址网络构建。前端内置非导出 Ed25519 密钥签名，保护节点私钥免受泄露。
+            {tr('基于底层原生 forum.db 与 P2P 内容寻址网络构建。前端内置非导出 Ed25519 密钥签名，保护节点私钥免受泄露。', 'Built upon native forum.db and P2P content-addressed mesh. In-browser Ed25519 signatures protect peer identity keys from exfiltration.')}
         </p>
         
         {msg_notice}
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📝 发起新讨论话题</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📝 {tr('发起新讨论话题', 'Start a New Discussion')}</h3>
             <form method="POST" action="/api/gateway/forum">
                 <div style="margin-bottom:0.75rem;">
-                    <input type="text" name="topic" placeholder="输入讨论标题..." maxlength="256" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
+                    <input type="text" name="topic" placeholder="{tr('输入讨论标题...', 'Enter discussion topic...')}" maxlength="256" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
                 </div>
                 <div style="margin-bottom:0.75rem;">
-                    <textarea name="content" rows="4" placeholder="输入正文内容（支持 Markdown）..." maxlength="65536" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;resize:vertical;" required></textarea>
+                    <textarea name="content" rows="4" placeholder="{tr('输入正文内容（支持 Markdown）...', 'Enter content (Markdown supported)...')}" maxlength="65536" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;resize:vertical;" required></textarea>
                 </div>
-                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 签署并发布话题</button>
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 {tr('签署并发布话题', 'Sign &amp; Publish Topic')}</button>
             </form>
         </div>
         
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📋 社区话题列表 (原生区块链广播)</h3>
-        {topics_html if topics_html else '<div class="notice">暂无话题，欢迎发起首个讨论！</div>'}
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📋 {tr('社区话题列表 (原生区块链广播)', 'Community Topics (Native Blockchain Broadcast)')}</h3>
+        {topics_html if topics_html else f'<div class="notice">{tr("暂无话题，欢迎发起首个讨论！", "No topics found. Welcome to start the first discussion!")}</div>'}
     </div>
     """
 
@@ -265,9 +265,9 @@ elif subpath == "fileshare":
                 "type": "text/plain"
             })
             api.write_to_vault('files_index.json', json.dumps(files_list))
-            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>🎉 文件已成功分块存储并发布！Chunk Hash: <code style='font-family:monospace;'>{ch_hash}</code></div>"
+            msg_notice = f"<div class='notice' style='color:var(--accent-green)'>🎉 {tr('文件已成功分块存储并发布！Chunk Hash:', 'File chunked and published successfully! Chunk Hash:')} <code style='font-family:monospace;'>{ch_hash}</code></div>"
         except Exception as e:
-            msg_notice = f"<div class='notice' style='color:#ef4444;'>❌ 存储失败: {esc(str(e))}</div>"
+            msg_notice = f"<div class='notice' style='color:#ef4444;'>❌ {tr('存储失败:', 'Storage failed:')} {esc(str(e))}</div>"
             
     preview_box = ""
     if lookup_hash:
@@ -277,7 +277,7 @@ elif subpath == "fileshare":
                 p_content = esc(chunk_read['data'])
                 preview_box = f"""
                 <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-blue);margin-bottom:1.5rem;">
-                    <h4 style="color:var(--accent-blue);margin-bottom:0.5rem;">📄 分块预览: <code style="font-size:0.85rem;">{esc(lookup_hash)}</code></h4>
+                    <h4 style="color:var(--accent-blue);margin-bottom:0.5rem;">📄 {tr('分块预览:', 'Chunk Preview:')} <code style="font-size:0.85rem;">{esc(lookup_hash)}</code></h4>
                     <pre style="background:#1e293b;padding:0.75rem;border-radius:6px;overflow-x:auto;color:var(--text-primary);max-height:200px;">{p_content}</pre>
                     <div style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-secondary);">
                         URI: <code style="color:var(--accent-green);">corium://dht/{esc(lookup_hash)}</code>
@@ -287,7 +287,7 @@ elif subpath == "fileshare":
             else:
                 preview_box = f"""
                 <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
-                    ⚠️ 未能在本节点检索到哈希为 <code>{esc(lookup_hash)}</code> 的本地分块数据。
+                    ⚠️ {tr('未能在本节点检索到哈希为', 'No local chunk data found for hash')} <code>{esc(lookup_hash)}</code> {tr('的本地分块数据。', 'on this peer.')}
                 </div>
                 """
         except Exception:
@@ -303,18 +303,18 @@ elif subpath == "fileshare":
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">{f.get('size')} B</td>
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:0.85rem;">{time.strftime('%Y-%m-%d %H:%M', time.gmtime(f.get('timestamp', 0)))}</td>
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">
-                <a href="?lookup={fh}&lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">查看分块</a>
+                <a href="?lookup={fh}&lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">{tr('查看分块', 'Inspect Chunk')}</a>
             </td>
         </tr>
         """
     if not files_table_rows:
-        files_table_rows = "<tr><td colspan='5' style='padding:1rem;text-align:center;color:var(--text-secondary);'>暂无发布的文件分块，欢迎上传！</td></tr>"
+        files_table_rows = f"<tr><td colspan='5' style='padding:1rem;text-align:center;color:var(--text-secondary);'>{tr('暂无发布的文件分块，欢迎上传！', 'No published file chunks yet. Welcome to upload!')}</td></tr>"
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>📦 ETP / DHT 分布式文件共享与流媒体 (FileShare)</h2>
+        <h2>📦 {tr('ETP / DHT 分布式文件共享与流媒体 (FileShare)', 'ETP / DHT Distributed File Sharing &amp; Streaming')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            基于内容寻址 (Content-Addressed Storage) 的对象分发系统，原生支持 HTTP Range 零拷贝流媒体点播。
+            {tr('基于内容寻址 (Content-Addressed Storage) 的对象分发系统，原生支持 HTTP Range 零拷贝流媒体点播。', 'Content-addressed object distribution system natively supporting HTTP Range zero-copy media streaming.')}
         </p>
         
         {msg_notice}
@@ -322,41 +322,41 @@ elif subpath == "fileshare":
         
         <!-- Native Streaming Console -->
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.5rem;">🎬 原生零拷贝流媒体播放器 (HTTP Range Zero-Copy)</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.5rem;">🎬 {tr('原生零拷贝流媒体播放器 (HTTP Range Zero-Copy)', 'Native Zero-Copy Media Player (HTTP Range Zero-Copy)')}</h3>
             <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">
-                输入任何经由 Merkle 树分块发布的 64 位文件根哈希，网关将通过零拷贝原生 Range 流送至播放器。
+                {tr('输入任何经由 Merkle 树分块发布的 64 位文件根哈希，网关将通过零拷贝原生 Range 流送至播放器。', 'Enter any 64-character Merkle root hash published on DHT. Gateway streams via zero-copy native HTTP Range.')}
             </p>
             <form id="stream-form" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
-                <input name="root" pattern="[a-f0-9]{{64}}" maxlength="64" placeholder="输入 64 位 Merkle 根哈希 (如: a1b2c3...)" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:240px;font-family:monospace;" required />
-                <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ 启动媒体流播放</button>
+                <input name="root" pattern="[a-f0-9]{{64}}" maxlength="64" placeholder="{tr('输入 64 位 Merkle 根哈希 (如: a1b2c3...)', 'Enter 64-char Merkle root hash (e.g. a1b2c3...)')}" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:240px;font-family:monospace;" required />
+                <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ {tr('启动媒体流播放', 'Start Streaming')}</button>
             </form>
             <video id="stream-player" controls preload="metadata" style="width:100%;max-height:360px;background:#000;border-radius:6px;margin-top:1rem;" hidden></video>
             <div style="margin-top:0.75rem;">
-                <a id="stream-download" class="btn" style="background:#334155;" download hidden>⬇️ 下载此文件</a>
+                <a id="stream-download" class="btn" style="background:#334155;" download hidden>⬇️ {tr('下载此文件', 'Download File')}</a>
             </div>
         </div>
         
         <!-- Publish chunk -->
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📤 发布新文本/代码分块到 DHT</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">📤 {tr('发布新文本/代码分块到 DHT', 'Publish New Text/Code Chunk to DHT')}</h3>
             <form method="GET" action="">
                 <input type="hidden" name="lang" value="{locale}" />
                 <div style="margin-bottom:0.75rem;">
-                    <input type="text" name="filename" placeholder="文件名 (如: contract.sol 或 notes.txt)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
+                    <input type="text" name="filename" placeholder="{tr('文件名 (如: contract.sol 或 notes.txt)', 'Filename (e.g. contract.sol or notes.txt)')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;" required />
                 </div>
                 <div style="margin-bottom:0.75rem;">
-                    <textarea name="content" rows="4" placeholder="粘贴内容..." style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;resize:vertical;" required></textarea>
+                    <textarea name="content" rows="4" placeholder="{tr('粘贴内容...', 'Paste text content...')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;resize:vertical;" required></textarea>
                 </div>
-                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 计算散列并存入 DHT 分块</button>
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">🚀 {tr('计算散列并存入 DHT 分块', 'Hash &amp; Store to DHT Chunk')}</button>
             </form>
         </div>
         
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
-            <h3 style="color:var(--accent-green);font-size:1.1rem;">📑 已发布分块清单 (Data Vault Index)</h3>
+            <h3 style="color:var(--accent-green);font-size:1.1rem;">📑 {tr('已发布分块清单 (Data Vault Index)', 'Published Chunks Catalog (Data Vault Index)')}</h3>
             <form method="GET" action="" style="display:flex;gap:0.5rem;">
                 <input type="hidden" name="lang" value="{locale}" />
-                <input type="text" name="lookup" placeholder="按 SHA256 检索" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.35rem 0.6rem;border-radius:4px;font-size:0.85rem;min-width:200px;" />
-                <button type="submit" class="btn" style="padding:0.35rem 0.75rem;font-size:0.85rem;background:#334155;border:none;cursor:pointer;">检索</button>
+                <input type="text" name="lookup" placeholder="{tr('按 SHA256 检索', 'Search by SHA256')}" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.35rem 0.6rem;border-radius:4px;font-size:0.85rem;min-width:200px;" />
+                <button type="submit" class="btn" style="padding:0.35rem 0.75rem;font-size:0.85rem;background:#334155;border:none;cursor:pointer;">{tr('检索', 'Search')}</button>
             </form>
         </div>
         
@@ -364,11 +364,11 @@ elif subpath == "fileshare":
             <table style="width:100%;border-collapse:collapse;text-align:left;">
                 <thead>
                     <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
-                        <th style="padding:0.75rem;">文件名</th>
-                        <th style="padding:0.75rem;">分块哈希 (SHA256)</th>
-                        <th style="padding:0.75rem;">大小</th>
-                        <th style="padding:0.75rem;">发布时间</th>
-                        <th style="padding:0.75rem;">操作</th>
+                        <th style="padding:0.75rem;">{tr('文件名', 'Filename')}</th>
+                        <th style="padding:0.75rem;">{tr('分块哈希 (SHA256)', 'Chunk Hash (SHA256)')}</th>
+                        <th style="padding:0.75rem;">{tr('大小', 'Size')}</th>
+                        <th style="padding:0.75rem;">{tr('发布时间', 'Published At')}</th>
+                        <th style="padding:0.75rem;">{tr('操作', 'Action')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -401,72 +401,72 @@ elif subpath == "onion":
     
     tab_html = f"""
     <div class="card detail-card">
-        <h2>🧅 ETP 洋葱中继路由与 Noise-IK4 隧道模拟器</h2>
+        <h2>🧅 {tr('ETP 洋葱中继路由与 Noise-IK4 隧道模拟器', 'ETP Onion Routing &amp; Noise-IK4 Tunnel Simulator')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            ETP 核心传输协议栈提供多跳 Sphinx 式分层加密洋葱路由，结合 Noise-IK4 双向可信握手，实现主动抗监视的隐私网络。
+            {tr('ETP 核心传输协议栈提供多跳 Sphinx 式分层加密洋葱路由，结合 Noise-IK4 双向可信握手，实现主动抗监视的隐私网络。', 'ETP transport stack provides multi-hop Sphinx layered onion routing with Noise-IK4 mutual authenticated handshakes for censorship resistance.')}
         </p>
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🛠️ 构建洋葱中继加密回路 (Circuit Builder)</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🛠️ {tr('构建洋葱中继加密回路 (Circuit Builder)', 'Build Onion Relay Circuit (Circuit Builder)')}</h3>
             <form method="GET" action="">
                 <input type="hidden" name="lang" value="{locale}" />
                 <div style="margin-bottom:0.75rem;">
-                    <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">输入需通过洋葱链路安全传输的明文有效载荷:</label>
+                    <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">{tr('输入需通过洋葱链路安全传输的明文有效载荷:', 'Enter plaintext payload to securely transmit across onion circuit:')}</label>
                     <input type="text" name="onion_payload" value="{onion_msg_esc}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;" required />
                 </div>
-                <button type="submit" class="btn btn-purple" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">🔒 生成分层加密洋葱数据包并执行逐跳剥皮验证</button>
+                <button type="submit" class="btn btn-purple" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">🔒 {tr('生成分层加密洋葱数据包并执行逐跳剥皮验证', 'Generate Layered Onion Packet &amp; Run Peeling Trace')}</button>
             </form>
         </div>
         
-        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">⚡ 3-Hop 洋葱回路逐跳剥皮解密流 (Peeling Trace)</h3>
+        <h3 style="color:var(--accent-blue);font-size:1.1rem;margin-bottom:1rem;">⚡ {tr('3-Hop 洋葱回路逐跳剥皮解密流 (Peeling Trace)', '3-Hop Onion Circuit Peeling &amp; Decryption Trace')}</h3>
         
         <div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:2rem;">
             <div class="card" style="border-left:4px solid var(--accent-blue);background:#1e293b;">
                 <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
-                    <strong>🛡️ 第 1 跳 (Guard Node): 入口保护网关</strong>
+                    <strong>🛡️ {tr('第 1 跳 (Guard Node): 入口保护网关', 'Hop 1 (Guard Node): Ingress Protection Gateway')}</strong>
                     <span class="status-pill" style="background:#0284c7;">LATENCY: 14ms &bull; VERIFIED</span>
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
-                    解密外层 Layer 1 &bull; 共享密钥: <code>{k1}...</code> &bull; HMAC 认证标签: <code>{l1_tag}</code>
+                    {tr('解密外层 Layer 1', 'Decrypt Outer Layer 1')} &bull; {tr('共享密钥', 'Shared Key')}: <code>{k1}...</code> &bull; {tr('HMAC 认证标签', 'HMAC Tag')}: <code>{l1_tag}</code>
                 </div>
                 <div style="font-size:0.8rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;word-break:break-all;color:#94a3b8;">
-                    入站密文: {l1_cipher[:48]}... (剥去最外层，转发给第2跳)
+                    {tr('入站密文', 'Inbound Cipher')}: {l1_cipher[:48]}... ({tr('剥去最外层，转发给第2跳', 'Peel outer layer, forward to Hop 2')})
                 </div>
             </div>
             
             <div class="card" style="border-left:4px solid var(--accent-purple);background:#1e293b;">
                 <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
-                    <strong>🔄 第 2 跳 (Relay Node): 中继混淆网关</strong>
+                    <strong>🔄 {tr('第 2 跳 (Relay Node): 中继混淆网关', 'Hop 2 (Relay Node): Relay Obfuscation Gateway')}</strong>
                     <span class="status-pill" style="background:#7c3aed;">LATENCY: 19ms &bull; VERIFIED</span>
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
-                    解密中间层 Layer 2 &bull; 共享密钥: <code>{k2}...</code> &bull; HMAC 认证标签: <code>{l2_tag}</code>
+                    {tr('解密中间层 Layer 2', 'Decrypt Middle Layer 2')} &bull; {tr('共享密钥', 'Shared Key')}: <code>{k2}...</code> &bull; {tr('HMAC 认证标签', 'HMAC Tag')}: <code>{l2_tag}</code>
                 </div>
                 <div style="font-size:0.8rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;word-break:break-all;color:#94a3b8;">
-                    中继密文: {l2_cipher[:48]}... (剥去中间层，转发给出境节点)
+                    {tr('中继密文', 'Relay Cipher')}: {l2_cipher[:48]}... ({tr('剥去中间层，转发给出境节点', 'Peel middle layer, forward to Exit Node')})
                 </div>
             </div>
             
             <div class="card" style="border-left:4px solid var(--accent-green);background:#1e293b;">
                 <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
-                    <strong>🎯 第 3 跳 (Exit Node): 出境交付网关</strong>
+                    <strong>🎯 {tr('第 3 跳 (Exit Node): 出境交付网关', 'Hop 3 (Exit Node): Egress Delivery Gateway')}</strong>
                     <span class="status-pill" style="background:#059669;">LATENCY: 12ms &bull; DELIVERED</span>
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">
-                    解密最终层 Layer 3 &bull; 共享密钥: <code>{k3}...</code> &bull; HMAC 认证标签: <code>{l3_tag}</code>
+                    {tr('解密最终层 Layer 3', 'Decrypt Inner Layer 3')} &bull; {tr('共享密钥', 'Shared Key')}: <code>{k3}...</code> &bull; {tr('HMAC 认证标签', 'HMAC Tag')}: <code>{l3_tag}</code>
                 </div>
                 <div style="font-size:0.85rem;font-family:monospace;background:#0f172a;padding:0.5rem;border-radius:4px;color:var(--accent-green);font-weight:bold;">
-                    最终还原明文: {onion_msg_esc}
+                    {tr('最终还原明文:', 'Recovered Plaintext:')} {onion_msg_esc}
                 </div>
             </div>
         </div>
         
         <div class="table-row">
-            <span class="label">Noise 协议握手套件</span>
+            <span class="label">{tr('Noise 协议握手套件', 'Noise Handshake Cipher Suite')}</span>
             <span class="val" style="color:var(--accent-blue)">Noise_IKpsk2_25519_ChaChaPoly_BLAKE3</span>
         </div>
         <div class="table-row">
-            <span class="label">端到端链路混淆熵</span>
+            <span class="label">{tr('端到端链路混淆熵', 'End-to-End Link Obfuscation Entropy')}</span>
             <span class="val">256-bit Ephemeral + Constant Padding</span>
         </div>
     </div>
@@ -498,53 +498,53 @@ elif subpath == "zda":
         
     if op == 'cross':
         res_val = ano_cross(sig_a, sig_b)
-        res_desc = f"Ano 形式化张量 Cross 运算: cross({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
+        res_desc = f"{tr('Ano 形式化张量 Cross 运算', 'Ano Formal Tensor Cross Operation')}: cross({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
     elif op == 'merge':
         res_val = ano_merge(sig_a, sig_b)
-        res_desc = f"Ano 形式化合并 Merge 运算: merge({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
+        res_desc = f"{tr('Ano 形式化合并 Merge 运算', 'Ano Formal Merge Operation')}: merge({esc(sig_a)}, {esc(sig_b)}) = <strong>{res_val}</strong>"
     else:
         res_val = ano_negate(sig_a)
-        res_desc = f"Ano 符号镜像 Negate 运算: negate({esc(sig_a)}) = <strong>{res_val}</strong>"
+        res_desc = f"{tr('Ano 符号镜像 Negate 运算', 'Ano Mirror Negate Operation')}: negate({esc(sig_a)}) = <strong>{res_val}</strong>"
         
     badge_color = "#10b981" if res_val == 'positive' else "#ef4444" if res_val == 'negative' else "#eab308"
     
     tab_html = f"""
     <div class="card detail-card">
-        <h2>⚖️ Ano / ZDA 三值形式化鉴证逻辑引擎</h2>
+        <h2>⚖️ {tr('Ano / ZDA 三值形式化鉴证逻辑引擎', 'Ano / ZDA Three-Valued Formal Attestation Engine')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            Ziokt 独创的 Ano / ZDA 三值形式化代数（Positive / Negative / Unknown）。用于不可信网络中的证据门控、冲突仲裁与共识不变式证明。
+            {tr('Ziokt 独创的 Ano / ZDA 三值形式化代数（Positive / Negative / Unknown）。用于不可信网络中的证据门控、冲突仲裁与共识不变式证明。', 'Ziokt original Ano / ZDA three-valued formal algebra (Positive / Negative / Unknown) for untrusted network gate-keeping, arbitration, and invariant proofs.')}
         </p>
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🧮 交互式三值鉴证演算器</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🧮 {tr('交互式三值鉴证演算器', 'Interactive Ternary Attestation Calculator')}</h3>
             <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
                 <input type="hidden" name="lang" value="{locale}" />
                 <div>
-                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">证据输入 A (Signal A):</label>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{tr('证据输入 A (Signal A):', 'Signal A Input:')}</label>
                     <select name="sig_a" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
-                        <option value="positive" {'selected' if sig_a=='positive' else ''}>Positive (+1, 积极/证实)</option>
-                        <option value="negative" {'selected' if sig_a=='negative' else ''}>Negative (-1, 消极/证伪)</option>
-                        <option value="unknown" {'selected' if sig_a=='unknown' else ''}>Unknown (0, 未知/待证)</option>
+                        <option value="positive" {'selected' if sig_a=='positive' else ''}>Positive (+1, {tr('积极/证实', 'Affirmative')})</option>
+                        <option value="negative" {'selected' if sig_a=='negative' else ''}>Negative (-1, {tr('消极/证伪', 'Falsified')})</option>
+                        <option value="unknown" {'selected' if sig_a=='unknown' else ''}>Unknown (0, {tr('未知/待证', 'Indeterminate')})</option>
                     </select>
                 </div>
                 <div>
-                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">代数算子 (Operator):</label>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{tr('代数算子 (Operator):', 'Algebraic Operator:')}</label>
                     <select name="op" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
-                        <option value="cross" {'selected' if op=='cross' else ''}>CROSS (张量积 / 协同鉴证)</option>
-                        <option value="merge" {'selected' if op=='merge' else ''}>MERGE (冲突合流 / 仲裁吸收)</option>
-                        <option value="negate" {'selected' if op=='negate' else ''}>NEGATE (镜像反转)</option>
+                        <option value="cross" {'selected' if op=='cross' else ''}>CROSS ({tr('张量积 / 协同鉴证', 'Tensor Product / Attestation')})</option>
+                        <option value="merge" {'selected' if op=='merge' else ''}>MERGE ({tr('冲突合流 / 仲裁吸收', 'Confluence / Absorption')})</option>
+                        <option value="negate" {'selected' if op=='negate' else ''}>NEGATE ({tr('镜像反转', 'Mirror Inversion')})</option>
                     </select>
                 </div>
                 <div>
-                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">证据输入 B (Signal B):</label>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{tr('证据输入 B (Signal B):', 'Signal B Input:')}</label>
                     <select name="sig_b" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.75rem;border-radius:6px;">
-                        <option value="positive" {'selected' if sig_b=='positive' else ''}>Positive (+1, 积极/证实)</option>
-                        <option value="negative" {'selected' if sig_b=='negative' else ''}>Negative (-1, 消极/证伪)</option>
-                        <option value="unknown" {'selected' if sig_b=='unknown' else ''}>Unknown (0, 未知/待证)</option>
+                        <option value="positive" {'selected' if sig_b=='positive' else ''}>Positive (+1, {tr('积极/证实', 'Affirmative')})</option>
+                        <option value="negative" {'selected' if sig_b=='negative' else ''}>Negative (-1, {tr('消极/证伪', 'Falsified')})</option>
+                        <option value="unknown" {'selected' if sig_b=='unknown' else ''}>Unknown (0, {tr('未知/待证', 'Indeterminate')})</option>
                     </select>
                 </div>
                 <div style="margin-top:1.25rem;">
-                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1rem;">求值鉴证</button>
+                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1rem;">{tr('求值鉴证', 'Evaluate')}</button>
                 </div>
             </form>
             
@@ -554,26 +554,26 @@ elif subpath == "zda":
             </div>
         </div>
         
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📜 Ano 代数形式化公理定律验证报告 (Formally Verified)</h3>
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📜 {tr('Ano 代数形式化公理定律验证报告 (Formally Verified)', 'Ano Algebra Formal Axiom Verification Report (Formally Verified)')}</h3>
         <div class="table-row">
-            <span class="label">Cross 结合律: cross(cross(a,b),c) == cross(a,cross(b,c))</span>
-            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 穷举验证)</span>
+            <span class="label">{tr('Cross 结合律: cross(cross(a,b),c) == cross(a,cross(b,c))', 'Cross Associativity: cross(cross(a,b),c) == cross(a,cross(b,c))')}</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 {tr('穷举验证', 'exhaustively verified')})</span>
         </div>
         <div class="table-row">
-            <span class="label">Cross 交换律: cross(a,b) == cross(b,a)</span>
-            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 穷举验证)</span>
+            <span class="label">{tr('Cross 交换律: cross(a,b) == cross(b,a)', 'Cross Commutativity: cross(a,b) == cross(b,a)')}</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 {tr('穷举验证', 'exhaustively verified')})</span>
         </div>
         <div class="table-row">
-            <span class="label">Merge 结合律: merge(merge(a,b),c) == merge(a,merge(b,c))</span>
-            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 穷举验证)</span>
+            <span class="label">{tr('Merge 结合律: merge(merge(a,b),c) == merge(a,merge(b,c))', 'Merge Associativity: merge(merge(a,b),c) == merge(a,merge(b,c))')}</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (27/27 {tr('穷举验证', 'exhaustively verified')})</span>
         </div>
         <div class="table-row">
-            <span class="label">Merge 交换律: merge(a,b) == merge(b,a)</span>
-            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 穷举验证)</span>
+            <span class="label">{tr('Merge 交换律: merge(a,b) == merge(b,a)', 'Merge Commutativity: merge(a,b) == merge(b,a)')}</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (9/9 {tr('穷举验证', 'exhaustively verified')})</span>
         </div>
         <div class="table-row">
-            <span class="label">Unknown 零元吸收律: cross(a, unknown) == unknown</span>
-            <span class="val" style="color:var(--accent-green)">HOLDS (3/3 穷举验证)</span>
+            <span class="label">{tr('Unknown 零元吸收律: cross(a, unknown) == unknown', 'Unknown Zero Absorption: cross(a, unknown) == unknown')}</span>
+            <span class="val" style="color:var(--accent-green)">HOLDS (3/3 {tr('穷举验证', 'exhaustively verified')})</span>
         </div>
     </div>
     """
@@ -610,9 +610,9 @@ elif subpath == "safefs":
         }
         try:
             api.write_to_vault('safefs_vault.json', json.dumps(sf_data))
-            notice = f"<div class='notice' style='color:var(--accent-green)'>🔐 文件 <code>{esc(sf_fn)}</code> 已安全加密封存至 SafeFS 保险库！HMAC Tag: <code>{tag}</code></div>"
+            notice = f"<div class='notice' style='color:var(--accent-green)'>🔐 {tr('文件', 'File')} <code>{esc(sf_fn)}</code> {tr('已安全加密封存至 SafeFS 保险库！HMAC Tag:', 'safely encrypted and sealed into SafeFS vault! HMAC Tag:')} <code>{tag}</code></div>"
         except Exception as e:
-            notice = f"<div class='notice' style='color:#ef4444;'>❌ 写入失败: {esc(str(e))}</div>"
+            notice = f"<div class='notice' style='color:#ef4444;'>❌ {tr('写入失败:', 'Write failed:')} {esc(str(e))}</div>"
 
     decrypted_box = ""
     if sf_get_fn and sf_get_pass:
@@ -626,21 +626,21 @@ elif subpath == "safefs":
                 p_text = esc(p_bytes.decode('utf-8', errors='replace'))
                 decrypted_box = f"""
                 <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:1.5rem;">
-                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">🔓 文件解密成功 &bull; 完整性验证通过</h4>
-                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">文件名: {esc(sf_get_fn)} &bull; AEAD 验证签名匹配</div>
+                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">🔓 {tr('文件解密成功 &bull; 完整性验证通过', 'File Decrypted Successfully &bull; Integrity Verified')}</h4>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">{tr('文件名:', 'Filename:')} {esc(sf_get_fn)} &bull; {tr('AEAD 验证签名匹配', 'AEAD Tag Matches')}</div>
                     <pre style="background:#1e293b;padding:0.75rem;border-radius:4px;color:#fff;">{p_text}</pre>
                 </div>
                 """
             else:
-                decrypted_box = """
+                decrypted_box = f"""
                 <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
-                    ❌ AEAD 认证标签不匹配！口令错误或文件遭篡改 (Tamper-Evidence Triggered)。
+                    ❌ {tr('AEAD 认证标签不匹配！口令错误或文件遭篡改 (Tamper-Evidence Triggered)。', 'AEAD authentication tag mismatch! Wrong passphrase or file corrupted (Tamper-Evidence Triggered).')}
                 </div>
                 """
         else:
             decrypted_box = f"""
             <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #ef4444;margin-bottom:1.5rem;color:#ef4444;">
-                ❌ 未在 SafeFS 保险库中找到文件 <code>{esc(sf_get_fn)}</code>。
+                ❌ {tr('未在 SafeFS 保险库中找到文件', 'File not found in SafeFS vault:')} <code>{esc(sf_get_fn)}</code>。
             </div>
             """
 
@@ -648,18 +648,18 @@ elif subpath == "safefs":
     for k, v in sf_data.items():
         vault_list_html += f"""
         <div class="table-row">
-            <span class="label">🔒 <strong>{esc(k)}</strong> (长度: {v.get('len')} 字节 &bull; Tag: {esc(v.get('tag',''))})</span>
+            <span class="label">🔒 <strong>{esc(k)}</strong> ({tr('长度', 'Size')}: {v.get('len')} {tr('字节', 'bytes')} &bull; Tag: {esc(v.get('tag',''))})</span>
             <span class="val" style="color:var(--text-secondary);font-size:0.85rem;">{time.strftime('%Y-%m-%d %H:%M', time.gmtime(v.get('updated_at', 0)))}</span>
         </div>
         """
     if not vault_list_html:
-        vault_list_html = "<div class='table-row'><span class='label'>SafeFS 保险库目前为空</span></div>"
+        vault_list_html = f"<div class='table-row'><span class='label'>{tr('SafeFS 保险库目前为空', 'SafeFS vault is currently empty')}</span></div>"
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>🛡️ SafeFS 具备防篡改特性的 AEAD 安全文件保险库</h2>
+        <h2>🛡️ {tr('SafeFS 具备防篡改特性的 AEAD 安全文件保险库', 'SafeFS Tamper-Evident AEAD Secure File Vault')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            SafeFS 为用户提供作用域隔离的 AEAD 文件密室。任何文件在写入节点存储前，均经端侧口令派生与密码学防篡改签名封存。
+            {tr('SafeFS 为用户提供作用域隔离的 AEAD 文件密室。任何文件在写入节点存储前，均经端侧口令派生与密码学防篡改签名封存。', 'SafeFS provides scoped AEAD file chambers. All payloads are sealed with key derivation and tamper-evident signatures prior to disk persistence.')}
         </p>
         
         {notice}
@@ -667,28 +667,28 @@ elif subpath == "safefs":
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
-                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔐 加密封存文件 (SafeFS Put)</h3>
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔐 {tr('加密封存文件 (SafeFS Put)', 'Encrypt &amp; Seal File (SafeFS Put)')}</h3>
                 <form method="GET" action="">
                     <input type="hidden" name="lang" value="{locale}" />
-                    <input type="text" name="filename" placeholder="文件名 (如: private_key.pem)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
-                    <input type="password" name="passphrase" placeholder="加密口令 (Passphrase)" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
-                    <textarea name="secret" rows="3" placeholder="私密内容..." style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required></textarea>
-                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.45rem 1rem;">封存至 SafeFS</button>
+                    <input type="text" name="filename" placeholder="{tr('文件名 (如: private_key.pem)', 'Filename (e.g. private_key.pem)')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <input type="password" name="passphrase" placeholder="{tr('加密口令 (Passphrase)', 'Encryption Passphrase')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <textarea name="secret" rows="3" placeholder="{tr('私密内容...', 'Secret plaintext content...')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required></textarea>
+                    <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.45rem 1rem;">{tr('封存至 SafeFS', 'Seal to SafeFS')}</button>
                 </form>
             </div>
             
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
-                <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.75rem;">🔓 解密封存文件 (SafeFS Get)</h3>
+                <h3 style="font-size:1.05rem;color:var(--accent-green);margin-bottom:0.75rem;">🔓 {tr('解密封存文件 (SafeFS Get)', 'Decrypt &amp; Retrieve File (SafeFS Get)')}</h3>
                 <form method="GET" action="">
                     <input type="hidden" name="lang" value="{locale}" />
-                    <input type="text" name="get_fn" placeholder="文件名" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
-                    <input type="password" name="get_pass" placeholder="解密口令" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
-                    <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.45rem 1rem;margin-top:2.75rem;">验证并解密读取</button>
+                    <input type="text" name="get_fn" placeholder="{tr('文件名', 'Filename')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <input type="password" name="get_pass" placeholder="{tr('解密口令', 'Decryption Passphrase')}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;color:#fff;padding:0.45rem 0.6rem;border-radius:4px;margin-bottom:0.5rem;" required />
+                    <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.45rem 1rem;margin-top:2.75rem;">{tr('验证并解密读取', 'Verify &amp; Decrypt')}</button>
                 </form>
             </div>
         </div>
         
-        <h3 style="color:var(--accent-purple);font-size:1.05rem;margin-bottom:0.75rem;">📜 SafeFS 密室文件清单</h3>
+        <h3 style="color:var(--accent-purple);font-size:1.05rem;margin-bottom:0.75rem;">📜 {tr('SafeFS 密室文件清单', 'SafeFS Sealed Files Vault')}</h3>
         {vault_list_html}
     </div>
     """
@@ -699,42 +699,42 @@ elif subpath == "safefs":
 elif subpath == "ufsdcpm":
     tab_html = f"""
     <div class="card detail-card">
-        <h2>🔐 UFS / DCPM 零知识双重加密磁盘与软件包管理器</h2>
+        <h2>🔐 {tr('UFS / DCPM 零知识双重加密磁盘与软件包管理器', 'UFS / DCPM Zero-Knowledge Deniable Encryption &amp; Package Manager')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            以下展示原生存储设计与签名包能力；本页面没有验证隐藏卷、挂载状态或主机隔离。
+            {tr('以下展示原生存储设计与签名包能力；本页面没有验证隐藏卷、挂载状态或主机隔离。', 'Illustrates native storage design and signed package capabilities; hidden volume, mount status, and host isolation are not verified here.')}
         </p>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
-                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">💾 外部诱饵卷 (Outer Decoy Volume)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">主口令解锁后呈现的标准合法文件系统，隐藏性取决于原生实现与使用环境，页面不提供此保证。</p>
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">💾 {tr('外部诱饵卷 (Outer Decoy Volume)', 'Outer Decoy Volume')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('主口令解锁后呈现的标准合法文件系统，隐藏性取决于原生实现与使用环境，页面不提供此保证。', 'Standard plausible filesystem revealed by primary passphrase; deniability depends on native environment.')}</p>
                 <div class="table-row">
-                    <span class="label">虚拟扇区大小</span>
+                    <span class="label">{tr('虚拟扇区大小', 'Virtual Sector Size')}</span>
                     <span class="val">512 Bytes / Sector</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">伪装文件系统</span>
+                    <span class="label">{tr('伪装文件系统', 'Disguised Filesystem')}</span>
                     <span class="val">UFS2 / FAT32 Decoy</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">状态</span>
+                    <span class="label">{tr('状态', 'Status')}</span>
                     <span class="status-pill" style="background:#0284c7;">{t('runtime.unobserved')}</span>
                 </div>
             </div>
             
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--accent-purple);">
-                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">🛡️ 隐藏内层密室卷 (Inner Hidden Volume)</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">次级零知识口令解锁，数据隐藏于伪随机自由块中，本页面未验证其不可区分性。</p>
+                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">🛡️ {tr('隐藏内层密室卷 (Inner Hidden Volume)', 'Inner Hidden Volume')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;">{tr('次级零知识口令解锁，数据隐藏于伪随机自由块中，本页面未验证其不可区分性。', 'Secondary zero-knowledge passphrase unlocks payload hidden in pseudo-random free blocks.')}</p>
                 <div class="table-row">
-                    <span class="label">加密算法</span>
+                    <span class="label">{tr('加密算法', 'Cipher Suite')}</span>
                     <span class="val">XTS-AES-256 + Argon2id</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">零知识凭证</span>
+                    <span class="label">{tr('零知识凭证', 'Zero-Knowledge Proof')}</span>
                     <span class="val">{t('runtime.unobserved')}</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">状态</span>
+                    <span class="label">{tr('状态', 'Status')}</span>
                     <span class="status-pill" style="background:#7c3aed;">{t('runtime.unobserved')}</span>
                 </div>
             </div>
@@ -742,50 +742,50 @@ elif subpath == "ufsdcpm":
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.5rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem;">
-                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin:0;">🌐 UFS 原生安全存储 HTTP 服务（状态待查询）</h3>
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin:0;">🌐 {tr('UFS 原生安全存储 HTTP 服务（状态待查询）', 'UFS Native Secure Storage HTTP Service (Status Unobserved)')}</h3>
                 <span class="status-pill" style="background:#059669;font-size:0.75rem;">{t('runtime.unobserved')}</span>
             </div>
             <div class="table-row">
-                <span class="label">节点 ID (Node ID)</span>
+                <span class="label">{tr('节点 ID (Node ID)', 'Node ID')}</span>
                 <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green)">{t('runtime.unobserved')}</span>
             </div>
             <div class="table-row">
-                <span class="label">公网访问网关</span>
+                <span class="label">{tr('公网访问网关', 'Public Gateway')}</span>
                 <span class="val"><a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">https://ziokt-ufs-43-207-75-185.sslip.io/ &rarr;</a></span>
             </div>
             <div class="table-row">
-                <span class="label">HTTP 鉴权模式</span>
+                <span class="label">{tr('HTTP 鉴权模式', 'HTTP Auth Mode')}</span>
                 <span class="val" style="color:var(--accent-amber);">HTTP Digest Auth (SHA-256, Realm: UltraFileServer)</span>
             </div>
             <div class="table-row">
-                <span class="label">鉴权凭据存储</span>
-                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green);"><span class="status-pill" style="background:#059669;">{t('runtime.unobserved')}</span> 本地 ~/.config/dcpm-ufs/config.json</span>
+                <span class="label">{tr('鉴权凭据存储', 'Credential Location')}</span>
+                <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-green);"><span class="status-pill" style="background:#059669;">{t('runtime.unobserved')}</span> {tr('本地 ~/.config/dcpm-ufs/config.json', 'Local ~/.config/dcpm-ufs/config.json')}</span>
             </div>
             <div class="table-row">
-                <span class="label">安全凭据说明</span>
-                <span class="val" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6;">出于去中心化原生安全与防泄露规范，访问口令仅持久化于本地受保护配置文件中，绝不在前端公开渲染。可在本地终端执行 <code style="color:var(--accent-blue);">cat ~/.config/dcpm-ufs/config.json</code> 查看或配置您的私有账号密码。</span>
+                <span class="label">{tr('安全凭据说明', 'Security Policy')}</span>
+                <span class="val" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6;">{tr('出于去中心化原生安全与防泄露规范，访问口令仅持久化于本地受保护配置文件中，绝不在前端公开渲染。可在本地终端执行 cat ~/.config/dcpm-ufs/config.json 查看或配置您的私有账号密码。', 'Under decentralized zero-trust standards, credentials reside solely in protected local configs and are never rendered in frontend DOM. Run cat ~/.config/dcpm-ufs/config.json in terminal to configure.')}</span>
             </div>
             <div class="table-row">
-                <span class="label">配置文件位置</span>
+                <span class="label">{tr('配置文件位置', 'Config Location')}</span>
                 <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">/home/admin/.config/dcpm-ufs/config.json</span>
             </div>
             <div class="table-row">
-                <span class="label">存储物理路径</span>
+                <span class="label">{tr('存储物理路径', 'Storage Path')}</span>
                 <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">/home/admin/.config/dcpm-ufs/ufs-storage</span>
             </div>
         </div>
 
-        <h3 style="color:var(--accent-green);font-size:1.05rem;margin-bottom:0.75rem;">📦 DCPM 软件包格式示例（不是已安装清单）</h3>
+        <h3 style="color:var(--accent-green);font-size:1.05rem;margin-bottom:0.75rem;">📦 {tr('DCPM 软件包格式示例（不是已安装清单）', 'DCPM Package Format Showcase (Not Installed Manifest)')}</h3>
         <div class="table-row">
-            <span class="label"><strong>ziokt-core-1.0.8.dcpm</strong> (核心微架构运行时)</span>
+            <span class="label"><strong>ziokt-core-1.0.8.dcpm</strong> ({tr('核心微架构运行时', 'Core Microarchitecture Runtime')})</span>
             <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
-            <span class="label"><strong>tc16-vm-isa.dcpm</strong> (16位虚拟机指令集包)</span>
+            <span class="label"><strong>tc16-vm-isa.dcpm</strong> ({tr('16位虚拟机指令集包', '16-bit VM Instruction Set Package')})</span>
             <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
         <div class="table-row">
-            <span class="label"><strong>etp-onion-gateway.dcpm</strong> (ETP 洋葱网关原生包)</span>
+            <span class="label"><strong>etp-onion-gateway.dcpm</strong> ({tr('ETP 洋葱网关原生包', 'ETP Onion Gateway Native Package')})</span>
             <span class="val" style="font-family:monospace;font-size:0.8rem;color:var(--accent-blue)">{t('runtime.example_digest')} &bull; <span class="status-pill">{t('runtime.unobserved')}</span></span>
         </div>
     </div>
@@ -799,7 +799,7 @@ elif subpath == "tc16":
     custom_src = query.get('asm_code', [''])[0]
     
     PRESETS = {
-        'factorial': """; 计算 5! (5的阶乘)
+        'factorial': f"""; {tr('计算 5! (5的阶乘)', 'Compute 5! (Factorial of 5)')}
 MOVI R0, 1
 MOVI R1, 5
 loop:
@@ -808,7 +808,7 @@ DEC R1
 CMP R1, 0
 JNZ loop
 HALT""",
-        'fibonacci': """; 计算斐波那契数列第 10 项
+        'fibonacci': f"""; {tr('计算斐波那契数列第 10 项', 'Compute 10th Fibonacci number')}
 MOVI R0, 0
 MOVI R1, 1
 MOVI R2, 10
@@ -820,7 +820,7 @@ DEC R2
 CMP R2, 0
 JNZ loop
 HALT""",
-        'sum': """; 数组与累加求和 (1..50)
+        'sum': f"""; {tr('数组与累加求和 (1..50)', 'Array & Accumulative Sum (1..50)')}
 MOVI R0, 0
 MOVI R1, 1
 loop:
@@ -829,7 +829,7 @@ INC R1
 CMP R1, 51
 JNZ loop
 HALT""",
-        'xor': """; 16位密码学异或变换
+        'xor': f"""; {tr('16位密码学异或变换', '16-bit Cryptographic XOR transformation')}
 MOVI R0, 43690  ; 0xAAAA
 MOVI R1, 21845  ; 0x5555
 XOR R0, R1
@@ -966,29 +966,29 @@ HALT"""
     
     tab_html = f"""
     <div class="card detail-card">
-        <h2>⚙️ TC-16 16位安全微架构虚拟机代码工坊 (Assembly Studio)</h2>
+        <h2>⚙️ {tr('TC-16 16位安全微架构虚拟机代码工坊 (Assembly Studio)', 'TC-16 16-Bit Secure Microarchitecture Assembly Studio')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            Ziokt / ETP 专为分布式可信算力设计的 16 位安全指令集虚拟机。支持微架构汇编与 C 绑定，单次调度受绝对 CPU 指令预算管控。
+            {tr('Ziokt / ETP 专为分布式可信算力设计的 16 位安全指令集虚拟机。支持微架构汇编与 C 绑定，单次调度受绝对 CPU 指令预算管控。', 'Ziokt / ETP 16-bit deterministic secure ISA virtual machine for distributed computing. Execution is bound by strict cycle budgets.')}
         </p>
         
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
-            <a href="?prog=factorial&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='factorial' else 'background:#334155;'}">阶乘示例 (5!)</a>
-            <a href="?prog=fibonacci&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='fibonacci' else 'background:#334155;'}">斐波那契数列 (第10项)</a>
-            <a href="?prog=sum&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='sum' else 'background:#334155;'}">循环累加 (1..50)</a>
-            <a href="?prog=xor&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='xor' else 'background:#334155;'}">异或密码变换</a>
+            <a href="?prog=factorial&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='factorial' else 'background:#334155;'}">{tr('阶乘示例 (5!)', 'Factorial (5!)')}</a>
+            <a href="?prog=fibonacci&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='fibonacci' else 'background:#334155;'}">{tr('斐波那契数列 (第10项)', 'Fibonacci (10th)')}</a>
+            <a href="?prog=sum&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='sum' else 'background:#334155;'}">{tr('循环累加 (1..50)', 'Loop Sum (1..50)')}</a>
+            <a href="?prog=xor&lang={locale}" class="btn" style="padding:0.4rem 0.8rem;font-size:0.85rem;{'background:#0284c7;' if prog_type=='xor' else 'background:#334155;'}">{tr('异或密码变换', 'XOR Cipher')}</a>
         </div>
         
         <form method="GET" action="" style="margin-bottom:1.5rem;">
             <input type="hidden" name="lang" value="{locale}" />
             <input type="hidden" name="prog" value="custom" />
             <div style="margin-bottom:0.75rem;">
-                <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">TC-16 汇编源代码编辑器 (可自由修改或编写指令):</label>
+                <label style="font-size:0.85rem;color:var(--text-secondary);display:block;margin-bottom:0.25rem;">{tr('TC-16 汇编源代码编辑器 (可自由修改或编写指令):', 'TC-16 Assembly Source Editor (modify or write instructions):')}</label>
                 <textarea name="asm_code" rows="7" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;font-family:monospace;resize:vertical;">{active_code_esc}</textarea>
             </div>
-            <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ 在节点沙箱运行 TC-16 代码</button>
+            <button type="submit" class="btn btn-green" style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">▶️ {tr('在节点沙箱运行 TC-16 代码', 'Execute TC-16 in Sandbox')}</button>
         </form>
         
-        <h3 style="color:var(--accent-blue);font-size:1.05rem;margin-bottom:0.75rem;">🖥️ 16 位通用寄存器堆 (R0 ~ R15)</h3>
+        <h3 style="color:var(--accent-blue);font-size:1.05rem;margin-bottom:0.75rem;">🖥️ {tr('16 位通用寄存器堆 (R0 ~ R15)', '16-Bit General Purpose Registers (R0 ~ R15)')}</h3>
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(70px, 1fr));gap:0.5rem;margin-bottom:1.5rem;">
             {reg_cells}
         </div>
@@ -996,29 +996,29 @@ HALT"""
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
             <div class="card" style="background:#0f172a;padding:1rem;">
                 <div class="table-row">
-                    <span class="label">程序计数器 (PC)</span>
+                    <span class="label">{tr('程序计数器 (PC)', 'Program Counter (PC)')}</span>
                     <span class="val">0x{tc_pc:04X} ({tc_pc})</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">堆栈指针 (SP)</span>
+                    <span class="label">{tr('堆栈指针 (SP)', 'Stack Pointer (SP)')}</span>
                     <span class="val">0x{tc_sp:04X}</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">状态标志位 (Flags)</span>
+                    <span class="label">{tr('状态标志位 (Flags)', 'Condition Flags')}</span>
                     <span class="val">Z:{tc_flags['Z']} &bull; S:{tc_flags['S']} &bull; C:{tc_flags['C']}</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">消耗周期 (Cycles)</span>
+                    <span class="label">{tr('消耗周期 (Cycles)', 'Cycles Consumed')}</span>
                     <span class="val" style="color:var(--accent-green);font-weight:bold;">{tc_cycles} ops</span>
                 </div>
                 <div class="table-row">
-                    <span class="label">执行终止状态</span>
+                    <span class="label">{tr('执行终止状态', 'Execution State')}</span>
                     <span class="status-pill" style="background:{'#10b981' if halted else '#f59e0b'};">{'HALTED (NORMAL)' if halted else 'BUDGET_EXHAUSTED'}</span>
                 </div>
             </div>
             
             <div class="card" style="background:#0f172a;padding:1rem;">
-                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">📋 最近指令执行追踪 (Instruction Trace):</div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.3rem;">📋 {tr('最近指令执行追踪 (Instruction Trace):', 'Instruction Execution Trace:')}</div>
                 <pre style="background:#1e293b;padding:0.5rem;border-radius:4px;color:#38bdf8;font-size:0.8rem;max-height:160px;overflow-y:auto;">{trace_html}</pre>
             </div>
         </div>
@@ -1048,44 +1048,44 @@ elif subpath == "blockchain":
         </tr>
         """
     if not b_rows:
-        b_rows = "<tr><td colspan='5' style='padding:1rem;text-align:center;'>正在读取节点区块链数据...</td></tr>"
+        b_rows = f"<tr><td colspan='5' style='padding:1rem;text-align:center;'>{tr('正在读取节点区块链数据...', 'Reading live blockchain ledger data...')}</td></tr>"
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>⛓️ Corium & Tri 区块链与 PoUW 账本全景浏览器</h2>
+        <h2>⛓️ {tr('Corium &amp; Tri 区块链与 PoUW 账本全景浏览器', 'Corium &amp; Tri Blockchain &amp; PoUW Ledger Explorer')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            实时穿透底层 <code>chain.db</code>，展示去中心化区块高度、有意义工作量证明 (PoUW) 验证与加密交易流。
+            {tr('实时穿透底层 chain.db，展示去中心化区块高度、有意义工作量证明 (PoUW) 验证与加密交易流。', 'Real-time inspection of native chain.db: decentralized block height, Proof of Useful Work (PoUW) verification, and cryptographic tx stream.')}
         </p>
         
         <div class="grid" style="margin-bottom:1.5rem;">
             <div class="card">
-                <div class="card-title">当前最高区块高度</div>
+                <div class="card-title">{tr('当前最高区块高度', 'Current Block Height')}</div>
                 <div class="card-value" style="color:var(--accent-blue);">#{cur_height}</div>
             </div>
             <div class="card">
-                <div class="card-title">全网区块总数</div>
+                <div class="card-title">{tr('全网区块总数', 'Total Blocks')}</div>
                 <div class="card-value" style="color:var(--accent-green);">{block_count}</div>
             </div>
             <div class="card">
-                <div class="card-title">链上交易总笔数</div>
+                <div class="card-title">{tr('链上交易总笔数', 'Total Transactions')}</div>
                 <div class="card-value" style="color:var(--accent-purple);">{tx_count}</div>
             </div>
             <div class="card">
-                <div class="card-title">三合一浏览器 PWA</div>
-                <div class="card-value" style="font-size:1.1rem;"><a href="https://ziokt-tri-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">在线直达 &rarr;</a></div>
+                <div class="card-title">{tr('三合一浏览器 PWA', 'Tri Browser PWA')}</div>
+                <div class="card-value" style="font-size:1.1rem;"><a href="https://ziokt-tri-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">{tr('在线直达', 'Open Live')} &rarr;</a></div>
             </div>
         </div>
         
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📦 最新出块记录 (Live Blocks)</h3>
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📦 {tr('最新出块记录 (Live Blocks)', 'Latest Block Records (Live Blocks)')}</h3>
         <div style="overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;text-align:left;">
                 <thead>
                     <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
-                        <th style="padding:0.75rem;">区块高度</th>
-                        <th style="padding:0.75rem;">区块哈希 (Block Hash)</th>
-                        <th style="padding:0.75rem;">父块哈希 (Prev Hash)</th>
-                        <th style="padding:0.75rem;">出块时间 (UTC)</th>
-                        <th style="padding:0.75rem;">验证者公钥</th>
+                        <th style="padding:0.75rem;">{tr('区块高度', 'Block Height')}</th>
+                        <th style="padding:0.75rem;">{tr('区块哈希 (Block Hash)', 'Block Hash')}</th>
+                        <th style="padding:0.75rem;">{tr('父块哈希 (Prev Hash)', 'Prev Hash')}</th>
+                        <th style="padding:0.75rem;">{tr('出块时间 (UTC)', 'Timestamp (UTC)')}</th>
+                        <th style="padding:0.75rem;">{tr('验证者公钥', 'Validator Key')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1142,7 +1142,7 @@ elif subpath == "watchat":
         </div>
         """
     if not chat_bubble_html:
-        chat_bubble_html = "<div style='color:var(--text-secondary);padding:1rem;text-align:center;'>公开留言板暂无内容。</div>"
+        chat_bubble_html = f"<div style='color:var(--text-secondary);padding:1rem;text-align:center;'>{tr('公开留言板暂无内容。', 'Public message board is empty.')}</div>"
 
     tab_html = f"""
     <div class="card detail-card">
@@ -1173,16 +1173,16 @@ elif subpath == "watchat":
 # SUBPATH: SIM-MANAGER
 # ==============================================================================
 elif subpath == "sim":
-    tab_html = """
+    tab_html = f"""
     <div class="card detail-card">
-        <h2>🧪 SimManager 仿真测试网络控制中心 (Cluster Simulation)</h2>
+        <h2>🧪 {tr('SimManager 仿真测试网络控制中心 (Cluster Simulation)', 'SimManager Testnet Simulation Control Center')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            Ziokt 伴生仿真编排套件，用于受控测试网络拓扑分裂、拜占庭容错、共识分叉与大规模网络压力演练。
+            {tr('Ziokt 伴生仿真编排套件，用于受控测试网络拓扑分裂、拜占庭容错、共识分叉与大规模网络压力演练。', 'Ziokt orchestration suite for testing network partition splits, Byzantine fault tolerance, consensus forks, and load tests.')}
         </p>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1rem;margin-bottom:1.5rem;">
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
-                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">🎮 虚拟仿真集群节点拓扑</h3>
+                <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.5rem;">🎮 {tr('虚拟仿真集群节点拓扑', 'Virtual Simulation Cluster Topology')}</h3>
                 <div class="table-row">
                     <span class="label"><strong>Node-Alpha (Leader)</strong></span>
                     <span class="status-pill" style="background:#10b981;">{t('runtime.unobserved')}</span>
@@ -1202,10 +1202,10 @@ elif subpath == "sim":
             </div>
             
             <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);">
-                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">⚡ 仿真演练与故障注入</h3>
-                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">可在受控沙盒中注入网络分区或网络延迟:</p>
+                <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">⚡ {tr('仿真演练与故障注入', 'Simulation Drill &amp; Chaos Fault Injection')}</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">{tr('可在受控沙盒中注入网络分区或网络延迟:', 'Inject network partitions or synthetic latency in controlled sandbox:')}</p>
                 <div style="display:flex;gap:0.5rem;flex-direction:column;">
-                    <a href="https://ziokt-sim-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple" style="text-align:center;">进入完整 SimManager PWA 控制台 &rarr;</a>
+                    <a href="https://ziokt-sim-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple" style="text-align:center;">{tr('进入完整 SimManager PWA 控制台', 'Enter Full SimManager PWA Console')} &rarr;</a>
                 </div>
             </div>
         </div>
@@ -1216,39 +1216,39 @@ elif subpath == "sim":
 # SUBPATH: EFFORT
 # ==============================================================================
 elif subpath == "effort":
-    tab_html = """
+    tab_html = f"""
     <div class="card detail-card">
-        <h2>⛏️ Effort 多链算力共识协调器 (Cross-Chain Coordinator)</h2>
+        <h2>⛏️ {tr('Effort 多链算力共识协调器 (Cross-Chain Coordinator)', 'Effort Multi-Chain PoUW Consensus Coordinator')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            Ziokt Effort 引擎协调多链之间的有用算力工作量证明 (PoUW)，维护难度周期、工作量证明声明审核与跨链最终性。
+            {tr('Ziokt Effort 引擎协调多链之间的有用算力工作量证明 (PoUW)，维护难度周期、工作量证明声明审核与跨链最终性。', 'Coordinates Proof of Useful Work across multi-chain mesh, auditing claim attestations, epoch difficulty, and cross-chain finality.')}
         </p>
         
         <div class="grid" style="margin-bottom:1.5rem;">
             <div class="card">
-                <div class="card-title">当前 PoUW 目标难度</div>
+                <div class="card-title">{tr('当前 PoUW 目标难度', 'Current PoUW Target')}</div>
                 <div class="card-value" style="color:var(--accent-blue);">0x00003FFF</div>
             </div>
             <div class="card">
-                <div class="card-title">活跃算力声明 (Claims)</div>
+                <div class="card-title">{tr('活跃算力声明 (Claims)', 'Active Compute Claims')}</div>
                 <div class="card-value" style="color:var(--accent-green);">12 Verified</div>
             </div>
             <div class="card">
-                <div class="card-title">跨链协调状态</div>
+                <div class="card-title">{tr('跨链协调状态', 'Cross-Chain Sync State')}</div>
                 <div class="card-value"><span class="status-pill" style="background:#10b981;">SYNCHRONIZED</span></div>
             </div>
             <div class="card">
-                <div class="card-title">独立 API 节点</div>
+                <div class="card-title">{tr('独立 API 节点', 'Standalone API Node')}</div>
                 <div class="card-value" style="font-size:1.05rem;"><a href="https://ziokt-effort-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">Port 8081 &rarr;</a></div>
             </div>
         </div>
         
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📊 多链算力分布与有意义计算任务</h3>
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:0.75rem;">📊 {tr('多链算力分布与有意义计算任务', 'Multi-Chain Hashrate &amp; Useful Compute Workloads')}</h3>
         <div class="table-row">
-            <span class="label"><strong>矩阵谱分解验证 (Spectral Decomposition)</strong></span>
+            <span class="label"><strong>{tr('矩阵谱分解验证 (Spectral Decomposition)', 'Matrix Spectral Decomposition Verification')}</strong></span>
             <span class="val" style="color:var(--accent-blue)">1,240 GFLOPs &bull; <span class="status-pill">SOLVED</span></span>
         </div>
         <div class="table-row">
-            <span class="label"><strong>密码学同态密文乘法验证</strong></span>
+            <span class="label"><strong>{tr('密码学同态密文乘法验证', 'Homomorphic Ciphertext Multiplication Proof')}</strong></span>
             <span class="val" style="color:var(--accent-blue)">890 GFLOPs &bull; <span class="status-pill">IN_PROGRESS</span></span>
         </div>
     </div>
@@ -1267,17 +1267,17 @@ elif subpath == "nns":
                 matched = True
                 nns_res = f"""
                 <div style="background:#0f172a;padding:1rem;border-radius:8px;border:1px solid var(--accent-green);margin-bottom:1.5rem;">
-                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">✅ 域名解析成功: <code>{esc(lookup_domain)}</code></h4>
+                    <h4 style="color:var(--accent-green);margin-bottom:0.3rem;">✅ {tr('域名解析成功:', 'Domain Resolved Successfully:')} <code>{esc(lookup_domain)}</code></h4>
                     <div class="table-row" style="background:transparent;padding:0.25rem 0;">
-                        <span class="label">绑定目标哈希 (Target Hash)</span>
+                        <span class="label">{tr('绑定目标哈希 (Target Hash)', 'Target Hash')}</span>
                         <span class="val" style="font-family:monospace;font-size:0.85rem;color:var(--accent-blue)">{esc(rec.get('target', ''))}</span>
                     </div>
                     <div class="table-row" style="background:transparent;padding:0.25rem 0;">
-                        <span class="label">所有者公钥哈希 (Owner ID)</span>
+                        <span class="label">{tr('所有者公钥哈希 (Owner ID)', 'Owner Key Hash (Owner ID)')}</span>
                         <span class="val" style="font-family:monospace;font-size:0.85rem;">{esc(rec.get('owner', ''))}</span>
                     </div>
                     <div style="margin-top:0.75rem;">
-                        <a href="/app/{esc(lookup_domain)}?lang={locale}" class="btn" style="padding:0.35rem 0.8rem;font-size:0.85rem;background:#0284c7;">🚀 通过 Gateway 直接访问此 DApp &rarr;</a>
+                        <a href="/app/{esc(lookup_domain)}?lang={locale}" class="btn" style="padding:0.35rem 0.8rem;font-size:0.85rem;background:#0284c7;">🚀 {tr('通过 Gateway 直接访问此 DApp', 'Directly Access DApp via Gateway')} &rarr;</a>
                     </div>
                 </div>
                 """
@@ -1285,7 +1285,7 @@ elif subpath == "nns":
         if not matched:
             nns_res = f"""
             <div style="background:#1e1e2d;padding:1rem;border-radius:8px;border:1px solid #f59e0b;margin-bottom:1.5rem;color:#f59e0b;">
-                ⚠️ 域名 <code>{esc(lookup_domain)}</code> 尚未注册或未解析到目标哈希。
+                ⚠️ {tr('域名', 'Domain')} <code>{esc(lookup_domain)}</code> {tr('尚未注册或未解析到目标哈希。', 'is not registered or has no target hash.')}
             </div>
             """
 
@@ -1299,38 +1299,38 @@ elif subpath == "nns":
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--accent-blue);">{t_hash[:20]}...{t_hash[-8:]}</td>
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);font-family:monospace;font-size:0.8rem;color:var(--text-secondary);">{esc(r.get('owner', ''))[:16]}...</td>
             <td style="padding:0.75rem;border-bottom:1px solid var(--border-color);">
-                <a href="/app/{d_name}?lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">访问 DApp</a>
+                <a href="/app/{d_name}?lang={locale}" class="btn" style="padding:0.25rem 0.6rem;font-size:0.8rem;background:#0284c7;">{tr('访问 DApp', 'Launch DApp')}</a>
             </td>
         </tr>
         """
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>🌐 Corium NNS 去中心化域名解析与管理控制台</h2>
+        <h2>🌐 {tr('Corium NNS 去中心化域名解析与管理控制台', 'Corium NNS Decentralized Name Service Console')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-            Corium 原生去中心化名称服务 (Name Network Service)。将可读域名无缝映射至 DHT 分布式 Manifest 对象与 DApp 字节码。
+            {tr('Corium 原生去中心化名称服务 (Name Network Service)。将可读域名无缝映射至 DHT 分布式 Manifest 对象与 DApp 字节码。', 'Corium Name Network Service maps human-readable names to DHT manifest objects and bytecode.')}
         </p>
         
         {nns_res}
         
         <div style="background:#0f172a;padding:1.25rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:2rem;">
-            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔍 实时域名查询与解析</h3>
+            <h3 style="font-size:1.05rem;color:var(--accent-blue);margin-bottom:0.75rem;">🔍 {tr('实时域名查询与解析', 'Real-Time Domain Lookup &amp; Resolution')}</h3>
             <form method="GET" action="" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
                 <input type="hidden" name="lang" value="{locale}" />
-                <input type="text" name="lookup" placeholder="输入域名 (如: forum, fileshare, tc16, status, explorer)..." style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:220px;" required />
-                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">立即解析</button>
+                <input type="text" name="lookup" placeholder="{tr('输入域名 (如: forum, fileshare, tc16, status, explorer)...', 'Enter domain (e.g. forum, fileshare, tc16, status, explorer)...')}" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:220px;" required />
+                <button type="submit" class="btn" style="background:#0284c7;border:none;cursor:pointer;padding:0.5rem 1.25rem;">{tr('立即解析', 'Resolve Now')}</button>
             </form>
         </div>
         
-        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📜 全网已注册 NNS 域名目录 (论坛数据库 live 读取)</h3>
+        <h3 style="color:var(--accent-green);font-size:1.1rem;margin-bottom:1rem;">📜 {tr('全网已注册 NNS 域名目录 (论坛数据库 live 读取)', 'Registered NNS Domains Directory (Live from DB)')}</h3>
         <div style="overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;text-align:left;">
                 <thead>
                     <tr style="color:var(--text-secondary);font-size:0.85rem;border-bottom:2px solid var(--border-color);">
-                        <th style="padding:0.75rem;">域名 (Domain Name)</th>
-                        <th style="padding:0.75rem;">绑定目标哈希 (Target Hash)</th>
-                        <th style="padding:0.75rem;">所有者公钥哈希</th>
-                        <th style="padding:0.75rem;">操作</th>
+                        <th style="padding:0.75rem;">{tr('域名 (Domain Name)', 'Domain Name')}</th>
+                        <th style="padding:0.75rem;">{tr('绑定目标哈希 (Target Hash)', 'Target Hash')}</th>
+                        <th style="padding:0.75rem;">{tr('所有者公钥哈希', 'Owner Key Hash')}</th>
+                        <th style="padding:0.75rem;">{tr('操作', 'Action')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1370,35 +1370,36 @@ elif subpath == "board":
 
     posts_html = ""
     for p in board_posts:
+        author_name = p.get('author', '') or tr('匿名客', 'Anonymous')
         posts_html += f"""
         <div class="card" style="margin-bottom:0.75rem;padding:1rem;background:#1e293b;">
             <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
-                <strong style="color:var(--accent-blue);">👤 {p.get('author', '匿名客')}</strong>
+                <strong style="color:var(--accent-blue);">👤 {author_name}</strong>
                 <span style="font-size:0.75rem;color:var(--text-secondary);">#Post {p.get('id', 1)}</span>
             </div>
             <p style="color:var(--text-primary);font-size:0.95rem;word-break:break-word;">{p.get('msg', '')}</p>
         </div>
         """
     if not posts_html:
-        posts_html = "<div class='table-row'><span class='label'>暂无公网留言，欢迎发表第一条去中心化动态！</span></div>"
+        posts_html = f"<div class='table-row'><span class='label'>{tr('暂无公网留言，欢迎发表第一条去中心化动态！', 'No public messages yet. Welcome to post the first update!')}</span></div>"
 
     tab_html = f"""
     <div class="card detail-card">
-        <h2>💬 去中心化链上公网留言板 (Data Vault 驱动)</h2>
+        <h2>💬 {tr('去中心化链上公网留言板 (Data Vault 驱动)', 'Decentralized Public Message Board (Data Vault Powered)')}</h2>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1rem;">
-            任何公网浏览器用户均可直接发表动态。数据无需中心化 SQL 数据库，而是由沙箱内部实时写入本节点的隔离保险库，持久留存。
+            {tr('任何公网浏览器用户均可直接发表动态。数据无需中心化 SQL 数据库，而是由沙箱内部实时写入本节点的隔离保险库，持久留存。', 'Public browser users can post messages. Data is persisted into the peer sandboxed Data Vault without centralized SQL databases.')}
         </p>
 
         <form method="GET" action="" style="background:#0f172a;padding:1rem;border-radius:8px;margin-bottom:1.5rem;border:1px solid var(--border-color);">
             <input type="hidden" name="lang" value="{locale}" />
             <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
-                <input type="text" name="author" placeholder="您的昵称 / 代号" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:140px;" required />
-                <input type="text" name="msg" placeholder="留言内容 (将持久化保存在节点沙箱 Data Vault 中)..." style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
-                <button type="submit" class="btn" style="border:none;cursor:pointer;background:#0284c7;">📢 发布到节点</button>
+                <input type="text" name="author" placeholder="{tr('您的昵称 / 代号', 'Your Nickname / Handle')}" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:1;min-width:140px;" required />
+                <input type="text" name="msg" placeholder="{tr('留言内容 (将持久化保存在节点沙箱 Data Vault 中)...', 'Message body (persisted into node sandboxed Data Vault)...')}" style="background:#1e293b;border:1px solid #334155;color:#fff;padding:0.5rem 0.75rem;border-radius:6px;flex:3;min-width:200px;" required />
+                <button type="submit" class="btn" style="border:none;cursor:pointer;background:#0284c7;">📢 {tr('发布到节点', 'Post to Node')}</button>
             </div>
         </form>
 
-        <h3 style="font-size:1rem;margin-bottom:0.75rem;color:var(--accent-green);">📜 历史留言清单 (实时 Data Vault 同步)</h3>
+        <h3 style="font-size:1rem;margin-bottom:0.75rem;color:var(--accent-green);">📜 {tr('历史留言清单 (实时 Data Vault 同步)', 'Message History (Live Data Vault Sync)')}</h3>
         {posts_html}
     </div>
     """
@@ -1919,12 +1920,12 @@ elif subpath == "gui":
                         🤖 Android (ARM64 / x86_64)
                     </div>
                     <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
-                        {tr('Android 移动端应用安装包与工程资源。支持触摸滑动手势、底部导航栏与离线存储。', 'Android mobile package & assets. Supports gestures, bottom navigation, and offline store.')}
+                        {tr('Android 移动端独立安装包 (APK) 与工程资源。内置轻量级 Native Web 引擎，支持触摸滑动手势、底部导航栏与离线存储。', 'Android standalone package (APK) & assets. Built-in lightweight native web runtime, gesture navigation & offline storage.')}
                     </div>
                 </div>
                 <div style="margin-top:auto;">
-                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-android-assets.tar.gz" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
-                        ⬇️ {tr('直接下载资源包 (34.4 KB)', 'Download Assets (34.4 KB)')}
+                    <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn btn-green" style="font-size:0.82rem;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;justify-content:center;">
+                        ⬇️ {tr('直接下载 APK 安装包 (755 KB)', 'Download APK Package (755 KB)')}
                     </a>
                 </div>
             </div>
@@ -1932,7 +1933,7 @@ elif subpath == "gui":
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
                 <div>
                     <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🔴 HarmonyOS NEXT (鸿蒙原生)
+                        🔴 HarmonyOS NEXT ({tr('鸿蒙原生', 'ArkUI Native')})
                     </div>
                     <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
                         {tr('ArkUI 鸿蒙原生组件工程源码 (Entry module &amp; Index.ets Web 容器集成方案)。', 'ArkUI native OpenHarmony / NEXT project bundle (Entry module &amp; Index.ets container).')}
@@ -1948,7 +1949,7 @@ elif subpath == "gui":
             <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;">
                 <div>
                     <div style="font-weight:bold;color:#f8fafc;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                        🌐 Web PWA (独立离线版)
+                        🌐 Web PWA ({tr('独立离线版', 'Standalone Offline')})
                     </div>
                     <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
                         {tr('全离线渐进式 Web 客户端，包含完整离线缓存与零依赖本地静态资源。', 'Fully offline Progressive Web App bundle with Service Worker offline caching.')}
@@ -2327,7 +2328,7 @@ if subpath == 'gui':
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a href="/gateway-assets/gui/downloads/ziokt-desktop-linux-x86_64.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🐧 Linux (.tar.gz)</a>
             <a href="/gateway-assets/gui/downloads/ziokt-desktop-windows-x64.zip" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🪟 Windows (.zip)</a>
-            <a href="/gateway-assets/gui/downloads/ziokt-mobile-android-assets.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🤖 Android (.tar.gz)</a>
+            <a href="/gateway-assets/gui/downloads/ziokt-mobile-android.apk" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🤖 Android (.apk)</a>
             <a href="/gateway-assets/gui/downloads/ziokt-mobile-harmonyos-next.tar.gz" download class="btn" style="background:#1e293b;border:1px solid #334155;font-size:0.8rem;padding:5px 10px;">🔴 HarmonyOS (.tar.gz)</a>
         </div>
     </div>
@@ -2515,7 +2516,7 @@ response = f"""<!DOCTYPE html>
             border-top: 1px solid var(--border-color);
             padding-top: 1.5rem;
         }}
-        /* Minimalist View (简约版) Styles */
+        /* Minimalist View Styles */
         #simple-view .simple-nav {{
             display: flex;
             gap: 8px;
@@ -2576,7 +2577,7 @@ response = f"""<!DOCTYPE html>
     <div class="container">
         <!-- ========================================================== -->
         <!-- ========================================================== -->
-        <!-- ACTIVE VIEW CONTAINER (根据 ui_mode 渲染全景版或简约版)         -->
+        <!-- ACTIVE VIEW CONTAINER (Renders Panoramic or Minimalist View) -->
         <!-- ========================================================== -->
         {"<div id=\"simple-view\">" + f"""
             <header>

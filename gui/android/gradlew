@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Gradle start up script for POSIX systems
+#
+
+APP_BASE_NAME=`basename "$0"`
+APP_HOME="`pwd -P`"
+
+# Use standard gradle wrapper or fallback to gradle command
+if command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
+fi
+
+# Download gradle wrapper jar if needed
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+if [ ! -f "$WRAPPER_JAR" ]; then
+    mkdir -p "$APP_HOME/gradle/wrapper"
+    curl -sSL "https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar" -o "$WRAPPER_JAR" || true
+fi
+
+if [ -f "$WRAPPER_JAR" ]; then
+    exec java -jar "$WRAPPER_JAR" "$@"
+fi
+
+echo "Gradle is required to build the Android application."
+exit 1

@@ -2,19 +2,36 @@
 // Ziokt Unified Graphical Client - Core Application Framework & State Manager
 // ==============================================================================
 
+export function getStorage(key, fallback = '') {
+  try {
+    const v = localStorage.getItem(key);
+    return v !== null ? v : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+export function setStorage(key, val) {
+  try {
+    localStorage.setItem(key, val);
+  } catch (e) {
+    console.warn(`Failed to set storage for ${key}:`, e);
+  }
+}
+
 function getInitialLang() {
-  const raw = localStorage.getItem('ziokt_lang') || navigator.language || 'zh';
+  const raw = getStorage('ziokt_lang') || (typeof navigator !== 'undefined' ? navigator.language : 'zh') || 'zh';
   return raw.toLowerCase().startsWith('en') ? 'en' : 'zh';
 }
 
 export const State = {
   currentTab: 'home',
   language: getInitialLang(),
-  theme: localStorage.getItem('ziokt_theme') || 'dark',
-  runtimeMode: localStorage.getItem('ziokt_mode') || 'local', // 'local' | 'remote' | 'hybrid'
-  gatewayUrl: localStorage.getItem('ziokt_gateway') || 'https://cor-web.ziokt.com',
+  theme: getStorage('ziokt_theme', 'dark'),
+  runtimeMode: getStorage('ziokt_mode', 'local'), // 'local' | 'remote' | 'hybrid'
+  gatewayUrl: getStorage('ziokt_gateway', 'https://cor-web.ziokt.com'),
   localGatewayUrl: 'http://127.0.0.1:8185',
-  userDid: localStorage.getItem('ziokt_did') || 'did:ziokt:800a3e4c08b13a41b41632a2bd8f0065',
+  userDid: getStorage('ziokt_did', 'did:ziokt:800a3e4c08b13a41b41632a2bd8f0065'),
   components: {
     corium: { name: 'Corium Blockchain', status: 'online', port: 8545 },
     shadow6: { name: 'Shadow6 Mesh Cluster', status: 'online', port: 8186 },
@@ -70,14 +87,14 @@ export function t(path) {
 
 export async function setLanguage(lang) {
   State.language = lang;
-  localStorage.setItem('ziokt_lang', lang);
+  setStorage('ziokt_lang', lang);
   await initI18n();
   Events.emit('language_changed', lang);
 }
 
 export function setTheme(theme) {
   State.theme = theme;
-  localStorage.setItem('ziokt_theme', theme);
+  setStorage('ziokt_theme', theme);
   document.documentElement.setAttribute('data-theme', theme);
   Events.emit('theme_changed', theme);
 }

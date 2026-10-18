@@ -65,6 +65,15 @@ if (fs.existsSync(DOWNLOADS_DIR)) {
   copyDir(DOWNLOADS_DIR, path.join(DIST_DIR, 'downloads'));
 }
 
+// Sync into Android assets directory (exclude downloads)
+const ANDROID_ASSETS_DIR = path.join(__dirname, 'android', 'app', 'src', 'main', 'assets');
+if (fs.existsSync(path.dirname(ANDROID_ASSETS_DIR))) {
+  if (fs.existsSync(ANDROID_ASSETS_DIR)) {
+    fs.rmSync(ANDROID_ASSETS_DIR, { recursive: true, force: true });
+  }
+  copyDir(SRC_DIR, ANDROID_ASSETS_DIR);
+}
+
 const distFiles = fs.readdirSync(DIST_DIR, { recursive: true });
 console.log(`>> [Ziokt GUI] Build complete! ${distFiles.length} files staged into dist/`);
 

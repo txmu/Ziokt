@@ -1,0 +1,3 @@
+@echo off
+echo Starting Ziokt Unified Graphical Client...
+start "" "%~dp0index.html"

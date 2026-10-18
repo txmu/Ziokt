@@ -159,10 +159,24 @@ jobs:
           cp -r gui/dist/* gui/harmonyos/entry/src/main/resources/rawfile/
           tar -czf build-output/harmonyos/ziokt-mobile-harmonyos-next.tar.gz -C gui harmonyos
 
-      - name: Package Android Web App Bundle
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Android Build Tools
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends aapt zipalign apksigner
+
+      - name: Build Standalone Android APK Application
+        run: |
+          chmod +x gui/build_android.sh
+          ./gui/build_android.sh
           mkdir -p build-output/android
-          tar -czf build-output/android/ziokt-mobile-android-assets.tar.gz -C gui/dist .
+          cp gui/downloads/ziokt-mobile-android.apk build-output/android/ziokt-mobile-android.apk
+          if [ -f gui/downloads/ziokt-mobile-android.apk.idsig ]; then cp gui/downloads/ziokt-mobile-android.apk.idsig build-output/android/; fi
 
       - name: Upload Mobile Artifacts
         uses: actions/upload-artifact@v4
