@@ -24,7 +24,7 @@ LATEST='2026-07-28'
 VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
 BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
 BRIDGE_WRITE={'naming.publish','package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
-READ_NATIVE={'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
+READ_NATIVE={'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
 log=logging.getLogger(__name__)
 
 
@@ -118,7 +118,15 @@ class Service:
                 for method in sorted(READ_NATIVE):
                     if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge','privacy.status','privacy.review.list','privacy.review.get'}):continue
                     if project=='corium' and method=='service.binding':continue
-                    self.add(pid.replace('-','_')+'_'+method.replace('.','_'),f'{pid}: native {method}. Parameters follow the pinned native contract.',schema({'params':PARAMS},('params',)),False,project+':read',('native',pid,method))
+                    native_params = PARAMS
+                    if method in {'privacy.review.list', 'zkn.shield.notes', 'zkn.shield.images'}:
+                        native_params = schema({'limit': {'type': 'integer', 'minimum': 1, 'maximum': 64},
+                                                'cursor': {'type': 'string', 'pattern': '^(?:[a-f0-9]{64})?$'}})
+                    elif method == 'privacy.status':
+                        native_params = schema()
+                    elif method == 'privacy.review.get':
+                        native_params = schema({'request_id': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}, ('request_id',))
+                    self.add(pid.replace('-','_')+'_'+method.replace('.','_'),f'{pid}: native {method}. Parameters follow the pinned native contract.',schema({'params':native_params},('params',)),False,project+':read',('native',pid,method))
                 for action in sorted(OPERATIONS[project]):
                     self.add(pid.replace('-','_')+'_'+action.replace('.','_')+'_plan',f'Create a reviewable {pid} {action} workflow; does not execute it.',schema({'resource':STRING,'arguments':PARAMS,'expected_revision':{'type':['string','null']},'operation_id':{'type':'string','maxLength':64}},('resource','arguments','expected_revision','operation_id')),True,project+':'+action+':plan',('plan',pid,action))
         if config.get('federation'):

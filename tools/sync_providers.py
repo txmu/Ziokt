@@ -232,6 +232,23 @@ def main():
     if mint_hook not in updated:
         if updated.count(mint_anchor)!=1: raise SystemExit('native packed NFT anchor ambiguous')
         updated=updated.replace(mint_anchor,mint_anchor+mint_hook,1)
+    privacy_admission_anchor = '    # Store the complete transaction details in the local database.\n'
+    updated = updated.replace('zkn_shield_*|privacy_review_*) tx_data=$(jq -cS .',
+                              'zkn_shield_*|privacy_review_*|zkn_transfer|zkn_private_transfer|zkc_issue) tx_data=$(jq -cS .')
+    privacy_admission_hook = '''    # Native signed assets use the same atomic admission as MCP/native plans.
+    case "$tx_type" in
+        zkn_shield_*|privacy_review_*|zkn_transfer|zkn_private_transfer|zkc_issue)
+            local privacy_tx
+            privacy_tx=$(jq -cn --arg type "$tx_type" --argjson data "$tx_data" --argjson ts "$timestamp" --arg pk "$public_key" --arg sig "$signature" '{type:$type,data:$data,timestamp:$ts,public_key:$pk,signature:$sig}') || return 1
+            _ziokt_asset_engine submit-asset "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$CORIUM_ROOT" "$privacy_tx" || return 1
+            return 0
+            ;;
+    esac
+
+'''
+    if privacy_admission_hook not in updated:
+        if updated.count(privacy_admission_anchor) != 1: raise SystemExit('native privacy admission anchor ambiguous')
+        updated = updated.replace(privacy_admission_anchor, privacy_admission_hook + privacy_admission_anchor, 1)
     # Static frontend helpers execute in Corium's separate Gateway namespace.
     static_start='# BEGIN ZIOKT STATIC SITE HELPERS\n'
     static_end='# END ZIOKT STATIC SITE HELPERS\n'

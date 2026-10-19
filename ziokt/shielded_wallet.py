@@ -109,19 +109,74 @@ def sign_transaction(network,kind,payload,private_pem=None):
 def encrypt_wallet(value,password):
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
     if not isinstance(password,bytes) or not 16<=len(password)<=4096:raise ValueError('private wallet password must contain at least 16 bytes')
+    raw = encoded(value)
+    if len(raw) > 65520: raise ValueError('bounded encrypted wallet required')
+    strict_json(raw, limit=65520)
     salt=secrets.token_bytes(16);nonce=secrets.token_bytes(12)
     key=Scrypt(salt=salt,length=32,n=32768,r=8,p=1).derive(password)
     return {'schema':'corium.shielded-wallet.v1','salt':salt.hex(),'nonce':nonce.hex(),
-            'ciphertext':base64.b64encode(AESGCM(key).encrypt(nonce,encoded(value),b'Corium/shielded-wallet/v1')).decode()}
+            'ciphertext':base64.b64encode(AESGCM(key).encrypt(nonce,raw,b'Corium/shielded-wallet/v1')).decode()}
 
 
 def decrypt_wallet(value,password):
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-    if set(value)!={'schema','salt','nonce','ciphertext'} or value['schema']!='corium.shielded-wallet.v1':raise ValueError('versioned encrypted wallet required')
+    if type(password) is not bytes or not 16 <= len(password) <= 4096: raise ValueError('bounded wallet password required')
+    if type(value) is not dict or set(value)!={'schema','salt','nonce','ciphertext'} or value['schema']!='corium.shielded-wallet.v1':raise ValueError('versioned encrypted wallet required')
+    if any(type(value[k]) is not str for k in ('salt','nonce','ciphertext')) or len(value['salt']) != 32 or len(value['nonce']) != 24 or len(value['ciphertext']) > 87384:
+        raise ValueError('bounded encrypted wallet required')
     salt=bytes.fromhex(value['salt']);nonce=bytes.fromhex(value['nonce']);data=base64.b64decode(value['ciphertext'],validate=True)
     if len(salt)!=16 or len(nonce)!=12 or len(data)>65536 or not 16<=len(password)<=4096:raise ValueError('bounded encrypted wallet required')
     key=Scrypt(salt=salt,length=32,n=32768,r=8,p=1).derive(password)
     return strict_json(AESGCM(key).decrypt(nonce,data,b'Corium/shielded-wallet/v1'))
+
+
+def address_from_keys(keys):
+    from ._runtime import zs_base, zs_scalar, zs_hex, zs_point
+    if type(keys) is not dict or set(keys) != {'spend_key', 'delivery_key'}:
+        raise ValueError('exact wallet keys required')
+    public = zs_base(zs_scalar(keys['spend_key'])).hex()
+    zs_point(public)
+    delivery = X25519PrivateKey.from_private_bytes(zs_hex(keys['delivery_key']))
+    return {'public_key': public, 'delivery_key': delivery.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()}
+
+
+def validate_wallet(wallet):
+    from ._runtime import zs_testnet
+    if type(wallet) is not dict or set(wallet) not in ({'network_id', 'keys', 'address'}, {'network_id', 'keys', 'address', 'recovery'}):
+        raise ValueError('versioned receiver wallet required')
+    zs_testnet(wallet['network_id'])
+    if address_from_keys(wallet['keys']) != wallet['address']:
+        raise ValueError('wallet receiver and private keys disagree')
+    return wallet
+
+
+def recover_wallet(root, wallet):
+    """Recover this one-time receiver from one read-only canonical DB snapshot.
+
+    All note decryption and key-image matching stay local. Cached recovery data
+    is replaced, so a reorg can restore a previously marked spent note.
+    """
+    from contextlib import closing
+    from . import _runtime as r
+    wallet = validate_wallet(wallet)
+    network, keys = wallet['network_id'], wallet['keys']
+    notes = []
+    with closing(r.corium_db(root, network, 'blockchain/chain.db')) as db:
+        db.execute('BEGIN')
+        block = db.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
+        if not block: raise ValueError('canonical chain head required')
+        if r.zs_exists(db, 'zkn_shield_notes'):
+            row = db.execute('SELECT note_id,public_key,commitment,ciphertext,height FROM zkn_shield_notes WHERE public_key=?', (wallet['address']['public_key'],)).fetchone()
+            if row:
+                note = dict(zip(('public_key', 'commitment', 'ciphertext'), row[1:4]))
+                if r.zs_note_id(note) != row[0] or not 0 <= row[4] <= block[0]:
+                    raise ValueError('canonical note record is inconsistent')
+                witness = open_note(network, note, keys)
+                image = r.zs_mul(r.zs_scalar(keys['spend_key']), r.zs_hp(b'Corium/ZKN/key-image/v1\0' + network.encode() + b'\0', r.zs_point(note['public_key']))).hex()
+                spent = bool(db.execute('SELECT 1 FROM zkn_shield_images WHERE image=?', (image,)).fetchone())
+                notes.append({'note_id': row[0], 'height': row[4], 'witness': witness, 'key_image': image, 'spent': spent})
+    return {k: wallet[k] for k in ('network_id', 'keys', 'address')} | {
+        'recovery': {'schema': 'corium.shielded-recovery.v1', 'anchor': {'height': block[0], 'hash': block[1]}, 'notes': notes}}
 
 
 def disclosure(network, request_id, request, input_note_id, witness, keys, *, approved):
@@ -147,7 +202,27 @@ def main():
     parser=argparse.ArgumentParser(description='Local experimental shielded wallet; no MCP secret input')
     commands=parser.add_subparsers(dest='command',required=True)
     command=commands.add_parser('receiver');command.add_argument('--network',required=True);command.add_argument('--wallet',type=Path,required=True);command.add_argument('--address',type=Path,required=True);command.add_argument('--password-file',type=Path,required=True)
+    for name in ('inspect', 'recover'):
+        command = commands.add_parser(name)
+        command.add_argument('--wallet', type=Path, required=True)
+        command.add_argument('--password-file', type=Path, required=True)
+        if name == 'recover':
+            command.add_argument('--root', type=Path, required=True)
+            command.add_argument('--output', type=Path, required=True)
     args=parser.parse_args()
+    if args.command != 'receiver':
+        password = secure_read(args.password_file,4096).rstrip(b'\r\n')
+        wallet = validate_wallet(decrypt_wallet(strict_json(secure_read(args.wallet,131072), limit=131072, string_limit=87384), password))
+        if args.command == 'inspect':
+            print(json.dumps({'network_id': wallet['network_id'], 'address': wallet['address'], 'production_enabled': False}))
+        else:
+            if args.output.exists(): raise ValueError('recovery output must be a new file')
+            recovered = recover_wallet(args.root.absolute(), wallet)
+            write_exclusive(args.output, encrypt_wallet(recovered, password))
+            notes = recovered['recovery']['notes']
+            print(json.dumps({'network_id': wallet['network_id'], 'anchor': recovered['recovery']['anchor'],
+                              'owned_notes': len(notes), 'unspent_notes': sum(not note['spent'] for note in notes), 'production_enabled': False}))
+        return
     from ._runtime import zs_testnet
     zs_testnet(args.network)
     if args.wallet.exists() or args.address.exists():raise ValueError('wallet and address outputs must be new files')

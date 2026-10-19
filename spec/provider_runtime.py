@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes", "zkn.shield.images")
 
 
 class ProtocolError(ValueError):
@@ -446,7 +446,7 @@ def validate_request(value, config):
         fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method in {'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes'}:
+    if method in {'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images'}:
         allowed=set() if method=='privacy.status' else {'request_id'} if method=='privacy.review.get' else {'limit','cursor'}
         if set(params)-allowed or (method=='privacy.review.get' and set(params)!=allowed):fail('INVALID_PARAMS','exact privacy query required')
         if 'request_id' in params:
@@ -692,7 +692,7 @@ def rpc(provider, root, network, config, stream):
             result = capabilities(provider, config)
         elif method == "status.get":
             result = status(provider, config, network)
-        elif method in {'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes'}:
+        elif method in {'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images'}:
             if provider!='corium':fail('METHOD_UNSUPPORTED','privacy consensus belongs to Corium')
             try:
                 with closing(corium_db(root,network,'blockchain/chain.db')) as db:result=zs_query(db,network,method,request['params'])

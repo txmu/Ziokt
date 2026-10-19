@@ -1,5 +1,6 @@
 """Shielded assets through real native mint, mempool, miner and recovery."""
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 import json
 import shlex
 import sqlite3
@@ -10,22 +11,30 @@ from test_native_integration import C
 from ziokt import _runtime as r
 from ziokt import shielded_wallet as w
 from ziokt.protocol import ProtocolError
+from ziokt.config import fingerprint
+from ziokt.mcp import Service, McpError
 
 
 class NativeShieldedTests(unittest.TestCase):
-    def test_mainnet_native_admission_rejects_shielded_transactions_without_state_change(self):
+    def fixture(self, network):
         sys.path.insert(0, str(C))
         try:
             from test_core import Fixture
         finally:
             sys.path.pop(0)
         f = Fixture()
-        f.network_id = 'ziokt-main'
+        f.network_id = network
+        f.core_timeout = 240
         f.setUp()
         self.addCleanup(f.doCleanups)
         for path in f.root.rglob('*'):
             if path.is_dir():
                 path.chmod(0o700)
+        (f.etc / 'identity.key').chmod(0o600)
+        return f
+
+    def test_mainnet_native_admission_rejects_shielded_transactions_without_state_change(self):
+        f = self.fixture('ziokt-main')
 
         def state():
             with closing(sqlite3.connect(f.chain)) as db:
@@ -48,22 +57,12 @@ class NativeShieldedTests(unittest.TestCase):
             status = r.zs_query(db, f.network_id, 'privacy.status', {})
         self.assertFalse(status['production_shielding_enabled'])
         self.assertFalse(status['independently_audited'])
+        f.run_core('blockchain_create_transaction zkn_shield_transfer ' +
+                   shlex.quote(json.dumps({'network_id': f.network_id})), ok=False)
+        self.assertEqual(state(), before)
 
     def test_minted_asset_transfer_withdraw_and_rebuild(self):
-        sys.path.insert(0, str(C))
-        try:
-            from test_core import Fixture
-        finally:
-            sys.path.pop(0)
-        f = Fixture()
-        f.network_id = 'test-native-shielded'
-        f.core_timeout = 240
-        f.setUp()
-        self.addCleanup(f.doCleanups)
-        for path in f.root.rglob('*'):
-            if path.is_dir():
-                path.chmod(0o700)
-        (f.etc / 'identity.key').chmod(0o600)
+        f = self.fixture('test-native-shielded')
         (f.etc / 'corix.conf').write_text('[ziokt]\nenabled=TRUE\nfederation_id=test\nprovider_id=corium-local\nzkn_enabled=TRUE\n')
         (f.etc / 'corix.conf').chmod(0o600)
         # Every real packed block creates a signed snapshot mint for the next
@@ -81,6 +80,11 @@ class NativeShieldedTests(unittest.TestCase):
             payload = {'version': r.ZS_VERSION, 'network_id': f.network_id,
                        'token_id': token, 'blind': witness['blind'], 'note': note}
             f.run_core('blockchain_create_transaction zkn_shield_deposit ' + shlex.quote(json.dumps(payload)) + ' >/dev/null')
+            if len(notes) == 1:
+                alternate_note, alternate_witness = w.note(f.network_id, token, w.receiver()[0])
+                duplicate = dict(payload, blind=alternate_witness['blind'], note=alternate_note)
+                f.run_core('blockchain_create_transaction zkn_shield_deposit ' + shlex.quote(json.dumps(duplicate)), ok=False)
+                f.run_core('blockchain_create_transaction zkn_transfer ' + shlex.quote(json.dumps({'token_id': token, 'recipient': '7' * 64, 'nonce': 1})), ok=False)
         f.run_core('blockchain_mine_block >/dev/null; blockchain_mine_block >/dev/null')
         with closing(sqlite3.connect(f.chain)) as db:
             anchor = db.execute('SELECT hash FROM blocks ORDER BY height DESC LIMIT 1 OFFSET 1').fetchone()[0]
@@ -122,6 +126,59 @@ class NativeShieldedTests(unittest.TestCase):
         self.assertEqual(confirmed[2], ('7' * 64,))
         f.run_core('_internal_rebuild_derived_state')
         self.assertEqual(state(), confirmed)
+        provider = {'native_project': 'corium', 'provider_id': 'corium-local', 'root': str(C),
+                    'native_config': str(f.etc/'corix.conf'), 'entrypoint_digest': fingerprint(C/'corix_v108.sh'),
+                    'network_id': f.network_id, 'state_root': str(f.root)}
+        federation, admin = f.root/'federation.json', f.root/'admin.key'
+        federation.write_text(json.dumps({'schema': 'ziokt.federation.v1', 'enabled': True,
+                                          'federation_id': 'test', 'providers': [provider]}))
+        admin.write_text('a' * 64)
+        federation.chmod(0o600)
+        admin.chmod(0o600)
+        service = Service({'schema': 'ziokt.mcp.v1', 'issuer': 'https://privacy.test',
+                           'origins': ['https://privacy.test'], 'state': str(f.root/'mcp-state'),
+                           'admin_token': str(admin), 'bridges': {}, 'federation': str(federation),
+                           'clients': {'reader': {'redirect_uris': ['https://privacy.test/callback'], 'scopes': ['corium:read']}}})
+        token = service.issue('reader', {'corium:read'})
+        principal = service.auth('Bearer ' + token['access_token'])
+        tool = 'corium_local_zkn_shield_images'
+        self.assertFalse(service.tools[tool]['annotations']['destructiveHint'])
+        with self.assertRaises(McpError):
+            service.call(dict(principal, scopes={'ziokt:read'}), tool, {'params': {}})
+        first = service.call(principal, tool, {'params': {'limit': 1}})['structuredContent']
+        second = service.call(principal, tool, {'params': {'limit': 1, 'cursor': first['next_cursor']}})['structuredContent']
+        self.assertEqual(len(first['images']) + len(second['images']), 2)
+        self.assertIsNone(second['next_cursor'])
+        with self.assertRaises(ValueError):
+            service.call(principal, tool, {'params': {'limit': 65}})
+
+    def test_cli_and_concurrent_native_plans_share_review_quota(self):
+        f = self.fixture('default')
+        body = {'network_id': 'default', 'case_commitment': 'd' * 64,
+                'legal_basis_commitment': 'e' * 64, 'recipient_key': 'f' * 64,
+                'scope': ['a' * 64], 'expires_height': 100, 'nonce': '0' * 64}
+        for i in range(7):
+            payload = dict(body, nonce=f'{i:064x}')
+            f.run_core('blockchain_create_transaction privacy_review_request ' + shlex.quote(json.dumps(payload)) + ' >/dev/null')
+        private = (f.etc / 'identity.key').read_bytes()
+
+        def submit(i):
+            tx = w.sign_transaction('default', 'privacy_review_request', dict(body, nonce=f'{i:064x}'), private)
+            try:
+                return r.asset_submit_gift(f.root, 'default', tx, 'privacy_review_request')['phase']
+            except ProtocolError as error:
+                return error.code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(submit, (7, 8)))
+        self.assertCountEqual(outcomes, ['pending-native-consensus', 'PRIVACY_CONFLICT'])
+        f.run_core('blockchain_create_transaction privacy_review_request ' +
+                   shlex.quote(json.dumps(dict(body, nonce='9' * 64))), ok=False)
+        with closing(sqlite3.connect(f.chain)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions WHERE type='privacy_review_request' AND block_height IS NULL").fetchone()[0], 8)
+        f.run_core('blockchain_mine_block >/dev/null')
+        with closing(sqlite3.connect(f.chain)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM privacy_requests').fetchone()[0], 8)
 
 
 if __name__ == '__main__':

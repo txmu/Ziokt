@@ -7,7 +7,7 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 362,
+  "tool_count": 363,
   "tools": [
     {
       "securitySchemes": [
@@ -621,7 +621,16 @@
         "properties": {
           "params": {
             "type": "object",
-            "maxProperties": 64
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "request_id"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -663,7 +672,19 @@
         "properties": {
           "params": {
             "type": "object",
-            "maxProperties": 64
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "cursor": {
+                "type": "string",
+                "pattern": "^(?:[a-f0-9]{64})?$"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -705,7 +726,9 @@
         "properties": {
           "params": {
             "type": "object",
-            "maxProperties": 64
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -950,6 +973,60 @@
           }
         ]
       },
+      "name": "corium_production_zkn_shield_images",
+      "description": "corium-production: native zkn.shield.images. Parameters follow the pinned native contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "cursor": {
+                "type": "string",
+                "pattern": "^(?:[a-f0-9]{64})?$"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
       "name": "corium_production_zkn_shield_notes",
       "description": "corium-production: native zkn.shield.notes. Parameters follow the pinned native contract.",
       "inputSchema": {
@@ -957,7 +1034,19 @@
         "properties": {
           "params": {
             "type": "object",
-            "maxProperties": 64
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "cursor": {
+                "type": "string",
+                "pattern": "^(?:[a-f0-9]{64})?$"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
           }
         },
         "required": [

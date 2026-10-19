@@ -22,6 +22,17 @@ ZS_TYPES = {'zkn_shield_deposit', 'zkn_shield_transfer', 'zkn_shield_withdraw',
 _ZS_ZERO = bytes(32)
 _ZS_ORDER = 2**252 + 27742317777372353535851937790883648493
 _ZS_LIB = None
+_ZS_OPS = {
+    'crypto_core_ristretto255_from_hash': ((64,), True),
+    'crypto_core_ristretto255_scalar_reduce': ((64,), False),
+    'crypto_scalarmult_ristretto255': ((32, 32), True),
+    'crypto_scalarmult_ristretto255_base': ((32,), True),
+    'crypto_core_ristretto255_add': ((32, 32), True),
+    'crypto_core_ristretto255_sub': ((32, 32), True),
+    'crypto_core_ristretto255_scalar_mul': ((32, 32), False),
+    'crypto_core_ristretto255_scalar_add': ((32, 32), False),
+    'crypto_core_ristretto255_scalar_sub': ((32, 32), False),
+}
 
 
 def zs_json(value):
@@ -60,24 +71,31 @@ def zs_lib():
             try:lib=_zs_ct.CDLL(name);break
             except OSError:continue
         if lib is None:raise ValueError('libsodium Ristretto255 unavailable')
+        lib.sodium_init.argtypes = []
+        lib.sodium_init.restype = _zs_ct.c_int
         if lib.sodium_init() < 0: raise ValueError('libsodium initialization failed')
-        for function in ('crypto_core_ristretto255_is_valid_point', 'crypto_core_ristretto255_from_hash',
-                         'crypto_core_ristretto255_scalar_reduce', 'crypto_scalarmult_ristretto255',
-                         'crypto_scalarmult_ristretto255_base', 'crypto_core_ristretto255_add',
-                         'crypto_core_ristretto255_sub', 'crypto_core_ristretto255_scalar_mul',
-                         'crypto_core_ristretto255_scalar_add', 'crypto_core_ristretto255_scalar_sub'):
-            getattr(lib, function).restype = _zs_ct.c_int
+        for function, (sizes, status) in _ZS_OPS.items():
+            fn = getattr(lib, function)
+            fn.argtypes = [_zs_ct.c_void_p] * (len(sizes) + 1)
+            fn.restype = _zs_ct.c_int if status else None
+        lib.crypto_core_ristretto255_is_valid_point.argtypes = [_zs_ct.c_void_p]
+        lib.crypto_core_ristretto255_is_valid_point.restype = _zs_ct.c_int
         _ZS_LIB = lib
     return _ZS_LIB
 
 
 def zs_op(name, *values):
+    contract = _ZS_OPS.get(name)
+    if contract is None or len(values) != len(contract[0]) or any(type(v) is not bytes or len(v) != size for v, size in zip(values, contract[0])):
+        raise ValueError('Ristretto exact operation and buffer sizes required')
+    if '_scalar_' in name and not name.endswith('_reduce'):
+        for value in values: zs_scalar(value)
+    elif name.startswith('crypto_scalarmult_'):
+        zs_scalar(values[0])
     output = _zs_ct.create_string_buffer(32)
     fn = getattr(zs_lib(), name)
-    # Scalar operations/from_hash return void; only point operations have status.
     status = fn(output, *(_zs_ct.create_string_buffer(v, len(v)) for v in values))
-    if name in {'crypto_scalarmult_ristretto255', 'crypto_scalarmult_ristretto255_base',
-                'crypto_core_ristretto255_add', 'crypto_core_ristretto255_sub'} and status != 0:
+    if contract[1] and status != 0:
         raise ValueError('Ristretto operation rejected')
     return output.raw
 
@@ -97,7 +115,11 @@ def zs_point(value):
 
 
 def zs_reduce(raw): return zs_op('crypto_core_ristretto255_scalar_reduce', raw)
-def zs_random_scalar(): return zs_reduce(_zs_random.token_bytes(64))
+def zs_random_scalar():
+    for _ in range(8):
+        value = zs_reduce(_zs_random.token_bytes(64))
+        if value != _ZS_ZERO: return value
+    raise ValueError('nonzero scalar randomness unavailable')
 def zs_sadd(a, b): return zs_op('crypto_core_ristretto255_scalar_add', a, b)
 def zs_ssub(a, b): return zs_op('crypto_core_ristretto255_scalar_sub', a, b)
 def zs_smul(a, b): return zs_op('crypto_core_ristretto255_scalar_mul', a, b)
@@ -213,6 +235,8 @@ def zs_validate(db, network, kind, value, sender):
         else:
             if type(value['ring']) is not list or len(value['ring']) not in (16, 32, 64) or len(set(value['ring'])) != len(value['ring']) or value['ring'] != sorted(value['ring']): raise ValueError('unique canonical fixed ring required')
             zs_hex(value['anchor'])
+            if not zs_exists(db, 'zkn_shield_notes') or not zs_exists(db, 'zkn_shield_images'):
+                raise ValueError('shielded pool not initialized')
             anchor = db.execute('SELECT height FROM blocks WHERE hash=?', (value['anchor'],)).fetchone()
             if not anchor or not 1 <= zs_height(db)-anchor[0] <= 128: raise ValueError('mature canonical anchor required')
             ring = []
@@ -243,6 +267,9 @@ def zs_validate(db, network, kind, value, sender):
         if zs_exists(db, 'privacy_requests') and db.execute('SELECT COUNT(*) FROM privacy_requests WHERE requester=? AND expires>=? AND revoked=0', (sender, height)).fetchone()[0] >= 8: raise ValueError('review request quota')
         if zs_exists(db,'privacy_requests') and db.execute('SELECT 1 FROM privacy_requests WHERE requester=? AND nonce=?',(sender,value['nonce'])).fetchone(): raise ValueError('review request replay')
         if zs_exists(db,'privacy_requests') and db.execute('SELECT COUNT(*) FROM privacy_requests WHERE expires>=? AND revoked=0',(height,)).fetchone()[0]>=4096: raise ValueError('global review request quota')
+        electorate=db.execute("SELECT stake FROM validators WHERE status='active' AND stake>0 LIMIT 1025").fetchall()
+        if not 1 <= len(electorate) <= 1024 or any(type(weight) is not int or not 0 < weight < 2**53 for (weight,) in electorate):
+            raise ValueError('bounded active validator electorate required')
         return
     if value.get('network_id')!=network:raise ValueError('review network mismatch')
     fields = {'request_id', 'decision'} if kind == 'privacy_review_vote' else {'request_id'} if kind == 'privacy_review_revoke' else {'request_id', 'note_id', 'ciphertext', 'authorization'}
@@ -340,4 +367,7 @@ def zs_query(db, network, method, params):
     if method == 'zkn.shield.notes':
         rows=[] if not zs_exists(db,'zkn_shield_notes') else db.execute('SELECT note_id,public_key,commitment,ciphertext,height FROM zkn_shield_notes WHERE note_id>? ORDER BY note_id LIMIT ?',(cursor,limit+1)).fetchall()
         return {'notes':[dict(zip(('note_id','public_key','commitment','ciphertext','height'),r)) for r in rows[:limit]],'next_cursor':rows[limit-1][0] if len(rows)>limit else None,'spent_notes_identifiable':False}
+    if method == 'zkn.shield.images':
+        rows=[] if not zs_exists(db,'zkn_shield_images') else db.execute('SELECT image,height,transaction_hash FROM zkn_shield_images WHERE image>? ORDER BY image LIMIT ?', (cursor, limit+1)).fetchall()
+        return {'images':[dict(zip(('image','height','transaction_hash'),r)) for r in rows[:limit]], 'next_cursor':rows[limit-1][0] if len(rows)>limit else None, 'spent_notes_identifiable':False}
     raise ValueError('unknown privacy query')
