@@ -95,6 +95,22 @@ class FabricTests(unittest.TestCase):
             with self.assertRaises(HTTPError):urlopen(Request(base+'/api',data=json.dumps({'operation':'content.withdraw','arguments':{'id':'book'}}).encode(),headers={'Authorization':'Bearer '+token}))
             with self.assertRaises(HTTPError):urlopen(Request(base+'/api',data=b'{}',headers={'Authorization':'Bearer '+token,'Origin':'https://evil.example'}))
         finally:http.shutdown();http.server_close();worker.join()
+    def test_anonymous_public_read_is_allowlisted_and_cannot_write(self):
+        obj=self.upload(b'public');self.book(obj,'public',bid='public-book')
+        self.fabric.create_group('alice','public.open',visibility='public')
+        self.fabric.post('alice',['public.open'],'Public','Article')
+        http=server(self.fabric,{'port':0,'public_read':True,'origins':['https://reader.example'],'tokens':[]})
+        worker=threading.Thread(target=http.serve_forever,daemon=True);worker.start()
+        base='http://127.0.0.1:'+str(http.server_port)
+        try:
+            for operation,args in [('library.search',{'query':'Open'}),('netnews.groups',{}),('content.object.info',{'id':obj['id']}),('library.extract',{'id':'public-book'})]:
+                request=Request(base+'/api',data=json.dumps({'operation':operation,'arguments':args}).encode(),headers={'Host':'reader.example','Content-Type':'application/json'})
+                self.assertTrue(json.loads(urlopen(request).read()))
+            for operation,args in [('netnews.post',{'groups':['public.open'],'subject':'Denied','body':'Denied'}),('content.sync',{'peer':'x'})]:
+                request=Request(base+'/api',data=json.dumps({'operation':operation,'arguments':args}).encode(),headers={'Host':'reader.example','Content-Type':'application/json'})
+                with self.assertRaises(HTTPError) as error:urlopen(request)
+                self.assertEqual(error.exception.code,403)
+        finally:http.shutdown();http.server_close();worker.join()
     def test_nntp_tcp(self):
         self.fabric.create_group('alice','books.open')
         token='x'*40

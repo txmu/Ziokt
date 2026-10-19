@@ -23,11 +23,11 @@
 |Library 目录签名/授权发布/节点迁移|A|签名目录增量、源离线恢复及冷检查点签名恢复测试通过|
 |Netnews 新闻组/文章编号/Message-ID/回复/交叉发布|A|SQLite 独立编号、幂等 ID、跨隐私域拒绝|
 |Netnews 分区恢复/乱序/冲突记录/签名|A|有序增量、重试、墓碑；缺失前序要求重试历史|
-|NNTP 读取/POST、点转义与认证|A|真实 TCP 客户端测试|
+|NNTP 读取/POST、点转义与认证|A|真实 TCP 客户端测试；nntp.ziokt.com:119 已部署公网匿名只读，写入走 HTTPS 应用凭证|
 |NNTP TLS/客户端矩阵|B|TLS 配置已实现，尚待 TLS 与 Thunderbird 验收|
 |NNTP IHAVE/CHECK/TAKETHIS/MODE STREAM|A|授权 feed scope 与组过滤，原始文章来源保存；TCP/TLS 测试及 CI 39277124663 通过|
 |MIME 大附件/原生授权附件引用|D|当前 NNTP 拒绝 multipart|
-|GUI 独立应用服务|A|真实 Chromium 上传、阅读、发帖、回复、移动端及刷新持久化通过|
+|GUI 独立应用服务|A|真实 Chromium 上传、阅读、发帖、回复、移动端及刷新持久化通过；read.ziokt.com 已部署公网匿名只读|
 |GUI 主导航与 Gateway MCP 集成|B|Library/Netnews 导航与 MCP 已接；MCP 真实权限/持久化测试通过，主 GUI 专项浏览器矩阵仍待验证|
 |Corium 原生 Forum/Group/Broadcast/Wiki/NNS/治理 Adapter|D|不得以文本复制替代签名身份与权限映射|
 |ETP 原生 Forum/DHT/FileShare/Messenger Adapter|D|保留现有实现，尚未接入新应用|
@@ -41,7 +41,7 @@
 |离线阅读缓存/移动端/授权浏览器测试|D|不将普通书签存储视为离线缓存|
 |投诉/治理/本地限制|D|尚未完成|
 |大规模索引/长期压力/带宽预算|B|已新增手动十万文章/万条书目真实持久化 CI；本地仅 10 条样本通过，完整规模/长期带宽尚无结果|
-|完整部署验收与公网测试|D|尚未进行；本地 TCP 通过不表示公网部署通过|
+|read.ziokt.com 与 nntp.ziokt.com 部署|A|2026-10-19 真机 HTTPS/证书/API、Chromium UI、NNTP 域名 TCP119 实测；详情 DEPLOYED-READ-NNTP.md|
 
 ## 后续增量
 
@@ -50,3 +50,6 @@
 - `package_all`：已提交自动收集同一提交的源码、原生可执行文件、扩展、测试证据的 CI；尚未取得完整产物。分阶段交付包会明确标注全量功能未完成。
 
 完整剩余项见 [REMAINING.md](REMAINING.md)，包含原始全量需求及后续插件、移动端、表达学优化要求。
+
+
+本机公网 Reader/NNTP 已按 [部署记录](DEPLOYED-READ-NNTP.md) 开放；这不等于完整清单的原生桥接、私有联邦、附件、TLS NNTP 客户端矩阵和全应用部署均完成。

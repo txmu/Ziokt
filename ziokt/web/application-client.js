@@ -10,7 +10,8 @@ class ZioktApplicationClient {
     this.endpoint=url.origin;this.token=token;
   }
   async call(operation,args={}) {
-    const response=await fetch(this.endpoint+'/api',{method:'POST',headers:{Authorization:'Bearer '+this.token,'Content-Type':'application/json'},body:JSON.stringify({operation,arguments:args}),credentials:'omit',redirect:'error'});
+    const headers={'Content-Type':'application/json'};if(this.token)headers.Authorization='Bearer '+this.token;
+    const response=await fetch(this.endpoint+'/api',{method:'POST',headers,body:JSON.stringify({operation,arguments:args}),credentials:'omit',redirect:'error'});
     const result=await response.json();
     if(!response.ok){const error=Error('APPLICATION_REJECTED');error.status=response.status;throw error;}
     return result;

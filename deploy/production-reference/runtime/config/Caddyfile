@@ -185,3 +185,21 @@ dns.ziokt.com {
 		Referrer-Policy no-referrer
 	}
 }
+
+read.ziokt.com {
+ reverse_proxy 127.0.0.1:8210
+ header {
+  Strict-Transport-Security "max-age=31536000"
+  X-Content-Type-Options nosniff
+  Referrer-Policy no-referrer
+ }
+}
+
+nntp.ziokt.com {
+ respond "Ziokt Netnews: anonymous read only on TCP port 119; authenticated posting uses the Ziokt reader application." 200
+ header {
+  Strict-Transport-Security "max-age=31536000"
+  X-Content-Type-Options nosniff
+  Referrer-Policy no-referrer
+ }
+}

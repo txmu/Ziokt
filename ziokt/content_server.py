@@ -27,6 +27,11 @@ from .gateway_store import byte_range
 from .chunkstore import CHUNK_BYTES
 
 TRANSPORT_DOMAIN='Ziokt/ContentFabric/transport/v1'
+PUBLIC_READ_OPERATIONS={
+    'applications.capabilities','library.search','library.get','library.extract',
+    'netnews.groups','netnews.articles','netnews.search','netnews.get',
+    'content.object.info','content.object.get','content.object.verify',
+}
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -174,6 +179,8 @@ def server(fabric, config):
             auth=self.headers.get('Authorization','')
             for entry in tokens:
                 if hmac.compare_digest(auth,'Bearer '+entry['token']):return entry
+            if not auth and config.get('public_read') is True:
+                return {'account':'public','scopes':['applications:read','library:read','netnews:read','content:read'],'public':True}
             raise PermissionError('authentication required')
         def origin(self):
             origin=self.headers.get('Origin')
@@ -253,6 +260,7 @@ def server(fabric, config):
                 if set(payload)!={'operation','arguments'}:raise ValueError('request envelope')
                 op,args=payload['operation'],payload['arguments']
                 scopes=principal['scopes'];owner=principal['account']
+                if principal.get('public') and op not in PUBLIC_READ_OPERATIONS:raise PermissionError('public identity is read-only')
                 if op=='federation.export':
                     if 'content:replicate' not in scopes:raise PermissionError('peer grant')
                     if not isinstance(args,dict) or set(args)!={'after','challenge'}:raise ValueError('export fields')
@@ -298,7 +306,7 @@ def main():
     nntp=None
     if config.get('nntp',{}).get('enabled'):
         from .netnews_nntp import server as nntp_server
-        nntp=nntp_server(fabric,config['nntp'],config['tokens'])
+        nntp=nntp_server(fabric,config['nntp'],config.get('nntp_tokens',config['tokens']))
         threading.Thread(target=nntp.serve_forever,daemon=True).start()
     print(json.dumps({'http':http.server_address,'node':fabric.public,'nntp':nntp.server_address if nntp else None}),flush=True)
     try:http.serve_forever()
