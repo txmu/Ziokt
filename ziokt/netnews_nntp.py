@@ -11,12 +11,13 @@ from .netnews_mime import content_parts,wire_with_attachments,stream_article
 from email.parser import BytesParser
 from email import policy
 from email.header import Header
-from email.utils import parsedate_to_datetime
+from email.utils import parsedate_to_datetime,parseaddr
 import fnmatch
 import hmac
 import socketserver
 import ssl
 import threading
+import tempfile
 
 from .content_fabric import MESSAGE
 
@@ -47,10 +48,14 @@ def wire_article(article,fabric=None,owner=None,base_url=None,inline_limit=32768
 
 
 def server(fabric,config,tokens):
+    wire_limit=config.get('max_article_bytes',12*1024*1024)
+    decoded_limit=config.get('max_decoded_attachment_bytes',8*1024*1024)
+    if type(wire_limit) is not int or not 49152<=wire_limit<=32*1024*1024 or type(decoded_limit) is not int or not 32768<=decoded_limit<=16*1024*1024:raise ValueError('NNTP receive budgets')
+    if not hasattr(fabric,'nntp_receive_slots'):fabric.nntp_receive_slots=threading.BoundedSemaphore(1)
     class Handler(socketserver.StreamRequestHandler):
         def setup(self):
             super().setup();self.connection.settimeout(60)
-            self.owner='@anonymous';self.authenticated=False;self.scopes=set();self.group=None;self.current=None;self.user=None
+            self.owner='@anonymous';self.authenticated=False;self.scopes=set();self.senders=[];self.group=None;self.current=None;self.user=None
         def line(self,value):self.wfile.write(value.encode('utf-8')+b'\r\n');self.wfile.flush()
         def block(self,code,lines):
             self.line(code)
@@ -85,24 +90,33 @@ def server(fabric,config,tokens):
             self.current=number
             return number,rows[0]
         def receive_post(self,feed=False,expected_id=None):
-            data=bytearray()
+            # Spool the wire representation and serialize MIME parsing across listeners.
+            # The stdlib MIME parser still allocates memory, bounded by wire_limit.
+            if not fabric.nntp_receive_slots.acquire(False):raise ValueError('NNTP ingest busy; retry')
+            try:
+                with tempfile.TemporaryFile(dir=fabric.root) as spool:return self.receive_spooled(spool,feed,expected_id)
+            finally:fabric.nntp_receive_slots.release()
+        def receive_spooled(self,spool,feed,expected_id):
+            size=0;digest=hashlib.sha256(self.owner.encode())
             while True:
                 raw=self.rfile.readline(1001)
                 if not raw or len(raw)>1000 or not raw.endswith(b'\r\n'):raise ValueError('article line limit')
                 if raw==b'.\r\n':break
                 if raw.startswith(b'..'):raw=raw[1:]
-                data.extend(raw)
-                if len(data)>49152:raise ValueError('article limit')
-            message=BytesParser(policy=policy.default).parsebytes(bytes(data))
+                size+=len(raw)
+                if size>wire_limit:raise ValueError('configured article limit')
+                spool.write(raw);digest.update(raw)
+            spool.seek(0);message=BytesParser(policy=policy.default).parse(spool)
             if message.defects:raise ValueError('MIME defects')
             for key in ('From','Subject','Newsgroups','Message-ID','Date','References'):
                 if len(message.get_all(key,[]))>1:raise ValueError('duplicate header')
             if not all(message.get(k) for k in ('From','Subject','Newsgroups')):raise ValueError('missing headers')
-            if not feed and str(message['From'])!=self.owner:raise PermissionError('From identity mismatch')
+            sender=str(message['From'])
+            if not feed and sender!=self.owner and parseaddr(sender)[1] not in self.senders:raise PermissionError('From identity mismatch')
             mid=str(message['Message-ID']) if message.get('Message-ID') else None
             if expected_id is not None and mid!=expected_id:raise ValueError('feed Message-ID mismatch')
             names=str(message['Newsgroups']).split(',')
-            body,parts=content_parts(message)
+            body,parts=content_parts(message,decoded_limit)
             from .content_fabric import text,header,GROUP
             text(body,8192,empty=True);header(str(message['Subject']))
             references=str(message.get('References','')).split()
@@ -115,7 +129,7 @@ def server(fabric,config,tokens):
                     if not target or (target['owner']!=self.owner and (target['posting']=='owner' or target['visibility']=='private')):raise PermissionError('posting target denied')
             native=None
             if feed:
-                if len(data)>16000 or any(name not in config.get('feed_groups',[]) for name in names):raise PermissionError('bounded feed policy')
+                if size>16000 or any(name not in config.get('feed_groups',[]) for name in names):raise PermissionError('bounded feed policy')
                 if not message.get('Date') or not message.get('Path'):raise ValueError('feed requires Date and Path')
                 if parsedate_to_datetime(str(message['Date'])).tzinfo is None:raise ValueError('article Date timezone')
                 native={key:str(message[key]) for key in ('From','Date','Path','Organization') if message.get(key)}
@@ -125,14 +139,15 @@ def server(fabric,config,tokens):
             attachments=[];staged=[]
             try:
                 for index,(name,mime,payload) in enumerate(parts):
-                    upload='mime-'+hashlib.sha256(self.owner.encode()+bytes(data)+str(index).encode()).hexdigest()[:48]
+                    upload_digest=digest.copy();upload_digest.update(str(index).encode());upload='mime-'+upload_digest.hexdigest()[:48]
                     with fabric.lock:existing=fabric.db.execute('SELECT 1 FROM uploads WHERE id=?',(upload,)).fetchone()
                     if not existing:staged.append(upload)
                     fabric.begin(self.owner,upload,len(payload),'sha256:'+hashlib.sha256(payload).hexdigest(),mime,name)
                     if fabric.upload_status(self.owner,upload)['state']!='complete':
                         for position,start in enumerate(range(0,len(payload),16384)):fabric.put(self.owner,upload,position,payload[start:start+16384])
                     obj=fabric.finish(self.owner,upload);attachments.append({'id':obj['id'],'name':name})
-                return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=references,native_headers=native,raw_article=bytes(data) if feed else None,attachments=attachments)
+                spool.seek(0)
+                return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=references,native_headers=native,raw_article=spool.read(16001) if feed else None,attachments=attachments,sender=sender if not feed else None)
             except Exception as error:
                 cleanup_errors=[]
                 for upload in reversed(staged):
@@ -148,9 +163,11 @@ def server(fabric,config,tokens):
                     if not raw:return
                     if len(raw)>512 or not raw.endswith(b'\r\n'):self.line('500 Command line rejected');return
                     parts=raw[:-2].decode('ascii').split(' ',1);cmd=parts[0].upper();arg=parts[1].strip() if len(parts)>1 else ''
+                    cmd={'XOVER':'OVER','XHDR':'HDR'}.get(cmd,cmd)
                     if cmd=='QUIT':self.line('205 Closing connection');return
                     if cmd=='CAPABILITIES':
-                        caps=['VERSION 2','READER','LIST ACTIVE NEWSGROUPS OVERVIEW.FMT','OVER','HDR','IMPLEMENTATION Ziokt-Content-v1','AUTHINFO USER']
+                        caps=['VERSION 2','READER','LIST ACTIVE NEWSGROUPS OVERVIEW.FMT','OVER','HDR','IMPLEMENTATION Ziokt-Content-v1']
+                        if config.get('tls') or config.get('allow_loopback_auth',False):caps+=['AUTHINFO USER']
                         if self.authenticated and 'netnews:write' in self.scopes:caps+=['POST']
                         if self.authenticated and 'netnews:feed' in self.scopes:caps+=['IHAVE','STREAMING']
                         self.block('101 Capability list follows',caps);continue
@@ -163,7 +180,7 @@ def server(fabric,config,tokens):
                         if mode.upper()=='USER':self.user=value;self.line('381 Password required');continue
                         if mode.upper()=='PASS' and self.user:
                             found=next((t for t in tokens if t['account']==self.user and hmac.compare_digest(value,t['token'])),None)
-                            if found:self.owner=found['account'];self.authenticated=True;self.scopes=set(found['scopes']);self.group=None;self.current=None;self.line('281 Authentication accepted')
+                            if found:self.owner=found['account'];self.authenticated=True;self.scopes=set(found['scopes']);self.senders=found.get('senders',[]);self.group=None;self.current=None;self.line('281 Authentication accepted')
                             else:self.line('481 Authentication rejected');return
                             continue
                         self.line('501 AUTHINFO syntax');continue
@@ -204,23 +221,38 @@ def server(fabric,config,tokens):
                         lines=[]
                         for group in fabric.groups(self.owner)['items']:
                             if pattern and not fnmatch.fnmatchcase(group['name'],pattern):continue
-                            name=group['name'];items=fabric.articles(self.owner,name,1,1000)['items']
-                            low=items[0]['number'] if items else 1;high=items[-1]['number'] if items else 0
+                            name=group['name'];stats=fabric.article_numbers(self.owner,name)
+                            low=stats['low'];high=stats['high']
                             lines.append(name+' '+group['description'] if keyword=='NEWSGROUPS' else f'{name} {high} {low} '+('n' if group['posting']=='owner' else 'y'))
                         self.block('215 Information follows',lines);continue
-                    if cmd=='GROUP':
+                    if cmd in {'GROUP','LISTGROUP'}:
+                        arguments=arg.split()
+                        if len(arguments)>(2 if cmd=='LISTGROUP' else 1):raise ValueError('group syntax')
+                        name=arguments[0] if arguments else self.group
+                        if not name:self.line('412 No newsgroup selected');continue
                         try:
-                            items=fabric.articles(self.owner,arg,1,1000)['items']
+                            stats=fabric.article_numbers(self.owner,name)
                         except PermissionError:self.line('411 No such newsgroup');continue
-                        self.group=arg;self.current=items[0]['number'] if items else None
-                        self.line(f"211 {len(items)} {items[0]['number'] if items else 1} {items[-1]['number'] if items else 0} {arg}");continue
+                        self.group=name;self.current=stats['low'] if stats['count'] else None
+                        response=f"211 {stats['count']} {stats['low']} {stats['high']} {name}"
+                        if cmd=='GROUP':self.line(response);continue
+                        low,high=1,2**63-1
+                        if len(arguments)==2:
+                            start,sep,end=arguments[1].partition('-');low=int(start);high=int(end) if end else (2**63-1 if sep else low)
+                        def numbers():
+                            cursor=low
+                            while cursor<=high:
+                                batch=fabric.article_numbers(self.owner,name,cursor,high,limit=256)
+                                if not batch:break
+                                for item in batch:yield str(item['number'])
+                                cursor=batch[-1]['number']+1
+                        self.block(response,numbers());continue
                     if cmd in {'NEXT','LAST'}:
                         if not self.selected():continue
                         if self.current is None:self.line('420 No current article');continue
-                        rows=self.rows()
-                        eligible=[r for r in rows if r['number']>self.current] if cmd=='NEXT' else [r for r in rows if r['number']<self.current]
+                        eligible=fabric.article_numbers(self.owner,self.group,self.current+1,limit=1) if cmd=='NEXT' else fabric.article_numbers(self.owner,self.group,1,self.current-1,previous=True,limit=1) if self.current>1 else []
                         if not eligible:self.line('421 No next article' if cmd=='NEXT' else '422 No previous article');continue
-                        row=eligible[0] if cmd=='NEXT' else eligible[-1];self.current=row['number'];self.line(f"223 {self.current} {row['message_id']}");continue
+                        row=eligible[0];self.current=row['number'];self.line(f"223 {self.current} {row['message']}");continue
                     if cmd in {'ARTICLE','HEAD','BODY','STAT'}:
                         try:result=self.select_article(arg)
                         except PermissionError:self.line('430 No article with that message-id');continue

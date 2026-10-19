@@ -6,7 +6,7 @@ from email.message import EmailMessage
 MAX_INLINE=32768
 
 
-def content_parts(message):
+def content_parts(message,max_decoded_bytes=MAX_INLINE):
     """Decode a plain body and up to eight inert attachment byte strings."""
     if not message.is_multipart():
         if message.get_content_type()!='text/plain':raise ValueError('plain body required')
@@ -23,7 +23,7 @@ def content_parts(message):
             name=part.get_filename();data=part.get_payload(decode=True)
             if not name or not isinstance(data,bytes):raise ValueError('attachment filename/payload')
             total+=len(data)
-            if total>MAX_INLINE:raise ValueError('inline attachment budget; use native object references')
+            if total>max_decoded_bytes:raise ValueError('configured MIME attachment budget exceeded')
             attachments.append((name,part.get_content_type(),data))
         elif body is None and part.get_content_type()=='text/plain':body=part.get_content()
         else:raise ValueError('one plain body and explicit attachments required')

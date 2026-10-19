@@ -406,10 +406,11 @@ class Fabric:
     def groups(self, owner):
         with self.lock:return {'items':[dict(row) for row in self.db.execute("SELECT * FROM groups WHERE visibility='public' OR owner=? ORDER BY name",(owner,))]}
 
-    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None, attachments=None):
+    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None, attachments=None, sender=None):
         if not isinstance(groups,list) or not 1<=len(groups)<=8 or len(set(groups))!=len(groups):raise ValueError('groups')
         header(subject);text(body,8192,empty=True)
         if author is not None and author!=owner:raise PermissionError('From must match authenticated identity')
+        if sender is not None:header(sender)
         references=references or []
         if not isinstance(references,list) or len(references)>32 or any(not isinstance(v,str) or not MESSAGE.fullmatch(v) for v in references):raise ValueError('References')
         mid=message_id or '<'+secrets.token_hex(16)+'@'+self.public[:24]+'.ziokt>'
@@ -431,7 +432,7 @@ class Fabric:
                 if obj['owner']!=owner:raise PermissionError('only owned objects may be attached')
                 metadata=json.loads(obj['metadata'])
                 published_attachments.append({'v':1,'id':entry['id'],'name':name,**{key:metadata[key] for key in ('size','digest','mime','merkle_root')}})
-            value={'message_id':mid,'newsgroups':groups,'subject':subject,'body':body,'from':owner,'date':formatdate(usegmt=True),'references':references,'path':[self.public],'content_type':'text/plain; charset=utf-8'}
+            value={'message_id':mid,'newsgroups':groups,'subject':subject,'body':body,'from':sender or owner,'date':formatdate(usegmt=True),'references':references,'path':[self.public],'content_type':'text/plain; charset=utf-8'}
             if published_attachments:value['attachments']=published_attachments
             if native_headers is not None:
                 if not isinstance(native_headers,dict) or set(native_headers)-{'From','Date','Path','Organization'}:raise ValueError('native headers')
@@ -463,6 +464,20 @@ class Fabric:
             if policy is None or (policy['visibility']!='public' and policy['owner']!=owner):raise PermissionError('group unavailable')
             rows=self.db.execute("SELECT a.number,r.id,r.body FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number>=? AND r.deleted=0 AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?) ORDER BY a.number LIMIT ?",(group,low,owner,int(time.time()),limit)).fetchall()
             return {'items':[{'number':r['number'],'id':r['id'],**json.loads(r['body'])} for r in rows]}
+
+    def article_numbers(self, owner, group, low=1, high=2**63-1, *, previous=False, limit=None):
+        """Exact visible group statistics or bounded number lookup, without body loads."""
+        if type(low) is not int or type(high) is not int or not 1<=low<=high<=2**63-1:raise ValueError('article range')
+        if limit is not None and (type(limit) is not int or not 1<=limit<=10000):raise ValueError('number limit')
+        with self.lock:
+            policy=self.db.execute('SELECT * FROM groups WHERE name=?',(group,)).fetchone()
+            if policy is None or (policy['visibility']!='public' and policy['owner']!=owner):raise PermissionError('group unavailable')
+            query=" FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number BETWEEN ? AND ? AND r.deleted=0 AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?)"
+            args=(group,low,high,owner,int(time.time()))
+            if limit is not None:
+                return [dict(row) for row in self.db.execute('SELECT a.number,a.message'+query+' ORDER BY a.number '+('DESC' if previous else 'ASC')+' LIMIT ?',(*args,limit))]
+            row=self.db.execute('SELECT count(*) count,coalesce(min(a.number),1) low,coalesce(max(a.number),0) high'+query,args).fetchone()
+            return dict(row)
 
     def withdraw(self, owner, record):
         with self.transaction():

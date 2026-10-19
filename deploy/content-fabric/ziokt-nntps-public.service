@@ -1,5 +1,5 @@
 [Unit]
-Description=Ziokt anonymous read-only NNTP over TLS
+Description=Ziokt NNTP over TLS with an independently scoped posting identity
 After=network-online.target ziokt-content.service ziokt-https.service
 Requires=ziokt-content.service
 
@@ -7,7 +7,7 @@ Requires=ziokt-content.service
 Type=simple
 User=admin
 Group=admin
-ExecStart=/usr/bin/socat OPENSSL-LISTEN:563,min-version=TLS1.2,bind=0.0.0.0,reuseaddr,fork,max-children=16,cert=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.crt,key=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.key,verify=0 TCP4:127.0.0.1:8119
+ExecStart=/usr/bin/socat OPENSSL-LISTEN:563,min-version=TLS1.2,bind=0.0.0.0,reuseaddr,fork,max-children=16,cert=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.crt,key=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.key,verify=0 TCP4:127.0.0.1:8120
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes

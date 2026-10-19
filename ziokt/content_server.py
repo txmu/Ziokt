@@ -345,17 +345,21 @@ def main():
         if not isinstance(token['token'],str) or len(token['token'])<32:raise ValueError('strong application credential required')
     fabric=Fabric(config['root'],quota=config.get('quota',2*1024**3),peers={p['public_key']:{'groups':p.get('groups',[])} for p in peers.values()})
     http=server(fabric,config)
-    nntp=None
-    if config.get('nntp',{}).get('enabled'):
+    nntp=[]
+    if config.get('nntp_tls_bridge',{}).get('enabled'):
+        bridge=config['nntp_tls_bridge']
+        if bridge.get('listen','127.0.0.1')!='127.0.0.1' or not bridge.get('allow_loopback_auth'):raise ValueError('TLS bridge must use explicitly trusted IPv4 loopback')
+    for key in ('nntp','nntp_tls_bridge'):
+        if not config.get(key,{}).get('enabled'):continue
         from .netnews_nntp import server as nntp_server
-        nntp=nntp_server(fabric,config['nntp'],config.get('nntp_tokens',config['tokens']))
-        threading.Thread(target=nntp.serve_forever,daemon=True).start()
-    print(json.dumps({'http':http.server_address,'node':fabric.public,'nntp':nntp.server_address if nntp else None}),flush=True)
+        listener=nntp_server(fabric,config[key],config.get(key+'_tokens',config.get('nntp_tokens',config['tokens'])))
+        nntp.append(listener);threading.Thread(target=listener.serve_forever,daemon=True).start()
+    print(json.dumps({'http':http.server_address,'node':fabric.public,'nntp':nntp[0].server_address if nntp else None,'nntp_listeners':[listener.server_address for listener in nntp]}),flush=True)
     try:http.serve_forever()
     except KeyboardInterrupt:pass
     finally:
         http.server_close()
-        if nntp:nntp.shutdown();nntp.server_close()
+        for listener in nntp:listener.shutdown();listener.server_close()
         fabric.close()
 
 
