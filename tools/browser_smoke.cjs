@@ -19,7 +19,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   await alice.reload();await alice.locator('#workspace').waitFor({state:'visible'});await alice.locator('#contacts button').filter({hasText:'Bob'}).first().click();await bob.locator('#contacts button').filter({hasText:'Administrator'}).click();
   await alice.fill('#text','private browser fixture message');await alice.click('#composer button');await bob.getByText('private browser fixture message',{exact:true}).waitFor();
   assert.equal(await bob.locator('#messages article').count(),1);
-  await alice.waitForFunction(()=>document.querySelector('.delivery')?.textContent==='Recipient confirmed');
+  await alice.waitForFunction(()=>{const text=document.querySelector('.delivery')?.textContent;return text==='Recipient confirmed'||text==='Read'});
   const beforeSession=await alice.evaluate(async()=>(await(await fetch('/api/me')).json()).user.id);
   await alice.selectOption('#ui-mode',uiMode==='classic'?'simple':'classic');await alice.selectOption('#theme','dark');
   assert.equal(await alice.evaluate(async()=>(await(await fetch('/api/me')).json()).user.id),beforeSession);

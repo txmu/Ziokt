@@ -59,7 +59,10 @@ def main():
    cli('php','cli/export-sqlite-for-user.php','--user','reader','--filename','/tmp/feed-evidence.sqlite')
    command('docker','cp','ziokt-freshrss:/tmp/feed-evidence.sqlite',str(root/'entries.sqlite'))
    with sqlite3.connect(root/'entries.sqlite') as db:
-    rows=db.execute('SELECT f.url,e.title FROM freshrss_feed f LEFT JOIN freshrss_entry e ON e.id_feed=f.id').fetchall()
+    tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    feed_table=next((t for t in tables if 'feed' in t),'feed')
+    entry_table=next((t for t in tables if 'entry' in t),'entry')
+    rows=db.execute(f'SELECT f.url,e.title FROM {feed_table} f LEFT JOIN {entry_table} e ON e.id_feed=f.id').fetchall()
     for fmt in ('rss','atom','json'):
      titles=[title for url,title in rows if url==base+'/feeds/netnews.'+fmt]
      assert 'Ziokt feed interoperability' in titles,(fmt,'FreshRSS did not store public article')
