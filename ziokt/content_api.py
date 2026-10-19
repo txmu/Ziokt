@@ -34,6 +34,7 @@ OPERATIONS={
  'content.maintenance':({},True),
  'library.publish':({'metadata':dict},True),
  'library.search':({'query':str,'limit':int,'offset':int,'filters':dict},False),
+ 'library.extract':({'id':str},False),
  'library.get':({'id':str},False),
  'library.reading.get':({'id':str},False),
  'library.reading.save':({'id':str,'state':dict},True),
@@ -55,6 +56,16 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-OPTIONAL)-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation=='library.extract':
+        from .library_formats import extract,MAX_SOURCE
+        with fabric.lock:book=fabric._get(owner,args['id'],'book')
+        import json
+        with fabric.lock:info=json.loads(fabric.object_info(owner,book['file_id'])['metadata'])
+        if info['size']>MAX_SOURCE:raise ValueError('reader source limit')
+        source=b''.join(fabric.read_chunk(owner,book['file_id'],i) for i in range((info['size']+16383)//16384))
+        import hashlib
+        if 'sha256:'+hashlib.sha256(source).hexdigest()!=info['digest']:raise ValueError('reader digest mismatch')
+        return extract(source,info['mime'])
     if operation=='optimization.get':return fabric.optimizations.get(owner,args.get('application','content'))
     if operation=='optimization.configure':return fabric.optimizations.set(owner,**args)
     if operation=='optimization.configure_defaults':return fabric.optimizations.set(owner,**args)

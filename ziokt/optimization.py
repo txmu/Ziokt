@@ -41,7 +41,7 @@ class Profiles:
     if row:result.update(json.loads(row[1]));revisions[scope]=row[0]
   # Disabled profiles cannot silently change existing execution behavior.
   effective=result if result['enabled'] else dict(DEFAULTS)
-  return {'schema':'ziokt.optimization-profile.v1','settings':result,'effective':effective,'revisions':revisions,'security_overrides_allowed':False}
+  return {'schema':'ziokt.optimization-profile.v1','settings':result,'effective':effective,'revisions':revisions,'account_revision':revisions.get('account:'+owner,0),'security_overrides_allowed':False}
  def set(self,owner,settings,revision,*,application=None,node=False):
   if not isinstance(settings,dict) or set(settings)-set(OPTIONS):raise ValueError('unknown optimization')
   if type(revision) is not int or revision<0:raise ValueError('profile revision')
