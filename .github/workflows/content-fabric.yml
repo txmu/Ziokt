@@ -177,12 +177,13 @@ jobs:
       - name: Chromium extension with actual application service
         run: |
           set -o pipefail
-          node tools/content_extension_smoke.cjs | tee chromium-extension-results.txt
+          node tools/content_extension_smoke.cjs 2>&1 | tee chromium-extension-results.txt
       - name: Firefox extension with actual application service
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           export ZIOKT_FIREFOX_BINARY="$(node -e 'process.stdout.write(require("./ci/browser/node_modules/playwright").firefox.executablePath())')"
-          PYTHONPATH=. python tools/content_extension_firefox.py | tee firefox-extension-results.txt
+          PYTHONPATH=. python tools/content_extension_firefox.py 2>&1 | tee firefox-extension-results.txt
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

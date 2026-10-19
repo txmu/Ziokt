@@ -2,3 +2,4 @@
 body.compact button{min-height:44px;padding:5px 9px;margin-block:2px}body.compact label{margin-block:6px}select{display:block;width:100%;font:inherit;min-height:44px;margin-top:6px}input[type=checkbox]{width:auto}
 
 *{box-sizing:border-box}html{overflow-wrap:anywhere}main{padding-bottom:max(20px,env(safe-area-inset-bottom));padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}body.full-page{width:100%;max-width:900px;margin-inline:auto}input,textarea,select{font-size:max(16px,1em);min-width:0}summary{min-height:44px;cursor:pointer;padding-block:10px}nav button{flex:1 1 auto}article img{max-width:100%}@media(max-width:360px){main{padding:12px}button{max-width:100%;overflow-wrap:anywhere}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+input[type=checkbox]{min-height:44px;min-width:44px;display:inline-block;vertical-align:middle;cursor:pointer}
