@@ -174,7 +174,7 @@
     "message": "上传图书"
   },
   "file": {
-    "message": "文件（浏览器上限 16 MiB）"
+    "message": "文件"
   },
   "book_title": {
     "message": "书名"
@@ -198,9 +198,12 @@
     "message": "上传并保存书目"
   },
   "book_saved": {
-    "message": "书目与文件已保存"
+    "message": "图书与文件已持久保存"
   },
   "open_tab": {
     "message": "在完整标签页打开"
+  },
+  "upload_book": {
+    "message": "上传图书（上限 16 MiB）"
   }
 }

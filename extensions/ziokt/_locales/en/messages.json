@@ -174,7 +174,7 @@
     "message": "Upload a book"
   },
   "file": {
-    "message": "File (browser limit: 16 MiB)"
+    "message": "File"
   },
   "book_title": {
     "message": "Book title"
@@ -192,15 +192,18 @@
     "message": "License or right to retain"
   },
   "visibility": {
-    "message": "Sharing scope"
+    "message": "Distribution scope"
   },
   "upload_publish": {
     "message": "Upload and save catalogue record"
   },
   "book_saved": {
-    "message": "Book and file saved"
+    "message": "Book and file durably saved"
   },
   "open_tab": {
     "message": "Open in a full tab"
+  },
+  "upload_book": {
+    "message": "Upload book (up to 16 MiB)"
   }
 }
