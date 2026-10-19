@@ -347,7 +347,7 @@ class Fabric:
     def groups(self, owner):
         with self.lock:return {'items':[dict(row) for row in self.db.execute("SELECT * FROM groups WHERE visibility='public' OR owner=? ORDER BY name",(owner,))]}
 
-    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None):
+    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None):
         if not isinstance(groups,list) or not 1<=len(groups)<=8 or len(set(groups))!=len(groups):raise ValueError('groups')
         header(subject);text(body,8192,empty=True)
         if author is not None and author!=owner:raise PermissionError('From must match authenticated identity')
@@ -365,6 +365,14 @@ class Fabric:
             visibility='private' if any(p['visibility']=='private' for p in policies) else 'public'
             if len({p['visibility'] for p in policies})!=1:raise ValueError('cannot crosspost between privacy domains')
             value={'message_id':mid,'newsgroups':groups,'subject':subject,'body':body,'from':owner,'date':formatdate(usegmt=True),'references':references,'path':[self.public],'content_type':'text/plain; charset=utf-8'}
+            if native_headers is not None:
+                if not isinstance(native_headers,dict) or set(native_headers)-{'From','Date','Path','Organization'}:raise ValueError('native headers')
+                for field,content in native_headers.items():header(content)
+                route=native_headers.get('Path','').split('!')
+                if self.public in route:raise ValueError('NNTP propagation loop')
+                value.update({'from':native_headers.get('From',owner),'date':native_headers.get('Date',value['date']),'path':[self.public]+[part for part in route if part]})
+                if not isinstance(raw_article,bytes) or len(raw_article)>16000:raise ValueError('native article budget')
+                value['provenance']={'protocol':'nntp','peer_account':owner,'publisher_signature_verified':False,'headers':native_headers,'raw_sha256':hashlib.sha256(raw_article).hexdigest(),'raw_chunks':[base64.b64encode(raw_article[i:i+3072]).decode() for i in range(0,len(raw_article),3072)]}
             existing=self.db.execute('SELECT * FROM records WHERE id=?',(mid,)).fetchone()
             if existing:
                 prior=json.loads(existing['body'])

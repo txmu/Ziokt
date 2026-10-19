@@ -119,7 +119,7 @@ class FabricTests(unittest.TestCase):
                     if line==b'.\r\n':break
                     lines.append(line)
                 self.assertIn(b'..dot\r\n',lines)
-                self.assertTrue(cmd('CHECK <x@example.test>').startswith(b'500'))
+                self.assertTrue(cmd('CHECK <x@example.test>').startswith(b'502'))
                 self.assertTrue(cmd('QUIT').startswith(b'205'));io.close()
         finally:srv.shutdown();srv.server_close();worker.join()
 

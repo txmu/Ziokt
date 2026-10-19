@@ -6,6 +6,7 @@ import base64
 from .content_fabric import Fabric
 
 OPERATIONS={
+ 'applications.capabilities':({},False),
  'community.forum.list':({'limit':int,'offset':int},False),
  'community.forum.post':({'title':str,'body':str,'operation':str,'reply_to':str},True),
  'content.health':({},False),
@@ -45,6 +46,15 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-OPTIONAL)-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation=='applications.capabilities':
+        return {'schema':'ziokt.application-capabilities.v1','applications':[
+            {'id':'library','name':'Library','available':True,'guarantee':'account-private or explicitly public; verified encrypted chunks'},
+            {'id':'netnews','name':'Netnews','available':True,'guarantee':'persistent local articles; signed catalogue federation'},
+            {'id':'community','name':'Community','available':bool(fabric.community_config.get('accounts',{}).get(owner)),'guarantee':'native Community member permissions and signatures'},
+            {'id':'content','name':'Files','available':True,'guarantee':'account-scoped SafeFS objects; references do not grant access'},
+            {'id':'tc16','name':'TC-16','available':True,'guarantee':'explicit ISA and capability profile; no host filesystem or network'},
+            {'id':'messages','name':'Messages','available':False,'guarantee':'native protocol adapter not configured on this application endpoint'},
+            {'id':'groups','name':'Groups','available':False,'guarantee':'independent native membership adapter not configured'}]}
     if operation.startswith('community.'):
         from .community_application import invoke as community_invoke
         return community_invoke(fabric.community_config,owner,operation,args)

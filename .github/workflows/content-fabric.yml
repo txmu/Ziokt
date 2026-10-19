@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: content-fabric-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -19,6 +22,7 @@ jobs:
         run: |
           set -o pipefail
           python -m unittest discover -s tests -p 'test_content*.py' -v 2>&1 | tee content-test-results.txt
+          python -m unittest discover -s tests -p 'test_netnews_feed.py' -v 2>&1 | tee nntp-feed-results.txt
           python -m unittest discover -s tests -p 'test_community_application.py' -v 2>&1 | tee community-application-results.txt
           python -m unittest discover -s tests -p 'test_tc16_spec.py' -v 2>&1 | tee tc16-python-results.txt
       - uses: actions/upload-artifact@v7.0.2

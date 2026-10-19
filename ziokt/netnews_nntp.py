@@ -1,14 +1,15 @@
 """Bounded NNTP reader/posting adapter (RFC 3977 subset).
 
-No server transfer is advertised: signed HTTP federation preserves proof of
-origin whereas unauthenticated NNTP transit would discard that boundary.
-Unsupported streaming commands return 500. AUTHINFO USER/PASS requires TLS
+Server transfer requires an explicit netnews:feed grant and feed_groups list.
+Original article bytes and headers are retained as provenance; an authenticated
+upstream is never reported as an independently verified publisher signature. AUTHINFO USER/PASS requires TLS
 except for explicit loopback development. Anonymous access is public read only.
 """
 from datetime import datetime, timezone
 from email.parser import BytesParser
 from email import policy
 from email.header import Header
+from email.utils import parsedate_to_datetime
 import fnmatch
 import hmac
 import socketserver
@@ -77,7 +78,7 @@ def server(fabric,config,tokens):
             if not rows or rows[0]['number']!=number:self.line('423 No article with that number');return None
             self.current=number
             return number,rows[0]
-        def receive_post(self):
+        def receive_post(self,feed=False,expected_id=None):
             data=bytearray()
             while True:
                 raw=self.rfile.readline(1001)
@@ -91,10 +92,18 @@ def server(fabric,config,tokens):
             for key in ('From','Subject','Newsgroups','Message-ID','Date','References'):
                 if len(message.get_all(key,[]))>1:raise ValueError('duplicate header')
             if not all(message.get(k) for k in ('From','Subject','Newsgroups')):raise ValueError('missing headers')
-            if str(message['From'])!=self.owner:raise PermissionError('From identity mismatch')
+            if not feed and str(message['From'])!=self.owner:raise PermissionError('From identity mismatch')
             mid=str(message['Message-ID']) if message.get('Message-ID') else None
+            if expected_id is not None and mid!=expected_id:raise ValueError('feed Message-ID mismatch')
+            names=str(message['Newsgroups']).split(',')
             body=message.get_content()
-            return fabric.post(self.owner,str(message['Newsgroups']).split(','),str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split())
+            if feed:
+                if any(name not in config.get('feed_groups',[]) for name in names):raise PermissionError('feed group not granted')
+                if not message.get('Date') or not message.get('Path'):raise ValueError('feed requires Date and Path')
+                if parsedate_to_datetime(str(message['Date'])).tzinfo is None:raise ValueError('article Date timezone')
+                native={key:str(message[key]) for key in ('From','Date','Path','Organization') if message.get(key)}
+                return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split(),native_headers=native,raw_article=bytes(data))
+            return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split())
         def handle(self):
             self.line('201 Ziokt Netnews reader ready; authenticate to post')
             for _ in range(1000):
@@ -107,6 +116,7 @@ def server(fabric,config,tokens):
                     if cmd=='CAPABILITIES':
                         caps=['VERSION 2','READER','LIST ACTIVE NEWSGROUPS OVERVIEW.FMT','OVER','HDR','IMPLEMENTATION Ziokt-Content-v1','AUTHINFO USER']
                         if self.authenticated and 'netnews:write' in self.scopes:caps+=['POST']
+                        if self.authenticated and 'netnews:feed' in self.scopes:caps+=['IHAVE','STREAMING']
                         self.block('101 Capability list follows',caps);continue
                     if cmd=='MODE' and arg.upper()=='READER':self.line('200 Posting allowed' if self.authenticated and 'netnews:write' in self.scopes else '201 Reader mode');continue
                     if cmd=='DATE':self.line('111 '+datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S'));continue
@@ -121,7 +131,28 @@ def server(fabric,config,tokens):
                             else:self.line('481 Authentication rejected');return
                             continue
                         self.line('501 AUTHINFO syntax');continue
-                    if cmd in {'IHAVE','CHECK','TAKETHIS'} or cmd=='MODE':self.line('500 Transfer extension not supported');continue
+                    if cmd=='MODE' and arg.upper()=='STREAM':
+                        if not self.authenticated:self.line('480 Authentication required');continue
+                        if 'netnews:feed' not in self.scopes:self.line('502 Feed permission required');continue
+                        self.line('203 Streaming permitted');continue
+                    if cmd in {'IHAVE','CHECK','TAKETHIS'}:
+                        if not self.authenticated or 'netnews:feed' not in self.scopes:
+                            self.line('502 Feed permission required')
+                            if cmd=='TAKETHIS':return
+                            continue
+                        if not MESSAGE.fullmatch(arg):self.line('501 Message-ID required');continue
+                        with fabric.lock:known=fabric.db.execute('SELECT 1 FROM records WHERE id=?',(arg,)).fetchone() is not None
+                        if cmd=='CHECK':self.line(('438 ' if known else '238 ')+arg);continue
+                        if cmd=='IHAVE' and known:self.line('435 Article already known');continue
+                        if cmd=='IHAVE':self.line('335 Send article')
+                        try:
+                            self.receive_post(feed=True,expected_id=arg)
+                            self.line(('239 '+arg) if cmd=='TAKETHIS' else '235 Article durably received')
+                        except (ValueError,PermissionError):
+                            self.line(('439 '+arg+' rejected') if cmd=='TAKETHIS' else '437 Article rejected')
+                            return
+                        continue
+                    if cmd=='MODE':self.line('501 Unsupported mode');continue
                     if cmd=='POST':
                         if not self.authenticated:self.line('480 Authentication required');continue
                         if 'netnews:write' not in self.scopes:self.line('440 Posting prohibited');continue

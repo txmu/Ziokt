@@ -15,7 +15,7 @@ full = ["ffi", "extensions", "countermeasures", "vpn", "anonymity", "persistence
 # --- 核心模块 ---
 ffi = []
 extensions = ["dep:notify", "dep:reqwest", "dep:serde_yaml", "dep:toml", "dep:rust-ini", "dep:serde-xml-rs", "dep:url", "dep:regex", "dep:flate2"]
-countermeasures = []
+countermeasures = ["dep:byteorder"]
 vpn = ["dep:tun"]
 anonymity = ["dep:tokio-util"]
 persistence = ["dep:sled"]
