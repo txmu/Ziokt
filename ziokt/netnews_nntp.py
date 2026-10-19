@@ -50,7 +50,7 @@ def server(fabric,config,tokens):
     class Handler(socketserver.StreamRequestHandler):
         def setup(self):
             super().setup();self.connection.settimeout(60)
-            self.owner='anonymous';self.authenticated=False;self.scopes=set();self.group=None;self.current=None;self.user=None
+            self.owner='@anonymous';self.authenticated=False;self.scopes=set();self.group=None;self.current=None;self.user=None
         def line(self,value):self.wfile.write(value.encode('utf-8')+b'\r\n');self.wfile.flush()
         def block(self,code,lines):
             self.line(code)

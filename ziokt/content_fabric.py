@@ -148,6 +148,9 @@ class Fabric:
                 self.db.execute('CREATE INDEX IF NOT EXISTS reference_object ON content_references(object,record)')
                 for row in self.db.execute('SELECT id,kind,body FROM records').fetchall():self._index_references(row['id'],row['kind'],json.loads(row['body']))
                 self.db.execute('INSERT INTO migrations VALUES(4,unixepoch())')
+        with self.db:
+            self.db.execute('CREATE TABLE IF NOT EXISTS feed_observations(owner TEXT,source TEXT,native TEXT,observed INTEGER NOT NULL,PRIMARY KEY(owner,source,native))')
+            self.db.execute('INSERT OR IGNORE INTO migrations VALUES(5,unixepoch())')
         os.chmod(path,0o600)
 
     def close(self):

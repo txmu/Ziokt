@@ -6,6 +6,8 @@ import base64
 from .content_fabric import Fabric
 
 OPERATIONS={
+ 'feeds.describe':({},False),
+ 'feeds.items':({'source':str,'group':str,'limit':int,'offset':int},False),
  'optimization.get':({'application':str},False),
  'optimization.configure':({'settings':dict,'revision':int},True),
  'optimization.configure_defaults':({'settings':dict,'revision':int,'application':str,'node':bool},True),
@@ -49,15 +51,27 @@ OPERATIONS={
  'content.subscription.get':({'kind':str,'target':str},False),
  'content.subscription.save':({'kind':str,'target':str,'settings':dict},True),
 }
-OPTIONAL={'attachments','application','decoder','node','name','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
+OPTIONAL={'attachments','application','decoder','node','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
+
+
+def optional_fields(operation):
+    return OPTIONAL | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
 
 
 def invoke(fabric, owner, operation, args):
     if operation not in OPERATIONS or not isinstance(args,dict):raise ValueError('unknown operation')
     fields,_=OPERATIONS[operation]
-    if set(args)-set(fields) or (set(fields)-OPTIONAL)-set(args):raise ValueError('operation fields')
+    if set(args)-set(fields) or (set(fields)-optional_fields(operation))-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation=='feeds.describe':
+        from .content_feeds import describe
+        return describe(getattr(fabric,'feed_base_url',''))
+    if operation=='feeds.items':
+        from .content_feeds import collect
+        result=collect(fabric,owner,**args)
+        for item in result['items']:item['published']=item['published'].isoformat() if item['published'] else None
+        return result
     if operation=='library.extract':
         from .library_formats import extract,MAX_SOURCE
         with fabric.lock:book=fabric._get(owner,args['id'],'book')
@@ -155,4 +169,4 @@ def attach(service, config):
         if operation=='optimization.evaluate':
             props['joint']={'type':'array','minItems':1,'maxItems':4096,'items':{'type':'object','maxProperties':4}}
             props['decoder']={'type':'array','maxItems':4096,'items':{'type':'object','maxProperties':3}}
-        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-OPTIONAL),write,('content:admin' if operation in {'content.sync','content.maintenance','optimization.configure_defaults'} else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))
+        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-optional_fields(operation)),write,('content:admin' if operation in {'content.sync','content.maintenance','optimization.configure_defaults'} else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))

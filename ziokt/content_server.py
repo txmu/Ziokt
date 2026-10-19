@@ -16,7 +16,7 @@ import socketserver
 import ssl
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qs
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
 from .content_fabric import Fabric, ident, merkle_verify
@@ -30,8 +30,11 @@ TRANSPORT_DOMAIN='Ziokt/ContentFabric/transport/v1'
 PUBLIC_READ_OPERATIONS={
     'applications.capabilities','library.search','library.get','library.extract',
     'netnews.groups','netnews.articles','netnews.search','netnews.get',
-    'content.object.info','content.object.get','content.object.verify',
+    'content.object.info','content.object.get','content.object.verify','feeds.describe',
 }
+
+
+class RateLimited(ValueError):pass
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -163,6 +166,7 @@ def server(fabric, config):
     peers=config.get('peers',{})
     fabric.remote_peers=peers
     fabric.community_config=config.get('community',{})
+    fabric.feed_base_url=config.get('feed_base_url','')
     rate_lock=threading.Lock();rates={}
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version='HTTP/1.1'
@@ -172,7 +176,7 @@ def server(fabric, config):
             raw=data if isinstance(data,bytes) else encoded(data)
             self.send_response(status)
             self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)))
-            self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+            self.send_header('Cache-Control',(extra or {}).get('Cache-Control','no-store'));self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             self.send_header('Referrer-Policy','no-referrer')
             origin=self.headers.get('Origin')
@@ -180,15 +184,25 @@ def server(fabric, config):
                 self.send_header('Access-Control-Allow-Origin',origin);self.send_header('Vary','Origin')
                 self.send_header('Access-Control-Allow-Methods','GET, POST, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers','Authorization, Content-Type')
-            for k,v in (extra or {}).items():self.send_header(k,v)
+            for k,v in (extra or {}).items():
+                if k!='Cache-Control':self.send_header(k,v)
             self.end_headers()
             if self.command!='HEAD':self.wfile.write(raw)
-        def principal(self):
+        def admit(self,principal):
+            with rate_lock:
+                now=int(time.time())//60;key=principal['account'];previous,count=rates.get(key,(now,0));count=count+1 if previous==now else 1;rates[key]=(now,count)
+                if count>1200:raise RateLimited('request rate')
+        def principal(self,feed_auth=False):
             auth=self.headers.get('Authorization','')
             for entry in tokens:
                 if hmac.compare_digest(auth,'Bearer '+entry['token']):return entry
+            if feed_auth and auth.startswith('Basic ') and len(auth)<4096:
+                try:user,password=base64.b64decode(auth[6:],validate=True).decode('ascii').split(':',1)
+                except (ValueError,UnicodeError):raise PermissionError('feed authentication')
+                for entry in tokens:
+                    if hmac.compare_digest(user,entry['account']) and hmac.compare_digest(password,entry['token']):return entry
             if not auth and config.get('public_read') is True:
-                return {'account':'public','scopes':['applications:read','library:read','netnews:read','content:read'],'public':True}
+                return {'account':'@anonymous','scopes':['applications:read','library:read','netnews:read','content:read','feeds:read'],'public':True}
             raise PermissionError('authentication required')
         def origin(self):
             origin=self.headers.get('Origin')
@@ -216,8 +230,29 @@ def server(fabric, config):
                     name={'/':'content.html','/content.js':'content.js','/content.css':'content.css','/application-client.js':'application-client.js'}[path]
                     mime={'content.html':'text/html; charset=utf-8','content.js':'text/javascript','content.css':'text/css','application-client.js':'text/javascript'}[name]
                     return self.send(200,(Path(__file__).parent/'web'/name).read_bytes(),mime)
+                if path.startswith('/feeds/'):
+                    self.origin();principal=self.principal(feed_auth=True);self.admit(principal)
+                    from .content_feeds import render,describe,opml
+                    base=config.get('feed_base_url') or next((origin for origin in config.get('origins',[]) if urlsplit(origin).netloc==self.headers.get('Host')),None)
+                    if not base:base=('https' if config.get('tls') else 'http')+'://'+self.headers['Host']
+                    if path=='/feeds/index.json':return self.send(200,describe(base))
+                    if path=='/feeds/subscriptions.opml':
+                        if 'feeds:read' not in principal['scopes'] and 'netnews:read' not in principal['scopes']:raise PermissionError('subscription scope')
+                        return self.send(200,opml(fabric,principal['account'],base),'text/x-opml; charset=utf-8')
+                    match=re.fullmatch(r'/feeds/(all|library|netnews|community)\.(rss|atom|json)',path)
+                    if not match:return self.send(404,{'error':'unknown feed'})
+                    source,fmt=match.groups();scopes=set(principal['scopes'])
+                    required={'library:read','netnews:read'} if source=='all' else {('community' if source=='community' else source)+':read'}
+                    if 'feeds:read' not in scopes and not required<=scopes:raise PermissionError('feed scope')
+                    if source in {'all','community'} and principal.get('public') and source=='community':raise PermissionError('private native delegation required')
+                    query=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=4)
+                    if set(query)-{'group','limit','offset'} or any(len(values)!=1 for values in query.values()):raise ValueError('feed query')
+                    output,mime,etag=render(fabric,principal['account'],base,source,fmt,query.get('group',[''])[0],int(query.get('limit',['30'])[0]),int(query.get('offset',['0'])[0]),include_community=('feeds:read' in scopes or 'community:read' in scopes))
+                    headers={'ETag':etag,'Vary':'Authorization, Origin','Cache-Control':'public, max-age=60' if principal.get('public') else 'private, no-store'}
+                    if self.headers.get('If-None-Match')==etag:return self.send(304,b'',mime,headers)
+                    return self.send(200,output,mime,headers)
                 if path.startswith('/objects/'):
-                    self.origin();principal=self.principal()
+                    self.origin();principal=self.principal();self.admit(principal)
                     if 'content:read' not in principal['scopes']:raise PermissionError('scope')
                     oid=path.removeprefix('/objects/')
                     with fabric.lock:
@@ -248,17 +283,15 @@ def server(fabric, config):
                     except (OSError,ValueError,PermissionError):self.close_connection=True
                     return
                 self.send(404,{'error':'not found'})
+            except RateLimited:self.send(429,{'error':'request rate exceeded'},extra={'Retry-After':'60'})
             except PermissionError:self.send(403,{'error':'access denied'})
             except (ValueError,KeyError):self.send(400,{'error':'invalid request'})
+            except Exception:self.close_connection=True;self.send(503,{'error':'read failed; inspect node state'})
         def do_POST(self):
             try:
                 if self.path!='/api':self.close_connection=True;return self.send(404,{'error':'not found'})
                 self.origin();principal=self.principal()
-                with rate_lock:
-                    now=int(time.time())//60;key=principal['account']
-                    previous,count=rates.get(key,(now,0));count=count+1 if previous==now else 1
-                    rates[key]=(now,count)
-                    if count>1200:raise ValueError('request rate')
+                self.admit(principal)
                 if self.headers.get('Transfer-Encoding'):raise ValueError('transfer encoding unsupported')
                 lengths=self.headers.get_all('Content-Length',[])
                 if len(lengths)!=1:raise ValueError('content length required')
@@ -288,6 +321,7 @@ def server(fabric, config):
                     if scope not in scopes:raise PermissionError('scope')
                     result=invoke(fabric,owner,op,args)
                 self.send(200,result)
+            except RateLimited:self.close_connection=True;self.send(429,{'error':'request rate exceeded'},extra={'Retry-After':'60'})
             except PermissionError:self.close_connection=True;self.send(403,{'error':'access denied'})
             except (ValueError,KeyError,TypeError):self.close_connection=True;self.send(400,{'error':'invalid request or operation rejected'})
             except Exception:

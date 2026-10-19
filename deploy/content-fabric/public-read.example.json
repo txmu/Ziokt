@@ -10,7 +10,7 @@
     {
       "account": "operator",
       "token": "REPLACE_WITH_A_PRIVATE_APPLICATION_CREDENTIAL",
-      "scopes": ["content:read", "content:write", "library:read", "library:write", "netnews:read", "netnews:write", "applications:read", "applications:write", "optimization:read", "optimization:write"]
+      "scopes": ["content:read", "content:write", "library:read", "library:write", "netnews:read", "netnews:write", "applications:read", "applications:write", "optimization:read", "optimization:write", "feeds:read"]
     }
   ],
   "peers": {},
