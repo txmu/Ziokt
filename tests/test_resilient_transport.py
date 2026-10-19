@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 from ziokt.protocol import ProtocolError
 from ziokt.resilient_transport import request_resilient
+from ziokt.carrier import carrier_deadline
 
 
 def onion(seed):
@@ -66,6 +67,24 @@ class ResilienceTests(unittest.TestCase):
         self.assertEqual(caught.exception.transport_diagnostics[0],
                          {'code': 'CARRIER_UNAVAILABLE', 'phase': 'target-socks-connect', 'kind': 'OSError', 'socks_reply': 0xf0})
         self.assertNotIn('private', str(caught.exception.transport_diagnostics))
+
+    def test_nested_onion_and_i2p_budgets_are_not_truncated_to_single_hop(self):
+        endpoint = {'host': onion('final'), 'port': 443,
+                    'carrier': {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': 19050}}
+        for count in range(4):
+            endpoint['carrier']['hops'] = [{'host': onion('hop-'+str(i)), 'port': 1080} for i in range(count)]
+            self.assertEqual(carrier_deadline(endpoint['carrier']), 30 * (count+1))
+            with patch('ziokt.remote.request_remote', return_value={'verified': True}) as transport:
+                request_resilient('restricted', endpoint, None, {'method': 'community.status'}, lambda: {})
+                budget = transport.call_args.kwargs['timeout']
+                self.assertGreater(budget, 30 * (count+1) - 1)
+                self.assertLessEqual(budget, min(120, 30 * (count+1)))
+        with patch('ziokt.remote.request_remote', return_value={'verified': True}) as transport:
+            request_resilient('restricted', endpoint, None, {'method': 'community.status'}, lambda: {}, total_timeout=10)
+            self.assertLessEqual(transport.call_args.kwargs['timeout'], 10)
+        self.assertEqual(carrier_deadline({'kind': 'i2p-sam'}), 90)
+        with self.assertRaises(ProtocolError):
+            carrier_deadline({'kind': 'peer-multihop', 'deadline_seconds': 121})
 
 
 if __name__=='__main__':unittest.main()

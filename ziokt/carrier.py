@@ -9,6 +9,7 @@ import ipaddress
 import secrets
 import socket
 import struct
+import threading
 import time
 
 from .protocol import ProtocolError
@@ -61,6 +62,21 @@ def validate_carrier(value, host):
     return value
 
 
+def carrier_deadline(value):
+    """A finite per-path budget; every onion intermediate adds a handshake."""
+    if value is None: return 30
+    if value.get('kind') == 'tor-socks5':
+        hops = value.get('hops', [])
+        if type(hops) is not list or len(hops) > 3:
+            raise ProtocolError('INVALID_CARRIER', 'bounded onion path required')
+        return 30 * (1 + len(hops))
+    entry = value.get('entry_carrier') or {}
+    budget = value.get('deadline_seconds', 90 if value.get('kind') == 'i2p-sam' or entry.get('kind') == 'i2p-sam' else 30)
+    if type(budget) is not int or not 1 <= budget <= 120:
+        raise ProtocolError('INVALID_CARRIER', 'bounded carrier deadline required')
+    return budget
+
+
 def open_carrier(host, port, value=None, timeout=30, cancellation=None):
     from .runtime_policy import require_network
     require_network()
@@ -70,7 +86,7 @@ def open_carrier(host, port, value=None, timeout=30, cancellation=None):
             raise ProtocolError('NO_POLICY_COMPLIANT_PATH', 'anonymous host requires its reviewed carrier')
         return socket.create_connection((host, port), timeout=timeout)
     validate_carrier(value, host)
-    if value['kind'] == 'tor-socks5': return connect_onion(host, port, value, min(30, timeout))
+    if value['kind'] == 'tor-socks5': return connect_onion(host, port, value, min(carrier_deadline(value), timeout), cancellation=cancellation)
     if value['kind'] == 'i2p-sam':
         from .i2p import connect_i2p
         return connect_i2p(host, port, value, timeout, cancellation)
@@ -83,14 +99,17 @@ def open_carrier(host, port, value=None, timeout=30, cancellation=None):
     raise ProtocolError('INVALID_CARRIER', 'unknown carrier')
 
 
-def connect_onion(host, port, carrier, timeout=30):
+def connect_onion(host, port, carrier, timeout=None, cancellation=None):
     from .runtime_policy import require_network
     require_network()
     if not isinstance(carrier, dict) or carrier.get('kind') != 'tor-socks5':
         raise ProtocolError('INVALID_CARRIER', 'Tor onion connector requires its Tor carrier')
     validate_carrier(carrier, host)
-    if type(port) is not int or not 1 <= port <= 65535 or type(timeout) not in {int, float} or not 0 < timeout <= 30:
+    budget = carrier_deadline(carrier)
+    if timeout is None: timeout = budget
+    if type(port) is not int or not 1 <= port <= 65535 or type(timeout) not in {int, float} or not 0 < timeout <= budget:
         raise ProtocolError('INVALID_CARRIER', 'bounded port and deadline required')
+    if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'onion connection cancelled')
     deadline = time.monotonic()+timeout
     try:
         sock = socket.create_connection((carrier['proxy_host'], carrier['proxy_port']), timeout=timeout)
@@ -98,6 +117,17 @@ def connect_onion(host, port, carrier, timeout=30):
         error = ProtocolError('CARRIER_UNAVAILABLE', 'approved onion entry unavailable (phase=entry-connect; kind='+type(exc).__name__+')')
         error.transport_diagnostic = {'phase': 'entry-connect', 'kind': type(exc).__name__, 'socks_reply': None}
         raise error from None
+    done = threading.Event()
+    watcher = None
+    if cancellation is not None:
+        def monitor():
+            while not done.wait(.2):
+                if cancellation.is_set():
+                    try: sock.shutdown(socket.SHUT_RDWR)
+                    except OSError: pass
+                    return
+        watcher = threading.Thread(target=monitor, daemon=True)
+        watcher.start()
     def send(data):
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('carrier deadline')
@@ -146,10 +176,12 @@ def connect_onion(host, port, carrier, timeout=30):
         negotiate(host, port,'target')
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('carrier deadline')
+        if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'onion connection cancelled')
         sock.settimeout(remaining)
         return sock
     except OSError as exc:
         sock.close()
+        if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'onion connection cancelled') from None
         detail='phase='+diagnostic['phase']+'; kind='+type(exc).__name__
         if diagnostic['reply'] is not None:detail+='; socks_reply=0x'+format(diagnostic['reply'],'02x')
         error = ProtocolError('CARRIER_UNAVAILABLE', 'approved onion path failed ('+detail+')')
@@ -161,3 +193,6 @@ def connect_onion(host, port, carrier, timeout=30):
     except BaseException:
         sock.close()
         raise
+    finally:
+        done.set()
+        if watcher is not None: watcher.join(.5)

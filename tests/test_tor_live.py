@@ -159,6 +159,7 @@ class TorLiveTests(unittest.TestCase):
                     except ProtocolError as exc:
                         if exc.code != 'CARRIER_UNAVAILABLE': raise
                         last_error=exc.code+': '+str(exc)
+                        last_error += '; stages=' + str(getattr(exc, 'transport_diagnostics', []))
                         print('real Tor attempt',attempts,'failed:',last_error,flush=True);time.sleep(2)
                 if not success:self.fail(f'actual intermediate onion SOCKS path did not complete mTLS sync; attempts={attempts}; last carrier error={last_error}; health={tor_health(root,control_port,list(tail))}')
                 self.assertEqual(target.view('wiki'), source.view('wiki'))

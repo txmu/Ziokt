@@ -5,6 +5,7 @@ import secrets
 import socketserver
 import tempfile
 import threading
+import time
 import unittest
 from test_community_network import ONION
 from test_tor_live import tor_health
@@ -26,6 +27,28 @@ def server(handler):
 
 
 class TorDiagnostics(unittest.TestCase):
+    def test_cancel_interrupts_pending_socks_negotiation(self):
+        ready, cancel = threading.Event(), threading.Event()
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self):
+                self.request.settimeout(3)
+                self.rfile.read(3)
+                ready.set()
+                try:self.rfile.read(1)
+                except OSError:pass
+        def stop():
+            if ready.wait(2):cancel.set()
+        thread = threading.Thread(target=stop, daemon=True)
+        thread.start()
+        try:
+            with server(Handler) as port:
+                start = time.monotonic()
+                with self.assertRaises(ProtocolError) as caught:
+                    connect_onion(ONION,443,{'kind':'tor-socks5','proxy_host':'127.0.0.1','proxy_port':port},cancellation=cancel)
+                self.assertEqual(caught.exception.code,'CANCELLED')
+                self.assertLess(time.monotonic()-start,1.5)
+        finally:thread.join(3)
+
     def test_extended_socks_rejection_retains_code_and_stage_without_destination(self):
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):

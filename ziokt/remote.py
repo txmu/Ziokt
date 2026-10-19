@@ -260,13 +260,10 @@ def remote_server(federation, context, replay_path, trusted_clients, *, host="12
 def request_remote(host, port, context, request, signed_grant, *, carrier=None, timeout=None, cancellation=None, privacy_padding=False, delivery_id=None):
     from .runtime_policy import require_network
     require_network()
-    from .carrier import open_carrier, validate_carrier
+    from .carrier import carrier_deadline, open_carrier, validate_carrier
     if type(privacy_padding) is not bool:raise ProtocolError("INVALID_CONFIG","explicit privacy padding flag required")
     if carrier is not None: validate_carrier(carrier, host)
-    preferred = 30
-    if carrier is not None:
-        entry = carrier.get('entry_carrier') or {}
-        preferred = carrier.get('deadline_seconds', 90 if carrier['kind'] == 'i2p-sam' or entry.get('kind') == 'i2p-sam' else 30)
+    preferred = carrier_deadline(carrier)
     maximum = 120 if preferred > 30 else 30
     if timeout is None: timeout = preferred
     if type(timeout) not in {int, float} or not 0 < timeout <= maximum:
@@ -276,16 +273,9 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
     timer = None
     response = None
     done = threading.Event()
+    expired = threading.Event()
     try:
         raw_socket = open_carrier(host, port, carrier, timeout=timeout, cancellation=cancellation)
-        if cancellation is not None:
-            def monitor():
-                while not done.wait(.2):
-                    if cancellation.is_set():
-                        try: raw_socket.shutdown(socket.SHUT_RDWR)
-                        except OSError: pass
-                        return
-            watcher = threading.Thread(target=monitor, daemon=True); watcher.start()
         try:
             if carrier is not None and carrier['kind'] in {'peer-multihop', 'shadow6-stream'}:
                 from .peer_proxy import TLSStream
@@ -295,15 +285,31 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
         except BaseException:
             raw_socket.close()
             raise
+        def stop_io():
+            # SSL wrapping takes ownership of the descriptor: the original
+            # raw_socket object no longer owns the live connection.
+            active = connection.sock
+            if active is not None:
+                try: active.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+        if cancellation is not None:
+            if cancellation.is_set(): raise ProtocolError('CANCELLED', 'remote request cancelled')
+            def monitor():
+                while not done.wait(.2):
+                    if cancellation.is_set():
+                        stop_io()
+                        return
+            watcher = threading.Thread(target=monitor, daemon=True); watcher.start()
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError("remote deadline")
         connection.sock.settimeout(remaining)
         def expire():
-            try:
-                raw_socket.shutdown(socket.SHUT_RDWR)
-            except OSError: pass
+            expired.set()
+            stop_io()
         timer = threading.Timer(remaining, expire); timer.daemon = True; timer.start()
         connection.sock.do_handshake()
+        if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'remote request cancelled')
+        if expired.is_set() or time.monotonic() >= deadline: raise TimeoutError('bounded remote deadline exceeded')
         envelope={"request":request,"grant":signed_grant() if callable(signed_grant) else signed_grant}
         if delivery_id is not None:
             from .collectibles import wrap_delivery
@@ -314,6 +320,8 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
         connection.request("POST", "/zfcp", body, {"Content-Type": "application/json"})
         response = connection.getresponse()
         raw = response.read(MAX_RESPONSE+1)
+        if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'remote request cancelled')
+        if expired.is_set() or time.monotonic() >= deadline: raise TimeoutError('bounded remote deadline exceeded')
         result = strict_json(raw, MAX_RESPONSE)
         if delivery_id is not None:
             from .collectibles import unwrap_delivery
@@ -329,7 +337,14 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
             error=result["error"]
             if not isinstance(error,dict) or set(error)!={"code","message"} or not all(isinstance(v,str) for v in error.values()):raise ProtocolError("INVALID_RESPONSE","typed remote error required")
             raise ProtocolError(error["code"],error["message"])
+        if expired.is_set() or time.monotonic() >= deadline: raise TimeoutError('bounded remote deadline exceeded')
         return result["result"]
+    except (OSError, http.client.HTTPException) as exc:
+        if cancellation is not None and cancellation.is_set():
+            raise ProtocolError('CANCELLED', 'remote request cancelled') from None
+        if expired.is_set() and not isinstance(exc, ssl.SSLCertVerificationError):
+            raise TimeoutError('bounded remote deadline exceeded') from None
+        raise
     finally:
         done.set()
         if timer is not None: timer.cancel()

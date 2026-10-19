@@ -21,6 +21,7 @@ TRANSIENT = frozenset({errno.ECONNREFUSED,errno.ECONNRESET,errno.ETIMEDOUT,
 def request_resilient(privacy, endpoint, context, request, signed_grant, *,
                       cancellation=None, total_timeout=120):
     from .remote import request_remote
+    from .carrier import carrier_deadline
     if type(total_timeout) is not int or not 1<=total_timeout<=120:
         raise ProtocolError('INVALID_CONFIG','finite failover deadline required')
     route=validate_route(endpoint.get('connection_policy'),endpoint)
@@ -62,7 +63,7 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
         if remaining<=0:break
         try:
             return request_remote(path['host'],path['port'],context,request,signed_grant,
-                carrier=path.get('carrier'),timeout=min(30,remaining),cancellation=cancellation,
+                carrier=path.get('carrier'),timeout=min(carrier_deadline(path.get('carrier')),remaining),cancellation=cancellation,
                 privacy_padding=privacy!='standard')
         except ssl.SSLError:
             # Authentication errors are not connectivity failures.
