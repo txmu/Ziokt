@@ -172,3 +172,16 @@ app.ziokt.com {
   Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cor-web.ziokt.com wss://cor-web.ziokt.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
  }
 }
+
+dns.ziokt.com {
+	handle {
+		reverse_proxy 127.0.0.1:8188 {
+			header_up X-Ziokt-Client-IP {remote_host}
+		}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}

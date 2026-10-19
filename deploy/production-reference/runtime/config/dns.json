@@ -1,0 +1,58 @@
+{
+  "default_realm": "main",
+  "doh_port": 8188,
+  "listen": "0.0.0.0",
+  "port": 5353,
+  "realms": {
+    "main": {
+      "network_id": "ziokt-main",
+      "sources": {
+        "corium": {
+          "chain_db": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/networks/ziokt-main/blockchain/chain.db",
+          "forum_db": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/networks/ziokt-main/forum/forum.db",
+          "native_network_id": "ziokt-main",
+          "objects": "/home/admin/.local/share/ziokt-production/corium/var/lib/corix/p2p/objects"
+        },
+        "dcpm": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/dcpm/exchange.json"
+        },
+        "etp": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/etp/exchange.json"
+        },
+        "safefs": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/safefs/exchange.json"
+        },
+        "shadow6": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/shadow6/exchange.json"
+        },
+        "sim": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/sim-manager/bridge.json"
+        },
+        "tc16": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/tc16/exchange.json"
+        },
+        "tri": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/tri/exchange.json"
+        },
+        "ufs": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/ufs/exchange.json"
+        },
+        "watchat": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/watchat/bridge.json"
+        },
+        "zda": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/zda/exchange.json"
+        },
+        "ziokt": {
+          "component_bridge": "/home/admin/.local/share/ziokt-production/mcp/ziokt/bridge.json"
+        }
+      }
+    }
+  },
+  "schema": "ziokt.dns.v2",
+  "dot_port": 853,
+  "doq_port": 853,
+  "doh3_port": 8443,
+  "tls_cert": "/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.ziokt.com/dns.ziokt.com.crt",
+  "tls_key": "/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.ziokt.com/dns.ziokt.com.key"
+}

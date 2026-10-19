@@ -1,0 +1,13 @@
+{
+  "application": "ziokt",
+  "application_key": "/home/admin/.local/share/ziokt-production/mcp/ziokt/application.key",
+  "community_root": "/home/admin/.local/share/ziokt-production/mcp/community",
+  "encryption_key": "/home/admin/.local/share/ziokt-production/mcp/community.key",
+  "naming_namespaces": [
+    "ziokt-main"
+  ],
+  "owner": "4668b5796de4b5e86e9c68fb77d3eea55ebbe5b7edb4aa8fa16750956613218c",
+  "policy": "/home/admin/.local/share/ziokt-production/mcp/policy.json",
+  "schema": "ziokt.companion-bridge.v1",
+  "signing_key": "/home/admin/.local/share/ziokt-production/mcp/corium/signing.key"
+}

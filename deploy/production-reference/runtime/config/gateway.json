@@ -43,9 +43,10 @@
       }
     ]
   },
-  "corix_digest": "sha256:33ec563bcb612ed3d8c657f0cc4ddda194e23a659e99bb5df780fa3b38be1007",
+  "corix_digest": "sha256:49db3782be4e177297e7d0c40e96dde528f3d16517d328c391968eac82960024",
   "registry_db": "/home/admin/.local/share/ziokt-production/config/registry.db",
   "mcp_config": "/home/admin/.local/share/ziokt-production/mcp/mcp.json",
+  "dns_config": "/home/admin/.local/share/ziokt-production/config/dns.json",
   "gui_origins": [
     "http://tauri.localhost",
     "https://app.ziokt.com",

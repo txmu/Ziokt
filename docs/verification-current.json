@@ -202,5 +202,13 @@
     "sha256": "56acd0286d388d3383b885e40fd3d59c664f6e4865914763452826495a796817",
     "source_revision": "d7bb05d218146f63a4dae0c6b89562d48539aab8",
     "packaged_catalog_and_airgap_laws": "passed"
+  },
+  "privacy_hardening": {
+    "evidence": "PRIVACY_HARDENING_VERIFICATION_2026-10-19.json",
+    "revision": "8d7eb4cf3526a57d67a657473cbbf30c61a9c44d",
+    "mcp_tools": 363,
+    "all_relevant_ci_passed": true,
+    "production_deployed": true,
+    "mainnet_shielding_enabled": false
   }
 }

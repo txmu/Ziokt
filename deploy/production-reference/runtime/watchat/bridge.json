@@ -4,6 +4,10 @@
   "community_root": "/home/admin/.local/share/ziokt-production/watchat/community",
   "encryption_key": "/home/admin/.local/share/ziokt-production/watchat/community.key",
   "inbox": "/home/admin/.local/share/ziokt-production/watchat/data/inbox",
+  "naming_namespaces": [
+    "web-11c5cc0187513c73",
+    "ziokt-main"
+  ],
   "owner": "ccf70857c8aa91fc45d706c4cb3d69edc2a67d78c27454b5e2071a8be957d467",
   "policy": "/home/admin/.local/share/ziokt-production/watchat/policy.json",
   "schema": "ziokt.companion-bridge.v1",

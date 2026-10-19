@@ -1,0 +1,137 @@
+{
+  "schema": "ziokt.privacy-hardening-verification.v1",
+  "date": "2026-10-19T11:18:59.369677+00:00",
+  "application_revision": "8d7eb4cf3526a57d67a657473cbbf30c61a9c44d",
+  "native_sources": {
+    "shadow6": {
+      "repository": "txmu/Shadow6",
+      "revision": "b96f168f679a893cffbed9d789121c494385f487"
+    },
+    "corium": {
+      "repository": "txmu/Corium",
+      "revision": "901be180d870b19500cb50a40a6008dbf780d071"
+    }
+  },
+  "ci": [
+    {
+      "workflow": "privacy-naming",
+      "run_id": 39241887246,
+      "revision": "8d7eb4cf3526a57d67a657473cbbf30c61a9c44d",
+      "conclusion": "success",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39241887246"
+    },
+    {
+      "workflow": "integration",
+      "run_id": 39238421802,
+      "revision": "e1333559c64de3003d59f31b0369a6d9cdf9b31b",
+      "conclusion": "success",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39238421802"
+    },
+    {
+      "workflow": "gateway",
+      "run_id": 39241887440,
+      "revision": "8d7eb4cf3526a57d67a657473cbbf30c61a9c44d",
+      "conclusion": "success",
+      "url": "https://github.com/txmu/Ziokt/actions/runs/39241887440"
+    }
+  ],
+  "ci_scope_note": "Final change after e133355 is the DoT pre-handshake bound, regression, workflow entry and documentation; DNS/interface suites rerun, native Core and carrier sources unchanged.",
+  "deployment": {
+    "services": {
+      "ziokt-corium-p2p": {
+        "NRestarts": "1",
+        "ActiveState": "active"
+      },
+      "ziokt-corium-consensus": {
+        "NRestarts": "1",
+        "ActiveState": "active"
+      },
+      "ziokt-corium-relayer": {
+        "NRestarts": "1",
+        "ActiveState": "active"
+      },
+      "ziokt-gateway": {
+        "NRestarts": "2",
+        "ActiveState": "active"
+      },
+      "ziokt-mcp": {
+        "NRestarts": "1",
+        "ActiveState": "active"
+      },
+      "ziokt-telegram-bot": {
+        "NRestarts": "1",
+        "ActiveState": "active"
+      }
+    },
+    "native_source_pins_match": true,
+    "native_source_digest": "sha256:49db3782be4e177297e7d0c40e96dde528f3d16517d328c391968eac82960024",
+    "local_heavy_compilation": false,
+    "tor_live_acceptance": true,
+    "tor_succeeded_after_retry": true
+  },
+  "mcp": {
+    "issuer": "https://mcp.ziokt.com",
+    "tls_verified": true,
+    "cimd_pkce": true,
+    "legacy_versions": true,
+    "tools": 363,
+    "native_read_checks": [
+      "corium_cbb_messages",
+      "corium_component_status",
+      "corium_production_status_get",
+      "corium_registration_list",
+      "dcpm_component_status",
+      "etp_component_status",
+      "etp_etp_stats",
+      "etp_peer_etp_stats",
+      "gateway_status",
+      "safefs_component_status",
+      "shadow6_component_status",
+      "shadow6_production_status_get",
+      "sim_manager_component_status",
+      "tc16_component_status",
+      "tri_component_status",
+      "ufs_component_status",
+      "watchat_component_status",
+      "zda_component_status",
+      "ziokt_component_status"
+    ],
+    "write_and_idempotency": true,
+    "anonymous_mcp": 401
+  },
+  "new_tools_and_telegram": {
+    "new_image_tool_authenticated": true,
+    "production_shielding_enabled": false,
+    "write_requires_separate_scope": true,
+    "telegram_commands": 28,
+    "telegram_owner_allowlist_preserved": true,
+    "human_messages_sent": false
+  },
+  "dns": {
+    "doh_public_https": true,
+    "dot_tls": true,
+    "doq_quic_tls": true,
+    "doh3_http3_tls": true,
+    "certificate_and_hostname_verification": true,
+    "unmanaged_names_refused": true,
+    "managed_missing_name_nxdomain": true,
+    "doh3_and_doq_reachability_scope": "local listener with public hostname and CA verification",
+    "idle_dot_client_closed": true,
+    "idle_dot_close_seconds": 5.007
+  },
+  "gui": {
+    "application_http": 200,
+    "download_manifest_http": 200,
+    "sample_download_http": 200,
+    "source_revision": "1736072a0ce7beeb06dd1824f1327b29634b3a65",
+    "existing_release_preserved": true,
+    "no_gui_source_change_this_iteration": true
+  },
+  "mainnet_shielding_enabled": false,
+  "independent_cryptographic_audit": false,
+  "remaining": [
+    "Independent cryptographic audit and mainnet consensus activation acceptance",
+    "Global traffic-correlation analysis and large-scale adversarial load acceptance",
+    "Physical mobile-device media and offline acceptance not established by these CI runs"
+  ]
+}
