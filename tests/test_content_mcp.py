@@ -1,0 +1,41 @@
+import base64,hashlib,json,tempfile,unittest
+from pathlib import Path
+from ziokt.mcp import Service,McpError
+from ziokt.content_checkpoint import checkpoint,restore
+from ziokt.content_fabric import Fabric
+
+class ContentMcpTests(unittest.TestCase):
+ def test_opt_in_scopes_audit_and_real_store(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp)
+   config={'state':str(root/'mcp'),'issuer':'https://test.invalid','clients':{'writer':{'scopes':['library:read','library:write','content:read','content:write']},'reader':{'scopes':['library:read']}},'bridges':{},'writes_enabled':True,'content_fabric':{'enabled':True,'root':str(root/'fabric'),'accounts':{'writer':'alice','reader':'bob'}}}
+   service=Service(config)
+   self.assertIn('library_search',service.tools)
+   writer={'client':'writer','scopes':{'library:read','library:write','content:read','content:write'}}
+   def call(name,args,key=None):
+    result=service.call(writer,name,args,key)
+    self.assertFalse(result['isError'],result)
+    return result['structuredContent']
+   data=b'Test original CC0 content';digest='sha256:'+hashlib.sha256(data).hexdigest()
+   call('content_upload_begin',{'upload':'test-upload','size':len(data),'digest':digest,'mime':'text/plain'},'operation-begin-0001')
+   call('content_upload_put',{'upload':'test-upload','position':0,'data':base64.b64encode(data).decode()},'operation-chunk-0001')
+   obj=call('content_upload_finish',{'upload':'test-upload'},'operation-finish-001')
+   call('library_publish',{'metadata':{'id':'book','work_id':'w','edition_id':'e','file_id':obj['id'],'title':'MCP book','license':'CC0-1.0'}},'operation-book-0001')
+   self.assertEqual(len(call('library_search',{})['items']),1)
+   reader={'client':'reader','scopes':{'library:read'}}
+   self.assertEqual(service.call(reader,'library_search',{})['structuredContent']['items'],[])
+   with self.assertRaises(McpError):service.call(reader,'content_upload_finish',{'upload':'test-upload'},'rejected-operation-01')
+   service.close()
+ def test_cold_checkpoint_and_tamper_rejection(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);fabric=Fabric(root/'original');public=fabric.public
+   fabric.create_group('alice','books.open');fabric.post('alice',['books.open'],'Cold recovery','Durable article')
+   fabric.close();checkpoint(root/'original',root/'snapshot')
+   restore(root/'snapshot',root/'restored',public)
+   restored=Fabric(root/'restored')
+   try:self.assertEqual(restored.articles('alice','books.open')['items'][0]['subject'],'Cold recovery')
+   finally:restored.close()
+   (root/'snapshot'/'node.key').write_bytes(b'x'*32)
+   with self.assertRaises(ValueError):restore(root/'snapshot',root/'tampered',public)
+
+if __name__=='__main__':unittest.main()

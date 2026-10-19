@@ -130,3 +130,6 @@ pub mod rpc;
 
 #[cfg(feature = "safefs")]
 pub mod safefs;
+
+// Versioned Unified ISA; legacy tc16_tcc remains independent.
+pub mod tc16_unified;

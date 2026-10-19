@@ -1,0 +1,12 @@
+{
+  "work_id": "ziokt-original-sample",
+  "edition_id": "original-en-2026",
+  "title": "Ziokt sample collection",
+  "authors": ["Ziokt sample contributor"],
+  "language": "en",
+  "year": 2026,
+  "tags": ["sample", "distributed systems"],
+  "license": "CC0-1.0",
+  "provenance": "Original sample supplied with this source tree; no external book mirror",
+  "visibility": "public"
+}

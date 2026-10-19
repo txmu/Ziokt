@@ -12,6 +12,9 @@ PRECEDENCE={'||':1,'&&':2,'|':3,'^':4,'&':5,'==':6,'!=':6,'<':7,'>':7,'<=':7,'>=
 
 class TCCCompiler:
     def __init__(self,debug=False):self.debug=debug
+    def compile_binary(self,source,target='tc16-unified-v1',profile='pure-v1'):
+        from .tc16_spec import compile_package
+        return compile_package(source,syntax='tcc',target=target,profile=profile)
     def assemble(self,source):
         from .tc16 import assemble
         return assemble(source)

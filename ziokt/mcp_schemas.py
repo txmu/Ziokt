@@ -33,6 +33,8 @@ BRIDGE={
  'chat.pull':contract({'from':S,'to':S}), 'chat.ack':contract({'from':S,'to':S,'event':D})
 }
 ETP={
+ 'etp.mailbox.status':contract({}),
+ 'etp.mailbox.request':contract({'frame_base64':{'type':'string','maxLength':12000}}),
  'etp.stats':contract({}), 'etp.receive':contract({}),
  'etp.onion.send':contract({'hops':{'type':'array','items':S,'minItems':2,'maxItems':4},'ciphertext':{'type':'string','maxLength':90000}}),
  'etp.forum.identity':contract({'name':S}), 'etp.forum.subscribe':contract({'topic':S}),

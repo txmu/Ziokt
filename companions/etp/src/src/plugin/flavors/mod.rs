@@ -11,6 +11,8 @@ pub mod bt_bridge;
 pub mod ipfs_fusion;
 #[cfg(feature = "persistence")]
 pub mod mailbox;
+#[cfg(feature = "persistence")]
+pub mod mailbox_replication;
 
 // --- 存储强依赖模块 ---
 #[cfg(feature = "persistence")]

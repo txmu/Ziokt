@@ -175,7 +175,7 @@ class Service:
                 ('file_publish',True,{'name':STRING,'data_base64':STRING},('name','data_base64'))]:
                 self.add('gateway_'+method,'Native gateway '+method,schema(props,required),write,'gateway:'+('write' if write else 'read'),('gateway',method))
         for item in config.get('etp',{}):
-            for method,write in [('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
+            for method,write in [('etp.mailbox.status',False),('etp.mailbox.request',True),('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
                 self.add(item.replace('-','_')+'_'+method.replace('.','_'),'Pinned native ETP '+method,schema({'params':ETP.get(method,PARAMS)},('params',)),write,'etp:'+('write' if write else 'read'),('etp',item,method))
         telegram=config.get('telegram',{})
         if telegram.get('enabled') is True:
@@ -217,6 +217,9 @@ class Service:
         if config.get('shadow6_control') or config.get('shadow6_mcp'):
             from .shadow6_control_mcp import attach_shadow6_control
             attach_shadow6_control(self, config.get('shadow6_control') or config.get('shadow6_mcp'))
+        if config.get('content_fabric',{}).get('enabled') is True:
+            from .content_api import attach
+            attach(self,config['content_fabric'])
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.etp={}
 
@@ -356,6 +359,18 @@ class Service:
 
     def execute(self,principal,name,args):
         route=self.dispatch[name];kind=route[0]
+        if kind=='content-fabric':
+            from .content_fabric import Fabric
+            from .content_api import invoke
+            settings=self.current()['content_fabric']
+            if settings.get('enabled') is not True:raise PermissionError('content applications disabled')
+            owner=settings.get('accounts',{}).get(principal['client'])
+            if not owner:raise PermissionError('explicit content account mapping required')
+            fabric=Fabric(settings['root'],quota=settings.get('quota',2*1024**3),peers={p['public_key']:{'groups':p.get('groups',[])} for p in settings.get('peers',{}).values()})
+            fabric.remote_peers=settings.get('peers',{})
+            fabric.community_config=settings.get('community',{})
+            try:return invoke(fabric,owner,route[1],args)
+            finally:fabric.close()
         if kind=='tracker-status':
             return {'schema':'ziokt.tracker-capability.v1','configured':sorted(self.config.get('trackers',{})),
                     'optional':True,'replaces_dht':False,'registration_opt_in':True,'maximum_lease_seconds':600,

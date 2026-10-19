@@ -1,0 +1,194 @@
+"""Bounded NNTP reader/posting adapter (RFC 3977 subset).
+
+No server transfer is advertised: signed HTTP federation preserves proof of
+origin whereas unauthenticated NNTP transit would discard that boundary.
+Unsupported streaming commands return 500. AUTHINFO USER/PASS requires TLS
+except for explicit loopback development. Anonymous access is public read only.
+"""
+from datetime import datetime, timezone
+from email.parser import BytesParser
+from email import policy
+from email.header import Header
+import fnmatch
+import hmac
+import socketserver
+import ssl
+import threading
+
+from .content_fabric import MESSAGE
+
+
+class BoundedTCP(socketserver.ThreadingTCPServer):
+    allow_reuse_address=True
+    daemon_threads=True
+    def __init__(self,*args,**kwargs):
+        self.slots=threading.BoundedSemaphore(16)
+        super().__init__(*args,**kwargs)
+    def process_request(self,request,client_address):
+        if not self.slots.acquire(False):self.shutdown_request(request);return
+        try:super().process_request(request,client_address)
+        except BaseException:self.slots.release();raise
+    def process_request_thread(self,request,client_address):
+        try:super().process_request_thread(request,client_address)
+        finally:self.slots.release()
+
+
+def article_headers(article):
+    return [('From',article['from']),('Date',article['date']),('Newsgroups',','.join(article['newsgroups'])),('Subject',str(Header(article['subject'],'utf-8'))),('Message-ID',article['message_id']),('References',' '.join(article.get('references',[]))),('Path','!'.join(article.get('path',[]))+'!not-for-mail'),('MIME-Version','1.0'),('Content-Type','text/plain; charset=utf-8'),('Content-Transfer-Encoding','8bit')]
+
+
+def wire_article(article):
+    return '\r\n'.join(k+': '+v for k,v in article_headers(article))+'\r\n\r\n'+article['body'].replace('\r\n','\n').replace('\n','\r\n')
+
+
+def server(fabric,config,tokens):
+    class Handler(socketserver.StreamRequestHandler):
+        def setup(self):
+            super().setup();self.connection.settimeout(60)
+            self.owner='anonymous';self.authenticated=False;self.scopes=set();self.group=None;self.current=None;self.user=None
+        def line(self,value):self.wfile.write(value.encode('utf-8')+b'\r\n');self.wfile.flush()
+        def block(self,code,lines):
+            self.line(code)
+            for line in lines:
+                if line.startswith('.'):line='.'+line
+                self.line(line)
+            self.line('.')
+        def rows(self,low=1,limit=1000):return fabric.articles(self.owner,self.group,low,limit)['items']
+        def selected(self):
+            if not self.group:self.line('412 No newsgroup selected');return False
+            return True
+        def readable(self):
+            if not self.authenticated and not config.get('anonymous_read',False):self.line('480 Authentication required');return False
+            if self.authenticated and 'netnews:read' not in self.scopes:self.line('502 Read access denied');return False
+            return True
+        def select_article(self,arg):
+            if arg and arg.startswith('<'):
+                with fabric.lock:article=fabric._get(self.owner,arg,'article')
+                if article['message_id']!=arg:raise ValueError('ID')
+                number=0
+                if self.group:
+                    with fabric.lock:row=fabric.db.execute('SELECT number FROM group_articles WHERE name=? AND message=?',(self.group,arg)).fetchone()
+                    if row:number=row[0]
+                return number,article
+            if not self.selected():return None
+            number=int(arg) if arg else self.current
+            if not number:self.line('420 No current article');return None
+            rows=self.rows(number,1)
+            if not rows or rows[0]['number']!=number:self.line('423 No article with that number');return None
+            self.current=number
+            return number,rows[0]
+        def receive_post(self):
+            data=bytearray()
+            while True:
+                raw=self.rfile.readline(1001)
+                if not raw or len(raw)>1000 or not raw.endswith(b'\r\n'):raise ValueError('article line limit')
+                if raw==b'.\r\n':break
+                if raw.startswith(b'..'):raw=raw[1:]
+                data.extend(raw)
+                if len(data)>49152:raise ValueError('article limit')
+            message=BytesParser(policy=policy.default).parsebytes(bytes(data))
+            if message.defects or message.is_multipart() or message.get_content_type()!='text/plain':raise ValueError('only bounded plain text posting supported')
+            for key in ('From','Subject','Newsgroups','Message-ID','Date','References'):
+                if len(message.get_all(key,[]))>1:raise ValueError('duplicate header')
+            if not all(message.get(k) for k in ('From','Subject','Newsgroups')):raise ValueError('missing headers')
+            if str(message['From'])!=self.owner:raise PermissionError('From identity mismatch')
+            mid=str(message['Message-ID']) if message.get('Message-ID') else None
+            body=message.get_content()
+            return fabric.post(self.owner,str(message['Newsgroups']).split(','),str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split())
+        def handle(self):
+            self.line('201 Ziokt Netnews reader ready; authenticate to post')
+            for _ in range(1000):
+                try:
+                    raw=self.rfile.readline(513)
+                    if not raw:return
+                    if len(raw)>512 or not raw.endswith(b'\r\n'):self.line('500 Command line rejected');return
+                    parts=raw[:-2].decode('ascii').split(' ',1);cmd=parts[0].upper();arg=parts[1].strip() if len(parts)>1 else ''
+                    if cmd=='QUIT':self.line('205 Closing connection');return
+                    if cmd=='CAPABILITIES':
+                        caps=['VERSION 2','READER','LIST ACTIVE NEWSGROUPS OVERVIEW.FMT','OVER','HDR','IMPLEMENTATION Ziokt-Content-v1','AUTHINFO USER']
+                        if self.authenticated and 'netnews:write' in self.scopes:caps+=['POST']
+                        self.block('101 Capability list follows',caps);continue
+                    if cmd=='MODE' and arg.upper()=='READER':self.line('200 Posting allowed' if self.authenticated and 'netnews:write' in self.scopes else '201 Reader mode');continue
+                    if cmd=='DATE':self.line('111 '+datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S'));continue
+                    if cmd=='HELP':self.block('100 Help follows',['CAPABILITIES AUTHINFO MODE READER LIST GROUP ARTICLE HEAD BODY STAT NEXT LAST OVER HDR POST DATE HELP QUIT']);continue
+                    if cmd=='AUTHINFO':
+                        mode,_,value=arg.partition(' ')
+                        if not config.get('tls') and not config.get('allow_loopback_auth',False):self.line('483 TLS required');continue
+                        if mode.upper()=='USER':self.user=value;self.line('381 Password required');continue
+                        if mode.upper()=='PASS' and self.user:
+                            found=next((t for t in tokens if t['account']==self.user and hmac.compare_digest(value,t['token'])),None)
+                            if found:self.owner=found['account'];self.authenticated=True;self.scopes=set(found['scopes']);self.group=None;self.current=None;self.line('281 Authentication accepted')
+                            else:self.line('481 Authentication rejected');return
+                            continue
+                        self.line('501 AUTHINFO syntax');continue
+                    if cmd in {'IHAVE','CHECK','TAKETHIS'} or cmd=='MODE':self.line('500 Transfer extension not supported');continue
+                    if cmd=='POST':
+                        if not self.authenticated:self.line('480 Authentication required');continue
+                        if 'netnews:write' not in self.scopes:self.line('440 Posting prohibited');continue
+                        self.line('340 Send article; end with a single dot')
+                        try:self.receive_post();self.line('240 Article received and durably stored')
+                        except (ValueError,PermissionError):self.line('441 Posting failed');return
+                        continue
+                    if not self.readable():continue
+                    if cmd=='LIST':
+                        keyword,_,pattern=arg.partition(' ');keyword=(keyword or 'ACTIVE').upper()
+                        if keyword=='OVERVIEW.FMT':self.block('215 Overview format',['Subject:','From:','Date:','Message-ID:','References:',':bytes',':lines']);continue
+                        if keyword not in {'ACTIVE','NEWSGROUPS'}:self.line('501 Unsupported LIST keyword');continue
+                        lines=[]
+                        for group in fabric.groups(self.owner)['items']:
+                            if pattern and not fnmatch.fnmatchcase(group['name'],pattern):continue
+                            name=group['name'];items=fabric.articles(self.owner,name,1,1000)['items']
+                            low=items[0]['number'] if items else 1;high=items[-1]['number'] if items else 0
+                            lines.append(name+' '+group['description'] if keyword=='NEWSGROUPS' else f'{name} {high} {low} '+('n' if group['posting']=='owner' else 'y'))
+                        self.block('215 Information follows',lines);continue
+                    if cmd=='GROUP':
+                        try:
+                            items=fabric.articles(self.owner,arg,1,1000)['items']
+                        except PermissionError:self.line('411 No such newsgroup');continue
+                        self.group=arg;self.current=items[0]['number'] if items else None
+                        self.line(f"211 {len(items)} {items[0]['number'] if items else 1} {items[-1]['number'] if items else 0} {arg}");continue
+                    if cmd in {'NEXT','LAST'}:
+                        if not self.selected():continue
+                        if self.current is None:self.line('420 No current article');continue
+                        rows=self.rows()
+                        eligible=[r for r in rows if r['number']>self.current] if cmd=='NEXT' else [r for r in rows if r['number']<self.current]
+                        if not eligible:self.line('421 No next article' if cmd=='NEXT' else '422 No previous article');continue
+                        row=eligible[0] if cmd=='NEXT' else eligible[-1];self.current=row['number'];self.line(f"223 {self.current} {row['message_id']}");continue
+                    if cmd in {'ARTICLE','HEAD','BODY','STAT'}:
+                        try:result=self.select_article(arg)
+                        except PermissionError:self.line('430 No article with that message-id');continue
+                        if result is None:continue
+                        number,article=result;code={'ARTICLE':220,'HEAD':221,'BODY':222,'STAT':223}[cmd]
+                        if cmd=='STAT':self.line(f'{code} {number} {article["message_id"]}');continue
+                        full=wire_article(article);heads,_,body=full.partition('\r\n\r\n')
+                        value=full if cmd=='ARTICLE' else heads if cmd=='HEAD' else body
+                        self.block(f'{code} {number} {article["message_id"]}',value.split('\r\n'));continue
+                    if cmd in {'OVER','HDR'}:
+                        if not self.selected():continue
+                        field=None
+                        if cmd=='HDR':field,_,arg=arg.partition(' ')
+                        if not arg:arg=str(self.current or 0)
+                        start,sep,end=arg.partition('-');low=int(start);high=int(end) if end else (2**31 if sep else low)
+                        items=[r for r in self.rows(low) if r['number']<=high]
+                        if not items:self.line('423 Empty range');continue
+                        lines=[]
+                        for article in items:
+                            if field:
+                                headers={k.lower():v for k,v in article_headers(article)}
+                                lines.append(str(article['number'])+' '+headers.get(field.lower(),''))
+                            else:
+                                values=[article['subject'],article['from'],article['date'],article['message_id'],' '.join(article.get('references',[])),str(len(wire_article(article).encode())),str(len(article['body'].splitlines()))]
+                                lines.append(str(article['number'])+'\t'+'\t'.join(v.replace('\t',' ') for v in values))
+                        self.block('225 Headers follow' if field else '224 Overview follows',lines);continue
+                    self.line('500 Command not supported')
+                except (OSError,UnicodeError):return
+                except (ValueError,KeyError,TypeError):self.line('501 Invalid syntax')
+                except PermissionError:self.line('502 Permission denied')
+    address=config.get('listen','127.0.0.1')
+    if address not in {'127.0.0.1','::1','localhost'} and not config.get('tls'):raise ValueError('NNTP public listener requires TLS')
+    result=BoundedTCP((address,config.get('port',8119)),Handler)
+    if config.get('tls'):
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(config['tls']['cert'],config['tls']['key'])
+        result.socket=context.wrap_socket(result.socket,server_side=True)
+    return result

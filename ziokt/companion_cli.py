@@ -35,6 +35,8 @@ def register(sub):
     for action in ('compile','run'):
         item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en');item.add_argument('--input',type=Path,required=True)
         item.add_argument('--syntax',choices=('assembly','tcc'),default='assembly')
+        item.add_argument('--target',choices=('tc16-python-legacy','tc16-etp-legacy','tc16-unified-v1'))
+        item.add_argument('--profile',choices=('pure-v1','stdout-u16-v1'),default='pure-v1')
         if action=='run':item.add_argument('--cycles',type=int,default=10000);item.add_argument('--debug',action='store_true')
         else:item.add_argument('--output',type=Path,required=True)
     packages=families.add_parser('ufsdcpm');actions=packages.add_subparsers(dest='companion_action',required=True)
@@ -88,6 +90,15 @@ def execute(args):
     if args.companion=='tc16':
         from .tc16 import TC16_CPU,assemble,TCCCompiler
         from .cli import write_binary_exclusive
+        if getattr(args,'target',None):
+            from .tc16_spec import compile_package,execute_package,unpack
+            source=secure_read(args.input,65536,private=None).decode()
+            program=compile_package(source,syntax=args.syntax,target=args.target,profile=args.profile)
+            if args.companion_action=='compile':
+                write_binary_exclusive(args.output,program)
+                metadata,_=unpack(program)
+                return {'schema':'ziokt.tc16-package.v1',**metadata,'output':str(args.output)}
+            return execute_package(program,args.cycles)
         source=secure_read(args.input,65536,private=None).decode()
         if args.syntax=='tcc':source=TCCCompiler().compile(source)
         program=assemble(source)

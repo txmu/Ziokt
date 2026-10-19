@@ -17,10 +17,10 @@ const DIST_DIR = path.join(__dirname, 'dist');
 console.log('>> [Ziokt GUI] Starting client packaging build...');
 
 // 1. Ensure dist directory
-if (fs.existsSync(DIST_DIR)) {
+if (!process.argv.includes('--bundle-only') && fs.existsSync(DIST_DIR)) {
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
 }
-fs.mkdirSync(DIST_DIR, { recursive: true });
+if (!process.argv.includes('--bundle-only')) fs.mkdirSync(DIST_DIR, { recursive: true });
 
 // 2. Validate JSON files
 const jsonFiles = [
@@ -53,6 +53,7 @@ function buildStandaloneAppBundle() {
     'modules/forum.js',
     'modules/files.js',
     'modules/apps.js',
+    'modules/content.js',
     'modules/network.js',
     'modules/identity.js',
     'modules/devtools.js',
@@ -81,6 +82,8 @@ function buildStandaloneAppBundle() {
     forum: { render: renderForum, titleKey: 'nav.forum' },
     files: { render: renderFiles, titleKey: 'nav.files' },
     apps: { render: renderApps, titleKey: 'nav.apps' },
+    library: { render: renderLibrary, titleKey: 'nav.library' },
+    netnews: { render: renderNetnews, titleKey: 'nav.netnews' },
     network: { render: renderNetwork, titleKey: 'nav.network' },
     identity: { render: renderIdentity, titleKey: 'nav.identity' },
     devtools: { render: renderDevtools, titleKey: 'nav.devtools' },
@@ -345,6 +348,7 @@ function buildStandaloneAppBundle() {
 }
 
 buildStandaloneAppBundle();
+if (process.argv.includes('--bundle-only')) process.exit(0);
 
 // 4. Copy directory recursively
 function copyDir(src, dest) {

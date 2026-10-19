@@ -1,0 +1,2539 @@
+{
+  "phase": "before implementation",
+  "evidence_policy": "源码符号证明实现位置，不证明运行通过；测试结果另记。",
+  "components": [
+    {
+      "component": "Federation",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/node.py",
+          "lines": 156,
+          "symbols": [
+            {
+              "line": 26,
+              "declaration": "def _snapshot(root,pins,target):"
+            },
+            {
+              "line": 34,
+              "declaration": "def _virtual_module(tree):"
+            },
+            {
+              "line": 51,
+              "declaration": "def create_profile(root,federation,provider,registry,virtual_config,units,*,require_s6epe=True):"
+            },
+            {
+              "line": 65,
+              "declaration": "def plan(profile,*,probe=True,require_runtime=False):"
+            },
+            {
+              "line": 135,
+              "declaration": "def _unit_arg(value):"
+            },
+            {
+              "line": 140,
+              "declaration": "def export_units(profile,profile_path,output,name,python=sys.executable):"
+            },
+            {
+              "line": 150,
+              "declaration": "def serve(profile,expected_digest):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/recovery.py",
+          "lines": 69,
+          "symbols": [
+            {
+              "line": 12,
+              "declaration": "def export_bundle(manifest, objects, store, private_key, encryption_key):"
+            },
+            {
+              "line": 32,
+              "declaration": "def import_bundle(blob, store, publisher, encryption_key, *, federation, minimum_epoch):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/native_peer.py",
+          "lines": 76,
+          "symbols": [
+            {
+              "line": 13,
+              "declaration": "def validate_native(value, host):"
+            },
+            {
+              "line": 29,
+              "declaration": "class NativeStream:"
+            },
+            {
+              "line": 30,
+              "declaration": "def __init__(self, sdk, handle): self.sdk, self.handle, self.socket = sdk, handle, handle.socket"
+            },
+            {
+              "line": 31,
+              "declaration": "def recv(self, size): return self.socket.recv(size)"
+            },
+            {
+              "line": 32,
+              "declaration": "def sendall(self, data): return self.socket.sendall(data)"
+            },
+            {
+              "line": 33,
+              "declaration": "def settimeout(self, timeout): self.socket.settimeout(timeout)"
+            },
+            {
+              "line": 34,
+              "declaration": "def gettimeout(self): return self.socket.gettimeout()"
+            },
+            {
+              "line": 35,
+              "declaration": "def fileno(self): return self.socket.fileno()"
+            },
+            {
+              "line": 36,
+              "declaration": "def shutdown(self, how): self.socket.shutdown(how)"
+            },
+            {
+              "line": 37,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 42,
+              "declaration": "def connect_native(host, port, value, timeout=30, cancellation=None):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/community_network.py",
+          "lines": 280,
+          "symbols": [
+            {
+              "line": 17,
+              "declaration": "class CommunityEndpoint:"
+            },
+            {
+              "line": 18,
+              "declaration": "def __init__(self, community, private):"
+            },
+            {
+              "line": 27,
+              "declaration": "def _prune(self):"
+            },
+            {
+              "line": 40,
+              "declaration": "def call(self, method, params, principal):"
+            },
+            {
+              "line": 116,
+              "declaration": "def sync_remote(community, endpoint, context, private, *, publisher, cancellation=None):"
+            },
+            {
+              "line": 125,
+              "declaration": "def call(method, params):"
+            },
+            {
+              "line": 162,
+              "declaration": "def push_remote(community, endpoint, context, private, *, cancellation=None):"
+            },
+            {
+              "line": 175,
+              "declaration": "def call(method, params):"
+            },
+            {
+              "line": 194,
+              "declaration": "def visit(d):"
+            },
+            {
+              "line": 220,
+              "declaration": "class SyncWorker:"
+            },
+            {
+              "line": 222,
+              "declaration": "def __init__(self, community, private, peers, interval=10):"
+            },
+            {
+              "line": 229,
+              "declaration": "def cycle(self):"
+            },
+            {
+              "line": 244,
+              "declaration": "def start(self):"
+            },
+            {
+              "line": 254,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 261,
+              "declaration": "def load_peers(path):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "Community",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/community.py",
+          "lines": 706,
+          "symbols": [
+            {
+              "line": 39,
+              "declaration": "def content_id(data):"
+            },
+            {
+              "line": 43,
+              "declaration": "def exact(value, fields, code='INVALID_COMMUNITY'):"
+            },
+            {
+              "line": 48,
+              "declaration": "def hash_id(value):"
+            },
+            {
+              "line": 54,
+              "declaration": "def policy_document(envelope, owner):"
+            },
+            {
+              "line": 88,
+              "declaration": "def create_policy(private, community_id, members, *, epoch=0, privacy='restricted', limits=None, registration=None):"
+            },
+            {
+              "line": 98,
+              "declaration": "class Community:"
+            },
+            {
+              "line": 99,
+              "declaration": "def __init__(self, root, policy, owner, encryption_key, *, readonly=False):"
+            },
+            {
+              "line": 157,
+              "declaration": "def close(self): self.db.close()"
+            },
+            {
+              "line": 158,
+              "declaration": "def __enter__(self): return self"
+            },
+            {
+              "line": 159,
+              "declaration": "def __exit__(self, *_): self.close()"
+            },
+            {
+              "line": 161,
+              "declaration": "def _current(self):"
+            },
+            {
+              "line": 166,
+              "declaration": "def _seal(self, data, kind, frame=None):"
+            },
+            {
+              "line": 174,
+              "declaration": "def _open(self, blob, kind):"
+            },
+            {
+              "line": 190,
+              "declaration": "def _adopt_keys(self, keys):"
+            },
+            {
+              "line": 196,
+              "declaration": "def _ring_blob(self):"
+            },
+            {
+              "line": 199,
+              "declaration": "def _decode_ring(self, blob):"
+            },
+            {
+              "line": 216,
+              "declaration": "def _persist_ring(self):"
+            },
+            {
+              "line": 230,
+              "declaration": "def rotate(self, new_policy, new_key, private):"
+            },
+            {
+              "line": 260,
+              "declaration": "def _member(self, public, right, policy=None):"
+            },
+            {
+              "line": 265,
+              "declaration": "def _validate_body(self, domain, body, deleted):"
+            },
+            {
+              "line": 312,
+              "declaration": "def _validate_event(self, blob, policies, *, historical=False):"
+            },
+            {
+              "line": 350,
+              "declaration": "def _policies(self):"
+            },
+            {
+              "line": 353,
+              "declaration": "def _events(self):"
+            },
+            {
+              "line": 367,
+              "declaration": "def _check_graph(self, events, policies=None):"
+            },
+            {
+              "line": 391,
+              "declaration": "def publish(self, private, domain, key, body, *, parents=None, deleted=False):"
+            },
+            {
+              "line": 403,
+              "declaration": "def admit(self, blobs):"
+            },
+            {
+              "line": 422,
+              "declaration": "def view(self, domain, key=None):"
+            },
+            {
+              "line": 434,
+              "declaration": "def put_file(self, data):"
+            },
+            {
+              "line": 454,
+              "declaration": "def _file_objects(self, manifest, supplied=None):"
+            },
+            {
+              "line": 484,
+              "declaration": "def put_blob(self, blob, expected=None):"
+            },
+            {
+              "line": 495,
+              "declaration": "def get_file(self, manifest):"
+            },
+            {
+              "line": 505,
+              "declaration": "def checkpoint(self, private, *, after=None, origin=None):"
+            },
+            {
+              "line": 534,
+              "declaration": "def origin(self):"
+            },
+            {
+              "line": 538,
+              "declaration": "def cursor(self, publisher, origin):"
+            },
+            {
+              "line": 544,
+              "declaration": "def inventory_digest(self):"
+            },
+            {
+              "line": 553,
+              "declaration": "def mailbox_for(self, recipient):"
+            },
+            {
+              "line": 565,
+              "declaration": "def vote(self, private, proposal, choice):"
+            },
+            {
+              "line": 572,
+              "declaration": "def tally(self, proposal):"
+            },
+            {
+              "line": 588,
+              "declaration": "def restore(self, blob, publisher):"
+            },
+            {
+              "line": 600,
+              "declaration": "def _restore(self, blob, publisher):"
+            },
+            {
+              "line": 687,
+              "declaration": "def replicate(self, peers, private, *, minimum=2):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/community_native.py",
+          "lines": 77,
+          "symbols": [
+            {
+              "line": 8,
+              "declaration": "def materialize(community, manifest, store):"
+            },
+            {
+              "line": 18,
+              "declaration": "def native_workflow(community, private, federation, journal, manifest, *, domain, object_key,"
+            },
+            {
+              "line": 23,
+              "declaration": "def admission():"
+            },
+            {
+              "line": 52,
+              "declaration": "def stage_package(community, package_key, store):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/community_site.py",
+          "lines": 137,
+          "symbols": [
+            {
+              "line": 14,
+              "declaration": "def page(title, body):"
+            },
+            {
+              "line": 20,
+              "declaration": "def build_site(community, title, *, domains=('wiki', 'forum'), anonymous=False):"
+            },
+            {
+              "line": 53,
+              "declaration": "def publish_site(community, private, name, title, *, anonymous=False):"
+            },
+            {
+              "line": 70,
+              "declaration": "def list_sites(community):"
+            },
+            {
+              "line": 91,
+              "declaration": "def load_site_file(community, name, subpath='index.html'):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/community_privacy.py",
+          "lines": 150,
+          "symbols": [
+            {
+              "line": 21,
+              "declaration": "def mailbox_public(private):"
+            },
+            {
+              "line": 25,
+              "declaration": "def _mail_key(shared, recipient):"
+            },
+            {
+              "line": 29,
+              "declaration": "def seal_mail(recipient, mailbox_key, subject, text):"
+            },
+            {
+              "line": 45,
+              "declaration": "def open_mail(private, recipient, body):"
+            },
+            {
+              "line": 62,
+              "declaration": "def invitation(community, private, invitation_key, host, port, *, lifetime=3600):"
+            },
+            {
+              "line": 77,
+              "declaration": "def accept_invitation(community, blob, invitation_key, publisher):"
+            },
+            {
+              "line": 95,
+              "declaration": "def ballot_commitment(choice, salt, proposal, voter_public):"
+            },
+            {
+              "line": 101,
+              "declaration": "def verify_ballot(commitment, choice, salt, proposal, voter_public):"
+            },
+            {
+              "line": 106,
+              "declaration": "def seal_ballot(tally_mailbox_key, choice, salt, proposal, voter_public):"
+            },
+            {
+              "line": 126,
+              "declaration": "def open_ballot(tally_private, proposal, body):"
+            },
+            {
+              "line": 146,
+              "declaration": "def pseudonym_token(member_private, context_id):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "Corium",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/mcp_corium.py",
+          "lines": 39,
+          "symbols": [
+            {
+              "line": 15,
+              "declaration": "class CoriumProtocol:"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/naming_corium.py",
+          "lines": 81,
+          "symbols": [
+            {
+              "line": 17,
+              "declaration": "def readonly(path):"
+            },
+            {
+              "line": 21,
+              "declaration": "class CoriumNames:"
+            },
+            {
+              "line": 23,
+              "declaration": "def __init__(self,*,forum_db,chain_db,objects,network_id,namespace=None,dht_db=None,peers=()):"
+            },
+            {
+              "line": 28,
+              "declaration": "def __call__(self,root):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/_runtime.py",
+          "lines": 3107,
+          "symbols": [
+            {
+              "line": 29,
+              "declaration": "class ProtocolError(ValueError):"
+            },
+            {
+              "line": 30,
+              "declaration": "def __init__(self, code, message):"
+            },
+            {
+              "line": 35,
+              "declaration": "def fail(code, message):"
+            },
+            {
+              "line": 39,
+              "declaration": "def encoded(value):"
+            },
+            {
+              "line": 44,
+              "declaration": "def digest(value):"
+            },
+            {
+              "line": 48,
+              "declaration": "def windows_file_info(handle):"
+            },
+            {
+              "line": 74,
+              "declaration": "def windows_owner_controlled(handle, private):"
+            },
+            {
+              "line": 145,
+              "declaration": "def make_private(path):"
+            },
+            {
+              "line": 209,
+              "declaration": "def strict_json(raw, limit=MAX_REQUEST, string_limit=8192):"
+            },
+            {
+              "line": 268,
+              "declaration": "def secure_read(path, limit=MAX_CONFIG, private=True):"
+            },
+            {
+              "line": 337,
+              "declaration": "def validate_config(value):"
+            },
+            {
+              "line": 375,
+              "declaration": "def load_config(provider, path):"
+            },
+            {
+              "line": 422,
+              "declaration": "def identifier(value, label):"
+            },
+            {
+              "line": 427,
+              "declaration": "def validate_request(value, config):"
+            },
+            {
+              "line": 518,
+              "declaration": "def safe_directory(path):"
+            },
+            {
+              "line": 530,
+              "declaration": "def object_record(config, kind, native_id, state, properties):"
+            },
+            {
+              "line": 544,
+              "declaration": "def native_objects(provider, root, network, config):"
+            },
+            {
+              "line": 639,
+              "declaration": "def page(records, params):"
+            },
+            {
+              "line": 657,
+              "declaration": "def capabilities(provider, config):"
+            },
+            {
+              "line": 670,
+              "declaration": "def status(provider, config, network):"
+            },
+            {
+              "line": 678,
+              "declaration": "def rpc(provider, root, network, config, stream):"
+            },
+            {
+              "line": 745,
+              "declaration": "def main(provider, root=None, argv=None, rpc_stream=None):"
+            },
+            {
+              "line": 826,
+              "declaration": "def operation_directory(provider, root, network):"
+            },
+            {
+              "line": 832,
+              "declaration": "def native_descriptor_main(args):"
+            },
+            {
+              "line": 857,
+              "declaration": "def private_mkdir(path):"
+            },
+            {
+              "line": 872,
+              "declaration": "def operation_db(provider, root, network, create=False, write=False):"
+            },
+            {
+              "line": 897,
+              "declaration": "def operation_view(row):"
+            },
+            {
+              "line": 905,
+              "declaration": "def fence_admit(db, config, plan, existing=False):"
+            },
+            {
+              "line": 935,
+              "declaration": "def native_registry(root):"
+            },
+            {
+              "line": 942,
+              "declaration": "def service_binding_fact(root,config,name):"
+            },
+            {
+              "line": 959,
+              "declaration": "def scan(value):"
+            },
+            {
+              "line": 978,
+              "declaration": "def native_database(path):"
+            },
+            {
+              "line": 993,
+              "declaration": "def corium_db(root, network, name):"
+            },
+            {
+              "line": 997,
+              "declaration": "def corium_identity(root, network):"
+            },
+            {
+              "line": 1002,
+              "declaration": "def wiki_receipt(root, network, plan):"
+            },
+            {
+              "line": 1023,
+              "declaration": "def operation_preflight(provider, root, network, params, config):"
+            },
+            {
+              "line": 1130,
+              "declaration": "def operation_execute(provider, root, network, plan, config=None):"
+            },
+            {
+              "line": 1228,
+              "declaration": "def operation_reconcile(provider, root, network, plan, config):"
+            },
+            {
+              "line": 1288,
+              "declaration": "def operation_dispatch(provider, root, network, config, method, params):"
+            },
+            {
+              "line": 1394,
+              "declaration": "def recovery_content(config, content=None, expected=None):"
+            },
+            {
+              "line": 1417,
+              "declaration": "def validate_phoenix(raw, root, network):"
+            },
+            {
+              "line": 1430,
+              "declaration": "def shadow_checkpoint(root, services, include_secrets):"
+            },
+            {
+              "line": 1458,
+              "declaration": "def recovery_preflight(provider, root, network, params, config):"
+            },
+            {
+              "line": 1502,
+              "declaration": "def recovery_execute(provider, root, network, plan, config):"
+            },
+            {
+              "line": 1531,
+              "declaration": "def remap(item):"
+            },
+            {
+              "line": 1562,
+              "declaration": "def recovery_reconcile(provider, root, network, plan, config):"
+            },
+            {
+              "line": 1590,
+              "declaration": "def governance_fact(root, network, tx_hash):"
+            },
+            {
+              "line": 1625,
+              "declaration": "def compute_preflight(root, network, params, config):"
+            },
+            {
+              "line": 1657,
+              "declaration": "def compute_directory(root, network, op_id):"
+            },
+            {
+              "line": 1662,
+              "declaration": "def compute_finish(args):"
+            },
+            {
+              "line": 1699,
+              "declaration": "def compute_receipt(root, network, plan):"
+            },
+            {
+              "line": 1725,
+              "declaration": "def compute_challenge(root, network):"
+            },
+            {
+              "line": 1743,
+              "declaration": "def compute_submit_preflight(root,network,params,config):"
+            },
+            {
+              "line": 1795,
+              "declaration": "def zs_json(value):"
+            },
+            {
+              "line": 1796,
+              "declaration": "def check(v, depth=0):"
+            },
+            {
+              "line": 1813,
+              "declaration": "def zs_exact(value, fields):"
+            },
+            {
+              "line": 1817,
+              "declaration": "def zs_hex(value):"
+            },
+            {
+              "line": 1823,
+              "declaration": "def zs_lib():"
+            },
+            {
+              "line": 1844,
+              "declaration": "def zs_op(name, *values):"
+            },
+            {
+              "line": 1853,
+              "declaration": "fn = getattr(zs_lib(), name)"
+            },
+            {
+              "line": 1860,
+              "declaration": "def zs_scalar(value):"
+            },
+            {
+              "line": 1867,
+              "declaration": "def zs_point(value):"
+            },
+            {
+              "line": 1874,
+              "declaration": "def zs_reduce(raw): return zs_op('crypto_core_ristretto255_scalar_reduce', raw)"
+            },
+            {
+              "line": 1875,
+              "declaration": "def zs_random_scalar():"
+            },
+            {
+              "line": 1880,
+              "declaration": "def zs_sadd(a, b): return zs_op('crypto_core_ristretto255_scalar_add', a, b)"
+            },
+            {
+              "line": 1881,
+              "declaration": "def zs_ssub(a, b): return zs_op('crypto_core_ristretto255_scalar_sub', a, b)"
+            },
+            {
+              "line": 1882,
+              "declaration": "def zs_smul(a, b): return zs_op('crypto_core_ristretto255_scalar_mul', a, b)"
+            },
+            {
+              "line": 1883,
+              "declaration": "def zs_add(a, b): return zs_op('crypto_core_ristretto255_add', a, b)"
+            },
+            {
+              "line": 1884,
+              "declaration": "def zs_sub(a, b): return zs_op('crypto_core_ristretto255_sub', a, b)"
+            },
+            {
+              "line": 1885,
+              "declaration": "def zs_mul(s, p): return _ZS_ZERO if s == _ZS_ZERO or p == _ZS_ZERO else zs_op('crypto_scalarmult_ristretto255', s, p)"
+            },
+            {
+              "line": 1886,
+              "declaration": "def zs_base(s): return _ZS_ZERO if s == _ZS_ZERO else zs_op('crypto_scalarmult_ristretto255_base', s)"
+            },
+            {
+              "line": 1887,
+              "declaration": "def zs_hp(domain, raw): return zs_op('crypto_core_ristretto255_from_hash', _zs_hash.sha512(domain+raw).digest())"
+            },
+            {
+              "line": 1888,
+              "declaration": "def zs_generator(): return zs_hp(b'Corium/ZKN/asset-blinding/v1\\0', b'')"
+            },
+            {
+              "line": 1891,
+              "declaration": "def zs_asset(network, token_id):"
+            },
+            {
+              "line": 1896,
+              "declaration": "def zs_commit(network, token_id, blind):"
+            },
+            {
+              "line": 1900,
+              "declaration": "def zs_note_id(note):"
+            },
+            {
+              "line": 1905,
+              "declaration": "def zs_note(note):"
+            },
+            {
+              "line": 1914,
+              "declaration": "def zs_challenge(message, index, left, right, balance):"
+            },
+            {
+              "line": 1918,
+              "declaration": "def zs_ring_sign(network, message, ring, output_commitment, index, secret, delta):"
+            },
+            {
+              "line": 1940,
+              "declaration": "def zs_ring_verify(network, message, ring, output_commitment, proof):"
+            },
+            {
+              "line": 1956,
+              "declaration": "def zs_tables(db):"
+            },
+            {
+              "line": 1968,
+              "declaration": "def zs_exists(db, name): return bool(db.execute(\"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?\", (name,)).fetchone())"
+            },
+            {
+              "line": 1969,
+              "declaration": "def zs_height(db): return int(db.execute('SELECT COALESCE(MAX(height),0) FROM blocks').fetchone()[0])"
+            },
+            {
+              "line": 1972,
+              "declaration": "def zs_testnet(network):"
+            },
+            {
+              "line": 1977,
+              "declaration": "def zs_validate(db, network, kind, value, sender):"
+            },
+            {
+              "line": 2057,
+              "declaration": "def zs_schnorr_sign(secret, value, network):"
+            },
+            {
+              "line": 2063,
+              "declaration": "def zs_schnorr_verify(public, value, proof, network):"
+            },
+            {
+              "line": 2069,
+              "declaration": "def zs_review_status(db, request_id):"
+            },
+            {
+              "line": 2079,
+              "declaration": "def zs_apply(db, network, kind, value, sender, tx_hash, height):"
+            },
+            {
+              "line": 2104,
+              "declaration": "def zs_query(db, network, method, params):"
+            },
+            {
+              "line": 2137,
+              "declaration": "def asset_tables(db):"
+            },
+            {
+              "line": 2148,
+              "declaration": "def asset_token_id(network, block_hash):"
+            },
+            {
+              "line": 2152,
+              "declaration": "def asset_transaction_bytes(tx):"
+            },
+            {
+              "line": 2157,
+              "declaration": "def zkc_edition_id(payload):"
+            },
+            {
+              "line": 2161,
+              "declaration": "def asset_signed_gift(tx, network, kind='zkn_private_transfer'):"
+            },
+            {
+              "line": 2174,
+              "declaration": "def asset_publish_transaction(root, network, tx, tx_hash):"
+            },
+            {
+              "line": 2189,
+              "declaration": "def asset_writable_database(path):"
+            },
+            {
+              "line": 2194,
+              "declaration": "def asset_privacy_pending(db, network, kind, value, sender):"
+            },
+            {
+              "line": 2242,
+              "declaration": "def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):"
+            },
+            {
+              "line": 2274,
+              "declaration": "def asset_forward_pending(root, network):"
+            },
+            {
+              "line": 2286,
+              "declaration": "def asset_manifest(envelope, network, db):"
+            },
+            {
+              "line": 2317,
+              "declaration": "def asset_validate(db, network, tx_type, payload, sender):"
+            },
+            {
+              "line": 2386,
+              "declaration": "def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):"
+            },
+            {
+              "line": 2409,
+              "declaration": "def asset_engine_main(args):"
+            },
+            {
+              "line": 2492,
+              "declaration": "def asset_preflight(root,network,params,config):"
+            },
+            {
+              "line": 2536,
+              "declaration": "def asset_receipt(root,network,plan):"
+            },
+            {
+              "line": 2546,
+              "declaration": "def asset_query(root,network,method,params):"
+            },
+            {
+              "line": 2593,
+              "declaration": "def naming_preflight(root,network,params,config):"
+            },
+            {
+              "line": 2601,
+              "declaration": "def label(value):"
+            },
+            {
+              "line": 2603,
+              "declaration": "def hex32(value):"
+            },
+            {
+              "line": 2605,
+              "declaration": "def owned(name):"
+            },
+            {
+              "line": 2666,
+              "declaration": "class DataCipher:"
+            },
+            {
+              "line": 2667,
+              "declaration": "def __init__(self, key, server=False):"
+            },
+            {
+              "line": 2678,
+              "declaration": "def pack(self, request_id, kind, index, count, payload=b\"\", pad_to=None):"
+            },
+            {
+              "line": 2692,
+              "declaration": "def unpack(self, frame):"
+            },
+            {
+              "line": 2709,
+              "declaration": "class FrameSocket:"
+            },
+            {
+              "line": 2710,
+              "declaration": "def __init__(self, sock, kind, maximum=4096):"
+            },
+            {
+              "line": 2716,
+              "declaration": "def send(self, frame):"
+            },
+            {
+              "line": 2724,
+              "declaration": "def receive(self):"
+            },
+            {
+              "line": 2746,
+              "declaration": "def native_ec_verify(public, signature, message):"
+            },
+            {
+              "line": 2763,
+              "declaration": "def native_ec_sign(key, message):"
+            },
+            {
+              "line": 2769,
+              "declaration": "class CoriumDataChannel:"
+            },
+            {
+              "line": 2770,
+              "declaration": "def __init__(self, handle, key, native_private, expected_peer, network, privacy_profile=\"standard\"):"
+            },
+            {
+              "line": 2782,
+              "declaration": "def call(self, message_type, payload=\"\", timeout=30):"
+            },
+            {
+              "line": 2850,
+              "declaration": "class CoriumDataGateway:"
+            },
+            {
+              "line": 2851,
+              "declaration": "def __init__(self, key, native_private, handler, network, root=None):"
+            },
+            {
+              "line": 2859,
+              "declaration": "def content_range(self, query):"
+            },
+            {
+              "line": 2900,
+              "declaration": "def receive(self, frame):"
+            },
+            {
+              "line": 2965,
+              "declaration": "def corium_native_handler(source, root, network):"
+            },
+            {
+              "line": 2984,
+              "declaration": "def serve_corium_data(root, network, key_file, port):"
+            },
+            {
+              "line": 3051,
+              "declaration": "def native_transport_main(args):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "ETP",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/etp.py",
+          "lines": 204,
+          "symbols": [
+            {
+              "line": 18,
+              "declaration": "def _forum_text(value, maximum, *, empty=False):"
+            },
+            {
+              "line": 24,
+              "declaration": "def _forum_id(value):"
+            },
+            {
+              "line": 28,
+              "declaration": "def _forum_name(value):"
+            },
+            {
+              "line": 31,
+              "declaration": "def _forum_params(method,params):"
+            },
+            {
+              "line": 45,
+              "declaration": "def _forum_result(method,params,result):"
+            },
+            {
+              "line": 78,
+              "declaration": "class EtpGateway:"
+            },
+            {
+              "line": 79,
+              "declaration": "def __init__(self,binary,digest,config):"
+            },
+            {
+              "line": 83,
+              "declaration": "def close(self,*,graceful=True):"
+            },
+            {
+              "line": 103,
+              "declaration": "def call(self,method,params):"
+            },
+            {
+              "line": 151,
+              "declaration": "class EtpRecordSocket:"
+            },
+            {
+              "line": 157,
+              "declaration": "def __init__(self,gateway,hops,key,scope,*,server=False,max_record=4096):"
+            },
+            {
+              "line": 169,
+              "declaration": "def gettimeout(self):return self.timeout"
+            },
+            {
+              "line": 170,
+              "declaration": "def settimeout(self,value):"
+            },
+            {
+              "line": 174,
+              "declaration": "def send(self,data):"
+            },
+            {
+              "line": 181,
+              "declaration": "def recv(self,maximum):"
+            },
+            {
+              "line": 195,
+              "declaration": "def close(self):self.gateway.close()"
+            },
+            {
+              "line": 198,
+              "declaration": "def corium_channel(gateway,hops,transport_key,application_key,native_private,expected_peer,network,*,scope):"
+            }
+          ]
+        },
+        {
+          "path": "companions/etp/src/src/plugin/flavors/mailbox.rs",
+          "lines": 231,
+          "symbols": [
+            {
+              "line": 23,
+              "declaration": "pub struct MailboxFlavor {"
+            },
+            {
+              "line": 34,
+              "declaration": "pub fn new(path: &str, network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>) -> Result<Arc<Self>> {"
+            },
+            {
+              "line": 44,
+              "declaration": "fn proof_message(op: u8, header: &[u8], body: &[u8]) -> Vec<u8> {"
+            },
+            {
+              "line": 52,
+              "declaration": "fn verify_auth(&self, op: u8, data: &[u8]) -> Result<[u8; 32]> {"
+            },
+            {
+              "line": 81,
+              "declaration": "fn cleanup(&self, time: u64) -> Result<()> {"
+            },
+            {
+              "line": 98,
+              "declaration": "fn handle(&self, op: u8, data: &[u8]) -> Result<Vec<u8>> {"
+            },
+            {
+              "line": 166,
+              "declaration": "fn capability_id(&self) -> String {"
+            },
+            {
+              "line": 171,
+              "declaration": "fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {"
+            },
+            {
+              "line": 181,
+              "declaration": "fn on_connection_open(&self, _: SocketAddr) {}"
+            },
+            {
+              "line": 182,
+              "declaration": "fn on_connection_close(&self, _: SocketAddr) {}"
+            },
+            {
+              "line": 185,
+              "declaration": "fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {"
+            },
+            {
+              "line": 193,
+              "declaration": "fn proof(key: &SigningKey, op: u8, body: &[u8]) -> Vec<u8> {"
+            },
+            {
+              "line": 203,
+              "declaration": "fn signed_operations_are_bound_replay_safe_and_deposits_idempotent() {"
+            }
+          ]
+        },
+        {
+          "path": "companions/etp/src/src/plugin/flavors/forum.rs",
+          "lines": 1944,
+          "symbols": [
+            {
+              "line": 57,
+              "declaration": "fn admit(&mut self, bytes: usize) -> bool {"
+            },
+            {
+              "line": 80,
+              "declaration": "pub struct ForumPost {"
+            },
+            {
+              "line": 98,
+              "declaration": "fn canonical(&self) -> Vec<u8> {"
+            },
+            {
+              "line": 115,
+              "declaration": "pub fn calculate_id(&self) -> [u8; 32] {"
+            },
+            {
+              "line": 119,
+              "declaration": "pub fn sign(&mut self, key: &SigningKey) {"
+            },
+            {
+              "line": 128,
+              "declaration": "pub fn verify(&self) -> bool {"
+            },
+            {
+              "line": 135,
+              "declaration": "fn verify_integrity(&self) -> bool {"
+            },
+            {
+              "line": 167,
+              "declaration": "pub struct PostBloomFilter {"
+            },
+            {
+              "line": 175,
+              "declaration": "pub fn new(topic: Option<[u8; 32]>, start: i64, end: i64) -> Self {"
+            },
+            {
+              "line": 184,
+              "declaration": "pub fn insert(&mut self, item: &[u8]) {"
+            },
+            {
+              "line": 196,
+              "declaration": "pub fn contains(&self, item: &[u8]) -> bool {"
+            },
+            {
+              "line": 211,
+              "declaration": "fn get_hash_index(&self, item: &[u8], seed: usize) -> usize {"
+            },
+            {
+              "line": 232,
+              "declaration": "pub struct ForumStore {"
+            },
+            {
+              "line": 239,
+              "declaration": "pub fn open(path: &str) -> Result<Self> {"
+            },
+            {
+              "line": 250,
+              "declaration": "pub fn save_post(&self, post: &ForumPost) -> Result<bool> {"
+            },
+            {
+              "line": 280,
+              "declaration": "fn prune(&self) -> Result<()> {"
+            },
+            {
+              "line": 333,
+              "declaration": "pub fn export_quarantined_posts(&self, output: &mut dyn std::io::Write) -> Result<usize> {"
+            },
+            {
+              "line": 347,
+              "declaration": "pub fn get_posts_in_range("
+            },
+            {
+              "line": 409,
+              "declaration": "pub fn parent_status(&self, post: &ForumPost) -> ParentStatus {"
+            },
+            {
+              "line": 417,
+              "declaration": "pub fn get_post(&self, id: &[u8]) -> Option<ForumPost> {"
+            },
+            {
+              "line": 428,
+              "declaration": "pub struct ForumFlavor {"
+            },
+            {
+              "line": 450,
+              "declaration": "pub fn new("
+            },
+            {
+              "line": 500,
+              "declaration": "pub fn new_with_identity("
+            },
+            {
+              "line": 533,
+              "declaration": "pub fn get_post(&self, id: &[u8; 32]) -> Option<ForumPost> {"
+            },
+            {
+              "line": 537,
+              "declaration": "pub fn parent_status(&self, post: &ForumPost) -> ParentStatus {"
+            },
+            {
+              "line": 541,
+              "declaration": "pub fn local_author_id(&self) -> Option<NodeID> {"
+            },
+            {
+              "line": 580,
+              "declaration": "fn sign_with_local_identity(&self, post: &mut ForumPost, author: NodeID) -> Result<()> {"
+            },
+            {
+              "line": 602,
+              "declaration": "fn sign_with_local_identity(&self, _: &mut ForumPost, _: NodeID) -> Result<()> {"
+            },
+            {
+              "line": 677,
+              "declaration": "pub fn subscribe(&self, topic: &str) {"
+            },
+            {
+              "line": 682,
+              "declaration": "pub fn try_subscribe(&self, topic: &str) -> Result<()> {"
+            },
+            {
+              "line": 700,
+              "declaration": "fn generate_sync_offer(&self, topic: [u8; 32]) -> Vec<u8> {"
+            },
+            {
+              "line": 751,
+              "declaration": "fn peers(&self) -> Vec<SocketAddr> {"
+            },
+            {
+              "line": 758,
+              "declaration": "fn send(&self, peer: SocketAddr, packet: Vec<u8>) -> bool {"
+            },
+            {
+              "line": 784,
+              "declaration": "fn flush_outbox(&self) {"
+            },
+            {
+              "line": 800,
+              "declaration": "fn send_frame(&self, peer: SocketAddr, packet: Vec<u8>) -> bool {"
+            },
+            {
+              "line": 822,
+              "declaration": "fn receive_fragment(&self, peer: SocketAddr, data: &[u8]) -> Option<Vec<u8>> {"
+            },
+            {
+              "line": 880,
+              "declaration": "fn sync_peer(&self, peer: SocketAddr) -> bool {"
+            },
+            {
+              "line": 905,
+              "declaration": "fn capability_id(&self) -> String {"
+            },
+            {
+              "line": 911,
+              "declaration": "fn priority(&self) -> u8 {"
+            },
+            {
+              "line": 915,
+              "declaration": "fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {"
+            },
+            {
+              "line": 1074,
+              "declaration": "fn on_connection_open(&self, peer: SocketAddr) {"
+            },
+            {
+              "line": 1087,
+              "declaration": "fn on_connection_close(&self, peer: SocketAddr) {"
+            },
+            {
+              "line": 1106,
+              "declaration": "fn poll(&self) {"
+            },
+            {
+              "line": 1137,
+              "declaration": "fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {"
+            },
+            {
+              "line": 1168,
+              "declaration": "fn signed(content: &str) -> ForumPost {"
+            },
+            {
+              "line": 1182,
+              "declaration": "fn subscriptions_persist_and_reopen_without_network_side_effects() {"
+            },
+            {
+              "line": 1206,
+              "declaration": "fn signatures_bind_identity_topic_parent_and_content() {"
+            },
+            {
+              "line": 1233,
+              "declaration": "fn transactional_store_deduplicates_reopens_and_expires() {"
+            },
+            {
+              "line": 1256,
+              "declaration": "fn retained_child_reports_expired_parent_without_claiming_complete_thread() {"
+            },
+            {
+              "line": 1287,
+              "declaration": "fn legacy_records_are_quarantined_and_exported_without_loss() {"
+            },
+            {
+              "line": 1314,
+              "declaration": "fn peer_packet_and_byte_budgets_are_bounded() {"
+            },
+            {
+              "line": 1326,
+              "declaration": "fn anonymous(content: String) -> ForumPost {"
+            },
+            {
+              "line": 1340,
+              "declaration": "fn bloom_budget_has_no_false_negatives_and_bounded_fixture_false_positives() {"
+            },
+            {
+              "line": 1359,
+              "declaration": "fn real_sled_capacity_boundary_preserves_all_admitted_posts() {"
+            },
+            {
+              "line": 1430,
+              "declaration": "fn corrupted_lengths_and_bytes_are_quarantined_across_reopen() {"
+            },
+            {
+              "line": 1461,
+              "declaration": "fn cross_protocol_signatures_and_retargeted_parent_proofs_are_rejected() {"
+            },
+            {
+              "line": 1497,
+              "declaration": "fn malformed_bloom_and_oversized_post_are_rejected() {"
+            }
+          ]
+        },
+        {
+          "path": "companions/etp/src/src/plugin/flavors/fileshare.rs",
+          "lines": 446,
+          "symbols": [
+            {
+              "line": 23,
+              "declaration": "pub struct FileManifest {"
+            },
+            {
+              "line": 32,
+              "declaration": "fn validate(&self) -> bool {"
+            },
+            {
+              "line": 42,
+              "declaration": "pub fn verify_chunk(&self, index: u32, data: &[u8]) -> bool {"
+            },
+            {
+              "line": 99,
+              "declaration": "fn drop(&mut self) {"
+            },
+            {
+              "line": 103,
+              "declaration": "pub struct FileShareFlavor {"
+            },
+            {
+              "line": 111,
+              "declaration": "pub fn new("
+            },
+            {
+              "line": 128,
+              "declaration": "pub fn share_file(&self, path: &Path) -> Result<[u8; 32]> {"
+            },
+            {
+              "line": 182,
+              "declaration": "pub fn read_shared(&self, hash: [u8; 32]) -> Result<Vec<u8>> {"
+            },
+            {
+              "line": 234,
+              "declaration": "fn send(&self, peer: SocketAddr, packet: Vec<u8>) -> Result<()> {"
+            },
+            {
+              "line": 238,
+              "declaration": "fn request_chunk(&self, peer: SocketAddr, hash: &[u8; 32], index: u32) -> Result<()> {"
+            },
+            {
+              "line": 244,
+              "declaration": "fn handle(&self, peer: SocketAddr, data: &[u8]) -> Result<()> {"
+            },
+            {
+              "line": 355,
+              "declaration": "fn capability_id(&self) -> String {"
+            },
+            {
+              "line": 360,
+              "declaration": "fn priority(&self) -> u8 {"
+            },
+            {
+              "line": 363,
+              "declaration": "fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {"
+            },
+            {
+              "line": 370,
+              "declaration": "fn on_connection_open(&self, _: SocketAddr) {}"
+            },
+            {
+              "line": 371,
+              "declaration": "fn on_connection_close(&self, _: SocketAddr) {}"
+            },
+            {
+              "line": 372,
+              "declaration": "fn poll(&self) {"
+            },
+            {
+              "line": 390,
+              "declaration": "fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "Shadow6",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/shadow6_control_mcp.py",
+          "lines": 253,
+          "symbols": [
+            {
+              "line": 18,
+              "declaration": "def find_shadow6_control() -> str:"
+            },
+            {
+              "line": 34,
+              "declaration": "class Shadow6ControlAdapter:"
+            },
+            {
+              "line": 37,
+              "declaration": "def __init__("
+            },
+            {
+              "line": 56,
+              "declaration": "def _resolve_command(self) -> List[str]:"
+            },
+            {
+              "line": 79,
+              "declaration": "def _next_id(self) -> int:"
+            },
+            {
+              "line": 84,
+              "declaration": "def _ensure_connected(self) -> None:"
+            },
+            {
+              "line": 93,
+              "declaration": "def _start_process(self) -> None:"
+            },
+            {
+              "line": 104,
+              "declaration": "def _send_notification(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:"
+            },
+            {
+              "line": 117,
+              "declaration": "def _send_raw(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:"
+            },
+            {
+              "line": 139,
+              "declaration": "def _handshake(self) -> None:"
+            },
+            {
+              "line": 147,
+              "declaration": "def list_tools(self) -> List[Dict[str, Any]]:"
+            },
+            {
+              "line": 154,
+              "declaration": "def get_allowed_tools(self) -> List[Dict[str, Any]]:"
+            },
+            {
+              "line": 160,
+              "declaration": "def call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:"
+            },
+            {
+              "line": 170,
+              "declaration": "def close(self) -> None:"
+            },
+            {
+              "line": 189,
+              "declaration": "def __enter__(self):"
+            },
+            {
+              "line": 193,
+              "declaration": "def __exit__(self, exc_type, exc_val, exc_tb):"
+            },
+            {
+              "line": 196,
+              "declaration": "def __del__(self):"
+            },
+            {
+              "line": 200,
+              "declaration": "def from_config(cls, config: Any) -> \"Shadow6ControlAdapter\":"
+            },
+            {
+              "line": 218,
+              "declaration": "def attach_shadow6_control("
+            }
+          ]
+        },
+        {
+          "path": "ziokt/application_router.py",
+          "lines": 82,
+          "symbols": [
+            {
+              "line": 8,
+              "declaration": "class ApplicationRouter:"
+            },
+            {
+              "line": 9,
+              "declaration": "def __init__(self, path):"
+            },
+            {
+              "line": 20,
+              "declaration": "def call(self,target,method,params):"
+            },
+            {
+              "line": 50,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 55,
+              "declaration": "def __enter__(self):return self"
+            },
+            {
+              "line": 56,
+              "declaration": "def __exit__(self,*exc):self.close()"
+            },
+            {
+              "line": 59,
+              "declaration": "def serve(path,input_stream,output_stream):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/discovery_native.py",
+          "lines": 59,
+          "symbols": [
+            {
+              "line": 10,
+              "declaration": "def fetch_records(client, peer_id, digest, *, cancellation=None, timeout=30):"
+            },
+            {
+              "line": 42,
+              "declaration": "def native_sources(config):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "UFS/dCPM",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/ufsdcpm.py",
+          "lines": 136,
+          "symbols": [
+            {
+              "line": 18,
+              "declaration": "def _label(value):"
+            },
+            {
+              "line": 23,
+              "declaration": "def package_bytes(name,version,files,dependencies,private):"
+            },
+            {
+              "line": 41,
+              "declaration": "def read_package(data,authority):"
+            },
+            {
+              "line": 64,
+              "declaration": "class IntegratedStorage:"
+            },
+            {
+              "line": 65,
+              "declaration": "def __init__(self,vault):"
+            },
+            {
+              "line": 68,
+              "declaration": "def publish_package(self,name,version,files,dependencies,private,community=None):"
+            },
+            {
+              "line": 73,
+              "declaration": "def download_package(self,digest,authority):"
+            },
+            {
+              "line": 83,
+              "declaration": "def reference_package(store,name,version,files,dependencies,private):"
+            },
+            {
+              "line": 107,
+              "declaration": "def verify_reference_package(store,data,authority,*,verify_content=True):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/package_handoff.py",
+          "lines": 207,
+          "symbols": [
+            {
+              "line": 19,
+              "declaration": "def stage_native_package(blob, publisher, native, trust_file, artifacts, package_root, *, reference_store=None):"
+            },
+            {
+              "line": 97,
+              "declaration": "def verify_envelope(blob):"
+            },
+            {
+              "line": 102,
+              "declaration": "def main():"
+            },
+            {
+              "line": 132,
+              "declaration": "def stage_bridge_package(settings, bridge, digest, authority):"
+            },
+            {
+              "line": 144,
+              "declaration": "def update_native_signer(settings, signer=None, public_key=None, decision=None):"
+            },
+            {
+              "line": 170,
+              "declaration": "def load_native_module(settings):"
+            },
+            {
+              "line": 183,
+              "declaration": "def approve_native_admission(settings, receipt_digest, selector):"
+            },
+            {
+              "line": 202,
+              "declaration": "def write_private_json(path, value):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/chunkstore.py",
+          "lines": 270,
+          "symbols": [
+            {
+              "line": 24,
+              "declaration": "def digest(value):"
+            },
+            {
+              "line": 30,
+              "declaration": "class ChunkStore:"
+            },
+            {
+              "line": 31,
+              "declaration": "def __init__(self, vault, *, max_object=MAX_OBJECT_BYTES, disk_bytes=DISK_BYTES):"
+            },
+            {
+              "line": 56,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 59,
+              "declaration": "def _sync_data(self):"
+            },
+            {
+              "line": 65,
+              "declaration": "def _lock(self):"
+            },
+            {
+              "line": 68,
+              "declaration": "def _upload(self, upload, live=True):"
+            },
+            {
+              "line": 77,
+              "declaration": "def begin(self, upload, size, sha256, ttl):"
+            },
+            {
+              "line": 101,
+              "declaration": "def status(self, upload):"
+            },
+            {
+              "line": 111,
+              "declaration": "def put(self, upload, position, sha256, data):"
+            },
+            {
+              "line": 145,
+              "declaration": "def _read(self, tag):"
+            },
+            {
+              "line": 154,
+              "declaration": "def finish(self, upload):"
+            },
+            {
+              "line": 177,
+              "declaration": "def reference(self, obj):"
+            },
+            {
+              "line": 188,
+              "declaration": "def read(self, obj, position):"
+            },
+            {
+              "line": 197,
+              "declaration": "def stream(self, obj):"
+            },
+            {
+              "line": 209,
+              "declaration": "def abort(self, upload):"
+            },
+            {
+              "line": 218,
+              "declaration": "def release(self, obj, upload):"
+            },
+            {
+              "line": 233,
+              "declaration": "def pin(self, holder, objects):"
+            },
+            {
+              "line": 245,
+              "declaration": "def unpin(self, holder):"
+            },
+            {
+              "line": 257,
+              "declaration": "def gc(self):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "SafeFS",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/safefs.py",
+          "lines": 95,
+          "symbols": [
+            {
+              "line": 24,
+              "declaration": "def virtual_name(name):"
+            },
+            {
+              "line": 32,
+              "declaration": "def _private_dir(root):"
+            },
+            {
+              "line": 39,
+              "declaration": "class Vault:"
+            },
+            {
+              "line": 40,
+              "declaration": "def __init__(self,root,scope,key):"
+            },
+            {
+              "line": 45,
+              "declaration": "def _key(self,salt):return HKDF(hashes.SHA256(),32,salt,('Ziokt/SafeFS/key/v1/'+self.scope).encode()).derive(self.key)"
+            },
+            {
+              "line": 47,
+              "declaration": "def seal(self,name,data):"
+            },
+            {
+              "line": 58,
+              "declaration": "def open(self,blob):"
+            },
+            {
+              "line": 70,
+              "declaration": "def put(self,name,data):"
+            },
+            {
+              "line": 74,
+              "declaration": "def blob(self,digest):"
+            },
+            {
+              "line": 80,
+              "declaration": "def get(self,digest):return self.open(self.blob(digest))"
+            },
+            {
+              "line": 82,
+              "declaration": "def publish(self,community,signing_key,digest):"
+            },
+            {
+              "line": 90,
+              "declaration": "def sandbox_plan():"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/chunkstore.py",
+          "lines": 270,
+          "symbols": [
+            {
+              "line": 24,
+              "declaration": "def digest(value):"
+            },
+            {
+              "line": 30,
+              "declaration": "class ChunkStore:"
+            },
+            {
+              "line": 31,
+              "declaration": "def __init__(self, vault, *, max_object=MAX_OBJECT_BYTES, disk_bytes=DISK_BYTES):"
+            },
+            {
+              "line": 56,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 59,
+              "declaration": "def _sync_data(self):"
+            },
+            {
+              "line": 65,
+              "declaration": "def _lock(self):"
+            },
+            {
+              "line": 68,
+              "declaration": "def _upload(self, upload, live=True):"
+            },
+            {
+              "line": 77,
+              "declaration": "def begin(self, upload, size, sha256, ttl):"
+            },
+            {
+              "line": 101,
+              "declaration": "def status(self, upload):"
+            },
+            {
+              "line": 111,
+              "declaration": "def put(self, upload, position, sha256, data):"
+            },
+            {
+              "line": 145,
+              "declaration": "def _read(self, tag):"
+            },
+            {
+              "line": 154,
+              "declaration": "def finish(self, upload):"
+            },
+            {
+              "line": 177,
+              "declaration": "def reference(self, obj):"
+            },
+            {
+              "line": 188,
+              "declaration": "def read(self, obj, position):"
+            },
+            {
+              "line": 197,
+              "declaration": "def stream(self, obj):"
+            },
+            {
+              "line": 209,
+              "declaration": "def abort(self, upload):"
+            },
+            {
+              "line": 218,
+              "declaration": "def release(self, obj, upload):"
+            },
+            {
+              "line": 233,
+              "declaration": "def pin(self, holder, objects):"
+            },
+            {
+              "line": 245,
+              "declaration": "def unpin(self, holder):"
+            },
+            {
+              "line": 257,
+              "declaration": "def gc(self):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "ZDNS/NNS/TC16",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/naming.py",
+          "lines": 221,
+          "symbols": [
+            {
+              "line": 28,
+              "declaration": "def fail(message):"
+            },
+            {
+              "line": 32,
+              "declaration": "def split_name(name):"
+            },
+            {
+              "line": 45,
+              "declaration": "def public_records(value):"
+            },
+            {
+              "line": 90,
+              "declaration": "def descriptor(value):"
+            },
+            {
+              "line": 120,
+              "declaration": "class Names:"
+            },
+            {
+              "line": 128,
+              "declaration": "def __init__(self, sources, *, network_id=\"ziokt-main\", clock=time.time):"
+            },
+            {
+              "line": 137,
+              "declaration": "def resolve(self, name, *, component=None, public=True):"
+            },
+            {
+              "line": 206,
+              "declaration": "class NameNetworks:"
+            },
+            {
+              "line": 208,
+              "declaration": "def __init__(self, realms, *, default):"
+            },
+            {
+              "line": 214,
+              "declaration": "def view(self, realm=None):"
+            },
+            {
+              "line": 220,
+              "declaration": "def resolve(self, name, *, realm=None, component=None, public=True):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/naming_tc16.py",
+          "lines": 211,
+          "symbols": [
+            {
+              "line": 23,
+              "declaration": "def _derive_public(key_bytes):"
+            },
+            {
+              "line": 27,
+              "declaration": "def verify_tc16_service(entry, vault=None):"
+            },
+            {
+              "line": 74,
+              "declaration": "class TC16Names:"
+            },
+            {
+              "line": 86,
+              "declaration": "def __init__(self, bridge_or_path=None, *, network_id='ziokt-main', vault_root=None,"
+            },
+            {
+              "line": 120,
+              "declaration": "def register(self, envelope, authority_key=None):"
+            },
+            {
+              "line": 183,
+              "declaration": "def __call__(self, root):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/tc16.py",
+          "lines": 178,
+          "symbols": [
+            {
+              "line": 18,
+              "declaration": "def _register(value):"
+            },
+            {
+              "line": 23,
+              "declaration": "def assemble(source):"
+            },
+            {
+              "line": 42,
+              "declaration": "def number(value):"
+            },
+            {
+              "line": 60,
+              "declaration": "class TC16_CPU:"
+            },
+            {
+              "line": 63,
+              "declaration": "def __init__(self,memory_size=65536,debug=False,syscalls=None):"
+            },
+            {
+              "line": 66,
+              "declaration": "def reset(self):"
+            },
+            {
+              "line": 69,
+              "declaration": "def _address(self,address,size=1):"
+            },
+            {
+              "line": 72,
+              "declaration": "def load_program(self,program,start_address=0):"
+            },
+            {
+              "line": 75,
+              "declaration": "def fetch_byte(self):"
+            },
+            {
+              "line": 77,
+              "declaration": "def fetch_16bit_operand(self):return self.fetch_byte()|(self.fetch_byte()<<8)"
+            },
+            {
+              "line": 78,
+              "declaration": "def read_word(self,address):"
+            },
+            {
+              "line": 80,
+              "declaration": "def write_word(self,address,value):"
+            },
+            {
+              "line": 82,
+              "declaration": "def push(self,value):"
+            },
+            {
+              "line": 84,
+              "declaration": "def pop(self):"
+            },
+            {
+              "line": 87,
+              "declaration": "def _flags(self,result,carry=False,overflow=False,half=False):"
+            },
+            {
+              "line": 91,
+              "declaration": "def _bcd(self,a,b,subtract=False):"
+            },
+            {
+              "line": 99,
+              "declaration": "def step(self):"
+            },
+            {
+              "line": 166,
+              "declaration": "def interrupt(self,vector):"
+            },
+            {
+              "line": 169,
+              "declaration": "def run(self,start_address=0,max_cycles=10000):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/tcc.py",
+          "lines": 198,
+          "symbols": [
+            {
+              "line": 13,
+              "declaration": "class TCCCompiler:"
+            },
+            {
+              "line": 14,
+              "declaration": "def __init__(self,debug=False):self.debug=debug"
+            },
+            {
+              "line": 15,
+              "declaration": "def assemble(self,source):"
+            },
+            {
+              "line": 18,
+              "declaration": "def compile(self,source):"
+            },
+            {
+              "line": 56,
+              "declaration": "def fail(self,message):raise ProtocolError('INVALID_TCC',message)"
+            },
+            {
+              "line": 57,
+              "declaration": "def peek(self):return self.tokens[self.pos] if self.pos<len(self.tokens) else '<eof>'"
+            },
+            {
+              "line": 58,
+              "declaration": "def take(self):"
+            },
+            {
+              "line": 63,
+              "declaration": "def expect(self,value):"
+            },
+            {
+              "line": 65,
+              "declaration": "def name(self):"
+            },
+            {
+              "line": 69,
+              "declaration": "def statement(self):"
+            },
+            {
+              "line": 99,
+              "declaration": "def expression(self,minimum=0,depth=0):"
+            },
+            {
+              "line": 132,
+              "declaration": "def emit(self,*lines):self.lines.extend(lines)"
+            },
+            {
+              "line": 133,
+              "declaration": "def label(self,prefix):self.counter+=1;return 'tcc_'+prefix+'_'+str(self.counter)"
+            },
+            {
+              "line": 134,
+              "declaration": "def declare(self,name,typ):"
+            },
+            {
+              "line": 137,
+              "declaration": "def collect(self,node):"
+            },
+            {
+              "line": 144,
+              "declaration": "def address(self,name):"
+            },
+            {
+              "line": 147,
+              "declaration": "def store(self,name):"
+            },
+            {
+              "line": 151,
+              "declaration": "def boolean(self):"
+            },
+            {
+              "line": 153,
+              "declaration": "def generate(self,node):"
+            },
+            {
+              "line": 168,
+              "declaration": "def expr(self,node):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "Gateway/MCP",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "ziokt/gateway.py",
+          "lines": 383,
+          "symbols": [
+            {
+              "line": 37,
+              "declaration": "def read_token(path):"
+            },
+            {
+              "line": 46,
+              "declaration": "def verify_client(payload, network, now=None):"
+            },
+            {
+              "line": 62,
+              "declaration": "class Gateway:"
+            },
+            {
+              "line": 63,
+              "declaration": "def __init__(self, config, transports=False):"
+            },
+            {
+              "line": 97,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 102,
+              "declaration": "def verify_native_source(self):"
+            },
+            {
+              "line": 107,
+              "declaration": "def native_text(self,*args):"
+            },
+            {
+              "line": 113,
+              "declaration": "def native(self, *args):"
+            },
+            {
+              "line": 118,
+              "declaration": "def rate_identity(self, ip):"
+            },
+            {
+              "line": 122,
+              "declaration": "def flush(self):"
+            },
+            {
+              "line": 141,
+              "declaration": "def submit(self, payload, ip):"
+            },
+            {
+              "line": 178,
+              "declaration": "def handler(gateway):"
+            },
+            {
+              "line": 333,
+              "declaration": "def unique(pairs):"
+            },
+            {
+              "line": 341,
+              "declaration": "class Server(http.server.ThreadingHTTPServer):"
+            },
+            {
+              "line": 344,
+              "declaration": "def __init__(self,*args,**kwargs):"
+            },
+            {
+              "line": 347,
+              "declaration": "def process_request(self,request,address):"
+            },
+            {
+              "line": 351,
+              "declaration": "def process_request_thread(self,*args):"
+            },
+            {
+              "line": 356,
+              "declaration": "def serve(config):"
+            },
+            {
+              "line": 359,
+              "declaration": "def relay():"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/mcp.py",
+          "lines": 829,
+          "symbols": [
+            {
+              "line": 31,
+              "declaration": "def schema(properties=None,required=()):"
+            },
+            {
+              "line": 38,
+              "declaration": "def ensure_telegram_schema(db):"
+            },
+            {
+              "line": 71,
+              "declaration": "def prune_telegram_inbox(db, now_ms=None):"
+            },
+            {
+              "line": 81,
+              "declaration": "class McpError(Exception):"
+            },
+            {
+              "line": 82,
+              "declaration": "def __init__(self,code,message,status=400,data=None):self.code,self.message,self.status,self.data=code,message,status,data"
+            },
+            {
+              "line": 85,
+              "declaration": "class Service:"
+            },
+            {
+              "line": 86,
+              "declaration": "def __init__(self,config):"
+            },
+            {
+              "line": 223,
+              "declaration": "def attach_shadow6_control(self,config=None,adapter=None):"
+            },
+            {
+              "line": 227,
+              "declaration": "def close(self):"
+            },
+            {
+              "line": 231,
+              "declaration": "def add(self,name,description,input_schema,write,scope,route):"
+            },
+            {
+              "line": 242,
+              "declaration": "def token_digest(self,token):"
+            },
+            {
+              "line": 245,
+              "declaration": "def current(self):"
+            },
+            {
+              "line": 248,
+              "declaration": "def client(self,client_id):"
+            },
+            {
+              "line": 272,
+              "declaration": "def auth(self,header):"
+            },
+            {
+              "line": 288,
+              "declaration": "def issue(self,client,scopes):"
+            },
+            {
+              "line": 296,
+              "declaration": "def validate(self,args,spec):"
+            },
+            {
+              "line": 319,
+              "declaration": "def permitted(self,principal,tool):"
+            },
+            {
+              "line": 322,
+              "declaration": "def call(self,principal,name,args,key=None):"
+            },
+            {
+              "line": 357,
+              "declaration": "def execute(self,principal,name,args):"
+            },
+            {
+              "line": 562,
+              "declaration": "def guard(self,principal):"
+            },
+            {
+              "line": 568,
+              "declaration": "def rpc(self,request,principal,headers=None):"
+            },
+            {
+              "line": 574,
+              "declaration": "def _rpc(self,request,principal,headers=None):"
+            },
+            {
+              "line": 631,
+              "declaration": "def http_handler(service):"
+            },
+            {
+              "line": 788,
+              "declaration": "def register(sub):"
+            },
+            {
+              "line": 796,
+              "declaration": "def execute(args):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/gui_api.py",
+          "lines": 47,
+          "symbols": [
+            {
+              "line": 8,
+              "declaration": "class GuiError(ValueError):"
+            },
+            {
+              "line": 9,
+              "declaration": "def __init__(self, status, message):"
+            },
+            {
+              "line": 14,
+              "declaration": "def dispatch(gateway, authorization, payload=None):"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/companion_bridge.py",
+          "lines": 313,
+          "symbols": [
+            {
+              "line": 19,
+              "declaration": "class CompanionBridge:"
+            },
+            {
+              "line": 20,
+              "declaration": "def __init__(self,path):"
+            },
+            {
+              "line": 69,
+              "declaration": "def close(self):self.community.close()"
+            },
+            {
+              "line": 70,
+              "declaration": "def _tag(self,value):return hmac.new(self.appkey,('Ziokt/companion/'+self.app+'/v1/'+value).encode(),hashlib.sha256).hexdigest()"
+            },
+            {
+              "line": 71,
+              "declaration": "def _channel(self,a,b):return self._tag('/'.join(sorted((a,b))))"
+            },
+            {
+              "line": 73,
+              "declaration": "def _outbox_cipher(self):"
+            },
+            {
+              "line": 77,
+              "declaration": "def _queue_pending(self,method,params):"
+            },
+            {
+              "line": 89,
+              "declaration": "def drain_pending(self):"
+            },
+            {
+              "line": 123,
+              "declaration": "def call(self,method,params):"
+            },
+            {
+              "line": 295,
+              "declaration": "def main(argv=None):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "GUI/Hosting",
+      "status": "已实现但缺少本轮真实运行验证",
+      "sources": [
+        {
+          "path": "gui/src/app.js",
+          "lines": 3744,
+          "symbols": []
+        },
+        {
+          "path": "gui/src/core.js",
+          "lines": 630,
+          "symbols": []
+        },
+        {
+          "path": "ziokt/static_origin.py",
+          "lines": 59,
+          "symbols": [
+            {
+              "line": 19,
+              "declaration": "def static_server(config,domain,hostname,*,port=0):"
+            },
+            {
+              "line": 51,
+              "declaration": "def main():"
+            }
+          ]
+        },
+        {
+          "path": "ziokt/static_site.py",
+          "lines": 87,
+          "symbols": [
+            {
+              "line": 11,
+              "declaration": "def cs_path(path):"
+            },
+            {
+              "line": 19,
+              "declaration": "def cs_resolve(manifest,path):"
+            },
+            {
+              "line": 34,
+              "declaration": "def cs_content(digest,fetch,maximum=64*1024*1024):"
+            },
+            {
+              "line": 35,
+              "declaration": "def get(key):"
+            },
+            {
+              "line": 54,
+              "declaration": "class _CSInline(_CSParser):"
+            },
+            {
+              "line": 55,
+              "declaration": "def __init__(self):super().__init__(convert_charrefs=False);self.script=False;self.parts=[];self.hashes=set();self.handlers=set()"
+            },
+            {
+              "line": 56,
+              "declaration": "def handle_starttag(self,tag,attrs):"
+            },
+            {
+              "line": 60,
+              "declaration": "def handle_endtag(self,tag):"
+            },
+            {
+              "line": 64,
+              "declaration": "def handle_data(self,data):"
+            },
+            {
+              "line": 66,
+              "declaration": "def digest(self,value):return \"'sha256-\"+_cs_b64.b64encode(_cs_hash.sha256(value.replace('\\r\\n','\\n').replace('\\r','\\n').encode()).digest()).decode()+\"'\""
+            },
+            {
+              "line": 69,
+              "declaration": "def cs_headers(path,content,*,isolated=False,wasm=False):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "component": "Library",
+      "status": "尚未实现",
+      "note": "初始源码审计未发现完整实现；不以同名接口或旧测试报告作为运行证据。"
+    },
+    {
+      "component": "Netnews",
+      "status": "尚未实现",
+      "note": "初始源码审计未发现完整实现；不以同名接口或旧测试报告作为运行证据。"
+    },
+    {
+      "component": "NNTP",
+      "status": "尚未实现",
+      "note": "初始源码审计未发现完整实现；不以同名接口或旧测试报告作为运行证据。"
+    },
+    {
+      "component": "Mailbox 1/3/5 durable replication",
+      "status": "尚未实现",
+      "note": "初始源码审计未发现完整实现；不以同名接口或旧测试报告作为运行证据。"
+    },
+    {
+      "component": "TC16 Unified ISA",
+      "status": "尚未实现",
+      "note": "初始源码审计未发现完整实现；不以同名接口或旧测试报告作为运行证据。"
+    }
+  ]
+}

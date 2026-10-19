@@ -31,12 +31,23 @@ def verify_tc16_service(entry, vault=None):
     if not isinstance(entry, dict):
         raise ProtocolError('INVALID_SERVICE', 'dictionary service description required')
     
+    def reject_nested(value,depth=0):
+        if depth>8:raise ProtocolError('INVALID_SERVICE','descriptor depth exceeded')
+        if isinstance(value,dict):
+            if FORBIDDEN_RUNTIME_KEYS.intersection(value):raise ProtocolError('PRIVATE_STATE_EXPOSED','nested private runtime state cannot be published')
+            for item in value.values():reject_nested(item,depth+1)
+        elif isinstance(value,list):
+            if len(value)>256:raise ProtocolError('INVALID_SERVICE','descriptor list budget')
+            for item in value:reject_nested(item,depth+1)
+    reject_nested(entry)
     # Strictly reject any private execution state
     exposed = FORBIDDEN_RUNTIME_KEYS.intersection(entry.keys())
     if exposed:
         raise ProtocolError('PRIVATE_STATE_EXPOSED',
                             f'private TC-16 runtime state ({", ".join(sorted(exposed))}) must not be published in public discovery')
     
+    from .tc16_spec import contract
+    contract(entry)
     kind = entry.get('kind')
     if kind == 'tc16.vm_instance':
         if (not isinstance(entry.get('program_hash'), str) or
@@ -51,6 +62,7 @@ def verify_tc16_service(entry, vault=None):
                 not isinstance(entry.get('programs'), list) or len(entry['programs']) > 256):
             raise ProtocolError('INVALID_SERVICE', 'invalid TC-16 program repository descriptor')
         for prog in entry['programs']:
+            if isinstance(prog,dict):contract(prog)
             if (not isinstance(prog, dict) or not isinstance(prog.get('name'), str) or
                     not isinstance(prog.get('program_hash'), str) or
                     not re.fullmatch(r'sha256:[0-9a-f]{64}', prog['program_hash']) or

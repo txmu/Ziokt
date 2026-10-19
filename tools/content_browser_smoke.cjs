@@ -1,0 +1,24 @@
+// Real browser -> real Python application service -> real SQLite and encrypted chunks.
+const {chromium}=require('../ci/browser/node_modules/playwright');
+const {spawn}=require('node:child_process');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const readline=require('node:readline');
+(async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'ziokt-content-browser-')),token=require('node:crypto').randomBytes(32).toString('hex');
+ const config=path.join(root,'config.json');fs.writeFileSync(config,JSON.stringify({root:path.join(root,'state'),port:0,tokens:[{account:'alice',token,scopes:['content:read','content:write','library:read','library:write','netnews:read','netnews:write']}]}),{mode:0o600});
+ const proc=spawn(process.env.PYTHON||'python3',['-m','ziokt.content_server','--config',config],{stdio:['ignore','pipe','inherit']});
+ let browser;
+ try{
+  const info=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('startup timeout')),10000);const lines=readline.createInterface({input:proc.stdout});lines.once('line',line=>{clearTimeout(timer);resolve(JSON.parse(line));});proc.once('exit',()=>reject(Error('application exited')));});
+  const origin='http://127.0.0.1:'+info.http[1];browser=await chromium.launch({headless:true});const page=await browser.newPage();
+  page.on('dialog',dialog=>dialog.dismiss());await page.goto(origin);await page.locator('#credential').fill(token);await page.locator('#connect button').click();await page.getByText('已连接应用服务',{exact:true}).waitFor();
+  await page.locator('#library details summary').click();await page.locator('input[name=file]').setInputFiles({name:'sample.txt',mimeType:'text/plain',buffer:Buffer.from('Original CC0 reader test content')});
+  for(const [name,value]of Object.entries({title:'Browser book',author:'Original author',work:'browser-work',edition:'original',license:'CC0-1.0'}))await page.locator(`#publish input[name=${name}]`).fill(value);
+  await page.locator('#publish button').click();await page.getByText('Browser book',{exact:true}).waitFor();await page.getByRole('button',{name:'阅读 / 下载'}).click();await page.locator('#reader-text').getByText('Original CC0 reader test content',{exact:true}).waitFor();await page.locator('#bookmark').click();await page.getByText('阅读位置已保存',{exact:true}).waitFor();
+  await page.locator('#news-tab').click();await page.locator('#new-group').locator('..').locator('summary').click();await page.locator('#new-group input[name=name]').fill('books.open');await page.locator('#new-group input[name=description]').fill('Open books');await page.locator('#new-group button').click();await page.getByRole('button',{name:'books.open',exact:true}).click();
+  await page.locator('#post input[name=subject]').fill('Browser article');await page.locator('#post textarea').fill('Article body');await page.locator('#post button').click();await page.getByRole('button',{name:'1 · Browser article'}).click();await page.locator('#article-body').getByText('Article body',{exact:true}).waitFor();await page.locator('#reply').click();await page.locator('#post textarea').fill('A real reply');await page.locator('#post button').click();await page.getByRole('button',{name:'2 · Re: Browser article'}).waitFor();
+  await page.setViewportSize({width:390,height:844});await page.locator('#subscribe').click();await page.getByText('订阅偏好已保存；此设置不会自动下载附件',{exact:true}).waitFor();
+  await page.reload();await page.locator('#credential').fill(token);await page.locator('#connect button').click();await page.getByText('Browser book',{exact:true}).waitFor();
+  console.log(JSON.stringify({browser:'chromium',upload:true,read:true,bookmark:true,post:true,reply:true,mobile:true,refresh_persistence:true,status:'passed'}));
+ }finally{if(browser)await browser.close();proc.kill('SIGTERM');await new Promise(resolve=>proc.once('exit',resolve));fs.rmSync(root,{recursive:true,force:true});}
+})().catch(error=>{console.error(error.message);process.exitCode=1;});

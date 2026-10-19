@@ -1,6 +1,8 @@
 //! Explicit bounded local JSONL bridge; the operator supplies private keys and approved peers.
 #[path = "support/forum_gateway.rs"]
 mod forum_gateway;
+#[path = "support/mailbox_gateway.rs"]
+mod mailbox_gateway;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use etp_core::{
     crypto::noise::KeyPair,
@@ -27,6 +29,8 @@ struct Config {
     relay: bool,
     #[serde(default)]
     forum: Option<forum_gateway::ForumConfig>,
+    #[serde(default)]
+    mailbox: Option<mailbox_gateway::MailboxConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,7 +119,33 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?;
     #[cfg(feature = "persistence")]
     let forum_peers = config.trusted_peers.clone();
+    #[cfg(feature = "persistence")]
+    let mut mailbox = settings
+        .mailbox
+        .take()
+        .map(|settings| mailbox_gateway::MailboxGateway::prepare(settings, &config.trusted_peers))
+        .transpose()?;
+    #[cfg(feature = "persistence")]
+    if mailbox.is_some() {
+        use etp_core::plugin::{flavors::composite::CompositeFlavor, StandardFlavor};
+        let composite = Arc::new(CompositeFlavor::new(Arc::new(StandardFlavor)));
+        if let Some(forum) = &forum {
+            composite.bind_stream(3, forum.flavor());
+        }
+        if let Some(mail) = &mailbox {
+            composite.bind_stream(4, mail.flavor.clone());
+            plugins.register_flavor(mail.flavor.clone());
+        }
+        plugins.register_flavor(composite);
+        config.default_flavor = "etp.flavor.composite.v1".into();
+        config.multiplexing_mode =
+            etp_core::transport::reliability::MultiplexingMode::ParallelMulti;
+    }
     let (engine, handle, mut received) = EtpEngine::new(config, plugins).await?;
+    #[cfg(feature = "persistence")]
+    if let Some(mail) = &mut mailbox {
+        mail.start(handle.clone(), forum_peers.clone());
+    }
     #[cfg(feature = "persistence")]
     if let Some(forum) = &mut forum {
         forum.start(handle.clone(), forum_peers);
@@ -148,6 +178,12 @@ async fn main() -> anyhow::Result<()> {
    },
    "etp.receive"=>{anyhow::ensure!(request.params==json!({}),"exact receive request");match tokio::time::timeout(std::time::Duration::from_secs(5),received.recv()).await {Ok(Some((_address,bytes)))=>{anyhow::ensure!(bytes.len()<=65536,"receive budget");Ok(json!({"ciphertext":bytes.chunks(3072).map(|chunk|STANDARD.encode(chunk)).collect::<Vec<_>>()}))},_=>Ok(json!({"ciphertext":null}))}},
    "etp.shutdown"=>{handle.shutdown().await?;Ok(json!({"stopped":true}))},
+   method if method.starts_with("etp.mailbox.") => {
+    #[cfg(feature="persistence")]
+    {if let Some(mail)=&mailbox{mail.call(method,&request.params)}else{Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}}
+    #[cfg(not(feature="persistence"))]
+    {Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}
+   },
    method if method.starts_with("etp.forum.") => {
     #[cfg(feature = "persistence")]
     { if let Some(forum) = &forum { forum.call(method, &request.params).await } else { Err(anyhow::anyhow!("METHOD_UNSUPPORTED")) } }

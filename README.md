@@ -80,3 +80,13 @@ Ziokt 仅启动固定原生入口，验证配置中固定的源文件摘要，�
 ## Unified companions / 十部件集成
 
 The new [ecosystem guide](docs/ECOSYSTEM.md) covers private ZKN/ZKC, six-core signed Extensions, joint native node profiles, SafeFS, typed Ano/ZDA, UFS/DCPM, TC-16/TCC, ETP and Android PWAs. [Verification record](docs/verification-current.json) separates checked behavior from deployment prerequisites. Use `python3 -m ziokt companion catalog` for the source inventory.
+
+
+## Content Fabric、Library 与 Netnews（可选）
+
+新增独立持久化内容应用、主 GUI 导航、MCP 工具、授权 Community Forum API、
+NNTP 读取/投稿入口，以及 TC-16 显式 ISA/ABI 包装和可选 Mailbox 复制实现。
+启动、权限、迁移、协议限制及实际验证边界见
+[工程入口](docs/content-fabric/README.md)；全量任务进度见
+[交付清单](docs/content-fabric/WORK_ITEMS.md)。未验证的原生集成和未完成业务桥接
+不作为已经交付的能力。
