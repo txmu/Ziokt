@@ -98,6 +98,8 @@ def servers(resolver,*,host='127.0.0.1',port=5353,doh_port=0,dot_port=None,doq_p
     class DoTStream(socketserver.BaseRequestHandler):
         def handle(self):
             try:
+                # Bound ClientHello before SSL takes ownership of the socket.
+                self.request.settimeout(5)
                 ssl_sock=self.server.ssl_context.wrap_socket(self.request,server_side=True)
             except (Exception,OSError):return
             ssl_sock.settimeout(5)
