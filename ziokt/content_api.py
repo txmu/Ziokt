@@ -11,6 +11,8 @@ OPERATIONS={
  'optimization.configure_defaults':({'settings':dict,'revision':int,'application':str,'node':bool},True),
  'optimization.evaluate':({'joint':list,'decoder':list},False),
  'library.download.control':({'job':str,'paused':bool},True),
+ 'content.references':({'id':str},False),
+ 'netnews.attachment.download':({'article':str,'id':str,'sources':list,'max_chunks':int},True),
  'content.objects.list':({'limit':int,'offset':int},False),
  'content.upload.abort':({'upload':str},True),
  'content.object.release':({'id':str},True),
@@ -40,14 +42,14 @@ OPERATIONS={
  'library.reading.save':({'id':str,'state':dict},True),
  'netnews.groups':({},False),
  'netnews.group.create':({'name':str,'description':str,'visibility':str,'posting':str,'retention':int},True),
- 'netnews.post':({'groups':list,'subject':str,'body':str,'message_id':str,'references':list},True),
+ 'netnews.post':({'groups':list,'subject':str,'body':str,'message_id':str,'references':list,'attachments':list},True),
  'netnews.articles':({'group':str,'low':int,'limit':int},False),
  'netnews.search':({'query':str,'limit':int,'offset':int,'filters':dict},False),
  'netnews.get':({'id':str},False),
  'content.subscription.get':({'kind':str,'target':str},False),
  'content.subscription.save':({'kind':str,'target':str,'settings':dict},True),
 }
-OPTIONAL={'application','decoder','node','name','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
+OPTIONAL={'attachments','application','decoder','node','name','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
 
 
 def invoke(fabric, owner, operation, args):
@@ -73,6 +75,10 @@ def invoke(fabric, owner, operation, args):
         from .optimization import finite_metrics
         return finite_metrics(**args)
     if operation=='library.download.control':return fabric.download_control(owner,**args)
+    if operation=='content.references':return fabric.references(owner,args['id'])
+    if operation=='netnews.attachment.download':
+        from .content_server import download_attachment
+        return download_attachment(fabric,owner,args['article'],args['id'],args['sources'],fabric.remote_peers,max_chunks=args.get('max_chunks',128))
     if operation=='content.objects.list':return fabric.objects(owner,**args)
     if operation=='content.upload.abort':return fabric.abort_upload(owner,args['upload'])
     if operation=='content.object.release':return fabric.release_object(owner,args['id'])
@@ -144,6 +150,8 @@ def attach(service, config):
             if field['type']=='string':field['maxLength']=100000
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
+        if operation=='netnews.post':
+            props['attachments']={'type':'array','maxItems':8,'items':{'type':'object','properties':{'id':{'type':'string','maxLength':68},'name':{'type':'string','maxLength':255}},'required':['id','name'],'additionalProperties':False}}
         if operation=='optimization.evaluate':
             props['joint']={'type':'array','minItems':1,'maxItems':4096,'items':{'type':'object','maxProperties':4}}
             props['decoder']={'type':'array','maxItems':4096,'items':{'type':'object','maxProperties':3}}

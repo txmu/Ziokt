@@ -205,5 +205,11 @@
   },
   "upload_book": {
     "message": "Upload book (up to 16 MiB)"
+  },
+  "attachments": {
+    "message": "Attachments (up to 8; 16 MiB each)"
+  },
+  "attachment_limit": {
+    "message": "Up to 8 attachments"
   }
 }

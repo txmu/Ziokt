@@ -205,5 +205,11 @@
   },
   "upload_book": {
     "message": "上传图书（上限 16 MiB）"
+  },
+  "attachments": {
+    "message": "附件（最多 8 个，每个上限 16 MiB）"
+  },
+  "attachment_limit": {
+    "message": "最多 8 个附件"
   }
 }

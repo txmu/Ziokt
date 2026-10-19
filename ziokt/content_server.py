@@ -45,7 +45,9 @@ def remote(peer, payload):
     if url.scheme!='https' and url.hostname not in {'127.0.0.1','::1','localhost'}:raise ValueError('TLS required')
     context=ssl.create_default_context(cafile=peer.get('ca'))
     opener=build_opener(NoRedirect(),HTTPSHandler(context=context))
-    request=Request(endpoint.rstrip('/')+'/api',data=encoded(payload),headers={'Authorization':'Bearer '+peer['token'],'Content-Type':'application/json'},method='POST')
+    headers={'Content-Type':'application/json'}
+    if peer.get('token'):headers['Authorization']='Bearer '+peer['token']
+    request=Request(endpoint.rstrip('/')+'/api',data=encoded(payload),headers=headers,method='POST')
     with opener.open(request,timeout=15) as response:
         raw=response.read(1024*1024+1)
         if len(raw)>1024*1024:raise ValueError('remote response budget')
@@ -68,21 +70,27 @@ def sync(fabric, alias, peers):
 
 
 def download(fabric, owner, book, sources, peers, *, max_chunks=128):
-    """Persistent sparse checkpoint in ChunkStore; rotate explicit pinned sources.
+    with fabric.lock:record=fabric._get(owner,book,'book')
+    return _download_object(fabric,owner,record['file'],record['file_id'],sources,peers,max_chunks=max_chunks)
 
-    Source availability is proved by bytes, never merely a replica claim.
-    Each call performs bounded work; repeated calls resume from durable chunks.
-    """
+
+def download_attachment(fabric,owner,article,oid,sources,peers,*,max_chunks=128):
+    with fabric.lock:record=fabric._get(owner,article,'article')
+    attachment=next((entry for entry in record.get('attachments',[]) if entry['id']==oid),None)
+    if attachment is None:raise PermissionError('article attachment unavailable')
+    return _download_object(fabric,owner,attachment,oid,sources,peers,max_chunks=max_chunks,application='netnews')
+
+
+def _download_object(fabric,owner,meta,oid,sources,peers,*,max_chunks=128,application='library'):
+    """Bounded sparse download, pinned sources, Merkle proofs and final digest."""
     if not isinstance(sources,list) or not 1<=len(sources)<=8 or any(s not in peers for s in sources):raise ValueError('configured sources required')
     if type(max_chunks) is not int or not 1<=max_chunks<=1024:raise ValueError('download budget')
-    with fabric.lock:record=fabric._get(owner,book,'book')
-    meta=record['file'];oid=record['file_id']
     job=hashlib.sha256((owner+'\0'+oid).encode()).hexdigest()
     upload='download-'+job[:48]
     fabric.begin(owner,upload,meta['size'],meta['digest'],meta['mime'])
     with fabric.transaction():
         fabric.db.execute('INSERT OR IGNORE INTO downloads(id,owner,remote,upload,metadata,state) VALUES(?,?,?,?,?,?)',(job,owner,oid,upload,encoded(meta),'running'))
-    profile=fabric.optimizations.get(owner,'library')['effective']
+    profile=fabric.optimizations.get(owner,application)['effective']
     with fabric.lock:
         state=fabric.db.execute('SELECT state FROM downloads WHERE id=? AND owner=?',(job,owner)).fetchone()
         if state and state[0]=='paused':return {'job':job,'state':'paused'}

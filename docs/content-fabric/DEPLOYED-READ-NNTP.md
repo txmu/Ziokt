@@ -25,3 +25,7 @@ sudo journalctl -u ziokt-content -u ziokt-nntp-public -u ziokt-nntps-public -u z
 ```
 
 The private operator application credential is in `/home/admin/.local/share/ziokt-content/application.token` (mode 0600). Do not copy it into public plugin packages, logs, shell history, or public deployment configuration. `deploy/content-fabric/public-read.example.json` contains a placeholder only. Live storage is capped at 512 MiB because this host has limited free disk and RAM; monitor before adding public content.
+
+## Committed release activation
+
+The content service now starts from `/home/admin/.local/share/ziokt-content/current`, a managed symlink to a fixed committed source release. The service may write only its `state` directory. `tools/stage_content_release.py` streams tracked `ziokt` and `spec` files from a Git commit, hashes every file and verifies the release before an optional atomic symlink switch. It excludes live credentials and databases. Restart the Content/NNTP services after activation; a pointer switch alone does not reload running Python code. Preserve a stopped-writer private checkpoint before schema changes. Source rollback and database rollback are distinct operations; use the matching checkpoint when rolling back an incompatible schema.

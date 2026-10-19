@@ -141,6 +141,13 @@ class Fabric:
         from .optimization import Profiles
         self.optimizations=Profiles(self.db,self.lock)
         with self.db:self.db.execute('INSERT OR IGNORE INTO migrations VALUES(3,unixepoch())')
+        if not self.db.execute('SELECT 1 FROM migrations WHERE version=4').fetchone():
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                self.db.execute('CREATE TABLE IF NOT EXISTS content_references(record TEXT NOT NULL,object TEXT NOT NULL,role TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(record,object,role),FOREIGN KEY(record) REFERENCES records(id) ON DELETE CASCADE)')
+                self.db.execute('CREATE INDEX IF NOT EXISTS reference_object ON content_references(object,record)')
+                for row in self.db.execute('SELECT id,kind,body FROM records').fetchall():self._index_references(row['id'],row['kind'],json.loads(row['body']))
+                self.db.execute('INSERT INTO migrations VALUES(4,unixepoch())')
         os.chmod(path,0o600)
 
     def close(self):
@@ -198,9 +205,37 @@ class Fabric:
         envelope=sign(payload,self.key,EVENT_DOMAIN)
         event=hashlib.sha256(encoded(envelope)).hexdigest()
         self.db.execute('INSERT OR REPLACE INTO records VALUES(?,?,?,?,?,?,?,?,?)',(record,kind,owner,visibility,encoded(body),self.public,event,int(deleted),expires))
+        self._index_references(record,kind,body)
         if visibility=='public':self.db.execute('INSERT OR IGNORE INTO events(id,envelope) VALUES(?,?)',(event,encoded(envelope)))
         self._audit(owner,'withdraw' if deleted else kind+'.write',record)
         return {'id':record,'event':event,'origin':self.public,**body}
+
+    def _index_references(self,record,kind,body):
+        self.db.execute('DELETE FROM content_references WHERE record=?',(record,))
+        if kind=='book' and isinstance(body.get('file_id'),str):
+            self.db.execute('INSERT INTO content_references VALUES(?,?,?,?)',(record,body['file_id'],'book',''))
+        attachments=body.get('attachments',[])
+        if not isinstance(attachments,list) or len(attachments)>8:raise ValueError('attachment count')
+        seen=set()
+        for item in attachments:
+            if not isinstance(item,dict) or set(item)!={'id','name','size','digest','mime','merkle_root','v'}:raise ValueError('attachment descriptor')
+            if item['v']!=1 or type(item['size']) is not int or not 0<=item['size']<=self.max_object:raise ValueError('attachment size/version')
+            if not isinstance(item['id'],str) or not re.fullmatch(r'cf1-[a-f0-9]{64}',item['id']) or item['id'] in seen:raise ValueError('attachment ID')
+            seen.add(item['id']);self._attachment_name(item['name']);header(item['mime'],128)
+            if not re.fullmatch(r'sha256:[a-f0-9]{64}',item['digest']) or not re.fullmatch(r'[a-f0-9]{64}',item['merkle_root']):raise ValueError('attachment digest')
+            self.db.execute('INSERT INTO content_references VALUES(?,?,?,?)',(record,item['id'],'attachment',item['name']))
+
+    @staticmethod
+    def _attachment_name(value):
+        header(value,255)
+        if value in {'.','..'} or '/' in value or chr(92) in value or any(ord(c)<32 or ord(c)==127 for c in value):raise ValueError('attachment filename')
+        return value
+
+    def references(self,owner,oid):
+        with self.lock:
+            self.object_info(owner,oid)
+            rows=self.db.execute("SELECT r.id,r.kind,r.origin,r.visibility,c.role,c.name FROM content_references c JOIN records r ON r.id=c.record WHERE c.object=? AND r.deleted=0 AND (r.expires=0 OR r.expires>?) AND (r.visibility='public' OR r.owner=?) ORDER BY r.id LIMIT 100",(oid,int(time.time()),owner)).fetchall()
+            return {'object':oid,'items':[dict(row) for row in rows]}
 
     def begin(self, owner, upload, size, digest, mime='application/octet-stream', name=None):
         ident(owner);ident(upload);header(mime,128)
@@ -254,9 +289,7 @@ class Fabric:
         row=self.db.execute('SELECT * FROM objects WHERE id=?',(alias[0] if alias else oid,)).fetchone()
         if row is None:raise PermissionError('object unavailable')
         if row['owner']!=owner:
-            permitted=False
-            for rec in self.db.execute("SELECT body FROM records WHERE kind='book' AND deleted=0 AND visibility='public' AND (expires=0 OR expires>?)",(int(time.time()),)):
-                if json.loads(rec['body']).get('file_id') in {oid,row['id']}:permitted=True;break
+            permitted=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE ((r.origin=? AND r.owner=? AND c.object=?) OR (? AND c.object=?)) AND r.deleted=0 AND r.visibility='public' AND (r.expires=0 OR r.expires>?) LIMIT 1",(self.public,row['owner'],row['id'],bool(alias),oid,int(time.time()))).fetchone()
             if not permitted:raise PermissionError('object unavailable')
         return dict(row)
 
@@ -370,7 +403,7 @@ class Fabric:
     def groups(self, owner):
         with self.lock:return {'items':[dict(row) for row in self.db.execute("SELECT * FROM groups WHERE visibility='public' OR owner=? ORDER BY name",(owner,))]}
 
-    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None):
+    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None, attachments=None):
         if not isinstance(groups,list) or not 1<=len(groups)<=8 or len(set(groups))!=len(groups):raise ValueError('groups')
         header(subject);text(body,8192,empty=True)
         if author is not None and author!=owner:raise PermissionError('From must match authenticated identity')
@@ -387,7 +420,16 @@ class Fabric:
                 policies.append(policy)
             visibility='private' if any(p['visibility']=='private' for p in policies) else 'public'
             if len({p['visibility'] for p in policies})!=1:raise ValueError('cannot crosspost between privacy domains')
+            published_attachments=[]
+            if not isinstance(attachments if attachments is not None else [],list) or len(attachments or [])>8:raise ValueError('attachment count')
+            for entry in attachments or []:
+                if not isinstance(entry,dict) or set(entry)!={'id','name'}:raise ValueError('attachment input')
+                name=self._attachment_name(entry['name']);obj=self.object_info(owner,entry['id'])
+                if obj['owner']!=owner:raise PermissionError('only owned objects may be attached')
+                metadata=json.loads(obj['metadata'])
+                published_attachments.append({'v':1,'id':entry['id'],'name':name,**{key:metadata[key] for key in ('size','digest','mime','merkle_root')}})
             value={'message_id':mid,'newsgroups':groups,'subject':subject,'body':body,'from':owner,'date':formatdate(usegmt=True),'references':references,'path':[self.public],'content_type':'text/plain; charset=utf-8'}
+            if published_attachments:value['attachments']=published_attachments
             if native_headers is not None:
                 if not isinstance(native_headers,dict) or set(native_headers)-{'From','Date','Path','Organization'}:raise ValueError('native headers')
                 for field,content in native_headers.items():header(content)
@@ -399,7 +441,7 @@ class Fabric:
             existing=self.db.execute('SELECT * FROM records WHERE id=?',(mid,)).fetchone()
             if existing:
                 prior=json.loads(existing['body'])
-                if existing['deleted'] or existing['owner']!=owner or any(prior.get(k)!=value[k] for k in ('newsgroups','subject','body','from','references')):raise ValueError('Message-ID conflict')
+                if existing['deleted'] or existing['owner']!=owner or prior.get('attachments',[])!=value.get('attachments',[]) or any(prior.get(k)!=value[k] for k in ('newsgroups','subject','body','from','references')):raise ValueError('Message-ID conflict')
                 return {'id':mid,**prior,'duplicate':True}
             expiry=int(time.time())+min(p['retention'] for p in policies)
             result=self._event(owner,'article',mid,value,visibility,expires=expiry)
@@ -469,6 +511,7 @@ class Fabric:
                         if not policy or policy['visibility']!='public':raise PermissionError('local public group subscription required')
                     self._number(value['record'],names)
                 self.db.execute('INSERT OR REPLACE INTO records VALUES(?,?,?,?,?,?,?,?,?)',(value['record'],value['kind'],value['owner'],'public',encoded(value['body']),origin,eid,int(value['deleted']),value['expires']))
+                self._index_references(value['record'],value['kind'],value['body'])
                 self.db.execute('INSERT INTO events(id,envelope) VALUES(?,?)',(eid,encoded(envelope)))
                 accepted+=1
             return {'accepted':accepted,'durable':True}
@@ -512,12 +555,32 @@ class Fabric:
             self.db.execute('DELETE FROM uploads WHERE owner=? AND id=?',(owner,upload));self._audit(owner,'upload.abort',upload)
             return result
 
+    def discard_staged_upload(self,owner,upload):
+        """Drop only a failed MIME staging lease, preserving shared application data."""
+        with self.transaction():
+            if not self.db.execute('SELECT 1 FROM uploads WHERE id=? AND owner=?',(upload,owner)).fetchone():return {'discarded':False}
+            with self.store(owner) as store:
+                status=store.status(upload)
+                if status['state']=='complete':
+                    reference=status['object']
+                    active=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record JOIN objects o ON o.id=c.object WHERE o.owner=? AND o.reference=? AND r.deleted=0 AND (r.expires=0 OR r.expires>?) LIMIT 1",(owner,reference,int(time.time()))).fetchone()
+                    other=store.db.execute("SELECT 1 FROM uploads WHERE object=? AND state='complete' AND id!=? UNION SELECT 1 FROM pins WHERE object=? LIMIT 1",(reference,upload,reference)).fetchone()
+                    if active and not other:return {'discarded':False,'retained_by_application':True}
+                    store.release(reference,upload)
+                    if not store.db.execute('SELECT 1 FROM objects WHERE id=?',(reference,)).fetchone():
+                        self.db.execute('DELETE FROM locations WHERE local IN (SELECT id FROM objects WHERE owner=? AND reference=?)',(owner,reference))
+                        self.db.execute('DELETE FROM objects WHERE owner=? AND reference=?',(owner,reference))
+                else:store.abort(upload)
+                store.gc()
+            self.db.execute('DELETE FROM uploads WHERE id=? AND owner=?',(upload,owner));self._audit(owner,'upload.discard-staged',upload)
+            return {'discarded':True}
+
     def release_object(self,owner,oid):
         with self.transaction():
             row=self.db.execute('SELECT * FROM objects WHERE id=? AND owner=?',(oid,owner)).fetchone()
             if row is None:raise PermissionError('owned object required')
-            for record in self.db.execute("SELECT body FROM records WHERE kind='book' AND owner=? AND origin=? AND deleted=0 AND (expires=0 OR expires>?)",(owner,self.public,int(time.time()))):
-                if json.loads(record['body']).get('file_id')==oid:raise ValueError('withdraw local book references before releasing object')
+            retained=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE c.object=? AND r.owner=? AND r.origin=? AND r.deleted=0 AND (r.expires=0 OR r.expires>?) LIMIT 1",(oid,owner,self.public,int(time.time()))).fetchone()
+            if retained:raise ValueError('withdraw local application references before releasing object')
             with self.store(owner) as store:
                 if store.db.execute('SELECT 1 FROM pins WHERE object=?',(row['reference'],)).fetchone():raise ValueError('other application retains object')
                 leases=[entry[0] for entry in store.db.execute("SELECT id FROM uploads WHERE object=? AND state='complete'",(row['reference'],))]

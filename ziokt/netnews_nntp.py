@@ -6,6 +6,8 @@ upstream is never reported as an independently verified publisher signature. AUT
 except for explicit loopback development. Anonymous access is public read only.
 """
 from datetime import datetime, timezone
+import hashlib
+from .netnews_mime import content_parts,wire_with_attachments,stream_article
 from email.parser import BytesParser
 from email import policy
 from email.header import Header
@@ -38,7 +40,9 @@ def article_headers(article):
     return [('From',article['from']),('Date',article['date']),('Newsgroups',','.join(article['newsgroups'])),('Subject',str(Header(article['subject'],'utf-8'))),('Message-ID',article['message_id']),('References',' '.join(article.get('references',[]))),('Path','!'.join(article.get('path',[]))+'!not-for-mail'),('MIME-Version','1.0'),('Content-Type','text/plain; charset=utf-8'),('Content-Transfer-Encoding','8bit')]
 
 
-def wire_article(article):
+def wire_article(article,fabric=None,owner=None,base_url=None,inline_limit=32768):
+    attached=wire_with_attachments(article,article_headers(article),fabric,owner,base_url,inline_limit)
+    if attached is not None:return attached
     return '\r\n'.join(k+': '+v for k,v in article_headers(article))+'\r\n\r\n'+article['body'].replace('\r\n','\n').replace('\n','\r\n')
 
 
@@ -50,10 +54,12 @@ def server(fabric,config,tokens):
         def line(self,value):self.wfile.write(value.encode('utf-8')+b'\r\n');self.wfile.flush()
         def block(self,code,lines):
             self.line(code)
+            pending=bytearray()
             for line in lines:
                 if line.startswith('.'):line='.'+line
-                self.line(line)
-            self.line('.')
+                pending.extend(line.encode('utf-8')+b'\r\n')
+                if len(pending)>=65536:self.wfile.write(pending);pending.clear()
+            pending.extend(b'.\r\n');self.wfile.write(pending)
         def rows(self,low=1,limit=1000):return fabric.articles(self.owner,self.group,low,min(limit,fabric.optimizations.get(self.owner,'netnews')['effective']['nntp_max_range']))['items']
         def selected(self):
             if not self.group:self.line('412 No newsgroup selected');return False
@@ -88,7 +94,7 @@ def server(fabric,config,tokens):
                 data.extend(raw)
                 if len(data)>49152:raise ValueError('article limit')
             message=BytesParser(policy=policy.default).parsebytes(bytes(data))
-            if message.defects or message.is_multipart() or message.get_content_type()!='text/plain':raise ValueError('only bounded plain text posting supported')
+            if message.defects:raise ValueError('MIME defects')
             for key in ('From','Subject','Newsgroups','Message-ID','Date','References'):
                 if len(message.get_all(key,[]))>1:raise ValueError('duplicate header')
             if not all(message.get(k) for k in ('From','Subject','Newsgroups')):raise ValueError('missing headers')
@@ -96,14 +102,44 @@ def server(fabric,config,tokens):
             mid=str(message['Message-ID']) if message.get('Message-ID') else None
             if expected_id is not None and mid!=expected_id:raise ValueError('feed Message-ID mismatch')
             names=str(message['Newsgroups']).split(',')
-            body=message.get_content()
+            body,parts=content_parts(message)
+            from .content_fabric import text,header,GROUP
+            text(body,8192,empty=True);header(str(message['Subject']))
+            references=str(message.get('References','')).split()
+            if mid is not None and not MESSAGE.fullmatch(mid):raise ValueError('Message-ID')
+            if len(references)>32 or any(not MESSAGE.fullmatch(ref) for ref in references):raise ValueError('References')
+            if not 1<=len(names)<=8 or len(set(names))!=len(names) or any(not GROUP.fullmatch(name) for name in names):raise ValueError('Newsgroups')
+            with fabric.lock:
+                for name in names:
+                    target=fabric.db.execute('SELECT * FROM groups WHERE name=?',(name,)).fetchone()
+                    if not target or (target['owner']!=self.owner and (target['posting']=='owner' or target['visibility']=='private')):raise PermissionError('posting target denied')
+            native=None
             if feed:
-                if any(name not in config.get('feed_groups',[]) for name in names):raise PermissionError('feed group not granted')
+                if len(data)>16000 or any(name not in config.get('feed_groups',[]) for name in names):raise PermissionError('bounded feed policy')
                 if not message.get('Date') or not message.get('Path'):raise ValueError('feed requires Date and Path')
                 if parsedate_to_datetime(str(message['Date'])).tzinfo is None:raise ValueError('article Date timezone')
                 native={key:str(message[key]) for key in ('From','Date','Path','Organization') if message.get(key)}
-                return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split(),native_headers=native,raw_article=bytes(data))
-            return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=str(message.get('References','')).split())
+                for value in native.values():header(value)
+                if fabric.public in native['Path'].split('!'):raise ValueError('NNTP propagation loop')
+            for name,_,_ in parts:fabric._attachment_name(name)
+            attachments=[];staged=[]
+            try:
+                for index,(name,mime,payload) in enumerate(parts):
+                    upload='mime-'+hashlib.sha256(self.owner.encode()+bytes(data)+str(index).encode()).hexdigest()[:48]
+                    with fabric.lock:existing=fabric.db.execute('SELECT 1 FROM uploads WHERE id=?',(upload,)).fetchone()
+                    if not existing:staged.append(upload)
+                    fabric.begin(self.owner,upload,len(payload),'sha256:'+hashlib.sha256(payload).hexdigest(),mime,name)
+                    if fabric.upload_status(self.owner,upload)['state']!='complete':
+                        for position,start in enumerate(range(0,len(payload),16384)):fabric.put(self.owner,upload,position,payload[start:start+16384])
+                    obj=fabric.finish(self.owner,upload);attachments.append({'id':obj['id'],'name':name})
+                return fabric.post(self.owner,names,str(message['Subject']),body,message_id=mid,references=references,native_headers=native,raw_article=bytes(data) if feed else None,attachments=attachments)
+            except Exception as error:
+                cleanup_errors=[]
+                for upload in reversed(staged):
+                    try:fabric.discard_staged_upload(self.owner,upload)
+                    except Exception as cleanup:cleanup_errors.append(type(cleanup).__name__)
+                if cleanup_errors:raise ValueError('post rejected; staged cleanup requires recovery: '+','.join(cleanup_errors)) from error
+                raise
         def handle(self):
             self.line('201 Ziokt Netnews reader ready; authenticate to post')
             for _ in range(1000):
@@ -191,9 +227,12 @@ def server(fabric,config,tokens):
                         if result is None:continue
                         number,article=result;code={'ARTICLE':220,'HEAD':221,'BODY':222,'STAT':223}[cmd]
                         if cmd=='STAT':self.line(f'{code} {number} {article["message_id"]}');continue
-                        full=wire_article(article);heads,_,body=full.partition('\r\n\r\n')
-                        value=full if cmd=='ARTICLE' else heads if cmd=='HEAD' else body
-                        self.block(f'{code} {number} {article["message_id"]}',value.split('\r\n'));continue
+                        heads,body=stream_article(article,article_headers(article),fabric,self.owner,config.get('attachment_base_url'),config.get('max_attachment_transfer_bytes'))
+                        from itertools import chain
+                        lines=chain(heads,[''],body) if cmd=='ARTICLE' else heads if cmd=='HEAD' else body
+                        try:self.block(f'{code} {number} {article["message_id"]}',lines)
+                        except (OSError,ValueError,PermissionError):return
+                        continue
                     if cmd in {'OVER','HDR'}:
                         if not self.selected():continue
                         field=None

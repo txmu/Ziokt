@@ -32,9 +32,16 @@ def upload(peer,path,upload_id=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--url',required=True);parser.add_argument('--token-file',required=True);parser.add_argument('--ca');parser.add_argument('--upload-id');parser.add_argument('file')
-    args=parser.parse_args()
-    print(json.dumps(upload({'url':args.url,'token':secure_read(args.token_file,256).decode().strip(),'ca':args.ca},args.file,args.upload_id)))
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--url',required=True);parser.add_argument('--token-file');parser.add_argument('--ca');parser.add_argument('--upload-id');parser.add_argument('--download-id');parser.add_argument('--output');parser.add_argument('--max-segments',type=int);parser.add_argument('file',nargs='?')
+    args=parser.parse_args();peer={'url':args.url,'token':secure_read(args.token_file,256).decode().strip() if args.token_file else '', 'ca':args.ca}
+    if args.download_id:
+        if args.file or not args.output:parser.error('--download-id requires --output and no upload file')
+        from .content_download import download_file
+        result=download_file(peer,args.download_id,args.output,max_segments=args.max_segments)
+    else:
+        if not args.file or not args.token_file or args.output or args.max_segments:parser.error('upload requires file and --token-file')
+        result=upload(peer,args.file,args.upload_id)
+    print(json.dumps(result))
 
 
 if __name__=='__main__':main()

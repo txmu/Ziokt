@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=admin
 Group=admin
-WorkingDirectory=/home/admin/Ziokt
+WorkingDirectory=/home/admin/.local/share/ziokt-content/current
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 -m ziokt.content_server --config /home/admin/.local/share/ziokt-content/content.json
 Restart=on-failure
@@ -16,7 +16,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/admin/.local/share/ziokt-content
+ReadWritePaths=/home/admin/.local/share/ziokt-content/state
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryHigh=128M
 MemoryMax=192M
