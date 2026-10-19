@@ -4,6 +4,7 @@ Only reads and independently content-addressed community operations are retried.
 Native host mutations with uncertain outcomes require explicit reconciliation.
 """
 import errno
+import re
 import ssl
 import time
 from .protocol import ProtocolError
@@ -12,7 +13,7 @@ from .routes import resolve_endpoint, _candidate_endpoint, validate_route
 RETRYABLE_METHODS = frozenset({'community.status','community.checkpoint.create',
     'community.checkpoint.get','community.checkpoint.release','community.event.put',
     'community.blob.put','privacy.status','privacy.review.get','privacy.review.list',
-    'zkn.shield.notes','zkn.fact','operation.status','tracker.query','tracker.status'})
+    'zkn.shield.notes','zkn.shield.images','zkn.fact','operation.status','tracker.query','tracker.status'})
 TRANSIENT = frozenset({errno.ECONNREFUSED,errno.ECONNRESET,errno.ETIMEDOUT,
                       errno.ENETUNREACH,errno.EHOSTUNREACH,errno.EPIPE})
 
@@ -54,6 +55,7 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
     if len(paths)>1 and not callable(signed_grant):
         raise ProtocolError('INVALID_CONFIG','failover requires fresh scoped signed grants')
     deadline=time.monotonic()+total_timeout
+    diagnostics = []
     for index,path in enumerate(paths):
         if cancellation is not None and cancellation.is_set():raise ProtocolError('CANCELLED','private failover cancelled')
         remaining=deadline-time.monotonic()
@@ -67,7 +69,18 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
             raise
         except ProtocolError as exc:
             if exc.code not in {'CARRIER_UNAVAILABLE','BACKPRESSURE'}:raise
+            item = {'code': exc.code}
+            local = getattr(exc, 'transport_diagnostic', None)
+            if type(local) is dict:
+                phase, kind, reply = (local.get(field) for field in ('phase', 'kind', 'socks_reply'))
+                if type(phase) is str and re.fullmatch(r'entry-connect|entry-connected|(?:target|hop-[1-4])-(?:auth-method|isolation-auth|socks-connect|bound-address)', phase): item['phase'] = phase
+                if type(kind) is str and kind in {'OSError','TimeoutError','ConnectionRefusedError','ConnectionResetError','BrokenPipeError'}: item['kind'] = kind
+                if type(reply) is int and 0 <= reply <= 255: item['socks_reply'] = reply
+            diagnostics.append(item)
         except OSError as exc:
             if not isinstance(exc,(TimeoutError,ConnectionError)) and exc.errno not in TRANSIENT:raise
+            diagnostics.append({'code': 'TRANSPORT_TIMEOUT' if isinstance(exc, TimeoutError) else 'TRANSPORT_UNAVAILABLE'})
         # Do not expose addresses, requests, identities or keys in retry logs.
-    raise ProtocolError('CARRIER_UNAVAILABLE','approved paths unavailable; privacy preserved, no direct fallback')
+    error = ProtocolError('CARRIER_UNAVAILABLE','approved paths unavailable; privacy preserved, no direct fallback')
+    error.transport_diagnostics = diagnostics[:4]
+    raise error

@@ -95,7 +95,9 @@ def connect_onion(host, port, carrier, timeout=30):
     try:
         sock = socket.create_connection((carrier['proxy_host'], carrier['proxy_port']), timeout=timeout)
     except OSError as exc:
-        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion entry unavailable (phase=entry-connect; kind='+type(exc).__name__+')') from None
+        error = ProtocolError('CARRIER_UNAVAILABLE', 'approved onion entry unavailable (phase=entry-connect; kind='+type(exc).__name__+')')
+        error.transport_diagnostic = {'phase': 'entry-connect', 'kind': type(exc).__name__, 'socks_reply': None}
+        raise error from None
     def send(data):
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError('carrier deadline')
@@ -150,7 +152,12 @@ def connect_onion(host, port, carrier, timeout=30):
         sock.close()
         detail='phase='+diagnostic['phase']+'; kind='+type(exc).__name__
         if diagnostic['reply'] is not None:detail+='; socks_reply=0x'+format(diagnostic['reply'],'02x')
-        raise ProtocolError('CARRIER_UNAVAILABLE', 'approved onion path failed ('+detail+')') from None
+        error = ProtocolError('CARRIER_UNAVAILABLE', 'approved onion path failed ('+detail+')')
+        error.transport_diagnostic = dict(diagnostic, kind=type(exc).__name__)
+        # Keep the structured field name stable without copying exception text,
+        # destinations, isolation passwords or onion identities into diagnostics.
+        error.transport_diagnostic['socks_reply'] = error.transport_diagnostic.pop('reply')
+        raise error from None
     except BaseException:
         sock.close()
         raise

@@ -29,6 +29,8 @@ python3 -m ziokt.shielded_wallet recover --wallet receiver.wallet.json --passwor
 
 新增原生只读方法 `zkn.shield.images`，支持 `limit`（1–64）和 `cursor` 分页。生产提供者对应工具为 `corium_production_zkn_shield_images`，需要 `corium:read`。它只返回已经公开的 key image、高度和交易引用，不暴露对应输入 note 或钱包。TG 的通用 `/mcp` 工具入口使用同一目录；写入授权规则不变。
 
+新查询也加入已批准路径的安全读取故障切换列表。Tor 连接失败可在本地诊断中保留受限的协议阶段、异常类别与 SOCKS 数值返回码，未知字段被丢弃，不复制节点地址、身份、请求内容或隔离口令。身份验证失败仍立即停止，隐私路径不可用仍拒绝直连；公网验收失败不会被自动算作通过。
+
 ## 验证范围与边界
 
 `test_privacy_hardening` 覆盖 16/32/64 环、篡改密文、C 边界、并发冲突规则和准入/共识分离；`test_shielded_recovery` 覆盖只读恢复、已花费识别、回滚快照重新扫描、备份预算和 CLI 秘密不输出。`test_native_shielded` 经真实原生铸造、签名、交易池、矿工和重建验证完整路径，并检查 OAuth scope、真实原生查询及分页。`test_native_deployment` 验证摘要同步、链库备份和权限失败前置。

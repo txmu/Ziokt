@@ -53,5 +53,19 @@ class ResilienceTests(unittest.TestCase):
             transport.assert_not_called()
         with self.assertRaisesRegex(ProtocolError,'fresh scoped'):request_resilient('restricted',self.endpoint(),None,{'method':'community.status'},{'old':'grant'})
 
+    def test_public_image_read_can_fail_over_and_diagnostics_strip_private_values(self):
+        error = ProtocolError('CARRIER_UNAVAILABLE', 'private destination and isolation password')
+        error.transport_diagnostic = {'phase': 'target-socks-connect', 'kind': 'OSError', 'socks_reply': 0xf0,
+                                      'destination': 'private-node.onion', 'password': 'private-password'}
+        with patch('ziokt.remote.request_remote', side_effect=[error, {'verified': True}]) as transport:
+            self.assertEqual(request_resilient('restricted', self.endpoint(), None, {'method': 'zkn.shield.images'}, lambda: {}), {'verified': True})
+            self.assertEqual(transport.call_count, 2)
+        with patch('ziokt.remote.request_remote', side_effect=error):
+            with self.assertRaises(ProtocolError) as caught:
+                request_resilient('restricted', self.endpoint(), None, {'method': 'community.status'}, lambda: {})
+        self.assertEqual(caught.exception.transport_diagnostics[0],
+                         {'code': 'CARRIER_UNAVAILABLE', 'phase': 'target-socks-connect', 'kind': 'OSError', 'socks_reply': 0xf0})
+        self.assertNotIn('private', str(caught.exception.transport_diagnostics))
+
 
 if __name__=='__main__':unittest.main()
