@@ -1,0 +1,206 @@
+{
+  "intro": {
+    "message": "连接你的节点，使用授权应用。"
+  },
+  "endpoint": {
+    "message": "节点地址"
+  },
+  "credential": {
+    "message": "应用凭证"
+  },
+  "connect": {
+    "message": "授权此节点并连接"
+  },
+  "disconnected": {
+    "message": "尚未连接"
+  },
+  "logout": {
+    "message": "断开并清除会话"
+  },
+  "news": {
+    "message": "新闻"
+  },
+  "books": {
+    "message": "图书"
+  },
+  "community": {
+    "message": "社区"
+  },
+  "applications": {
+    "message": "应用"
+  },
+  "newsgroups": {
+    "message": "新闻组"
+  },
+  "load_groups": {
+    "message": "加载新闻组"
+  },
+  "subject": {
+    "message": "标题"
+  },
+  "body": {
+    "message": "正文"
+  },
+  "publish_identity": {
+    "message": "以授权身份发布"
+  },
+  "library_search": {
+    "message": "图书检索"
+  },
+  "query": {
+    "message": "书名、作者、ISBN"
+  },
+  "search": {
+    "message": "检索"
+  },
+  "community_load": {
+    "message": "加载已授权帖子"
+  },
+  "publish": {
+    "message": "发布"
+  },
+  "node_capabilities": {
+    "message": "节点应用能力"
+  },
+  "load_capabilities": {
+    "message": "查询实际可用能力"
+  },
+  "capability_note": {
+    "message": "消息、群组和文件功能按节点授权与实际实现显示；不会继承 Gateway 管理权限。"
+  },
+  "extensionName": {
+    "message": "Ziokt Companion"
+  },
+  "extensionDescription": {
+    "message": "以独立应用身份使用 Ziokt 图书、新闻组、社区与内容服务。"
+  },
+  "settings": {
+    "message": "设置"
+  },
+  "language": {
+    "message": "语言"
+  },
+  "theme": {
+    "message": "主题"
+  },
+  "font": {
+    "message": "字号"
+  },
+  "limit": {
+    "message": "每次加载文章数"
+  },
+  "default_tab": {
+    "message": "默认应用"
+  },
+  "compact": {
+    "message": "紧凑显示"
+  },
+  "save_settings": {
+    "message": "保存设置"
+  },
+  "connected": {
+    "message": "已连接。写入使用独立应用身份。"
+  },
+  "session_cleared": {
+    "message": "会话已清除"
+  },
+  "session_restored": {
+    "message": "已恢复当前扩展会话"
+  },
+  "settings_saved": {
+    "message": "设置已保存"
+  },
+  "reply": {
+    "message": "回复"
+  },
+  "post_saved": {
+    "message": "文章已持久发布"
+  },
+  "community_saved": {
+    "message": "Community 已用授权成员身份签名发布"
+  },
+  "private_book": {
+    "message": "私人藏书"
+  },
+  "public_book": {
+    "message": "公开书目"
+  },
+  "local_source": {
+    "message": "本地来源"
+  },
+  "remote_source": {
+    "message": "联邦目录，下载仍需验证"
+  },
+  "available": {
+    "message": "节点提供此应用接口，实际操作仍需独立权限"
+  },
+  "unavailable": {
+    "message": "节点尚未接入"
+  },
+  "permission_denied": {
+    "message": "未授予节点访问权限"
+  },
+  "connect_first": {
+    "message": "请先连接节点"
+  },
+  "invalid_origin": {
+    "message": "请输入不含凭证、路径和查询参数的节点地址"
+  },
+  "tls_required": {
+    "message": "远程节点必须使用 HTTPS"
+  },
+  "request_failed": {
+    "message": "节点拒绝操作，请检查权限或连接"
+  },
+  "object_limit": {
+    "message": "浏览器处理上限为 16 MiB，请使用流式客户端下载大文件"
+  },
+  "integrity_error": {
+    "message": "文件完整性校验失败"
+  },
+  "download": {
+    "message": "下载已校验文件"
+  },
+  "transfer": {
+    "message": "传输中"
+  },
+  "profile_name": {
+    "message": "连接名称"
+  },
+  "profiles": {
+    "message": "已保存连接"
+  },
+  "upload": {
+    "message": "上传图书"
+  },
+  "file": {
+    "message": "文件（浏览器上限 16 MiB）"
+  },
+  "book_title": {
+    "message": "书名"
+  },
+  "author": {
+    "message": "作者"
+  },
+  "work": {
+    "message": "作品标识"
+  },
+  "edition": {
+    "message": "版本标识"
+  },
+  "license": {
+    "message": "许可证或保存权声明"
+  },
+  "visibility": {
+    "message": "传播范围"
+  },
+  "upload_publish": {
+    "message": "上传并保存书目"
+  },
+  "book_saved": {
+    "message": "书目与文件已保存"
+  },
+  "open_tab": {
+    "message": "在完整标签页打开"
+  }
+}

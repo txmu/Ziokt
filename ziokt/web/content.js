@@ -2,10 +2,8 @@
 const $=id=>document.getElementById(id);
 let token='',currentGroup='',currentArticle=null,currentBook=null,readingSize=16,replyTo=[];
 function status(message){$('status').textContent=message;}
-async function api(operation,args={}){
-  const response=await fetch('api',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({operation,arguments:args})});
-  const result=await response.json();if(!response.ok)throw Error(result.error||'请求失败');return result;
-}
+async function api(operation,args={}){return new ZioktApplicationClient({endpoint:location.origin,token}).call(operation,args);}
+
 function action(fn){return async event=>{event?.preventDefault();const button=event?.submitter;if(button)button.disabled=true;try{await fn(event);}catch(error){status(error.message);}finally{if(button)button.disabled=false;}};}
 function element(tag,value){const el=document.createElement(tag);if(value!==undefined)el.textContent=value;return el;}
 function button(label,fn){const el=element('button',label);el.addEventListener('click',action(fn));return el;}

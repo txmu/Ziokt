@@ -54,7 +54,7 @@ def server(fabric,config,tokens):
                 if line.startswith('.'):line='.'+line
                 self.line(line)
             self.line('.')
-        def rows(self,low=1,limit=1000):return fabric.articles(self.owner,self.group,low,limit)['items']
+        def rows(self,low=1,limit=1000):return fabric.articles(self.owner,self.group,low,min(limit,fabric.optimizations.get(self.owner,'netnews')['effective']['nntp_max_range']))['items']
         def selected(self):
             if not self.group:self.line('412 No newsgroup selected');return False
             return True

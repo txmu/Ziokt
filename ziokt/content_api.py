@@ -6,6 +6,15 @@ import base64
 from .content_fabric import Fabric
 
 OPERATIONS={
+ 'optimization.get':({'application':str},False),
+ 'optimization.configure':({'settings':dict,'revision':int},True),
+ 'optimization.configure_defaults':({'settings':dict,'revision':int,'application':str,'node':bool},True),
+ 'optimization.evaluate':({'joint':list,'decoder':list},False),
+ 'library.download.control':({'job':str,'paused':bool},True),
+ 'content.objects.list':({'limit':int,'offset':int},False),
+ 'content.upload.abort':({'upload':str},True),
+ 'content.object.release':({'id':str},True),
+ 'content.collect':({},True),
  'applications.capabilities':({},False),
  'community.forum.list':({'limit':int,'offset':int},False),
  'community.forum.post':({'title':str,'body':str,'operation':str,'reply_to':str},True),
@@ -14,7 +23,7 @@ OPERATIONS={
  'library.download':({'book':str,'sources':list,'max_chunks':int},True),
  'applications.tc16.compile':({'source':str,'syntax':str,'target':str,'profile':str},True),
  'applications.tc16.execute':({'package':str,'cycles':int},True),
- 'content.upload.begin':({'upload':str,'size':int,'digest':str,'mime':str}, True),
+ 'content.upload.begin':({'upload':str,'size':int,'digest':str,'mime':str,'name':str}, True),
  'content.upload.put':({'upload':str,'position':int,'data':str},True),
  'content.upload.status':({'upload':str},False),
  'content.upload.finish':({'upload':str},True),
@@ -37,7 +46,7 @@ OPERATIONS={
  'content.subscription.get':({'kind':str,'target':str},False),
  'content.subscription.save':({'kind':str,'target':str,'settings':dict},True),
 }
-OPTIONAL={'reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
+OPTIONAL={'application','decoder','node','name','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
 
 
 def invoke(fabric, owner, operation, args):
@@ -46,6 +55,17 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-OPTIONAL)-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation=='optimization.get':return fabric.optimizations.get(owner,args.get('application','content'))
+    if operation=='optimization.configure':return fabric.optimizations.set(owner,**args)
+    if operation=='optimization.configure_defaults':return fabric.optimizations.set(owner,**args)
+    if operation=='optimization.evaluate':
+        from .optimization import finite_metrics
+        return finite_metrics(**args)
+    if operation=='library.download.control':return fabric.download_control(owner,**args)
+    if operation=='content.objects.list':return fabric.objects(owner,**args)
+    if operation=='content.upload.abort':return fabric.abort_upload(owner,args['upload'])
+    if operation=='content.object.release':return fabric.release_object(owner,args['id'])
+    if operation=='content.collect':return fabric.collect_uploads(owner)
     if operation=='applications.capabilities':
         return {'schema':'ziokt.application-capabilities.v1','applications':[
             {'id':'library','name':'Library','available':True,'guarantee':'account-private or explicitly public; verified encrypted chunks'},
@@ -106,11 +126,14 @@ def invoke(fabric, owner, operation, args):
 def attach(service, config):
     """Explicit config opt-in; scopes never inherit Gateway administrator rights."""
     from .mcp import schema
-    kinds={str:'string',int:'integer',dict:'object',list:'array'}
+    kinds={str:'string',int:'integer',dict:'object',list:'array',bool:'boolean'}
     for operation,(fields,write) in OPERATIONS.items():
         props={k:{'type':kinds[v]} for k,v in fields.items()}
         for field in props.values():
             if field['type']=='string':field['maxLength']=100000
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
-        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-OPTIONAL),write,('content:admin' if operation in {'content.sync','content.maintenance'} else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))
+        if operation=='optimization.evaluate':
+            props['joint']={'type':'array','minItems':1,'maxItems':4096,'items':{'type':'object','maxProperties':4}}
+            props['decoder']={'type':'array','maxItems':4096,'items':{'type':'object','maxProperties':3}}
+        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-OPTIONAL),write,('content:admin' if operation in {'content.sync','content.maintenance','optimization.configure_defaults'} else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))

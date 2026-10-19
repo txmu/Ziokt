@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import http.server
 import json
+import re
 from pathlib import Path
 import secrets
 import socketserver
@@ -76,25 +77,47 @@ def download(fabric, owner, book, sources, peers, *, max_chunks=128):
     fabric.begin(owner,upload,meta['size'],meta['digest'],meta['mime'])
     with fabric.transaction():
         fabric.db.execute('INSERT OR IGNORE INTO downloads(id,owner,remote,upload,metadata,state) VALUES(?,?,?,?,?,?)',(job,owner,oid,upload,encoded(meta),'running'))
-    completed=0
+    profile=fabric.optimizations.get(owner,'library')['effective']
+    with fabric.lock:
+        state=fabric.db.execute('SELECT state FROM downloads WHERE id=? AND owner=?',(job,owner)).fetchone()
+        if state and state[0]=='paused':return {'job':job,'state':'paused'}
+        with fabric.store(owner) as store:
+            received={row[0] for row in store.db.execute('SELECT position FROM parts WHERE upload=?',(upload,))}
+    positions=[i for i in range((meta['size']+CHUNK_BYTES-1)//CHUNK_BYTES) if i not in received][:max_chunks]
+    if fabric.upload_status(owner,upload)['state']=='complete':positions=[]
+    ordered=list(sources)
+    if profile['transfer_prefer_verified_sources']:
+        with fabric.lock:
+            scores={row['alias']:row['successes'] for row in fabric.db.execute('SELECT alias,successes FROM source_health')}
+        ordered.sort(key=lambda alias:-scores.get(alias,0))
+    def fetch_one(position):
+        failures=[]
+        for alias in ordered:
+            with fabric.lock:health=fabric.db.execute('SELECT quarantined_until FROM source_health WHERE alias=?',(alias,)).fetchone()
+            if health and health[0]>time.time():
+                failures.append({'source':alias,'error':'temporarily_quarantined'});continue
+            for attempt in range(profile['transfer_retries']+1):
+                try:
+                    result=remote(peers[alias],{'operation':'content.object.get','arguments':{'id':oid,'position':position}})
+                    data=base64.b64decode(result['data'],validate=True)
+                    merkle_verify(data,position,result['proof'],meta['merkle_root'])
+                    with fabric.transaction():fabric.db.execute('INSERT INTO source_health VALUES(?,1,0,0,?) ON CONFLICT(alias) DO UPDATE SET successes=successes+1,verified=excluded.verified,quarantined_until=0',(alias,int(time.time())))
+                    return position,data,failures
+                except (OSError,ValueError,KeyError,PermissionError) as exc:
+                    failures.append({'source':alias,'error':type(exc).__name__})
+                    with fabric.transaction():fabric.db.execute('INSERT INTO source_health VALUES(?,0,1,?,0) ON CONFLICT(alias) DO UPDATE SET failures=failures+1,quarantined_until=excluded.quarantined_until',(alias,int(time.time())+profile['transfer_quarantine_seconds']))
+        return position,None,failures
     failures=[]
-    for _ in range(max_chunks):
-        status=fabric.upload_status(owner,upload)
-        if status['state']=='complete' or status['next_missing']>=status['total_chunks']:break
-        position=status['next_missing']
-        ok=False
-        for alias in sources:
-            try:
-                result=remote(peers[alias],{'operation':'content.object.get','arguments':{'id':oid,'position':position}})
-                data=base64.b64decode(result['data'],validate=True)
-                merkle_verify(data,position,result['proof'],meta['merkle_root'])
-                fabric.put(owner,upload,position,data)
-                completed+=1;ok=True;break
-            except (OSError,ValueError,KeyError,PermissionError) as exc:
-                failures.append({'source':alias,'error':type(exc).__name__})
-        if not ok:
-            with fabric.transaction():fabric.db.execute("UPDATE downloads SET state='waiting',error='sources unavailable' WHERE id=?",(job,))
-            return {'job':job,'state':'waiting','received_chunks':status['received_chunks'],'failures':failures[-8:]}
+    from concurrent.futures import ThreadPoolExecutor
+    # At most four chunks in flight; account database writes remain serialized.
+    with ThreadPoolExecutor(max_workers=profile['transfer_parallelism']) as pool:
+        for start in range(0,len(positions),profile['transfer_parallelism']):
+            futures=[pool.submit(fetch_one,position) for position in positions[start:start+profile['transfer_parallelism']]]
+            for future in futures:
+                position,data,issues=future.result();failures.extend(issues)
+                with fabric.lock:state=fabric.db.execute('SELECT state FROM downloads WHERE id=? AND owner=?',(job,owner)).fetchone()[0]
+                if state=='paused':return {'job':job,'state':'paused'}
+                if data is not None:fabric.put(owner,upload,position,data)
     status=fabric.upload_status(owner,upload)
     if status['next_missing']>=status['total_chunks']:
         result=fabric.finish(owner,upload)
@@ -102,7 +125,9 @@ def download(fabric, owner, book, sources, peers, *, max_chunks=128):
             fabric.db.execute('INSERT OR REPLACE INTO locations VALUES(?,?,?,?)',(oid,result['id'],owner,int(time.time())))
             fabric.db.execute("UPDATE downloads SET state='complete',error='' WHERE id=?",(job,))
         return {'job':job,'state':'complete','object':result,'verified':True}
-    return {'job':job,'state':'running','received_chunks':status['received_chunks'],'total_chunks':status['total_chunks'],'failures':failures[-8:]}
+    state='waiting' if failures and any(issue['error']!='temporarily_quarantined' for issue in failures) else 'running'
+    with fabric.transaction():fabric.db.execute('UPDATE downloads SET state=?,error=? WHERE id=?',(state,'some sources unavailable' if failures else '',job))
+    return {'job':job,'state':state,'received_chunks':status['received_chunks'],'total_chunks':status['total_chunks'],'failures':failures[-8:]}
 
 
 class BoundedHTTP(http.server.ThreadingHTTPServer):
@@ -138,7 +163,7 @@ def server(fabric, config):
             self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             self.send_header('Referrer-Policy','no-referrer')
             origin=self.headers.get('Origin')
-            if origin in config.get('origins',[]):
+            if origin in config.get('origins',[]) or (config.get('allow_webextensions') is True and isinstance(origin,str) and re.fullmatch(r'(?:chrome-extension://[a-p]{32}|moz-extension://[a-f0-9-]{36})',origin)):
                 self.send_header('Access-Control-Allow-Origin',origin);self.send_header('Vary','Origin')
                 self.send_header('Access-Control-Allow-Methods','GET, POST, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers','Authorization, Content-Type')
@@ -160,7 +185,8 @@ def server(fabric, config):
             hosts=local_hosts|{urlsplit(value).netloc for value in configured}
             if self.headers.get('Host') not in hosts:raise PermissionError('host denied')
             allowed=configured|{scheme+'://'+host for host in local_hosts}
-            if origin and origin not in allowed:raise PermissionError('origin denied')
+            extension_allowed=config.get('allow_webextensions') is True and isinstance(origin,str) and re.fullmatch(r'(?:chrome-extension://[a-p]{32}|moz-extension://[a-f0-9-]{36})',origin)
+            if origin and origin not in allowed and not extension_allowed:raise PermissionError('origin denied')
         def do_OPTIONS(self):
             try:
                 self.origin()
@@ -171,9 +197,9 @@ def server(fabric, config):
         def do_GET(self):
             try:
                 path=urlsplit(self.path).path
-                if path in {'/','/content.js','/content.css'}:
-                    name={'/':'content.html','/content.js':'content.js','/content.css':'content.css'}[path]
-                    mime={'content.html':'text/html; charset=utf-8','content.js':'text/javascript','content.css':'text/css'}[name]
+                if path in {'/','/content.js','/content.css','/application-client.js'}:
+                    name={'/':'content.html','/content.js':'content.js','/content.css':'content.css','/application-client.js':'application-client.js'}[path]
+                    mime={'content.html':'text/html; charset=utf-8','content.js':'text/javascript','content.css':'text/css','application-client.js':'text/javascript'}[name]
                     return self.send(200,(Path(__file__).parent/'web'/name).read_bytes(),mime)
                 if path.startswith('/objects/'):
                     self.origin();principal=self.principal()
@@ -242,7 +268,7 @@ def server(fabric, config):
                     result=download(fabric,owner,args['book'],args['sources'],peers,max_chunks=args.get('max_chunks',128))
                 else:
                     fields,write=OPERATIONS[op]
-                    scope='content:admin' if op in {'content.sync','content.maintenance'} else op.split('.')[0]+(':write' if write else ':read')
+                    scope='content:admin' if op in {'content.sync','content.maintenance','optimization.configure_defaults'} else op.split('.')[0]+(':write' if write else ':read')
                     if scope not in scopes:raise PermissionError('scope')
                     result=invoke(fabric,owner,op,args)
                 self.send(200,result)

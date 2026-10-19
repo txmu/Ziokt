@@ -99,6 +99,7 @@ class Fabric:
         self.db.execute('PRAGMA foreign_keys=ON')
         self.db.execute('PRAGMA recursive_triggers=ON')
         self.db.executescript('''
+        CREATE TABLE IF NOT EXISTS source_health(alias TEXT PRIMARY KEY,successes INTEGER,failures INTEGER,quarantined_until INTEGER,verified INTEGER);
         CREATE TABLE IF NOT EXISTS locations(remote TEXT PRIMARY KEY,local TEXT NOT NULL,owner TEXT NOT NULL,verified INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS downloads(id TEXT PRIMARY KEY,owner TEXT NOT NULL,remote TEXT NOT NULL,upload TEXT NOT NULL,metadata BLOB NOT NULL,state TEXT NOT NULL,error TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY, applied INTEGER NOT NULL);
@@ -137,6 +138,9 @@ class Fabric:
             INSERT INTO migrations VALUES(2,unixepoch());
             COMMIT;
             """)
+        from .optimization import Profiles
+        self.optimizations=Profiles(self.db,self.lock)
+        with self.db:self.db.execute('INSERT OR IGNORE INTO migrations VALUES(3,unixepoch())')
         os.chmod(path,0o600)
 
     def close(self):
@@ -161,6 +165,8 @@ class Fabric:
         keypath=root/'vault.key'
         if not keypath.exists():write_binary_exclusive(keypath,secrets.token_bytes(32))
         store=ChunkStore(Vault(root,'content',secure_read(keypath,32)),max_object=self.max_object,disk_bytes=self.quota)
+        profile=self.optimizations.get(owner)['effective']
+        store.db.execute('PRAGMA cache_size=-'+str(profile['sqlite_cache_kib']))
         try:yield store
         finally:store.close()
 
@@ -196,14 +202,16 @@ class Fabric:
         self._audit(owner,'withdraw' if deleted else kind+'.write',record)
         return {'id':record,'event':event,'origin':self.public,**body}
 
-    def begin(self, owner, upload, size, digest, mime='application/octet-stream'):
+    def begin(self, owner, upload, size, digest, mime='application/octet-stream', name=None):
         ident(owner);ident(upload);header(mime,128)
+        if self.optimizations.get(owner)['effective']['collect_expired_uploads']:self.collect_uploads(owner)
         if not isinstance(digest,str) or not re.fullmatch('sha256:[a-f0-9]{64}',digest):raise ValueError('digest')
         if type(size) is not int or not 0<=size<=self.max_object:raise ValueError('size')
         with self.transaction():
             self._rate(owner,'upload',30)
             old=self.db.execute('SELECT owner,metadata FROM uploads WHERE id=?',(upload,)).fetchone()
             meta={'size':size,'digest':digest,'mime':mime}
+            if name is not None:meta['name']=text(name,512)
             if old and (old['owner']!=owner or json.loads(old['metadata'])!=meta):raise ValueError('upload conflict')
             # Conservative node-wide reservation across accounts, persisted through crashes.
             used=self.db.execute("SELECT coalesce(sum(((json_extract(metadata,'$.size')+16383)/16384)*32768),0) FROM uploads").fetchone()[0]
@@ -308,6 +316,8 @@ class Fabric:
     def search(self, owner, query='', kind='book', limit=30, offset=0, filters=None):
         text(query,256,empty=True)
         if kind not in {'book','article'} or type(limit) is not int or not 1<=limit<=100 or type(offset) is not int or not 0<=offset<=100000:raise ValueError('search bounds')
+        profile=self.optimizations.get(owner,'library' if kind=='book' else 'netnews')['effective']
+        limit=min(limit,profile['search_page_limit'])
         filters=filters or {}
         if not isinstance(filters,dict) or set(filters)-{'language','year','format','isbn','work_id','edition_id','author','tag'}:raise ValueError('search filters')
         clauses=["r.kind=?","r.deleted=0","(r.expires=0 OR r.expires>?)","(r.visibility='public' OR r.owner=?)"]
@@ -325,12 +335,25 @@ class Fabric:
         if query.strip():
             tokens=re.findall(r'[^\W_]+',query,flags=re.UNICODE)
             if not tokens:return {'items':[],'offset':offset,'limit':limit}
-            expression=' AND '.join('"'+token.replace('"','""')+'"*' for token in tokens[:16])
+            expression=' AND '.join('"'+token.replace('"','""')+('"*' if profile['search_prefix'] else '"') for token in tokens[:16])
             join=' JOIN record_search s ON s.record=r.id'
             clauses.append('s.text MATCH ?');values.append(expression)
         with self.lock:
             rows=self.db.execute('SELECT r.* FROM records r'+join+' WHERE '+' AND '.join(clauses)+' ORDER BY r.id LIMIT ? OFFSET ?',(*values,limit,offset)).fetchall()
-            return {'items':[{'id':r['id'],'origin':r['origin'],'visibility':r['visibility'],'local':r['origin']==self.public,**json.loads(r['body'])} for r in rows],'offset':offset,'limit':limit,'index':'sqlite-fts5'}
+            fuzzy=False
+            if not rows and query and profile['search_fuzzy']:
+                import difflib
+                base=[clause for clause in clauses if clause!='s.text MATCH ?']
+                candidates=self.db.execute('SELECT r.* FROM records r WHERE '+' AND '.join(base)+' ORDER BY r.id LIMIT 1000',values[:-1]).fetchall()
+                scored=[(difflib.SequenceMatcher(None,query.casefold(),str(json.loads(row['body']).get('title',json.loads(row['body']).get('subject',''))).casefold()).ratio(),row) for row in candidates]
+                rows=[row for score,row in sorted(scored,key=lambda pair:(-pair[0],pair[1]['id'])) if score>=0.5][offset:offset+limit];fuzzy=True
+            items=[{'id':r['id'],'origin':r['origin'],'visibility':r['visibility'],'local':r['origin']==self.public,**json.loads(r['body'])} for r in rows]
+            result={'items':items,'offset':offset,'limit':limit,'index':'sqlite-fts5','fuzzy_fallback':fuzzy}
+            if kind=='book' and profile['search_group_works']:
+                works={}
+                for item in items:works.setdefault((item['origin'],item.get('work_id',item['id'])),[]).append({'id':item['id'],'edition_id':item.get('edition_id'),'file_id':item.get('file_id')})
+                result['works']=[{'origin':origin,'work_id':work,'versions':versions} for (origin,work),versions in works.items()];result['aggregation_scope']='current-authorized-page'
+            return result
 
     def create_group(self, owner, name, description='', visibility='public', posting='members', retention=2592000):
         if not isinstance(name,str) or len(name)>160 or not GROUP.fullmatch(name):raise ValueError('hierarchical group required')
@@ -474,3 +497,49 @@ class Fabric:
         with self.lock:
             integrity=self.db.execute('PRAGMA quick_check').fetchone()[0]
             return {'schema':'ziokt.content-health.v1','node':self.public,'native_store':integrity,'account':owner,'objects':self.db.execute('SELECT count(*) FROM objects WHERE owner=?',(owner,)).fetchone()[0],'downloads':[dict(row) for row in self.db.execute('SELECT id,state,error FROM downloads WHERE owner=? ORDER BY id LIMIT 30',(owner,))],'observations':{'database_checked_now':True,'all_objects_verified':False,'end_to_end_verified':False},'guarantees':{'private_catalogue_exported':False,'ciphertext_at_rest':'SafeFS AEAD','metadata_at_rest':'private SQLite, not encrypted','remote_erasure_guaranteed':False}}
+
+    def objects(self,owner,limit=30,offset=0):
+        if type(limit) is not int or not 1<=limit<=100 or type(offset) is not int or not 0<=offset<=100000:raise ValueError('object pagination')
+        with self.lock:
+            rows=self.db.execute('SELECT id,metadata FROM objects WHERE owner=? ORDER BY id LIMIT ? OFFSET ?',(owner,limit,offset)).fetchall()
+            return {'items':[{'id':row['id'],**json.loads(row['metadata'])} for row in rows],'offset':offset,'limit':limit}
+
+    def abort_upload(self,owner,upload):
+        with self.transaction():
+            self._upload_owner(owner,upload)
+            with self.store(owner) as store:
+                result=store.abort(upload);store.gc()
+            self.db.execute('DELETE FROM uploads WHERE owner=? AND id=?',(owner,upload));self._audit(owner,'upload.abort',upload)
+            return result
+
+    def release_object(self,owner,oid):
+        with self.transaction():
+            row=self.db.execute('SELECT * FROM objects WHERE id=? AND owner=?',(oid,owner)).fetchone()
+            if row is None:raise PermissionError('owned object required')
+            for record in self.db.execute("SELECT body FROM records WHERE kind='book' AND owner=? AND origin=? AND deleted=0 AND (expires=0 OR expires>?)",(owner,self.public,int(time.time()))):
+                if json.loads(record['body']).get('file_id')==oid:raise ValueError('withdraw local book references before releasing object')
+            with self.store(owner) as store:
+                if store.db.execute('SELECT 1 FROM pins WHERE object=?',(row['reference'],)).fetchone():raise ValueError('other application retains object')
+                leases=[entry[0] for entry in store.db.execute("SELECT id FROM uploads WHERE object=? AND state='complete'",(row['reference'],))]
+                for lease in leases:store.release(row['reference'],lease)
+                collected=store.gc()
+            self.db.executemany('DELETE FROM uploads WHERE id=? AND owner=?',[(lease,owner) for lease in leases])
+            self.db.execute('DELETE FROM locations WHERE local=? AND owner=?',(oid,owner));self.db.execute('DELETE FROM objects WHERE id=?',(oid,));self._audit(owner,'object.release',oid)
+            return {'id':oid,'released':True,**collected}
+
+    def collect_uploads(self,owner):
+        with self.transaction():
+            with self.store(owner) as store:
+                expired=[row[0] for row in store.db.execute("SELECT id FROM uploads WHERE expires<=? AND state='uploading'",(int(time.time()),))]
+                collected=store.gc()
+            self.db.executemany('DELETE FROM uploads WHERE id=? AND owner=?',[(upload,owner) for upload in expired])
+            return {'expired_uploads':len(expired),**collected}
+
+    def download_control(self,owner,job,paused):
+        if type(paused) is not bool:raise ValueError('pause state')
+        with self.transaction():
+            row=self.db.execute('SELECT state FROM downloads WHERE owner=? AND id=?',(owner,job)).fetchone()
+            if not row:raise PermissionError('download unavailable')
+            if row[0]=='complete':return {'job':job,'state':'complete'}
+            self.db.execute('UPDATE downloads SET state=? WHERE id=?',('paused' if paused else 'running',job))
+            return {'job':job,'state':'paused' if paused else 'running'}
