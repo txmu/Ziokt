@@ -1,0 +1,40 @@
+name: Content scale workload (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      articles:
+        description: Number of persistent articles (maximum 100000)
+        default: '100000'
+        required: true
+      books:
+        description: Number of persistent book records (maximum 100000)
+        default: '10000'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: content-scale-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  scale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Generate, index, query and reopen real persistent data
+        env:
+          ARTICLES: ${{ inputs.articles }}
+          BOOKS: ${{ inputs.books }}
+        run: |
+          set -o pipefail
+          python ci/content_scale.py --articles "$ARTICLES" --books "$BOOKS" | tee content-scale-results.json
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: content-scale-evidence
+          path: content-scale-results.json
+          if-no-files-found: warn
