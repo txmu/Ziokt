@@ -100,7 +100,7 @@ class Service:
         self.add('ziokt_naming_status','Report suffix authorities and configured independent naming realms; DNS never grants service access.',schema(),False,'ziokt:read',('naming-status',))
         if config.get('dns_config'):
             self.add('ziokt_name_resolve','Resolve explicitly published public records through the selected node-backed realm. No public DNS fallback.',schema({'name':{'type':'string','maxLength':254},'realm':{'type':'string','maxLength':63}},('name',)),False,'ziokt:read',('name-resolve',))
-            self.add('ziokt_name_service','Verify naming ownership and retrieve content references or sealed service descriptors. Does not decrypt or authorize access.',schema({'name':{'type':'string','maxLength':254},'realm':{'type':'string','maxLength':63},'component':{'type':'string','enum':['corium','shadow6','etp','safefs','sim','tri','ufs','dcpm','watchat','zda','ziokt']}},('name','component')),False,'ziokt:names:read',('name-service',))
+            self.add('ziokt_name_service','Verify naming ownership and retrieve content references or sealed service descriptors. Does not decrypt or authorize access.',schema({'name':{'type':'string','maxLength':254},'realm':{'type':'string','maxLength':63},'component':{'type':'string','enum':['corium','shadow6','etp','safefs','sim','tri','ufs','dcpm','watchat','zda','ziokt','tc16']}},('name','component')),False,'ziokt:names:read',('name-service',))
         self.add('ziokt_tracker_status','Report optional Tracker deployments. Trackers supplement existing DHT, gossip and direct discovery.',schema(),False,'ziokt:read',('tracker-status',))
         for alias in config.get('trackers',{}):
             if not re.fullmatch('[a-z][a-z0-9_]{0,31}',alias):raise ValueError('bounded tracker alias required')
@@ -140,7 +140,7 @@ class Service:
             if not re.fullmatch('[a-z0-9-]{1,64}',app):raise ValueError('invalid bridge name')
             for method in sorted(BRIDGE_READ|BRIDGE_WRITE):
                 if app=='ziokt' and method not in {'naming.publish','component.status'}:continue
-                if method=='naming.publish' and app not in {'ziokt','shadow6','etp','safefs','sim-manager','sim','tri','ufs','dcpm','watchat','zda'}:continue
+                if method=='naming.publish' and app not in {'ziokt','shadow6','etp','safefs','sim-manager','sim','tri','ufs','dcpm','watchat','zda','tc16'}:continue
                 settings=strict_json(secure_read(config['bridges'][app]))
                 if method.startswith('object.') and not settings.get('vault_root'):continue
                 if method.startswith('file.') and not settings.get('inbox'):continue
@@ -206,8 +206,19 @@ class Service:
             self.add('corium_registration_submit','Apply for external_chain or pouw_engine whitelist membership. Only owner approval makes an entry eligible.',schema({'entry':schema({'kind':{'type':'string','enum':['external_chain','pouw_engine']},'target':{'type':'string','pattern':'^[a-z0-9][a-z0-9_-]{0,63}$'},'description':{'type':'string','minLength':1,'maxLength':2048},'weight':{'type':'integer','minimum':1,'maximum':1000000},'genesis_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'verifier_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'pkg_id':{'type':'string','maxLength':160},'compute_program_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'},'verifier_script_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('kind','target','description','weight'))},('entry',)),True,'corium:registry:submit',('registry','submit'))
             self.add('corium_registration_list','Read approved registrations or your own applications; administrator can inspect all pending applications.',schema({'status':{'type':'string','enum':['approved','pending','rejected','revoked','submitting','all']}},('status',)),False,'corium:registry:read',('registry','list'))
             self.add('corium_registration_decide','Owner only: approve, reject or revoke an immutable application using its exact digest. PoUW approval submits native governance, not instant consensus activation.',schema({'registration_id':{'type':'string','pattern':'^[a-f0-9]{32}$'},'digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'decision':{'type':'string','enum':['approve','reject','revoke']},'confirm':{'type':'boolean','const':True}},('registration_id','digest','decision','confirm')),True,'ziokt:admin',('registry','decide'))
+        if config.get('shadow6_control') or config.get('shadow6_mcp'):
+            from .shadow6_control_mcp import attach_shadow6_control
+            attach_shadow6_control(self, config.get('shadow6_control') or config.get('shadow6_mcp'))
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.etp={}
+
+    def attach_shadow6_control(self,config=None,adapter=None):
+        from .shadow6_control_mcp import attach_shadow6_control
+        return attach_shadow6_control(self,config=config,adapter=adapter)
+
+    def close(self):
+        if getattr(self,'shadow6_control',None):
+            self.shadow6_control.close()
 
     def add(self,name,description,input_schema,write,scope,route):
         if name in self.tools:raise ValueError('tool name collision')
@@ -217,6 +228,8 @@ class Service:
         schemes=[{'type':'oauth2','scopes':[scope]}]
         self.tools[name]={'securitySchemes':schemes,'_meta':{'securitySchemes':schemes},'name':name,'description':description,'inputSchema':input_schema,'annotations':{'readOnlyHint':not write,'destructiveHint':write,'idempotentHint':False,'openWorldHint':True},'scope':scope}
         self.dispatch[name]=route
+        if hasattr(self,'scopes') and scope not in self.scopes:
+            self.scopes=sorted(set(self.scopes)|{scope})
 
     def token_digest(self,token):
         return hashlib.sha256((self.config['issuer']+'/mcp\n'+token).encode()).hexdigest()
@@ -522,6 +535,20 @@ class Service:
             if route[1] in {'title','description'}:
                 values={'chat_id':bot.chat_id(args['chat_id']),'title' if route[1]=='title' else 'description':args[route[1]]}
                 return bot.call('setChatTitle' if route[1]=='title' else 'setChatDescription',values)
+        if kind=='shadow6-control':
+            tool_name=route[1]
+            adapter=getattr(self,'shadow6_control',None)
+            if adapter is None:raise McpError(-32603,'shadow6-control adapter not configured')
+            result=adapter.call_tool(tool_name,args)
+            if result.get('isError'):
+                content=result.get('content',[{}])
+                msg=content[0].get('text','operation rejected') if content else 'operation rejected'
+                raise McpError(-32603,msg)
+            if 'structuredContent' in result:return result['structuredContent']
+            if 'content' in result and result['content']:
+                try:return json.loads(result['content'][0].get('text','{}'))
+                except Exception:return {'text':result['content'][0].get('text','')}
+            return {}
         raise ValueError('unsupported component')
 
     def guard(self,principal):

@@ -14,7 +14,7 @@ GROUPS = {
     'corium': 'cor c corium corix', 'shadow6': 's6 s shadow shadow6',
     'etp': 'etp e', 'safefs': 'safefs fs f', 'sim': 'sim m',
     'tri': 'tri t 3c', 'ufs': 'ufs u', 'dcpm': 'dcpm dr d',
-    'watchat': 'wat w chat', 'zda': 'zda ano a num',
+    'watchat': 'wat w wch wchat', 'zda': 'zda ano a num',
     'tc16': 'tc16 tcc ttc',
     'ziokt': 'ziokt ziokn ziok zioktruk zio zi zioktriuk zioktruik z',
 }

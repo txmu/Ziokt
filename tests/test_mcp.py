@@ -71,6 +71,17 @@ class McpTests(unittest.TestCase):
  def test_realtime_client_revocation(self):
   del self.config['clients']['reader']
   with self.assertRaises(McpError):self.service.auth('Bearer '+self.tokens['access_token'])
+ def test_tc16_name_service_and_publish(self):
+  dns_cfg=self.root/'dns.json'
+  dns_cfg.write_text(json.dumps({'network':'ziokt-main','realms':{'main':{'network_id':'ziokt-main','sources':{}}}}));dns_cfg.chmod(0o600)
+  tc16_bridge=self.root/'tc16_bridge.json'
+  tc16_bridge.write_text(json.dumps({'schema':'ziokt.companion-bridge.v1','application':'tc16'}));tc16_bridge.chmod(0o600)
+  cfg={**self.config,'dns_config':str(dns_cfg),'bridges':{'tc16':str(tc16_bridge)}}
+  svc=Service(cfg)
+  self.assertIn('ziokt_name_service',svc.tools)
+  self.assertIn('tc16',svc.tools['ziokt_name_service']['inputSchema']['properties']['component']['enum'])
+  self.assertIn('tc16_naming_publish',svc.tools)
+  self.assertEqual(svc.dispatch['tc16_naming_publish'],('bridge','tc16','naming.publish'))
 
 class ComponentMcpTests(unittest.TestCase):
  def test_real_vault_cross_component_exchange(self):

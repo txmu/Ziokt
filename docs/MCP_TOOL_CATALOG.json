@@ -7,7 +7,7 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 361,
+  "tool_count": 362,
   "tools": [
     {
       "securitySchemes": [
@@ -170,7 +170,8 @@
               "dcpm",
               "watchat",
               "zda",
-              "ziokt"
+              "ziokt",
+              "tc16"
             ]
           }
         },
@@ -11096,6 +11097,64 @@
         "openWorldHint": true
       },
       "scope": "tc16:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "tc16:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "tc16:write"
+            ]
+          }
+        ]
+      },
+      "name": "tc16_naming_publish",
+      "description": "tc16: naming.publish through its authenticated application bridge. Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "registration": {
+                "type": "object",
+                "maxProperties": 64
+              }
+            },
+            "required": [
+              "registration"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "tc16:write"
     },
     {
       "securitySchemes": [
