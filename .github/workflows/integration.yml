@@ -134,6 +134,7 @@ jobs:
           sudo apt-get install -y sqlite3 jq openssl curl rsync gnupg libsctp1 chezscheme libsodium23 libunistring5
           sudo ln -sf $(which chezscheme) /usr/local/bin/chez || true
           python -m pip install -r ../Shadow6/requirements.txt
+          python -m pip install --only-binary=:all: -r requirements-dns.txt
       - name: Restore verified unchanged Core products for all Profile tests
         if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native
         env:

@@ -1,0 +1,3 @@
+-r requirements.txt
+# Optional encrypted DNS profile; CI exercises DoQ and HTTP/3 with this ABI.
+aioquic==1.7.0

@@ -10,6 +10,7 @@
 4. **C 接口缺少精确缓冲区约束。** Ristretto 操作现在使用函数白名单、输入长度检查和明确的 ctypes 参数、返回类型；非规范标量与错误长度在调用 C 之前拒绝，非零随机标量使用有界重试。ABI 按 [libsodium 官方说明](https://doc.libsodium.org/advanced/point-arithmetic/ristretto)核对。
 5. **钱包加密与解密预算不一致。** 加密前检查可往返的严格 JSON 和明文预算，解密前检查口令类型、外壳字段与编码长度，避免生成自身不能读取的备份或对明显超限输入先做昂贵的 KDF。
 6. **部署摘要不同步。** 部署器同时更新 federation 与 Gateway 的原生摘要，保留 DNS 和既有配置，并备份链库、论坛和 DHT。重启权限检查在替换源码之前执行，权限不足不留下半更新状态。部署测试使用临时 SQLite 和模拟服务控制，不重启宿主机服务。
+7. **加密 DNS 验收依赖遗漏。** 完整 CI 发现四模式 DNS 测试缺少 `aioquic`。新增固定版本的可选 `requirements-dns.txt`，让 DoH/DoT/DoQ/HTTP3 真实协议测试在 CI 中执行，并移除测试中指向开发机 Python 3.13 用户包目录的硬编码路径。CI 使用预构建 wheel，无需在本地编译。
 
 ## 本地钱包恢复
 
