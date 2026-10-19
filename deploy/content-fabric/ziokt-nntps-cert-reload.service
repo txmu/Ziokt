@@ -1,0 +1,5 @@
+[Unit]
+Description=Reload NNTP TLS listener after Caddy renews its certificate
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart ziokt-nntps-public.service

@@ -196,7 +196,7 @@ read.ziokt.com {
 }
 
 nntp.ziokt.com {
- respond "Ziokt Netnews: anonymous read only on TCP port 119; authenticated posting uses the Ziokt reader application." 200
+ respond "Ziokt Netnews: anonymous read over TLS on port 563 (recommended), or plaintext compatibility on port 119. Authenticated publishing uses https://read.ziokt.com/." 200
  header {
   Strict-Transport-Security "max-age=31536000"
   X-Content-Type-Options nosniff
