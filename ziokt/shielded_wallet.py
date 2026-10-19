@@ -141,9 +141,10 @@ def address_from_keys(keys):
 
 
 def validate_wallet(wallet):
-    from ._runtime import zs_testnet
+    from ._runtime import identifier, zs_testnet
     if type(wallet) is not dict or set(wallet) not in ({'network_id', 'keys', 'address'}, {'network_id', 'keys', 'address', 'recovery'}):
         raise ValueError('versioned receiver wallet required')
+    identifier(wallet['network_id'], 'network_id')
     zs_testnet(wallet['network_id'])
     if address_from_keys(wallet['keys']) != wallet['address']:
         raise ValueError('wallet receiver and private keys disagree')

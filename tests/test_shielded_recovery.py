@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import test_shielded_ownership as shielded
 from ziokt import _runtime as r
@@ -67,6 +68,11 @@ class RecoveryTests(unittest.TestCase):
         other = dict(self.wallet, network_id='ziokt-main')
         with self.assertRaisesRegex(ValueError, 'testnet-only'):
             w.validate_wallet(other)
+        with patch.object(r, 'corium_db') as database:
+            for network in ('test-../../outside', 'test-'+'a'*65, 'test-\x00'):
+                with self.subTest(network=network), self.assertRaises(ValueError):
+                    w.recover_wallet(self.root, dict(self.wallet, network_id=network))
+            database.assert_not_called()
         with closing(sqlite3.connect(self.chain)) as db, db:
             db.execute('UPDATE zkn_shield_notes SET note_id=? WHERE public_key=?',
                        ('0' * 64, self.wallet['address']['public_key']))
