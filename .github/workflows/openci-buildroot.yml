@@ -1,8 +1,5 @@
 name: OpenCI Buildroot distcc and QEMU validation
 on:
-  push:
-    branches: [codex/ziokt-openci-foundation-20261020]
-    paths: ["ci/openci/**", ".github/workflows/openci-buildroot.yml"]
   workflow_dispatch:
     inputs:
       target:
