@@ -1024,3 +1024,7 @@ tr:hover td {
 #ecosystem-filter{width:100%;padding:10px}
 #ecosystem-inspect,#offline-integrity-check,.ecosystem-grid .btn{min-height:44px;touch-action:manipulation}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+#native-forum-source,#native-forum-id,#native-forum-title,#native-forum-body,#native-forum-topic,#native-forum-identity{display:block;max-width:100%;width:100%;padding:10px;margin:10px 0;min-height:44px;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border-subtle)}
+#native-forum-body{min-height:160px}
+#native-forum-list .card{margin:14px 0;overflow-wrap:anywhere}
+#native-forum-list .card [hidden]{display:none}

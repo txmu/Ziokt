@@ -129,11 +129,11 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
             # not permission to view a public document. Host pinning, CSP, CORP
             # and absence of CORS remain in force; writes require exact origin.
             host = self.headers.get('Host')
-            if host and host not in allowed_hosts and not host.endswith('.ziokt.com') and host != '127.0.0.1:8081':
+            if host and host not in allowed_hosts:
                 raise ProtocolError('ORIGIN_REJECTED','configured public host required')
             if post:
                 req_origin = self.headers.get('Origin')
-                if req_origin and req_origin not in allowed_origin_strs and not req_origin.endswith('.ziokt.com'):
+                if req_origin and req_origin not in allowed_origin_strs:
                     raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')
         def rate(self,scope,maximum):
             with rate_lock:

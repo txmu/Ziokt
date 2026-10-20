@@ -1236,7 +1236,7 @@ elif subpath == "effort":
             </div>
             <div class="card">
                 <div class="card-title">{tr('独立 API 节点', 'Standalone API Node')}</div>
-                <div class="card-value" style="font-size:1.05rem;"><a href="https://effort.ziokt.com/" target="_blank" style="color:var(--accent-blue);">Port 8081 &rarr;</a></div>
+                <div class="card-value" style="font-size:1.05rem;"><a href="https://fendou.ziokt.com/" target="_blank" style="color:var(--accent-blue);">Port 8081 &rarr;</a></div>
             </div>
         </div>
         
@@ -2183,7 +2183,7 @@ if subpath == 'gui':
 ext_links = {
     'watchat': 'https://chat.ziokt.com/',
     'sim': 'https://sim.ziokt.com/',
-    'effort': 'https://effort.ziokt.com/',
+    'effort': 'https://fendou.ziokt.com/',
     'ufsdcpm': 'https://ufs.ziokt.com/',
     'shadow6': 'https://shadow6.ziokt.com/',
     'gui': '/gateway-assets/gui/index.html'

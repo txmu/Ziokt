@@ -14,3 +14,5 @@ GUI 所需脚本、样式、图标和中英词典均随源码/安装包交付，
 静态缓存严格限制到固定公开文件：不缓存Gateway/MCP/API响应、授权头、私有对象或任意导航内容。完整私人离线藏书、新闻附件缓存、密钥轮换及退出清理仍是单独的未完成业务要求，不能由静态GUI离线验收替代。
 
 `tools/gui_offline_smoke.cjs` 在严格CSP下验证：两种部署路径、断网重载、原始文件校验、私人API未缓存、其他应用缓存保留、移动端筛选/布局和file://启动。CI以Chromium/Firefox/WebKit矩阵运行；本轮本机只运行了Chromium，其他引擎必须以实际CI结果为准。
+
+WebKit存在[Playwright离线模拟缺陷#42775](https://github.com/microsoft/playwright/issues/42775)，测试对该引擎实际关闭源站监听端口后重载，不跳过缓存验证，也不把此结果描述为模拟全机断网。Chromium/Firefox使用浏览器网络离线模式。测试API响应与生产Gateway一致设置no-store，避免把浏览器HTTP缓存混同于Service Worker缓存。

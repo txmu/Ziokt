@@ -148,7 +148,7 @@ cor-web.ziokt.com     ziokt-gateway...  ziokt-ufs...    ziokt-chat...       ziok
 - **各子系统入口**：
   - `https://chat.ziokt.com/`（WATChat）
   - `https://sim.ziokt.com/`（SimManager）
-  - `https://effort.ziokt.com/`（Effort 算力）
+  - `https://fendou.ziokt.com/`（Effort 算力）
   - `https://tri.ziokt.com/`（Tri 离线状态机）
 
 ### 1.6 归档打包产物（家目录下）

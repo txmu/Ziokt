@@ -1,6 +1,6 @@
 {
   "schema": "ziokt.effort-web.v1",
-  "origin": "https://effort.ziokt.com",
+  "origin": "https://fendou.ziokt.com",
   "listen": "127.0.0.1",
   "port": 8081,
   "federation_config": "/home/admin/.local/share/ziokt-production/config/federation.json",

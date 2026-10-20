@@ -3,7 +3,7 @@
 }
 
 # 1. Effort Web (奋斗页)
-effort.ziokt.com {
+fendou.ziokt.com {
 	reverse_proxy 127.0.0.1:8081
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -96,7 +96,7 @@ cor-web.ziokt.com {
 
 	handle_path /effort/* {
 		reverse_proxy 127.0.0.1:8081 {
-			header_up Host effort.ziokt.com
+			header_up Host fendou.ziokt.com
 		}
 	}
 	handle_path /chat/* {

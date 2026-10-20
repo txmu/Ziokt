@@ -7,7 +7,7 @@
 |源码能力矩阵|B|source-audit.json；初始符号定位已完成，尚非所有 Companion 的全面语义审计|
 |Content Fabric 加密分块/续传/去重/权限|A|test_content_fabric；复用 SafeFS/ChunkStore，账户独立密钥|
 |真实三进程目录/文章/对象同步与恢复|A|test_content_multinode；不同数据库、磁盘、TCP，源离线与进程重启|
-|1/3/5 副本 ETP Mailbox 原生持久复制|B|真实源码独立宿主与 UDP 进程矩阵已本地运行；完整 ETP 工程编译及 1/3/5 原生独立进程已通过 CI 39277124663；真实加密 ETP mesh 仍待验证|
+|1/3/5 副本 ETP Mailbox 原生持久复制|A|CI39431251637通过完整工程编译、UDP runner及真实授权Noise ETP mesh三模式，持久确认/离线删除重入/崩溃恢复/防复活；长期日志压缩和更换节点仍待补|
 |TC-16 ISA/ABI 命名与清单|A|版本化包头、显式目标、命名描述验证与 CLI；旧裸二进制不混用|
 |TC-16 Unified 规范、双执行器与差分 CI|B|Python/Rust 相同程序 156 例差分通过；完整 ETP 编译已通过 CI 39277124663，ETP Legacy 编译器接入未完成|
 |统一 Forum/Mail/Groups/Files/Applications 业务模型|D|既有 ApplicationRouter 仅构成基础，不等同业务语义统一|
@@ -38,7 +38,7 @@
 |ZDNS/NNS 签名服务发现|D|尚未发布新服务描述|
 |跨应用统一内容引用/权限与撤回|B|Library/Netnews共用持久引用与权限判断；恶意远端引用不能公开本地私有字节；Forum/Wiki等适配仍待接入|
 |统一搜索与订阅后台调度|C|Library/News 搜索和订阅偏好存储已实现；跨应用调度未实现|
-|离线阅读缓存/移动端/授权浏览器测试|D|不将普通书签存储视为离线缓存|
+|离线阅读缓存/移动端/授权浏览器测试|B|统一GUI静态壳两种路径断网重载、file://启动、本地完整性检查已有真实Chromium证明；完整私有正文/附件离线缓存仍未完成|
 |投诉/治理/本地限制|D|尚未完成|
 |大规模索引/长期压力/带宽预算|B|CI 39280114633 十万文章/万条书目/重启校验成功，查询p95约30ms；长时并发/带宽仍待验收|
 |read.ziokt.com 与 nntp.ziokt.com 部署|A|2026-10-19 真机 HTTPS/证书/API、Chromium UI、NNTP 域名 TCP119 实测；详情 DEPLOYED-READ-NNTP.md|

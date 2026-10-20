@@ -207,7 +207,7 @@ function buildStandaloneAppBundle() {
       item.addEventListener('click', (e) => {
         e.preventDefault();
         const targetTab = item.dataset.tab;
-        if (isLocalNodeOffline() && targetTab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(targetTab)) {
           const msg = State.language === 'en'
             ? 'Local node is offline. Only Settings is accessible.'
             : '本地节点未启动，当前仅开放【系统设置】页。';
@@ -223,7 +223,7 @@ function buildStandaloneAppBundle() {
       item.addEventListener('click', (e) => {
         e.preventDefault();
         const targetTab = item.dataset.tab;
-        if (isLocalNodeOffline() && targetTab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(targetTab)) {
           const msg = State.language === 'en'
             ? 'Local node is offline. Only Settings is accessible.'
             : '本地节点未启动，当前仅开放【系统设置】页。';
@@ -354,7 +354,7 @@ buildStandaloneAppBundle();
 // The shell version changes only when its fixed assets change.
 const shellAssets=['index.html','app.js','bootstrap.js','style.css','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/icon.svg','i18n/zh.json','i18n/en.json','i18n/zh-CN.json','i18n/en-US.json'];
 const shellHash=createHash('sha256');for(const name of shellAssets){shellHash.update(name+'\0');shellHash.update(fs.readFileSync(path.join(SRC_DIR,name)));}
-const workerPath=path.join(SRC_DIR,'sw.js');fs.writeFileSync(workerPath,fs.readFileSync(workerPath,'utf8').replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-"+shellHash.digest('hex').slice(0,20)+"';"));
+const workerPath=path.join(SRC_DIR,'sw.js'),workerTemplate=fs.readFileSync(workerPath,'utf8').replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-build';");shellHash.update(workerTemplate);fs.writeFileSync(workerPath,workerTemplate.replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-"+shellHash.digest('hex').slice(0,20)+"';"));
 if (process.argv.includes('--bundle-only')) process.exit(0);
 
 // 4. Copy directory recursively
