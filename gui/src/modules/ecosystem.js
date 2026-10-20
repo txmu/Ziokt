@@ -20,10 +20,10 @@ export function renderEcosystem(container){
   ['Corium',label('论坛、群组、Wiki、Mail、MailList、Broadcast、Site、NNS、CBB 与治理；具体入口依原生部署。','Forum, Groups, Wiki, Mail, MailList, Broadcast, Site, NNS, CBB and governance; entrypoints depend on the native deployment.'),'https://cor-web.ziokt.com/','corium_'],
   ['ETP',label('Forum、Chat、Mailbox、Universal Messenger、FileShare、SignalDrop；状态接口不能代替尚未接通的业务。','Forum, Chat, Mailbox, Universal Messenger, FileShare, SignalDrop; status endpoints do not implement missing business operations.'),null,'etp_'],
   ['Library / Netnews',label('图书阅读、新闻组、授权投稿与附件。','Books, newsgroups, authorized posting and attachments.'),'https://read.ziokt.com/','library_'],
-  ['WATChat',label('原生聊天；连接后仍需原生身份授权。','Native chat with its own identity authorization.'),'https://chat.ziokt.com/','watchat_'],
-  ['UFS / dCPM',label('原生文件与签名软件包。','Native files and signed software packages.'),'https://ufs.ziokt.com/','ufs_'],
+  ['WATChat',label('原生聊天；连接后仍需原生身份授权。','Native chat with its own identity authorization.'),null,'watchat_'],
+  ['UFS / dCPM',label('原生文件与签名软件包。','Native files and signed software packages.'),null,'ufs_'],
   ['SafeFS',label('私有保险库，仅授权账户可访问。','Private vault, authorized accounts only.'),null,'safefs_'],
-  ['Shadow6',label('原生连接、命名及应用服务，保留原生安全策略。','Native connectivity, naming and application services with native security policies.'),'https://shadow6.ziokt.com/','shadow6_'],
+  ['Shadow6',label('原生连接、命名及应用服务，保留原生安全策略。','Native connectivity, naming and application services with native security policies.'),null,'shadow6_'],
   ['Tri / TC-16 / ZDA',label('原生计算与应用；执行目标和 ABI 仍需匹配。','Native compute and applications; execution targets and ABIs must match.'),null,'tc16_'],
  ];
  const cards=[];

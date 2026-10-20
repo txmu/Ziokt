@@ -1032,3 +1032,18 @@ tr:hover td {
 .private-offline-panel input{display:block;width:100%;max-width:100%;min-height:44px;margin:10px 0;padding:10px}
 .private-offline-panel button,.private-offline-panel a{min-height:44px;display:inline-flex;align-items:center;margin:8px;padding:10px}
 .private-offline-panel article{margin:10px 0}
+
+/* Dynamic mobile viewports and shrinking flex children must share one scroller. */
+@supports (height: 100dvh) {
+  body, #app-root { height: 100dvh; }
+}
+#main-viewport { min-width: 0; min-height: 0; }
+#topbar { flex-shrink: 0; }
+#content-container { min-height: 0; min-width: 0; -webkit-overflow-scrolling: touch; }
+@media (max-width: 360px) {
+  #content-container { padding-left: 8px; padding-right: 8px; }
+  #topbar { flex-wrap: wrap; height: auto; min-height: var(--topbar-height); }
+  .topbar-right { flex-wrap: wrap; gap: 4px; }
+  .bottom-item { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .chat-page-wrapper { min-height: 0; height: auto; }
+}

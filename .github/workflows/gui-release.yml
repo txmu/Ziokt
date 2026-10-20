@@ -64,7 +64,9 @@ jobs:
           npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
       - name: Real browser GUI upload and read-back verification
-        run: node tools/gui_browser_smoke.cjs
+        run: |
+          node tools/gui_browser_smoke.cjs
+          node tools/gui_viewport_smoke.cjs
 
       - name: Check Rust Core & Tauri 2 Config
         run: |

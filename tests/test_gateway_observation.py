@@ -51,3 +51,24 @@ class ObservationTests(unittest.TestCase):
         page=self.render('watchat',api_override=FailedVault())
         self.assertNotIn('<script>vault</script>',page)
         self.assertNotIn('<img src=x onerror=alert(1)>',page)
+
+    def test_no_invented_public_services_or_encoded_old_ip(self):
+        for app in ('shadow6', 'ufsdcpm', 'watchat'):
+            page = self.render(app)
+            for forbidden in ('https://chat.ziokt.com', 'https://ufs.ziokt.com',
+                              'https://shadow6.ziokt.com', 'sslip.io', '43.207.75.185', 'IjQzLjIwNy43NS4xODUi'):
+                self.assertNotIn(forbidden, page)
+        page = self.render('shadow6')
+        self.assertIn('/api/gateway/public-address', page)
+        self.assertIn('not signature or connectivity verification', page)
+        self.assertIn('envelopeText(r.host', page)
+
+    def test_shadow6_failed_vault_write_is_not_claimed_saved(self):
+        class FailedVault:
+            def get_node_context(self): return {}
+            def read_from_vault(self, path): return {'status': 'error'}
+            def write_to_vault(self, *args): return {'status': 'error'}
+        page = self.render('shadow6', api_override=FailedVault(),
+                           query={'s6p1': ['S6P1.rejected'], 'action': ['save']})
+        self.assertIn('Vault did not confirm persistence', page)
+        self.assertNotIn('已安全存入', page)

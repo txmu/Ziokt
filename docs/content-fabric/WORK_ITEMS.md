@@ -53,3 +53,9 @@
 
 
 本机公网 Reader/NNTP 已按 [部署记录](DEPLOYED-READ-NNTP.md) 开放；这不等于完整清单的原生桥接、私有联邦、附件、TLS NNTP 客户端矩阵和全应用部署均完成。
+
+## 2026-10-20 Gateway 与 OpenCI 增量
+
+本轮修复、权限边界、组件矩阵、迁移/回滚及剩余优先级见 [实施记录](../openci/IMPLEMENTATION-2026-10-20.md)。README 已修正 NNTP feed/MIME 过时说明。
+
+GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧公网 IP，并以同一 profile 表生成路由。真实 Chromium 小屏底部滚动与原生 S6P1 格式互通已验证，真机仍待验收。Buildroot/distcc/QEMU 只在 CI 验证，新增工作流不代表 OpenCI 服务或 PoUW 闭环已经实现。

@@ -13,14 +13,7 @@ fendou.ziokt.com {
 }
 
 # 2. WATChat PWA
-chat.ziokt.com {
-	reverse_proxy 127.0.0.1:8182
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-	}
-}
+# Standalone service hostname intentionally unconfigured.
 
 # 3. SimManager PWA
 sim.ziokt.com {
@@ -101,7 +94,7 @@ cor-web.ziokt.com {
 	}
 	handle_path /chat/* {
 		reverse_proxy 127.0.0.1:8182 {
-			header_up Host chat.ziokt.com
+			header_up Host {host}
 		}
 	}
 	handle /sim/* {
@@ -116,12 +109,12 @@ cor-web.ziokt.com {
 	}
 	handle_path /ufs/* {
 		reverse_proxy 127.0.0.1:8184 {
-			header_up Host ufs.ziokt.com
+			header_up Host {host}
 		}
 	}
 	handle_path /shadow6/* {
 		reverse_proxy 127.0.0.1:9467 {
-			header_up Host shadow6.ziokt.com
+			header_up Host {host}
 		}
 	}
 
@@ -147,18 +140,7 @@ cor-web.ziokt.com {
 }
 
 # 7. UFS & dCPM
-ufs.ziokt.com {
-	reverse_proxy 127.0.0.1:8184 {
-		header_up Host {host}
-		header_up X-Forwarded-Host {host}
-		header_up X-Forwarded-Proto https
-	}
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-	}
-}
+# Standalone service hostname intentionally unconfigured.
 
 # 8. MCP Gateway
 mcp.ziokt.com {
@@ -177,18 +159,7 @@ mcp.ziokt.com {
 }
 
 # 9. Shadow6
-shadow6.ziokt.com {
-	reverse_proxy 127.0.0.1:9467 {
-		header_up Host {host}
-		header_up X-Forwarded-Host {host}
-		header_up X-Forwarded-Proto https
-	}
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-	}
-}
+# Standalone service hostname intentionally unconfigured.
 
 # 10. Unified Graphical Client
 app.ziokt.com {

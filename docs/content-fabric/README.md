@@ -68,7 +68,7 @@ community 配置可指向既有 Community：root、policy、owner、encryption_k
 
 提供 CAPABILITIES、MODE READER、LIST ACTIVE/NEWSGROUPS/OVERVIEW.FMT、GROUP、ARTICLE、HEAD、BODY、STAT、NEXT、LAST、OVER、HDR、POST、DATE、HELP、QUIT 和 AUTHINFO USER/PASS。支持点转义、CRLF、真实磁盘提交和可选独立 TLS。默认无匿名读取，只有明确授予 netnews:write 的应用身份能投稿，不能作为开放转发中继。
 
-当前是有界读取/投稿适配器，**不是完整 RFC 3977/5536/5537 合规声明**。IHAVE、CHECK、TAKETHIS、MODE STREAM 不支持且不在能力中宣传；multipart/MIME 附件拒绝；组统计和范围读取暂限 1000 条。尚无 Thunderbird 验收记录。标准参考：[RFC 3977](https://www.rfc-editor.org/rfc/rfc3977)、[RFC 5536](https://www.rfc-editor.org/rfc/rfc5536)、[RFC 5537](https://www.rfc-editor.org/rfc/rfc5537)、[RFC 4644](https://www.rfc-editor.org/rfc/rfc4644)。
+当前是有界读取/投稿适配器，**不是完整 RFC 3977/5536/5537 合规声明**。已实现授权 feed 的 IHAVE、CHECK、TAKETHIS、MODE STREAM，以及有界 MIME 附件收发和原生附件引用；feed scope、组过滤和附件权限仍须独立满足。能力与限制参见 [FEEDS.md](FEEDS.md)、[ATTACHMENTS.md](ATTACHMENTS.md) 和 [WORK_ITEMS.md](WORK_ITEMS.md)。真实 Thunderbird/slrn/tin 全命令兼容矩阵尚未验收，不宣称完整 RFC 合规。标准参考：[RFC 3977](https://www.rfc-editor.org/rfc/rfc3977)、[RFC 5536](https://www.rfc-editor.org/rfc/rfc5536)、[RFC 5537](https://www.rfc-editor.org/rfc/rfc5537)、[RFC 4644](https://www.rfc-editor.org/rfc/rfc4644)。
 
 ## 迁移、删除和冷恢复
 

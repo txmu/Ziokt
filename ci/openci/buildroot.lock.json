@@ -1,0 +1,10 @@
+{
+  "schema": "openci.buildroot-source.v1",
+  "repository": "https://gitlab.com/buildroot.org/buildroot.git",
+  "version": "2025.02.18",
+  "revision": "d030e36bbc9669230c015be971b14b6e062cfdde",
+  "targets": {
+    "x86_64": "qemu_x86_64_defconfig",
+    "aarch64": "qemu_aarch64_virt_defconfig"
+  }
+}

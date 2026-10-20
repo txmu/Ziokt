@@ -749,7 +749,7 @@ elif subpath == "ufsdcpm":
             </div>
             <div class="table-row">
                 <span class="label">{tr('公网访问网关', 'Public Gateway')}</span>
-                <span class="val"><a href="https://ufs.ziokt.com/" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">https://ufs.ziokt.com/ &rarr;</a></span>
+                <span class="val"><a href="/app/ufsdcpm" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">/app/ufsdcpm &rarr;</a></span>
             </div>
             <div class="table-row">
                 <span class="label">{tr('HTTP 鉴权模式', 'HTTP Auth Mode')}</span>
@@ -1151,7 +1151,7 @@ elif subpath == "watchat":
         
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
             <span class="status-pill" style="background:#0284c7;">{t('watchat.public_channel')}</span>
-            <a href="https://chat.ziokt.com/" target="_blank" class="btn btn-purple">{tr('打开独立 WATChat PWA 界面', 'Open Standalone WATChat PWA')} &rarr;</a>
+            <a href="/app/watchat" target="_blank" class="btn btn-purple">{tr('打开独立 WATChat PWA 界面', 'Open Standalone WATChat PWA')} &rarr;</a>
         </div>
         
         <div style="background:#1e293b;padding:1rem;border-radius:8px;border:1px solid var(--border-color);height:300px;overflow-y:auto;margin-bottom:1rem;">
@@ -1515,7 +1515,10 @@ elif subpath == "mcp":
 # SUBPATH: SHADOW6
 # ==============================================================================
 elif subpath == "shadow6":
-    canonical_sample_s6p1 = "S6P1.eyJjb21wb25lbnRzIjp7ImNvbnRyb2wtY2VudGVyIjp0cnVlLCJnYXRlIjp0cnVlLCJndWFyZCI6dHJ1ZSwidmlydHVhbC1icm9rZXIiOnRydWV9LCJjb3JlIjpbImdvIiwicnVzdCIsImdsZWFtIiwiYWRhIiwibmltIiwicG9ueSIsInppZyIsImQiLCJjcHAiLCJpZHJpcyIsImhhcmUiLCJjYXJwIl0sImNyZWRlbnRpYWxzIjp7ImFkbWlzc2lvbiI6InZpc2EtZnJlZSJ9LCJpZGVudGl0eSI6eyJhbGlhcyI6Ilppb2t0IEdlbmVzaXMgTm9kZSIsIm5vZGVfaWQiOiJzNi1ub2RlLWdlbmVzaXMifSwicHVycG9zZSI6ImNvbW11bml0eTp6aW9rdC1tZXNoIiwicm9sZSI6ImNsaWVudCIsInJvdXRlcyI6W3siY29yZSI6ImdvIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQzMywidHJhbnNwb3J0Ijoia2NwIn0seyJjb3JlIjoicnVzdCIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzQsInRyYW5zcG9ydCI6InF1aWMifSx7ImNvcmUiOiJnbGVhbSIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzUsInRyYW5zcG9ydCI6InNlY3VyZS1zdHJlYW0ifSx7ImNvcmUiOiJhZGEiLCJob3N0IjoiNDMuMjA3Ljc1LjE4NSIsInBvcnQiOjE0NDM2LCJ0cmFuc3BvcnQiOiJjZWxsLXJlbGF5In0seyJjb3JlIjoibmltIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQzNywidHJhbnNwb3J0Ijoid2VicnRjIn0seyJjb3JlIjoicG9ueSIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzgsInRyYW5zcG9ydCI6InVkcCJ9LHsiY29yZSI6InppZyIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0MzksInRyYW5zcG9ydCI6ImVuZXQifSx7ImNvcmUiOiJkIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQ0MCwidHJhbnNwb3J0Ijoic2VjdXJlLXN0cmVhbSJ9LHsiY29yZSI6ImNwcCIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0NDEsInRyYW5zcG9ydCI6InNjdHAifSx7ImNvcmUiOiJpZHJpcyIsImhvc3QiOiI0My4yMDcuNzUuMTg1IiwicG9ydCI6MTQ0NDIsInRyYW5zcG9ydCI6InVkcCJ9LHsiY29yZSI6ImhhcmUiLCJob3N0IjoiNDMuMjA3Ljc1LjE4NSIsInBvcnQiOjE0NDQzLCJ0cmFuc3BvcnQiOiJ1ZHAifSx7ImNvcmUiOiJjYXJwIiwiaG9zdCI6IjQzLjIwNy43NS4xODUiLCJwb3J0IjoxNDQ0NCwidHJhbnNwb3J0IjoidWRwIn1dLCJzY2hlbWEiOiJzaGFkb3c2LnByb3RvY29sLWVudmVsb3BlLnYxIiwidmVyc2lvbiI6MX0="
+    # Examples are generated from the same profile catalog as the UI after
+    # server-side address observation; no embedded address or node identity.
+    canonical_sample_s6p1 = ""
+
     
     s6_vault = {}
     try:
@@ -1534,7 +1537,9 @@ elif subpath == "shadow6":
             'saved_at': int(time.time())
         }
         try:
-            api.write_to_vault('shadow6_user_configs.json', json.dumps(s6_vault))
+            saved = api.write_to_vault('shadow6_user_configs.json', json.dumps(s6_vault))
+            if not isinstance(saved, dict) or saved.get('status') != 'success':
+                raise ValueError('Vault did not confirm persistence')
             s6_notice = f"<div class='notice' style='background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:var(--accent-green);padding:0.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;'>💾 协议信封 <strong>{esc(s6_profile_name)}</strong> 已安全存入 SafeFS 密室！</div>"
         except Exception as e:
             s6_notice = f"<div class='notice' style='background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;'>❌ 密室保存失败: {esc(str(e))}</div>"
@@ -1577,7 +1582,7 @@ elif subpath == "shadow6":
                 <h2 style="font-size:1.8rem;margin:0;color:var(--text-primary);">{t('shadow6.title')}</h2>
             </div>
             <div>
-                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn" style="background:#d97706;color:#fff;font-weight:bold;display:inline-flex;align-items:center;gap:6px;">
+                <a href="/app/shadow6" target="_blank" rel="noreferrer" class="btn" style="background:#d97706;color:#fff;font-weight:bold;display:inline-flex;align-items:center;gap:6px;">
                     🚀 {t('shadow6.btn_open_web')} &rarr;
                 </a>
             </div>
@@ -1615,7 +1620,7 @@ elif subpath == "shadow6":
                 <button type="button" class="btn" onclick="verifyAndUnlockHost()" style="background:#0284c7;color:#fff;font-size:0.85rem;padding:6px 16px;">
                     🔓 {t('shadow6.btn_auth')}
                 </button>
-                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn" style="background:#1e293b;border:1px solid #334155;color:var(--accent-blue);font-size:0.85rem;padding:6px 14px;">
+                <a href="/app/shadow6" target="_blank" rel="noreferrer" class="btn" style="background:#1e293b;border:1px solid #334155;color:var(--accent-blue);font-size:0.85rem;padding:6px 14px;">
                     🖥️ {t('shadow6.btn_open_web')}
                 </a>
                 <span id="s6-auth-msg" style="font-size:0.85rem;font-family:monospace;color:var(--text-secondary);"></span>
@@ -1633,13 +1638,13 @@ elif subpath == "shadow6":
                 </span>
             </div>
             <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:1rem;line-height:1.6;">
-                {t('shadow6.custom_desc')}。{tr('支持标准 Base64URL 密码学信封校验、多核心节点路由重映射、凭据解构与 SafeFS 密室持久化。', 'Supports standard Base64URL cryptographic envelope validation, multi-core route re-mapping, credential breakdown, and SafeFS persistence.')}
+                {t('shadow6.custom_desc')}。{tr('支持Base64URL 格式解析（不代表签名或连通性验证）、多核心节点路由重映射、凭据解构与 SafeFS 密室持久化。', 'Supports Base64URL format parsing (not signature or connectivity verification), multi-core route re-mapping, credential breakdown, and SafeFS persistence.')}
             </p>
 
             <form method="GET" action="/app/shadow6" id="s6p1-vault-form" style="margin-bottom:1rem;">
                 <input type="hidden" name="lang" value="{locale}">
                 <input type="hidden" name="action" value="save">
-                <div style="display:grid;grid-template-columns:1fr 200px;gap:0.75rem;margin-bottom:0.75rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:0.75rem;margin-bottom:0.75rem;">
                     <textarea id="s6p1-textarea" name="s6p1" rows="5" placeholder="{t('shadow6.paste_placeholder')}" style="width:100%;box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#38bdf8;padding:10px;border-radius:6px;font-family:monospace;font-size:0.82rem;line-height:1.5;">{esc(s6_pasted_input or canonical_sample_s6p1)}</textarea>
                     <div style="display:flex;flex-direction:column;gap:0.5rem;">
                         <input type="text" name="alias" value="{esc(s6_profile_name)}" placeholder="{tr('配置别名 (如 My Mesh)', 'Profile Alias (e.g. My Mesh)')}" style="box-sizing:border-box;background:#0b0f19;border:1px solid #334155;color:#fff;padding:6px 10px;border-radius:6px;font-size:0.85rem;">
@@ -1739,27 +1744,63 @@ elif subpath == "shadow6":
         </div>
         <div class="table-row">
             <span class="label">{tr('公共 HTTPS 域名网关 (Public Ingress)', 'Public HTTPS Ingress')}</span>
-            <span class="val"><a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" style="color:var(--accent-amber);text-decoration:underline;">https://shadow6.ziokt.com/</a></span>
+            <span class="val" id="s6-public-ingress">{tr("未配置独立公共 HTTPS 服务；当前页面不证明 Shadow6 公网可达", "No standalone public HTTPS service configured; this page does not prove Shadow6 reachability")}</span>
         </div>
     </div>
 
     <script>
-    var CANONICAL_SAMPLE_S6P1 = "{canonical_sample_s6p1}";
+    var CANONICAL_SAMPLE_S6P1 = "";
+    var S6_PROFILES = {json.dumps([{'core': p[0].split('-')[0], 'transport': p[0].split('-', 1)[1], 'port': int(p[3])} for p in s6_profiles])};
+    function envelopeText(value) {{
+        return String(value).replace(/[&<>"']/g, function(c) {{ return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]; }});
+    }}
+    async function discoverS6Example() {{
+        var status = document.getElementById('s6p1-schema-tag');
+        status.textContent = 'Discovering server public address…';
+        try {{
+            var response = await fetch('/api/gateway/public-address', {{cache:'no-store'}});
+            var observed = await response.json();
+            if (!response.ok || !observed.ok) throw Error(observed.error && observed.error.message || 'Public address unavailable');
+            var example = {{schema:'shadow6.protocol-envelope.v1',version:1,role:'client',purpose:'example:unverified',
+                identity:{{alias:'Unverified example'}},components:{{}},credentials:{{}},
+                core:Array.from(new Set(S6_PROFILES.map(function(p){{return p.core;}}))),
+                routes:S6_PROFILES.map(function(p){{return Object.assign({{host:observed.address}},p);}})}};
+            CANONICAL_SAMPLE_S6P1 = 'S6P1.' + btoa(JSON.stringify(example)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+            if (!document.getElementById('s6p1-textarea').value.trim()) handleLoadSampleS6P1();
+            else handleParseS6P1();
+        }} catch(error) {{
+            status.textContent = 'Address discovery unavailable: ' + error.message;
+        }}
+    }}
 
     function parseS6P1Envelope(raw) {{
         raw = (raw || '').trim();
-        if (!raw.startsWith('S6P1.')) {{
+        if (raw.length > 262144 || !/^S6P1\\.[A-Za-z0-9_-]+$/.test(raw)) {{
             throw new Error('协议前缀错误：必须以 S6P1. 开头');
         }}
         var b64 = raw.slice(5).replace(/-/g, '+').replace(/_/g, '/');
         while (b64.length % 4 !== 0) {{
             b64 += '=';
         }}
+        if (btoa(atob(b64)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'') !== raw.slice(5)) throw Error('Noncanonical Base64URL');
         var decodedStr = decodeURIComponent(escape(atob(b64)));
         var obj = JSON.parse(decodedStr);
-        if (!obj.schema || !obj.version) {{
+        if (!obj || obj.schema !== 'shadow6.protocol-envelope.v1' || obj.version !== 1) {{
             throw new Error('协议信封格式错误：缺失 schema 或 version 字段');
         }}
+        var fields = ['schema','version','purpose','core','role','identity','routes','components','credentials'];
+        if (Object.keys(obj).length !== fields.length || fields.some(function(k){{return !Object.prototype.hasOwnProperty.call(obj,k);}})) throw Error('Invalid envelope fields');
+        if (typeof obj.purpose !== 'string' || obj.purpose.length < 1 || obj.purpose.length > 64 || !['broker','agent','client','gate','relay','plugin','all'].includes(obj.role)) throw Error('Invalid envelope scope');
+        var cores = Array.isArray(obj.core) ? obj.core : [obj.core];
+        if (!cores.length || cores.length > 16 || new Set(cores).size !== cores.length || cores.some(function(c){{return typeof c !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{{0,63}}$/.test(c);}}) || Array.isArray(obj.core) && cores.includes('all')) throw Error('Invalid Core scope');
+        ['identity','components','credentials'].forEach(function(k){{if (!obj[k] || typeof obj[k] !== 'object' || Array.isArray(obj[k])) throw Error('Invalid section');}});
+        if (!Array.isArray(obj.routes)) throw Error('Invalid routes');
+        function portable(value,depth) {{
+            if (depth > 32) throw Error('Envelope nesting limit');
+            if (typeof value === 'number' && (!Number.isSafeInteger(value))) throw Error('Nonportable number');
+            if (value && typeof value === 'object') Object.values(value).forEach(function(v){{portable(v,depth+1);}});
+        }}
+        portable(obj,0);
         return obj;
     }}
 
@@ -1779,15 +1820,17 @@ elif subpath == "shadow6":
 
             var rows = '';
             var routes = env.routes || [];
+            if (routes.length > 1024) throw Error('Route display budget exceeded');
             if (routes.length === 0) {{
                 rows = '<tr><td colspan="4" style="padding:8px;color:#ef4444;text-align:center;">信封中未定义任何路由</td></tr>';
             }} else {{
-                routes.forEach(function(r) {{
+                routes.forEach(function(route) {{
+                    var r = route && typeof route === 'object' ? route : {{}};
                     rows += '<tr style="border-bottom:1px solid #1f2937;">' +
-                        '<td style="padding:6px;font-family:monospace;font-weight:bold;color:#f8fafc;">' + (r.core || '-') + '</td>' +
-                        '<td style="padding:6px;color:#38bdf8;">' + (r.transport || '-') + '</td>' +
-                        '<td style="padding:6px;font-family:monospace;color:#94a3b8;">' + (r.host || '-') + '</td>' +
-                        '<td style="padding:6px;font-family:monospace;color:#f59e0b;">' + (r.port || '-') + '</td>' +
+                        '<td style="padding:6px;font-family:monospace;font-weight:bold;color:#f8fafc;">' + envelopeText(r.core || '-') + '</td>' +
+                        '<td style="padding:6px;color:#38bdf8;">' + envelopeText(r.transport || '-') + '</td>' +
+                        '<td style="padding:6px;font-family:monospace;color:#94a3b8;">' + envelopeText(r.host || '-') + '</td>' +
+                        '<td style="padding:6px;font-family:monospace;color:#f59e0b;">' + envelopeText(r.port || '-') + '</td>' +
                         '</tr>';
                 }});
             }}
@@ -1796,12 +1839,13 @@ elif subpath == "shadow6":
         }} catch(e) {{
             tagEl.textContent = 'ERROR: ' + e.message;
             tagEl.style.color = '#ef4444';
-            tbody.innerHTML = '<tr><td colspan="4" style="padding:10px;text-align:center;color:#ef4444;">' + e.message + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="padding:10px;text-align:center;color:#ef4444;">' + envelopeText(e.message) + '</td></tr>';
             rawJsonEl.textContent = '';
         }}
     }}
 
     function handleLoadSampleS6P1() {{
+        if (!CANONICAL_SAMPLE_S6P1) {{ discoverS6Example(); return; }}
         document.getElementById('s6p1-textarea').value = CANONICAL_SAMPLE_S6P1;
         handleParseS6P1();
     }}
@@ -1848,7 +1892,7 @@ elif subpath == "shadow6":
     }}
 
     // Auto-parse on page load
-    setTimeout(handleParseS6P1, 100);
+    discoverS6Example();
     </script>
     """
 
@@ -2141,7 +2185,7 @@ if subpath == 'shadow6':
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="btn" onclick="const b=document.getElementById('s6-simple-bearer').value.trim(),p=document.getElementById('s6-simple-pair').value.trim();if(b||p){{localStorage.setItem('shadow6_auth_bearer',b);localStorage.setItem('shadow6_auth_pairing',p);const el=document.getElementById('s6-simple-badge');el.textContent='已授权';el.style.color='#10b981';el.style.borderColor='#10b981';alert('鉴权信息已存入浏览器会话！');}}" style="background:#0284c7;font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_auth')}</button>
-                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn btn-green" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_open_web')}</a>
+                <a href="/app/shadow6" target="_blank" rel="noreferrer" class="btn btn-green" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_open_web')}</a>
             </div>
         </div>
 
@@ -2168,7 +2212,7 @@ if subpath == 'ufsdcpm':
     <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
         <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🌐 {tr('UFS 原生安全存储 HTTP 鉴权信息', 'UFS Native Secure Storage HTTP Credentials')}</h2>
         <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary);">
-            <div>&bull; <strong>{tr('公网网关', 'Public Gateway')}</strong>: <a href="https://ufs.ziokt.com/" target="_blank" style="color:var(--accent-blue);">https://ufs.ziokt.com/</a></div>
+            <div>&bull; <strong>{tr('公网网关', 'Public Gateway')}</strong>: <a href="/app/ufsdcpm" target="_blank" style="color:var(--accent-blue);">/app/ufsdcpm</a></div>
             <div>&bull; <strong>{tr('认证协议', 'Auth Protocol')}</strong>: HTTP Digest Auth (SHA-256)</div>
             <div>&bull; <strong>{tr('凭据存储', 'Credentials Storage')}</strong>: <code>~/.config/dcpm-ufs/config.json</code> ({tr('受本地 0600 权限保护，不向公网暴露', 'Protected by local 0600 permissions, not exposed publicly')})</div>
             <div>&bull; <strong>{tr('安全说明', 'Security Notice')}</strong>: {tr('口令持久化保存在节点主机配置文件中，可在终端执行 <code>cat ~/.config/dcpm-ufs/config.json</code> 查看或配置。', 'Credentials are securely stored in the host node config file. Inspect or update via <code>cat ~/.config/dcpm-ufs/config.json</code> on host.')}</div>
@@ -2181,11 +2225,11 @@ if subpath == 'gui':
     simple_content_html += content_html
 
 ext_links = {
-    'watchat': 'https://chat.ziokt.com/',
+    'watchat': '/app/watchat',
     'sim': 'https://sim.ziokt.com/',
     'effort': 'https://fendou.ziokt.com/',
-    'ufsdcpm': 'https://ufs.ziokt.com/',
-    'shadow6': 'https://shadow6.ziokt.com/',
+    'ufsdcpm': '/app/ufsdcpm',
+    'shadow6': '/app/shadow6',
     'gui': '/gateway-assets/gui/index.html'
 }
 if subpath in ext_links:

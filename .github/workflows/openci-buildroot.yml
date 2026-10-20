@@ -1,0 +1,72 @@
+name: OpenCI Buildroot distcc and QEMU validation
+on:
+  push:
+    branches: [codex/ziokt-openci-foundation-20261020]
+    paths: ["ci/openci/**", ".github/workflows/openci-buildroot.yml"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Native Buildroot QEMU target
+        type: choice
+        options: [all, x86_64, aarch64]
+        default: all
+permissions:
+  contents: read
+concurrency:
+  group: openci-buildroot-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+      - id: matrix
+        env:
+          TARGET: ${{ inputs.target || 'all' }}
+        run: |
+          if [ "$TARGET" = all ]; then
+            echo 'targets=["x86_64","aarch64"]' >> "$GITHUB_OUTPUT"
+          else
+            printf 'targets=["%s"]\n' "$TARGET" >> "$GITHUB_OUTPUT"
+          fi
+  build-and-boot:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install only on ephemeral CI VM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential bc cpio file rsync unzip wget patch git python3-pexpect python3-setuptools libncurses-dev libssl-dev libelf-dev distcc qemu-system-x86 qemu-system-arm
+          sudo systemctl disable --now distcc.service || true
+      - uses: actions/cache@v4
+        with:
+          path: .ci-cache/buildroot-downloads
+          key: buildroot-downloads-${{ runner.os }}-${{ hashFiles('ci/openci/buildroot.lock.json') }}
+      - uses: actions/cache@v4
+        with:
+          path: .ci-cache/ccache-${{ matrix.target }}
+          key: buildroot-ccache-${{ matrix.target }}-${{ hashFiles('ci/openci/**') }}-${{ github.run_id }}
+          restore-keys: |
+            buildroot-ccache-${{ matrix.target }}-${{ hashFiles('ci/openci/**') }}-
+      - name: Native dependency graph, cross toolchain, two distcc workers and serial boot
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ci/openci/buildroot.sh "$TARGET"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: openci-buildroot-${{ matrix.target }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/openci-${{ matrix.target }}/evidence/
+            ${{ runner.temp }}/openci-${{ matrix.target }}/output/images/
+          if-no-files-found: error
+          retention-days: 7

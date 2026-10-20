@@ -214,6 +214,10 @@ def handler(gateway):
                     self.check_gui_origin()
                     from .gui_api import dispatch
                     return self.send(200, dispatch(gateway, self.headers.get('Authorization')))
+                if path == '/api/gateway/public-address':
+                    from .public_address import PUBLIC_ADDRESS
+                    observation = PUBLIC_ADDRESS.observe()
+                    return self.send(200 if observation['ok'] else 503, observation)
                 if path == '/api/gateway/status':
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
