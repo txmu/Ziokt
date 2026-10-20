@@ -81,6 +81,12 @@ jobs:
         run: |
           set -o pipefail
           python ci/mailbox_multinode.py dist/native/mailbox_replica_runner ${{ matrix.copies }} | tee mailbox-${{ matrix.copies }}-results.txt
+      - name: Prebuilt BLAKE3 wheel for native recipient proofs
+        run: python -m pip install --only-binary=:all: blake3==1.0.11
+      - name: Same replica modes through real authorized encrypted ETP mesh
+        run: |
+          set -o pipefail
+          python ci/mailbox_mesh.py dist/native/ziokt_gateway ${{ matrix.copies }} 2>&1 | tee mailbox-mesh-${{ matrix.copies }}-results.txt
       - name: Same binaries on independent Python and Rust Unified executors
         if: matrix.copies == 1
         run: |
