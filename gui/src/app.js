@@ -623,6 +623,102 @@ async function renderToolPanel(container, title, filter, fileOperations = false)
 }
 
 
+  // --- Module: private-offline.js ---
+/* Opt-in private offline copies. No credentials or plaintext enter IndexedDB. */
+
+const PRIVATE_OFFLINE_DB='ziokt-private-offline-v1',PRIVATE_OFFLINE_MAX=64*1024*1024,PRIVATE_OFFLINE_FILE=16*1024*1024;
+function offlineRequest(request){return new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
+function offlineDone(transaction){return new Promise((resolve,reject)=>{transaction.oncomplete=resolve;transaction.onabort=()=>reject(transaction.error||Error('Offline transaction aborted'));transaction.onerror=()=>reject(transaction.error);});}
+class PrivateOfflineVault extends EventTarget{
+ #db;#key=null;#generation=0;#timer;
+ async database(){if(!this.#db)this.#db=new Promise((resolve,reject)=>{const request=indexedDB.open(PRIVATE_OFFLINE_DB,1);request.onupgradeneeded=()=>{for(const name of ['vault','entries','blobs'])request.result.createObjectStore(name,{keyPath:'id'});};request.onsuccess=()=>{const db=request.result;db.onversionchange=()=>{this.lock();db.close();this.#db=null;};resolve(db);};request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('Close other offline-cache tabs first'));});return this.#db;}
+ get unlocked(){return this.#key!==null;}
+ lock(){this.#key=null;this.#generation++;clearTimeout(this.#timer);this.dispatchEvent(new Event('lock'));}
+ async unlock(password){
+  this.lock();if(typeof password!=='string'||password.length<12||password.length>1024)throw Error('Use an offline password of 12–1024 characters');
+  const generation=this.#generation,db=await this.database(),tx=db.transaction('vault'),existing=await offlineRequest(tx.objectStore('vault').get('main'));
+  const salt=existing?existing.salt:crypto.getRandomValues(new Uint8Array(16));
+  if(!(salt instanceof Uint8Array)||salt.length!==16||(existing&&existing.version!==1))throw Error('Unsupported offline vault');
+  const material=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:310000,hash:'SHA-256'},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  const aad=new TextEncoder().encode('Ziokt/private-offline/v1/verifier');
+  if(existing){try{const value=await crypto.subtle.decrypt({name:'AES-GCM',iv:existing.iv,additionalData:aad},key,existing.box);if(new TextDecoder().decode(value)!=='Ziokt private offline vault v1')throw Error();}catch{throw Error('Wrong offline password or damaged vault');}}
+  else {
+   const iv=crypto.getRandomValues(new Uint8Array(12)),box=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},key,new TextEncoder().encode('Ziokt private offline vault v1'));
+   if(generation!==this.#generation)throw Error('Offline vault locked');
+   const write=db.transaction('vault','readwrite');write.objectStore('vault').add({id:'main',version:1,salt,iv,box});await offlineDone(write);
+  }
+  if(generation!==this.#generation)throw Error('Offline vault locked');this.#key=key;this.#timer=setTimeout(()=>this.lock(),15*60*1000);this.dispatchEvent(new Event('change'));return true;
+ }
+ session(){if(!this.#key)throw Error('Unlock the offline vault first');return {key:this.#key,generation:this.#generation};}
+ assertSession(session){if(session.generation!==this.#generation||!this.#key)throw Error('Offline vault locked');}
+ aad(id,part){return new TextEncoder().encode('Ziokt/private-offline/v1/'+id+'/'+part);}
+ async records(){const db=await this.database();return offlineRequest(db.transaction('entries').objectStore('entries').getAll());}
+ async list(){
+  const session=this.session(),result=[];
+  for(const record of await this.records()){
+   if(record.expires<=Date.now()){await this.remove(record.id);continue;}
+   const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData:this.aad(record.id,'metadata')},session.key,record.box),metadata=JSON.parse(new TextDecoder().decode(raw));
+   this.assertSession(session);if(metadata.expires!==record.expires)throw Error('Offline expiry integrity failed');result.push({...metadata,id:record.id});
+  }
+  this.assertSession(session);return result;
+ }
+ async save(metadata,data){
+  const session=this.session();if(!(data instanceof Uint8Array))data=new Uint8Array(data);
+  if(data.byteLength>PRIVATE_OFFLINE_FILE)throw Error('Offline file limit: 16 MiB');
+  if(!['book','article','attachment'].includes(metadata.kind)||typeof metadata.source!=='string'||metadata.source.length>2048||typeof metadata.source_id!=='string'||metadata.source_id.length>512)throw Error('Offline source metadata required');
+  const digest='sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),b=>b.toString(16).padStart(2,'0')).join('');if(metadata.digest&&metadata.digest!==digest)throw Error('Offline content digest mismatch');
+  const prior=(await this.list()).find(item=>item.source===metadata.source&&item.source_id===metadata.source_id&&item.kind===metadata.kind),id=prior?.id||crypto.randomUUID(),expires=Date.now()+7*86400000;
+  const value={...metadata,digest,size:data.byteLength,expires},raw=new TextEncoder().encode(JSON.stringify(value));if(raw.byteLength>65536)throw Error('Offline metadata budget exceeded');
+  const iv=crypto.getRandomValues(new Uint8Array(12)),contentIv=crypto.getRandomValues(new Uint8Array(12));
+  const box=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:this.aad(id,'metadata')},session.key,raw),content=await crypto.subtle.encrypt({name:'AES-GCM',iv:contentIv,additionalData:this.aad(id,'content')},session.key,data);
+  this.assertSession(session);const db=await this.database();this.assertSession(session);
+  const tx=db.transaction(['entries','blobs'],'readwrite'),entries=tx.objectStore('entries'),blobs=tx.objectStore('blobs');let failure;
+  entries.getAll().onsuccess=event=>{
+   try{
+    this.assertSession(session);let total=0,count=0;
+    for(const record of event.target.result){if(record.expires<=Date.now()){entries.delete(record.id);blobs.delete(record.id);}else if(record.id!==id){if(!Number.isSafeInteger(record.bytes)||record.bytes<0)throw Error('Damaged offline quota metadata');total+=record.bytes;count++;}}
+    const bytes=box.byteLength+content.byteLength;if(count>=256||total+bytes>PRIVATE_OFFLINE_MAX)throw Error('Offline quota: 64 MiB / 256 items; delete older copies');
+    entries.put({id,iv,contentIv,box,expires,bytes});blobs.put({id,box:content});
+   }catch(error){failure=error;tx.abort();}
+  };
+  try{await offlineDone(tx);}catch(error){throw failure||error;}this.assertSession(session);this.dispatchEvent(new Event('change'));return {...value,id};
+ }
+ async read(id){
+  const session=this.session(),db=await this.database(),tx=db.transaction(['entries','blobs']);
+  const [record,blob]=await Promise.all([offlineRequest(tx.objectStore('entries').get(id)),offlineRequest(tx.objectStore('blobs').get(id))]);
+  if(!record||!blob)throw Error('Offline copy missing');if(record.expires<=Date.now()){await this.remove(id);throw Error('Offline copy expired');}
+  const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData:this.aad(id,'metadata')},session.key,record.box),metadata=JSON.parse(new TextDecoder().decode(raw));
+  if(metadata.expires!==record.expires)throw Error('Offline expiry integrity failed');
+  const bytes=await crypto.subtle.decrypt({name:'AES-GCM',iv:record.contentIv,additionalData:this.aad(id,'content')},session.key,blob.box),digest='sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+  this.assertSession(session);if(digest!==metadata.digest||bytes.byteLength!==metadata.size)throw Error('Offline content integrity failed');return {metadata,bytes};
+ }
+ async remove(id){const db=await this.database(),tx=db.transaction(['entries','blobs'],'readwrite');tx.objectStore('entries').delete(id);tx.objectStore('blobs').delete(id);await offlineDone(tx);this.dispatchEvent(new Event('change'));}
+ async clear(){this.lock();const db=await this.database(),tx=db.transaction(['entries','blobs','vault'],'readwrite');for(const name of ['entries','blobs','vault'])tx.objectStore(name).clear();await offlineDone(tx);this.dispatchEvent(new Event('change'));}
+}
+const privateOfflineVault=new PrivateOfflineVault();
+if(typeof window!=='undefined')window.privateOfflineVault=privateOfflineVault;
+window.addEventListener('pagehide',()=>privateOfflineVault.lock());
+window.addEventListener('ziokt-private-cache-lock',()=>privateOfflineVault.lock());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)privateOfflineVault.lock();});
+function privateOfflineSource(){return State.runtimeMode==='local'?State.localGatewayUrl:(getActiveRemoteNode()?.url||State.gatewayUrl);}
+function mountPrivateOffline(container){
+ const en=State.language==='en',tr=(zh,english)=>en?english:zh,node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
+ const panel=node('section');panel.className='card private-offline-panel';panel.id='private-offline-panel';panel.append(node('h3',tr('私有离线正文与附件','Private offline text and attachments')),node('p',tr('主动保存后在本机加密，密码不保存。单文件16 MiB，总64 MiB；7天过期，切到后台或15分钟后锁定。离线副本不能实时接收远端撤销；忘记密码需清空后重新下载。','Opt-in encrypted local copies. Password is never stored. 16 MiB/file, 64 MiB total, 7-day expiry. Locks in the background or after 15 minutes. Offline copies cannot receive remote revocations; a lost password requires clearing and downloading again.')));
+ const form=node('form'),label=node('label',tr('离线密码（首次设置至少12个字符）','Offline password (at least 12 characters)')),password=node('input');password.type='password';password.autocomplete='off';password.minLength=12;password.maxLength=1024;password.required=true;password.id='private-offline-password';label.append(password);form.append(label);panel.append(form);
+ const status=node('p');status.id='private-offline-status';status.setAttribute('role','status');panel.append(status);const list=node('div');list.id='private-offline-list';panel.append(list);const viewer=node('section');viewer.id='private-offline-viewer';panel.append(viewer);const urls=new Set();
+ function locked(){for(const url of urls)URL.revokeObjectURL(url);urls.clear();list.replaceChildren();viewer.replaceChildren();password.value='';status.textContent=tr('已锁定','Locked');}
+ async function execute(operation){try{await operation();}catch(error){status.textContent=error.message;}}
+ function button(parent,title,operation,id){const value=node('button',title);value.type='button';value.className='btn btn-secondary';if(id)value.id=id;value.onclick=async()=>{value.disabled=true;await execute(operation);value.disabled=false;};parent.append(value);return value;}
+ async function refresh(){list.replaceChildren();const items=await privateOfflineVault.list();for(const item of items){const row=node('article');row.className='card';row.append(node('h4',item.title||item.source_id),node('small',item.kind+' · '+item.size+' bytes · '+new Date(item.expires).toLocaleDateString()));button(row,tr('离线打开','Open offline'),async()=>{const {metadata,bytes}=await privateOfflineVault.read(item.id);viewer.replaceChildren(node('h4',metadata.title||metadata.source_id));if(metadata.kind==='article'||['text/plain','text/markdown','text/html'].includes(metadata.mime)){const text=node('pre',new TextDecoder().decode(bytes));text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';viewer.append(text);}const url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'}));urls.add(url);const link=node('a',tr('保存已校验文件','Save verified file'));link.href=url;link.download=(metadata.filename||metadata.title||'offline.bin').replace(/[\\/\x00-\x1f]/g,'_');viewer.append(link);});button(row,tr('删除离线副本','Delete offline copy'),async()=>{await privateOfflineVault.remove(item.id);await refresh();});list.append(row);}status.textContent=tr('已解锁，离线副本：','Unlocked, offline copies: ')+items.length;}
+ const unlock=node('button',tr('创建 / 解锁离线保险箱','Create / unlock offline vault'));unlock.id='private-offline-unlock';unlock.className='btn btn-primary';form.append(unlock);
+ form.onsubmit=async event=>{event.preventDefault();unlock.disabled=true;const secret=password.value;password.value='';await execute(async()=>{await privateOfflineVault.unlock(secret);await refresh();});unlock.disabled=false;};
+ button(panel,tr('刷新离线列表','Refresh offline list'),refresh,'private-offline-refresh');button(panel,tr('锁定','Lock'),()=>privateOfflineVault.lock(),'private-offline-lock');button(panel,tr('清空本机离线副本及密码','Clear local copies and password'),async()=>{await privateOfflineVault.clear();locked();},'private-offline-clear');
+ privateOfflineVault.addEventListener('lock',locked);const observer=new MutationObserver(()=>{if(!panel.isConnected){privateOfflineVault.removeEventListener('lock',locked);observer.disconnect();for(const url of urls)URL.revokeObjectURL(url);}});observer.observe(document.documentElement,{childList:true,subtree:true});
+ container.append(panel);if(privateOfflineVault.unlocked)execute(refresh);else locked();return {refresh};
+}
+
+
   // --- Module: modules/home.js ---
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
@@ -2108,10 +2204,28 @@ function renderApps(container) {
   // --- Module: modules/content.js ---
 // Content applications use the same scoped MCP dispatcher as the existing GUI.
 
+
 function contentElement(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;}
 function contentField(form,label,name,type='text'){const wrap=contentElement('label',label),input=contentElement(type==='textarea'?'textarea':'input');input.name=name;if(type!=='textarea')input.type=type;input.required=true;input.style.cssText='display:block;width:100%;min-height:44px;margin:8px 0 16px;padding:10px;background:var(--bg-panel);color:var(--text-main);border:1px solid var(--border-subtle)';wrap.append(input);form.append(wrap);return input;}
 function contentAction(label,fn,status){const button=contentElement('button',label);button.className='btn btn-primary';button.style.cssText='min-height:44px;margin:8px 8px 8px 0';button.onclick=async()=>{button.disabled=true;try{await fn();}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};return button;}
 async function contentTool(operation,args={},write=false){return callTool(operation.replaceAll('.','_'),args,{confirm:write});}
+async function offlineContentFile(id){
+  const info=await contentTool('content.object.info',{id});if(info.size>16*1024*1024)throw Error('离线文件上限 16 MiB');
+  const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
+  const bytes=new Uint8Array(await new Blob(parts).arrayBuffer());if(await sha256(bytes)!==info.digest)throw Error('离线文件完整性校验失败');return {info,bytes};
+}
+async function saveOfflineBook(book,status){
+  if(!privateOfflineVault.unlocked)throw Error('请先在“应用与离线”中创建或解锁离线保险箱');
+  const source=privateOfflineSource(),{info,bytes}=await offlineContentFile(book.file_id);
+  await privateOfflineVault.save({kind:'book',source,source_id:book.id,title:book.title,mime:info.mime,digest:info.digest,publisher:book.origin||''},bytes);status.textContent='书籍已加密保存到本机离线保险箱';
+}
+async function saveOfflineArticle(item,status){
+  if(!privateOfflineVault.unlocked)throw Error('请先在“应用与离线”中创建或解锁离线保险箱');
+  const source=privateOfflineSource();await privateOfflineVault.save({kind:'article',source,source_id:item.message_id,title:item.subject,mime:'text/plain',author:item.from,references:item.references||[],attachments:item.attachments||[]},new TextEncoder().encode(item.body));
+  let count=0;try{for(const attachment of item.attachments||[]){const {info,bytes}=await offlineContentFile(attachment.id);await privateOfflineVault.save({kind:'attachment',source,source_id:attachment.id,title:item.subject+' / '+attachment.name,filename:attachment.name,mime:info.mime,digest:info.digest,parent:item.message_id},bytes);count++;}}
+  catch(error){throw Error('正文已保存，附件已保存 '+count+' 个；其余未完成：'+error.message);}
+  status.textContent='正文和 '+count+' 个附件已加密保存，可在“应用与离线”断网读取';
+}
 function renderLibrary(container){
   container.replaceChildren();container.append(contentElement('h1','Ziokt Library'));
   const headerBar = contentElement('div');
@@ -2138,7 +2252,7 @@ function renderLibrary(container){
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }
   async function downloadBook(book){status.textContent='正在下载 '+book.title+'…';const info=await contentTool('content.object.info',{id:book.file_id});if(info.size>16*1024*1024)throw Error('此文件超过浏览器下载预算，请使用流式客户端下载。');const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');const link=contentElement('a','保存 '+book.title);link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);document.body.append(link);link.click();link.remove();status.textContent='文件校验通过并已下载';}
-  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
+  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status),contentAction('加密保存离线副本',()=>saveOfflineBook(book,status),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
   }
   searchForm.append(contentAction('搜索',load,status));container.append(searchForm,results,reader);
   const details=contentElement('details'),summary=contentElement('summary','上传与出版');details.append(summary);const form=contentElement('div');details.append(form);container.append(details);
@@ -2163,7 +2277,7 @@ function renderNetnews(container){
   const layout=contentElement('div');layout.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px';const groups=contentElement('aside'),list=contentElement('section'),article=contentElement('article');layout.append(groups,list,article);container.append(layout);
   let selected='',refs=[];
   const posting=contentElement('details');posting.open=true;posting.append(contentElement('summary','发布 / 回复'));const form=contentElement('div');posting.append(form);container.append(posting);const groupField=contentField(form,'新闻组','group'),subject=contentField(form,'标题','subject'),body=contentField(form,'正文','body','textarea');
-  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';article.append(text,contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
+  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';article.append(text,contentAction('加密保存正文与全部附件',()=>saveOfflineArticle(item,status),status),contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
   async function loadGroups(){groups.replaceChildren(contentElement('h2','新闻组'));const data=await contentTool('netnews.groups');for(const group of data.items)groups.append(contentAction(group.name,()=>loadArticles(group.name),status));status.textContent=`${data.items.length} 个可见新闻组`;}
   container.insertBefore(contentAction('加载新闻组',loadGroups,status),layout);
   form.append(contentAction('发布',async()=>{if(!groupField.value||!subject.value||!body.value)throw Error('请填写新闻组、标题和正文');await contentTool('netnews.post',{groups:[groupField.value],subject:subject.value,body:body.value,references:refs},true);refs=[];body.value='';await loadArticles(groupField.value);status.textContent='文章已持久发布';},status));
@@ -2178,6 +2292,7 @@ function renderEcosystem(container){
  const en=State.language==='en',label=(zh,english)=>en?english:zh;
  const node=(tag,text)=>{const value=document.createElement(tag);if(text!==undefined)value.textContent=text;return value;};
  container.replaceChildren();container.append(node('h2',label('应用与离线工作区','Applications and offline workspace')));
+ mountPrivateOffline(container);
  const status=node('p',label('应用保留原生身份与权限。注册接口不等于已经完成运行验证。','Applications retain native identity and permissions. Registered tools are not runtime health proofs.'));status.setAttribute('role','status');container.append(status);
  const offline=node('section');offline.className='card';offline.append(node('h3',label('本地文件完整性检查','Local file integrity')),
   node('p',label('完全在此设备计算 SHA-256，不上传文件。当前浏览器预算为 16 MiB；更大文件使用本地流式客户端。','Compute SHA-256 entirely on this device. No file upload. Browser budget: 16 MiB; use the local streaming client for larger files.')));

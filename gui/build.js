@@ -49,6 +49,7 @@ for (const jf of jsonFiles) {
 function buildStandaloneAppBundle() {
   const order = [
     'core.js',
+    'private-offline.js',
     'modules/home.js',
     'modules/chat.js',
     'modules/forum.js',
@@ -71,7 +72,7 @@ function buildStandaloneAppBundle() {
     let content = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
     content = content.replace(/^\s*import\b[\s\S]*?from\s*['"][^'"]+['"];?\s*$/gm, '');
     content = content.replace(/^\s*import\b.*?;?\s*$/gm, '');
-    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var)\s+/gm, (m, p1, p2, p3) => (p2 || '') + p3 + ' ');
+    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var|class)\s+/gm, (m, p1, p2, p3) => (p2 || '') + p3 + ' ');
     content = content.replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '');
     bundle += `  // --- Module: ${rel} ---\n` + content + `\n\n`;
   }

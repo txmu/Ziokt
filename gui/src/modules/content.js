@@ -1,10 +1,28 @@
 // Content applications use the same scoped MCP dispatcher as the existing GUI.
 import { callTool, sha256 } from '../core.js';
+import {privateOfflineVault,privateOfflineSource} from '../private-offline.js';
 
 function contentElement(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;}
 function contentField(form,label,name,type='text'){const wrap=contentElement('label',label),input=contentElement(type==='textarea'?'textarea':'input');input.name=name;if(type!=='textarea')input.type=type;input.required=true;input.style.cssText='display:block;width:100%;min-height:44px;margin:8px 0 16px;padding:10px;background:var(--bg-panel);color:var(--text-main);border:1px solid var(--border-subtle)';wrap.append(input);form.append(wrap);return input;}
 function contentAction(label,fn,status){const button=contentElement('button',label);button.className='btn btn-primary';button.style.cssText='min-height:44px;margin:8px 8px 8px 0';button.onclick=async()=>{button.disabled=true;try{await fn();}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};return button;}
 async function contentTool(operation,args={},write=false){return callTool(operation.replaceAll('.','_'),args,{confirm:write});}
+async function offlineContentFile(id){
+  const info=await contentTool('content.object.info',{id});if(info.size>16*1024*1024)throw Error('离线文件上限 16 MiB');
+  const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
+  const bytes=new Uint8Array(await new Blob(parts).arrayBuffer());if(await sha256(bytes)!==info.digest)throw Error('离线文件完整性校验失败');return {info,bytes};
+}
+async function saveOfflineBook(book,status){
+  if(!privateOfflineVault.unlocked)throw Error('请先在“应用与离线”中创建或解锁离线保险箱');
+  const source=privateOfflineSource(),{info,bytes}=await offlineContentFile(book.file_id);
+  await privateOfflineVault.save({kind:'book',source,source_id:book.id,title:book.title,mime:info.mime,digest:info.digest,publisher:book.origin||''},bytes);status.textContent='书籍已加密保存到本机离线保险箱';
+}
+async function saveOfflineArticle(item,status){
+  if(!privateOfflineVault.unlocked)throw Error('请先在“应用与离线”中创建或解锁离线保险箱');
+  const source=privateOfflineSource();await privateOfflineVault.save({kind:'article',source,source_id:item.message_id,title:item.subject,mime:'text/plain',author:item.from,references:item.references||[],attachments:item.attachments||[]},new TextEncoder().encode(item.body));
+  let count=0;try{for(const attachment of item.attachments||[]){const {info,bytes}=await offlineContentFile(attachment.id);await privateOfflineVault.save({kind:'attachment',source,source_id:attachment.id,title:item.subject+' / '+attachment.name,filename:attachment.name,mime:info.mime,digest:info.digest,parent:item.message_id},bytes);count++;}}
+  catch(error){throw Error('正文已保存，附件已保存 '+count+' 个；其余未完成：'+error.message);}
+  status.textContent='正文和 '+count+' 个附件已加密保存，可在“应用与离线”断网读取';
+}
 
 export function renderLibrary(container){
   container.replaceChildren();container.append(contentElement('h1','Ziokt Library'));
@@ -32,7 +50,7 @@ export function renderLibrary(container){
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }
   async function downloadBook(book){status.textContent='正在下载 '+book.title+'…';const info=await contentTool('content.object.info',{id:book.file_id});if(info.size>16*1024*1024)throw Error('此文件超过浏览器下载预算，请使用流式客户端下载。');const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');const link=contentElement('a','保存 '+book.title);link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);document.body.append(link);link.click();link.remove();status.textContent='文件校验通过并已下载';}
-  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
+  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status),contentAction('加密保存离线副本',()=>saveOfflineBook(book,status),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
   }
   searchForm.append(contentAction('搜索',load,status));container.append(searchForm,results,reader);
   const details=contentElement('details'),summary=contentElement('summary','上传与出版');details.append(summary);const form=contentElement('div');details.append(form);container.append(details);
@@ -58,7 +76,7 @@ export function renderNetnews(container){
   const layout=contentElement('div');layout.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px';const groups=contentElement('aside'),list=contentElement('section'),article=contentElement('article');layout.append(groups,list,article);container.append(layout);
   let selected='',refs=[];
   const posting=contentElement('details');posting.open=true;posting.append(contentElement('summary','发布 / 回复'));const form=contentElement('div');posting.append(form);container.append(posting);const groupField=contentField(form,'新闻组','group'),subject=contentField(form,'标题','subject'),body=contentField(form,'正文','body','textarea');
-  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';article.append(text,contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
+  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';article.append(text,contentAction('加密保存正文与全部附件',()=>saveOfflineArticle(item,status),status),contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
   async function loadGroups(){groups.replaceChildren(contentElement('h2','新闻组'));const data=await contentTool('netnews.groups');for(const group of data.items)groups.append(contentAction(group.name,()=>loadArticles(group.name),status));status.textContent=`${data.items.length} 个可见新闻组`;}
   container.insertBefore(contentAction('加载新闻组',loadGroups,status),layout);
   form.append(contentAction('发布',async()=>{if(!groupField.value||!subject.value||!body.value)throw Error('请填写新闻组、标题和正文');await contentTool('netnews.post',{groups:[groupField.value],subject:subject.value,body:body.value,references:refs},true);refs=[];body.value='';await loadArticles(groupField.value);status.textContent='文章已持久发布';},status));

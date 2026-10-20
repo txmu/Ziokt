@@ -1028,3 +1028,7 @@ tr:hover td {
 #native-forum-body{min-height:160px}
 #native-forum-list .card{margin:14px 0;overflow-wrap:anywhere}
 #native-forum-list .card [hidden]{display:none}
+.private-offline-panel{margin:16px 0;overflow-wrap:anywhere}
+.private-offline-panel input{display:block;width:100%;max-width:100%;min-height:44px;margin:10px 0;padding:10px}
+.private-offline-panel button,.private-offline-panel a{min-height:44px;display:inline-flex;align-items:center;margin:8px;padding:10px}
+.private-offline-panel article{margin:10px 0}

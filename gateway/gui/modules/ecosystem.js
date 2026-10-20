@@ -1,10 +1,12 @@
 /* Native application entrypoints and a local workspace with no network calls. */
 import {State,apiRequest} from '../core.js';
+import {mountPrivateOffline} from '../private-offline.js';
 
 export function renderEcosystem(container){
  const en=State.language==='en',label=(zh,english)=>en?english:zh;
  const node=(tag,text)=>{const value=document.createElement(tag);if(text!==undefined)value.textContent=text;return value;};
  container.replaceChildren();container.append(node('h2',label('应用与离线工作区','Applications and offline workspace')));
+ mountPrivateOffline(container);
  const status=node('p',label('应用保留原生身份与权限。注册接口不等于已经完成运行验证。','Applications retain native identity and permissions. Registered tools are not runtime health proofs.'));status.setAttribute('role','status');container.append(status);
  const offline=node('section');offline.className='card';offline.append(node('h3',label('本地文件完整性检查','Local file integrity')),
   node('p',label('完全在此设备计算 SHA-256，不上传文件。当前浏览器预算为 16 MiB；更大文件使用本地流式客户端。','Compute SHA-256 entirely on this device. No file upload. Browser budget: 16 MiB; use the local streaming client for larger files.')));

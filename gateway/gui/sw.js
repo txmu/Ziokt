@@ -1,5 +1,5 @@
 /* Only the fixed public GUI shell is cached. Never cache API data or credentials. */
-const CACHE_NAME = 'ziokt-gui-shell-v2-233ef64b53407fecc681';
+const CACHE_NAME = 'ziokt-gui-shell-v2-d1b9609071bc0989d36c';
 const PREFIX = 'ziokt-gui-shell-';
 const STATIC_ASSETS = ['./index.html','./app.js','./bootstrap.js','./style.css','./manifest.json','./icons/icon-192.png','./icons/icon-512.png','./icons/icon.svg','./i18n/zh.json','./i18n/en.json','./i18n/zh-CN.json','./i18n/en-US.json'];
 const SHELL = new URL('./index.html',self.registration.scope).href;

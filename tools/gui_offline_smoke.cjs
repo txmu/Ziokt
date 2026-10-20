@@ -32,6 +32,29 @@ const {pathToFileURL}=require('node:url');
    assert(cache.names.includes('another-application-cache'));assert(cache.urls.every(url=>!url.includes('/api/')&&!url.includes('private')));
    const failed=await page.evaluate(async()=>{try{await fetch('/api/private');return false;}catch{return true;}});assert(failed,'API unexpectedly fell back to cached private data');
    await page.locator('#ecosystem-filter').fill('SafeFS');assert.equal(await page.locator('.ecosystem-grid article:visible').count(),1);
+   await page.locator('#private-offline-password').fill('test-passphrase-at-least-12-chars');
+   await page.locator('#private-offline-unlock').click();
+   await page.locator('#private-offline-status').filter({hasText:/已解锁|Unlocked/}).waitFor();
+   const saved=await page.evaluate(async()=>{
+    await window.privateOfflineVault.save({kind:'book',title:'Offline Test Book',source:'https://ziokt.com/test',source_id:'test-book-1'},new TextEncoder().encode('Private offline text content that must be encrypted'));
+    return await window.privateOfflineVault.list();
+   });
+   assert.equal(saved.length,1);assert.equal(saved[0].title,'Offline Test Book');
+   const rawDb=await page.evaluate(async()=>{
+    return new Promise(resolve=>{
+     const req=indexedDB.open('ziokt-private-offline-v1');
+     req.onsuccess=()=>{
+      const db=req.result,tx=db.transaction(['entries','blobs'],'readonly'),out=[];
+      tx.objectStore('entries').openCursor().onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else resolve(out);};
+     };
+    });
+   });
+   assert(!JSON.stringify(rawDb).includes('Private offline text content'),'Plaintext leaked into IndexedDB');
+   await page.locator('#private-offline-refresh').click();
+   await page.locator('#private-offline-list article').filter({hasText:'Offline Test Book'}).waitFor();
+   await page.locator('#private-offline-lock').click();
+   await page.locator('#private-offline-status').filter({hasText:/已锁定|Locked/}).waitFor();
+   await page.locator('#private-offline-clear').click();
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile horizontal overflow');assert.deepEqual(errors,[]);
    evidence.push({prefix:prefix||'/',offline_reload:true,offline_mechanism:engine==='webkit'?'actual origin listener stopped':'browser network offline',local_digest:true,no_private_api_cache:true,unrelated_cache_preserved:true,strict_csp:true});await context.close();
    if(engine==='webkit')await new Promise(resolve=>server.listen(port,'127.0.0.1',resolve));
