@@ -12,7 +12,7 @@ Corium、Shadow6 为创始原生组件，ETP 等 Companion 保持独立运行。
 |---|---|---|
 |P0-A|`companions/etp/src/src/extensions/tc16_tcc.rs` 为 Legacy CPU/编译器；`tc16_unified.rs` 为独立 Unified VM；`ziokt/tc16_spec.py` 明确拒绝不支持的 Legacy 编译|先冻结 MMIO/栈/整数溢出/中断/存储语义，增加 Rust 后端与真实 ETP 程序差分；不能直接重标 ISA|
 |P0-B|`ziokt/content_fabric.py`、Library/Netnews 已有共同引用；原生 Corium Forum/Wiki 与 ETP Forum/FileShare Adapter 仍未完成|带身份授权的原生写入、签名保存、撤回/冲突、防环、游标恢复测试|
-|P0-C|工作区未发现独立 OpenCI Controller/Scheduler/Runner 实现|持久 DAG/任务/租约、隔离 Runner、取消、恢复、日志和制品；独立于 PoUW 运行|
+|P0-C|新增 `openci/state.py`、Controller HTTP/CLI 与 OCI Runner，独立进程运行并复用 Content Fabric|SQLite 状态与实际 HTTP/原生对象测试已通过；OCI 执行、独立复验及故障隔离交 CI 验收|
 |P0-D|新增 `ci/openci/` 和 `openci-buildroot.yml` 为真实构建验收工具，尚不是 OpenCI 服务|CI 两架构交叉工具链、真实 distcc 工作、ccache 命中、镜像启动与日志；仍需接入 P0-C|
 |P0-E|需以 Corium 原生 compute_engines/pouw_engine 注册及治理为准|所有者审批、原生验证器、贡献去重及测试网结算；CI 记录不自动视为 PoUW 证明|
 |P0-F|`Corium/corix_v108.sh` 保留 test-/dev- 激活限制、持有人授权及审查交易|扩展恶意请求/签名/份额门槛/重放/恢复测试，独立审计与主网升级另行进行|
@@ -21,6 +21,7 @@ Corium、Shadow6 为创始原生组件，ETP 等 Companion 保持独立运行。
 ## 本轮真实修改
 
 - 移除 GUI Web/Android/源文件中未配置的 chat/ufs/shadow6 独立域名，保留节点内授权操作。
+- Corium 参考配置清空固定 public_ip，保留原生地址发现；未修改运行中的网络配置。
 - 参考 Caddy 配置不再绑定这三个独立域名；同域服务代理保留原始 Host。参考 WATChat origin/联系地址改用已有 cor-web 域名。未重载生产 Caddy 或修改实际 WATChat 运行配置。
 - Shadow6 `Control-Center/web_gateway.py` 移除旧 sslip.io 和未配置独立域名的 Host/Origin 白名单，保留既有本地认证与 CSRF 控制。未重启生产进程。
 - S6P1 不再嵌入旧 IP/假节点身份。按同一 UI profile 表生成 13 路由、12 个去重 Core 的明确未验证示例，加入原生所需 components 字段。原生 `unpack_protocol` 已接受实际浏览器生成的信封。
@@ -62,3 +63,10 @@ Corium、Shadow6 为创始原生组件，ETP 等 Companion 保持独立运行。
 |Library/Netnews ↔ 原生 Corium/ETP/Shadow6/UFS/dCPM|未完成；保留原待办|
 |OpenCI → Buildroot/distcc/QEMU|新增 CI 验收工具；需记录实际 run 结果|
 |OpenCI → 原生存储/签名发布/Corium PoUW|未接通，不能以 GitHub artifact 上传代替|
+
+## 后续源码增量
+
+- Companion WebKit file:// 离线测试改为该引擎阻断全部 HTTP(S)，单独记录该机制；其 PWA 测试仍停止真实监听器。未把两者混同为 OS 级隔离。
+- 修复既有 Effort HTTP 的跨站写入：公开 GET 仍可导航，带 cross-site Fetch Metadata 的 POST 明确拒绝。
+- Shadow6 域名清理分支已推送，Ziokt 原生来源锁更新到该实际提交，避免集成测试仍取旧白名单版本。
+- OpenCI 已增加持久 DAG/租约/取消/重试、操作员批准资源与信任池、项目权限、原生内容对象与日志、独立任务输出比较、CLI、隔离 OCI Runner 及 CI。状态测试10项、归档测试2项、实际HTTP与原生分块测试2项已通过。OCI执行必须等待新CI，不能把状态测试称为容器隔离已验收。

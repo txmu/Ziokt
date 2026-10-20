@@ -12,6 +12,7 @@ for path in sorted((dist/'extensions').glob('*')):
  if path.is_file():files['extensions/'+path.name]=path
 for path in sorted((dist/'evidence').rglob('*.txt')):files['evidence/'+str(path.relative_to(dist/'evidence'))]=path
 files['ziokt.pyz']=dist/'ziokt.pyz'
+files['openci.pyz']=dist/'openci.pyz'
 if not any(k.startswith('sources/') for k in files) or len([k for k in files if k.startswith('native/')])!=3:raise SystemExit('missing tested source or native artifacts')
 report={'schema':'ziokt.content-delivery.v1','source_revision':revision,'run_id':os.environ.get('GITHUB_RUN_ID'),'scope':'Content application, native mailbox and TC16 compatibility tests; not full ecosystem completion','unsigned_webextensions':True,'all_requested_features_complete':False,'files':{}}
 output=dist/f'ziokt-content-delivery-{revision[:12]}.zip'

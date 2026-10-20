@@ -1,0 +1,39 @@
+name: OpenCI Controller and isolated Runner
+on:
+  push:
+    paths: ["openci/**", "tests/test_openci*.py", "ci/openci/controller_runner_e2e.py", "ci/openci/test_openci_bootstrap.py", "ci/openci/runner-image.lock.json", ".github/workflows/openci-core.yml"]
+  pull_request:
+    paths: ["openci/**", "tests/test_openci*.py", "ci/openci/**", ".github/workflows/openci-core.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openci-core-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  controller-and-runner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Real SQLite, concurrent leases, native encrypted storage and HTTP ACL
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_openci*.py' -v
+      - name: Pull immutable integration image on CI only
+        run: |
+          image=$(python -c 'import json;print(json.load(open("ci/openci/runner-image.lock.json"))["image"])')
+          docker pull "$image"
+      - name: Real OCI task, live logs, artifact verification and independent rebuild
+        run: |
+          set -o pipefail
+          python ci/openci/controller_runner_e2e.py 2>&1 | tee openci-oci-e2e.log
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: openci-controller-runner-evidence
+          path: openci-oci-e2e.log

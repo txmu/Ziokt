@@ -59,8 +59,14 @@ const {pathToFileURL}=require('node:url');
    evidence.push({prefix:prefix||'/',offline_reload:true,offline_mechanism:engine==='webkit'?'actual origin listener stopped':'browser network offline',local_digest:true,no_private_api_cache:true,unrelated_cache_preserved:true,strict_csp:true});await context.close();
    if(engine==='webkit')await new Promise(resolve=>server.listen(port,'127.0.0.1',resolve));
   }
-  const context=await browser.newContext();await context.setOffline(true);await context.addInitScript(()=>{localStorage.setItem('ziokt_mode','remote');localStorage.setItem('ziokt_lang','en');});
+  // WebKit's offline emulation rejects file:// navigation before the document
+  // loads. Block HTTP(S) explicitly for that engine and record the mechanism.
+  const context=await browser.newContext();
+  const standaloneMechanism=engine==='webkit'?'all HTTP(S) requests aborted':'browser network offline';
+  if(engine==='webkit')await context.route(/^https?:/,route=>route.abort('internetdisconnected'));
+  else await context.setOffline(true);
+  await context.addInitScript(()=>{localStorage.setItem('ziokt_mode','remote');localStorage.setItem('ziokt_lang','en');});
   const page=await context.newPage();await page.goto(pathToFileURL(path.join(root,'index.html')).href+'#ecosystem');await page.locator('#offline-integrity-file').setInputFiles({name:'local.txt',mimeType:'text/plain',buffer:data});await page.locator('#offline-integrity-check').click();await page.locator('#offline-integrity-result').filter({hasText:digest}).waitFor();await context.close();
-  console.log(JSON.stringify({schema:'ziokt.gui-offline-evidence.v1',browser:engine,pwa:evidence,standalone_file_without_network:true,native_airgap_process_policy:'separate test_airgap.py; browser offline is not an OS sandbox',status:'passed'}));
+  console.log(JSON.stringify({schema:'ziokt.gui-offline-evidence.v1',browser:engine,pwa:evidence,standalone_file_without_network:true,standalone_mechanism:standaloneMechanism,native_airgap_process_policy:'separate test_airgap.py; browser offline is not an OS sandbox',status:'passed'}));
  }finally{if(browser)await browser.close();if(server)await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

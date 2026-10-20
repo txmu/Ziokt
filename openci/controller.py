@@ -1,0 +1,200 @@
+"""Standalone Controller API using native Ziokt Content Fabric for object bytes."""
+import base64
+import hashlib
+import hmac
+import http.server
+import json
+from pathlib import Path
+import socketserver
+import threading
+from urllib.parse import parse_qs, urlsplit
+
+from ziokt.content_fabric import Fabric
+from ziokt.protocol import ProtocolError, secure_read, strict_json
+from .state import Error, Store, identifier, reference
+
+
+class Controller:
+    def __init__(self, root, config):
+        self.root = Path(root)
+        self.config = Path(config)
+        self.state = Store(root)
+        self.fabric = Fabric(self.root/'content')
+
+    def close(self):
+        self.fabric.close()
+
+    def authenticate(self, authorization):
+        if not isinstance(authorization, str) or not authorization.startswith('Bearer ') or len(authorization) > 256:
+            raise Error('AUTH_REQUIRED', 'Bearer authorization required', 401)
+        candidate = hashlib.sha256(authorization[7:].encode()).hexdigest()
+        settings = strict_json(secure_read(self.config, 65536), 65536)
+        for name, principal in settings['principals'].items():
+            if hmac.compare_digest(principal['token_sha256'], candidate):
+                return name, principal
+        raise Error('AUTH_REJECTED', 'Invalid or revoked credential', 401)
+
+    @staticmethod
+    def project(principal, project, roles=None):
+        identifier(project)
+        if roles and principal['role'] not in roles or principal['role'] != 'admin' and project not in principal['projects']:
+            raise Error('PROJECT_FORBIDDEN', 'Principal cannot access this project', 403)
+        return 'openci-'+project
+
+    def pipeline(self, principal, pid, roles=None):
+        result = self.state.inspect(pid)
+        self.project(principal, result['project'], roles)
+        return result
+
+    def content_reference(self, owner, value):
+        reference(value)
+        with self.fabric.lock:
+            row = self.fabric.object_info(owner, value['object'])
+        metadata = json.loads(row['metadata'])
+        if metadata['digest'] != value['digest']:
+            raise Error('REFERENCE_MISMATCH', 'Object plaintext digest differs from declared input', 409)
+        return row
+
+    def dispatch(self, method, path, query, body, actor, principal):
+        if method == 'GET' and path == '/v1/pipelines':
+            project=query['project'][0];self.project(principal,project)
+            return 200, {'pipelines':self.state.list_pipelines(project,before=int(query.get('before',[str(2**63-1)])[0]))}
+        if method == 'GET' and path == '/v1/audit':
+            pid=query['pipeline'][0];self.pipeline(principal,pid)
+            return 200, {'events':self.state.audit(pid,int(query.get('after',['0'])[0]))}
+        if method == 'POST' and path == '/v1/verify':
+            self.pipeline(principal,body['pipeline'],{'admin'})
+            return 200,self.state.verify_rebuild(actor,body['pipeline'],body['task'],body['independent_task'])
+        if method == 'POST' and path == '/v1/pipelines':
+            owner = self.project(principal, body.get('project'), {'admin', 'submit'})
+            self.content_reference(owner, body.get('source'))
+            return 202, self.state.submit(actor, body)
+        if method == 'GET' and path == '/v1/logs':
+            pid = query['pipeline'][0]; self.pipeline(principal,pid)
+            rows = self.state.logs(pid,query['task'][0],int(query['attempt'][0]),int(query.get('after',['-1'])[0]))
+            return 200, {'chunks':[{'position':r['position'],'data_base64':base64.b64encode(r['data']).decode()} for r in rows]}
+        if method == 'GET' and path.startswith('/v1/pipelines/'):
+            return 200, self.pipeline(principal, path.split('/')[-1])
+        if method == 'POST' and path in {'/v1/cancel', '/v1/retry'}:
+            self.pipeline(principal, body['pipeline'], {'admin', 'submit'})
+            if path == '/v1/cancel': return 200, self.state.cancel(actor, body['pipeline'])
+            return 200, self.state.retry(actor, body['pipeline'], body['task'])
+        if method == 'POST' and path == '/v1/workers/approve':
+            if principal['role'] != 'admin': raise Error('ADMIN_REQUIRED', 'Worker caps require operator approval', 403)
+            self.state.approve_worker(actor, **body)
+            return 200, {'state': 'approved'}
+        if method == 'POST' and path in {'/v1/claim', '/v1/heartbeat', '/v1/finish', '/v1/logs'}:
+            if principal['role'] != 'worker': raise Error('WORKER_REQUIRED', 'Dedicated worker identity required', 403)
+            worker = principal['worker']
+            if path == '/v1/claim': return 200, {'assignment': self.state.claim(worker)}
+            result = self.pipeline(principal, body['pipeline'])
+            if path == '/v1/heartbeat':
+                return 200, self.state.heartbeat(worker, body['pipeline'], body['task'], body['lease'])
+            if path == '/v1/logs':
+                return 200, self.state.append_log(worker,body['pipeline'],body['task'],body['lease'],body['position'],base64.b64decode(body['data_base64'],validate=True))
+            owner = self.project(principal, result['project'])
+            self.content_reference(owner, body['logs'])
+            if body['exit_code'] == 0: self.content_reference(owner, body['artifact'])
+            return 200, self.state.finish(worker, body['pipeline'], body['task'], body['lease'],
+                    exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'])
+        if path.startswith('/v1/objects/'):
+            project = query.get('project', [None])[0]
+            owner = self.project(principal, project)
+            if method == 'POST' and path == '/v1/objects/begin':
+                return 200, self.fabric.begin(owner, body['upload'], body['size'], body['digest'], body.get('mime', 'application/octet-stream'))
+            if method == 'POST' and path == '/v1/objects/finish':
+                result = self.fabric.finish(owner, body['upload'])
+                return 200, {**result, 'reference': {'object': result['id'], 'digest': result['digest']}}
+            parts = path.split('/')
+            if method == 'PUT' and len(parts) == 6 and parts[4] == 'chunks':
+                return 200, self.fabric.put(owner, parts[3], int(parts[5]), body)
+            if method == 'GET' and len(parts) == 4:
+                with self.fabric.lock: info = self.fabric.object_info(owner, parts[3])
+                return 200, {'id':info['id'], 'reference':info['reference'], 'metadata':json.loads(info['metadata'])}
+            if method == 'GET' and len(parts) == 6 and parts[4] == 'chunks':
+                data = self.fabric.read_chunk(owner, parts[3], int(parts[5]))
+                return 200, {'data_base64': base64.b64encode(data).decode()}
+        raise Error('NOT_FOUND', 'Unknown OpenCI operation', 404)
+
+
+def handler(controller):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(15)
+
+        def log_message(self, *args):
+            pass
+
+        def send(self, status, value):
+            raw = json.dumps(value, allow_nan=False).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(raw)
+            self.close_connection = True
+
+        def process(self):
+            try:
+                # API credentials are never accepted from URLs, cookies or bodies.
+                if self.headers.get('Origin'):
+                    raise Error('ORIGIN_REJECTED', 'Browser access requires a configured application adapter', 403)
+                actor, principal = controller.authenticate(self.headers.get('Authorization'))
+                url = urlsplit(self.path)
+                body = None
+                if self.command in {'POST', 'PUT'}:
+                    if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
+                        raise Error('CONTENT_LENGTH_REQUIRED', 'One explicit body size required', 411)
+                    limit = 16384 if self.command == 'PUT' else 1024*1024
+                    size = int(self.headers.get('Content-Length', '-1'))
+                    if not 0 <= size <= limit: raise Error('BODY_LIMIT', 'Request body exceeds budget', 413)
+                    raw = self.rfile.read(size)
+                    if len(raw) != size: raise Error('BODY_TRUNCATED', 'Incomplete request body')
+                    body = raw if self.command == 'PUT' else strict_json(raw, limit)
+                    if self.command == 'POST' and not isinstance(body, dict): raise Error('INVALID_BODY', 'Object body required')
+                status, result = controller.dispatch(self.command, url.path, parse_qs(url.query, max_num_fields=16), body, actor, principal)
+                self.send(status, result)
+            except Error as error:
+                self.send(error.status, {'error': {'code': error.code, 'message': str(error), 'retryable': error.status in (429, 503)}})
+            except PermissionError:
+                self.send(403, {'error': {'code': 'OBJECT_FORBIDDEN', 'message': 'Object not accessible in this project', 'retryable': False}})
+            except (ValueError, TypeError, KeyError, ProtocolError) as error:
+                self.send(400, {'error': {'code': 'INVALID_REQUEST', 'message': str(error)[:256], 'retryable': False}})
+            except Exception:
+                self.send(500, {'error': {'code': 'CONTROLLER_ERROR', 'message': 'Controller operation failed; no success confirmation', 'retryable': True}})
+
+        do_GET = process
+        do_POST = process
+        do_PUT = process
+    return Handler
+
+
+class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    request_queue_size = 16
+
+    def __init__(self, *args, **kwargs):
+        self.slots = threading.BoundedSemaphore(16)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            super().process_request_thread(request, address)
+        finally:
+            self.slots.release()

@@ -132,6 +132,9 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
             if host and host not in allowed_hosts:
                 raise ProtocolError('ORIGIN_REJECTED','configured public host required')
             if post:
+                sites = self.headers.get_all('Sec-Fetch-Site', [])
+                if sites and (len(sites) != 1 or sites[0] not in {'same-origin', 'none'}):
+                    raise ProtocolError('ORIGIN_REJECTED','cross-site worker mutations rejected')
                 req_origin = self.headers.get('Origin')
                 if req_origin and req_origin not in allowed_origin_strs:
                     raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')

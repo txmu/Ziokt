@@ -13,9 +13,10 @@ security = ["cryptography==50.0.1"]
 
 [project.scripts]
 ziokt = "ziokt.cli:main"
+openci = "openci.cli:main"
 
 [tool.setuptools]
-packages = ["ziokt"]
+packages = ["ziokt", "openci"]
 
 [tool.setuptools.package-data]
 ziokt = ["web/*.html", "web/*.css", "web/*.js", "effort/*", "explorer/*", "ecosystem.json"]
