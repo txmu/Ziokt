@@ -10,6 +10,19 @@ from ziokt.protocol import ProtocolError
 from ziokt.cli import write_binary_exclusive
 
 class EtpAdapterTests(unittest.TestCase):
+    def test_rejected_mailbox_operations_never_fabricate_health_or_ack(self):
+        for code in ('METHOD_UNSUPPORTED','AUTHORIZATION_DENIED'):
+            with self.subTest(code=code),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);binary=root/'rejecting-worker';config=root/'config.json';write_binary_exclusive(config,b'{}')
+                binary.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if r["method"]=="etp.shutdown":break\n print(json.dumps({"id":r["id"],"ok":False,"error":{"code":'+repr(code)+'}}),flush=True)\n');binary.chmod(0o700)
+                worker=EtpGateway(binary,'sha256:'+hashlib.sha256(binary.read_bytes()).hexdigest(),config)
+                try:
+                    for method,params in [('etp.mailbox.status',{}),('etp.mailbox.request',{'frame_base64':base64.b64encode(bytes([2,6])).decode()})]:
+                        with self.assertRaises(ProtocolError) as error:worker.call(method,params)
+                        self.assertEqual(error.exception.code,'METHOD_UNSUPPORTED' if code=='METHOD_UNSUPPORTED' else 'ETP_REJECTED')
+                        self.assertIsNone(worker.process)
+                finally:worker.close()
+
     def test_pinned_worker_contract_and_fail_closed_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);binary=root/'worker';config=root/'config.json';write_binary_exclusive(config,b'{}')

@@ -1,5 +1,7 @@
-"""End-to-end cross-companion closed-loop verification:
-Corium creation -> SafeFS/UFS distribution -> ETP multi-hop transport -> Shadow6 admission -> Ziokt verification & recovery.
+"""Host-specific read-only companion diagnostics, not a content delivery test.
+
+This script does not create, transfer or recover a common object across native
+components and must never be counted as proof of end-to-end interoperability.
 """
 import base64
 import hashlib
@@ -40,9 +42,6 @@ def test_cross_companion_closed_loop():
     print(f"Corium CBB games verified: native_verified=True, {len(cbb_games.get('data', []))} games listed.")
 
     print("=== Step 2: SafeFS & UFS Distribution ===")
-    test_payload = b"Ziokt-Ecosystem-Cross-Companion-Artifact-v1-" + os.urandom(64)
-    payload_digest = "sha256:" + hashlib.sha256(test_payload).hexdigest()
-    
     # Test UFS & SafeFS bridge tools
     ufs_status = srv.execute('ziokt-operator', 'ufs_component_status', {'params': {}})
     assert ufs_status.get('schema') == 'ziokt.component-status.v1'
@@ -78,7 +77,7 @@ def test_cross_companion_closed_loop():
     assert len(audit['audit']) > 0
     print(f"Ziokt unified audit trail verified: {len(audit['audit'])} recent tool records logged.")
 
-    print("\n>>> ALL CROSS-COMPANION CLOSED-LOOP TESTS PASSED SUCCESSFULLY! <<<")
+    print(json.dumps({'schema':'ziokt.companion-diagnostics.v1','status_queries_passed':True,'closed_loop_verified':False,'content_created':False,'content_transferred':False,'recovery_verified':False}))
 
 if __name__ == '__main__':
     test_cross_companion_closed_loop()

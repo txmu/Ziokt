@@ -50,5 +50,9 @@ class RealGuiIntegration(unittest.TestCase):
             item=self.call('safefs_object_chunk_get',{'object':receipt['manifest_digest'],'position':i},confirm=False)
             output+=base64.b64decode(item['data_base64'])
         self.assertEqual(output,data);self.assertEqual(receipt['digest'],sha(data))
+        for token in ('invalid',''):
+            status,result=self.request('/api/gateway/tools/call',{'name':'safefs_object_chunk_get','arguments':{'params':{'object':receipt['manifest_digest'],'position':0}},'confirm':False},token=token)
+            self.assertEqual(status,401)
+            self.assertNotIn('data_base64',json.dumps(result))
 
 if __name__=='__main__':unittest.main()

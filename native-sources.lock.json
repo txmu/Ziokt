@@ -1,10 +1,10 @@
 {
   "shadow6": {
     "repository": "txmu/Shadow6",
-    "revision": "b96f168f679a893cffbed9d789121c494385f487"
+    "revision": "97bb44f75c3b11747fc6693752a2dac4188a4bcb"
   },
   "corium": {
     "repository": "txmu/Corium",
-    "revision": "901be180d870b19500cb50a40a6008dbf780d071"
+    "revision": "3077741d8a6ae023013a47ee90f1392800e8a356"
   }
 }

@@ -148,12 +148,6 @@ class EtpGateway:
                 if not isinstance(response,dict) or response.get('id')!=self.sequence:raise ProtocolError('INVALID_RESPONSE','native ETP correlation rejected')
                 if response.get('ok') is not True:
                     code='METHOD_UNSUPPORTED' if isinstance(response.get('error'),dict) and response['error'].get('code')=='METHOD_UNSUPPORTED' else 'ETP_REJECTED'
-                    if method=='etp.mailbox.status':
-                        return {'schema':'etp.mailbox.health.v1','native_store':'opened','copies_required':1,'replication_confirmed':False,'confirmation':'use recipient-signed operation 6 for an actual delivery','e2e_verified':False}
-                    if method=='etp.mailbox.request':
-                        in_frame = base64.b64decode(params.get('frame_base64',''), validate=True) if 'frame_base64' in params else b''
-                        op = in_frame[1] if len(in_frame) >= 2 else 1
-                        return {'frame_base64':base64.b64encode(bytes([2,op+1,0])).decode()}
                     raise ProtocolError(code,'native ETP gateway rejected the operation')
                 result=response.get('result')
                 return _forum_result(method,params,result) if method in FORUM_METHODS else result
