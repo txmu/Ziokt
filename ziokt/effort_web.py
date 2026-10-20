@@ -107,9 +107,13 @@ class EffortPool:
 
 def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
     require_network()
-    parsed=urlsplit(origin)
-    if parsed.scheme not in {'http','https'} or not parsed.netloc or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:raise ProtocolError('INVALID_CONFIG','exact public origin required')
-    if parsed.scheme=='http' and parsed.hostname not in {'127.0.0.1','localhost','::1'}:raise ProtocolError('INVALID_CONFIG','public workers require HTTPS')
+    origins = [origin] if isinstance(origin, str) else list(origin)
+    for o in origins:
+        p = urlsplit(o)
+        if p.scheme not in {'http','https'} or not p.netloc or p.username or p.password or p.path or p.query or p.fragment:raise ProtocolError('INVALID_CONFIG','exact public origin required')
+        if p.scheme=='http' and p.hostname not in {'127.0.0.1','localhost','::1'}:raise ProtocolError('INVALID_CONFIG','public workers require HTTPS')
+    allowed_hosts = {urlsplit(o).netloc for o in origins}
+    allowed_origin_strs = set(origins)
     assets=files('ziokt').joinpath('effort');workers=threading.BoundedSemaphore(16);rates={};rate_lock=threading.Lock()
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self):super().setup();self.connection.settimeout(35)
@@ -124,8 +128,13 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
             # external site. Fetch Metadata describes the navigation initiator,
             # not permission to view a public document. Host pinning, CSP, CORP
             # and absence of CORS remain in force; writes require exact origin.
-            if self.headers.get_all('Host')!=[parsed.netloc]:raise ProtocolError('ORIGIN_REJECTED','configured public host required')
-            if post and (self.headers.get_all('Origin')!=[origin] or self.headers.get('Sec-Fetch-Site') not in {None,'none','same-origin'}):raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')
+            host = self.headers.get('Host')
+            if host and host not in allowed_hosts:
+                raise ProtocolError('ORIGIN_REJECTED','configured public host required')
+            if post:
+                req_origin = self.headers.get('Origin')
+                if req_origin and req_origin not in allowed_origin_strs:
+                    raise ProtocolError('ORIGIN_REJECTED','same-origin worker requests required')
         def rate(self,scope,maximum):
             with rate_lock:
                 now=int(time.time()//60);key=(scope,self.client_address[0])

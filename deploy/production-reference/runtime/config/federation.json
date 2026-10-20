@@ -8,7 +8,7 @@
       "provider_id": "corium-production",
       "root": "/home/admin/.local/share/ziokt-production/bin",
       "native_config": "/home/admin/.local/share/ziokt-production/corium/etc/corix/networks/ziokt-main/corix.conf",
-      "entrypoint_digest": "sha256:49db3782be4e177297e7d0c40e96dde528f3d16517d328c391968eac82960024",
+      "entrypoint_digest": "sha256:9ef45046c0cfeba4b48392be03567a08cea34e9cb00dec4c1c522326b201355d",
       "network_id": "ziokt-main",
       "state_root": "/home/admin/.local/share/ziokt-production/corium"
     },

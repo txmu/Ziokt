@@ -23,7 +23,10 @@
     "network": "Network Nodes",
     "identity": "Identity & PoUW",
     "devtools": "Dev Tools",
-    "settings": "Settings"
+    "settings": "Settings",
+    "library": "Library",
+    "netnews": "Netnews",
+    "ecosystem": "Applications & offline"
   },
   "common": {
     "confirm": "Confirm",

@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch Caddy-managed NNTP certificate files
+[Path]
+PathChanged=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.crt
+PathChanged=/home/admin/.local/share/ziokt-production/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/nntp.ziokt.com/nntp.ziokt.com.key
+Unit=ziokt-nntps-cert-reload.service
+[Install]
+WantedBy=multi-user.target

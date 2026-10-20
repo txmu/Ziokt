@@ -1,0 +1,134 @@
+{
+  "schema": "ziokt.tc16-spec.v1",
+  "family": "TC-16",
+  "targets": {
+    "tc16-python-legacy": {
+      "isa_id": "tc16-python-v1",
+      "abi_id": "tc16-python-abi-v1",
+      "binary_format": "tc16-python-raw-v1"
+    },
+    "tc16-etp-legacy": {
+      "isa_id": "tc16-etp-v1",
+      "abi_id": "tc16-etp-abi-v1",
+      "binary_format": "tc16-etp-raw-v1"
+    },
+    "tc16-unified-v1": {
+      "isa_id": "tc16-unified-v1",
+      "abi_id": "tc16-unified-abi-v1",
+      "binary_format": "tc16-package-v1"
+    }
+  },
+  "opcodes": {
+    "HALT": 0,
+    "MOV": 1,
+    "MOVI": 2,
+    "LOAD": 3,
+    "STORE": 4,
+    "LOADB": 5,
+    "STOREB": 6,
+    "ADD": 7,
+    "SUB": 8,
+    "AND": 9,
+    "OR": 10,
+    "XOR": 11,
+    "NOT": 12,
+    "INC": 13,
+    "DEC": 14,
+    "CMP": 15,
+    "SHL": 16,
+    "SHR": 17,
+    "SWAP": 18,
+    "PUSH": 19,
+    "POP": 20,
+    "JMP": 21,
+    "JZ": 22,
+    "JC": 23,
+    "JP": 24,
+    "JO": 25,
+    "CALL": 26,
+    "RET": 27,
+    "BCDADD": 28,
+    "BCDSUB": 29,
+    "SETFLAG": 30,
+    "CLRFLAG": 31,
+    "SETMODE": 32,
+    "SYS": 33,
+    "NOP": 34,
+    "MUL": 35,
+    "DIV": 36,
+    "RETI": 37,
+    "EI": 38,
+    "DI": 39,
+    "GETSP": 40,
+    "SETSP": 41,
+    "JNZ": 42,
+    "PARITY": 43
+  },
+  "register_pairs": [
+    "ADD",
+    "AND",
+    "BCDADD",
+    "BCDSUB",
+    "CMP",
+    "DIV",
+    "LOAD",
+    "LOADB",
+    "MOV",
+    "MUL",
+    "OR",
+    "STORE",
+    "STOREB",
+    "SUB",
+    "SWAP",
+    "XOR"
+  ],
+  "register_operand": [
+    "DEC",
+    "GETSP",
+    "INC",
+    "NOT",
+    "PARITY",
+    "POP",
+    "PUSH",
+    "SETSP"
+  ],
+  "immediate_u16_le": [
+    "CALL",
+    "CLRFLAG",
+    "JC",
+    "JMP",
+    "JNZ",
+    "JO",
+    "JP",
+    "JZ",
+    "SETFLAG",
+    "SETMODE",
+    "SYS"
+  ],
+  "no_operands": [
+    "DI",
+    "EI",
+    "HALT",
+    "NOP",
+    "RET",
+    "RETI"
+  ],
+  "register_count": 16,
+  "word_bits": 16,
+  "memory_bytes": 65536,
+  "data_endian": "little",
+  "capability_profiles": {
+    "pure-v1": [],
+    "stdout-u16-v1": [
+      1
+    ]
+  },
+  "exceptions": [
+    "INVALID_TC16",
+    "TC16_MEMORY",
+    "TC16_STACK",
+    "TC16_BCD",
+    "TC16_CAPABILITY",
+    "TC16_ARITHMETIC"
+  ]
+}

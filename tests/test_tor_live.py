@@ -127,7 +127,7 @@ class TorLiveTests(unittest.TestCase):
                 source.publish(private, 'files', 'archive', {'name': 'archive', **manifest})
                 endpoint = {'host': host, 'port': 443, 'carrier': {'kind': 'tor-socks5', 'proxy_host': '127.0.0.1', 'proxy_port': socks_port}}
                 # Fresh service descriptor publication can need a short delay.
-                success = False; last_error = None; attempts=0; deadline = time.monotonic()+180
+                success = False; last_error = None; attempts=0; deadline = time.monotonic()+300
                 while time.monotonic() < deadline:
                     attempts+=1
                     try:
@@ -148,7 +148,7 @@ class TorLiveTests(unittest.TestCase):
                 intermediate_host = (intermediary/'hostname').read_text().strip()
                 source.publish(private, 'wiki', 'multihop', {'title': 'Onion chain', 'text': 'real nested onion SOCKS and mTLS'})
                 endpoint['carrier']['hops'] = [{'host': intermediate_host, 'port': 1080}]
-                success = False; last_error = None; attempts=0; deadline = time.monotonic()+180
+                success = False; last_error = None; attempts=0; deadline = time.monotonic()+300
                 while time.monotonic() < deadline:
                     attempts+=1
                     try:

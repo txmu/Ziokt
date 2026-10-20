@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "0.1.0",
+  "description": "__MSG_extensionDescription__",
+  "permissions": [
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "Ziokt applications",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "default_locale": "en",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwWJPtWHaXxcFVXuUgbbKMaNZaz+Ern33IglQTsumjccy0r5teNYvhwEcjAS8dSHkWb8WZpQcVhNTJoTFXEqTnsCW2t60oDgXSyFwxKcUfBrDpn65cwPj/LR2/6I2EwQskh4D263yWYF0Sr9hQ0nffAUYtNpQUukJyAlT+yBTYUbMtn2tgQvO6+adPRYhQWhR6v8kB+n/34p+6rx50yKGsvTz9jUDOZri6cu0i/1pEk/0KiiB4Rj0tJmLt+G2/q4plNN/0yjj1fItLwram3HnNbu1eDyXWY0xDj8QSfYN4zMcHgC/R72CcDmC1qFM/VYsoAbGXhBymZn8Rumohg3akwIDAQAB"
+}

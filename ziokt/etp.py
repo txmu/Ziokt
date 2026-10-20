@@ -103,12 +103,17 @@ class EtpGateway:
     def call(self,method,params):
         from .runtime_policy import require_network
         require_network()
-        if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown'}|FORUM_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
+        if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown','etp.mailbox.status','etp.mailbox.request'}|FORUM_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
         if method=='etp.onion.send':
             if set(params)!={'hops','ciphertext'} or not isinstance(params['hops'],list) or not 2<=len(params['hops'])<=4:raise ProtocolError('INVALID_ETP','private 2..4-hop path required')
             try:data=base64.b64decode(params['ciphertext'],validate=True)
             except (ValueError,TypeError):raise ProtocolError('INVALID_ETP','sealed ETP packet required')
             if not 16384<=len(data)<=65536 or len(data)&(len(data)-1):raise ProtocolError('INVALID_ETP','power-of-two sealed ETP packet required')
+        elif method=='etp.mailbox.request':
+            if set(params)!={'frame_base64'} or not isinstance(params['frame_base64'],str) or len(params['frame_base64'])>12000:raise ProtocolError('INVALID_ETP','bounded mailbox v2 frame required')
+            try:frame=base64.b64decode(params['frame_base64'],validate=True)
+            except (ValueError,TypeError):raise ProtocolError('INVALID_ETP','mailbox frame encoding')
+            if len(frame)<2 or frame[0]!=2 or frame[1] not in {1,2,4,6}:raise ProtocolError('INVALID_ETP','recipient mailbox operations only')
         elif method in FORUM_METHODS:_forum_params(method,params)
         elif params:raise ProtocolError('INVALID_ETP','exact native query required')
         with self.lock:
@@ -139,7 +144,7 @@ class EtpGateway:
                     byte=os.read(self.process.stdout.fileno(),1)
                     if not byte or len(data)>=131072:raise ProtocolError('INVALID_RESPONSE','native ETP bounded response required')
                     data.extend(byte)
-                response=strict_json(bytes(data),131072)
+                response=strict_json(bytes(data),131072,string_limit=90000 if method.startswith('etp.mailbox.') else 8192)
                 if not isinstance(response,dict) or response.get('id')!=self.sequence:raise ProtocolError('INVALID_RESPONSE','native ETP correlation rejected')
                 if response.get('ok') is not True:
                     code='METHOD_UNSUPPORTED' if isinstance(response.get('error'),dict) and response['error'].get('code')=='METHOD_UNSUPPORTED' else 'ETP_REJECTED'

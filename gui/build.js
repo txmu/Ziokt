@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import {createHash} from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,10 +18,10 @@ const DIST_DIR = path.join(__dirname, 'dist');
 console.log('>> [Ziokt GUI] Starting client packaging build...');
 
 // 1. Ensure dist directory
-if (fs.existsSync(DIST_DIR)) {
+if (!process.argv.includes('--bundle-only') && fs.existsSync(DIST_DIR)) {
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
 }
-fs.mkdirSync(DIST_DIR, { recursive: true });
+if (!process.argv.includes('--bundle-only')) fs.mkdirSync(DIST_DIR, { recursive: true });
 
 // 2. Validate JSON files
 const jsonFiles = [
@@ -48,11 +49,14 @@ for (const jf of jsonFiles) {
 function buildStandaloneAppBundle() {
   const order = [
     'core.js',
+    'private-offline.js',
     'modules/home.js',
     'modules/chat.js',
     'modules/forum.js',
     'modules/files.js',
     'modules/apps.js',
+    'modules/content.js',
+    'modules/ecosystem.js',
     'modules/network.js',
     'modules/identity.js',
     'modules/devtools.js',
@@ -68,7 +72,7 @@ function buildStandaloneAppBundle() {
     let content = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
     content = content.replace(/^\s*import\b[\s\S]*?from\s*['"][^'"]+['"];?\s*$/gm, '');
     content = content.replace(/^\s*import\b.*?;?\s*$/gm, '');
-    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var)\s+/gm, (m, p1, p2, p3) => (p2 || '') + p3 + ' ');
+    content = content.replace(/^\s*export\s+(default\s+)?(async\s+)?(function|const|let|var|class)\s+/gm, (m, p1, p2, p3) => (p2 || '') + p3 + ' ');
     content = content.replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '');
     bundle += `  // --- Module: ${rel} ---\n` + content + `\n\n`;
   }
@@ -81,6 +85,9 @@ function buildStandaloneAppBundle() {
     forum: { render: renderForum, titleKey: 'nav.forum' },
     files: { render: renderFiles, titleKey: 'nav.files' },
     apps: { render: renderApps, titleKey: 'nav.apps' },
+    library: { render: renderLibrary, titleKey: 'nav.library' },
+    netnews: { render: renderNetnews, titleKey: 'nav.netnews' },
+    ecosystem: { render: renderEcosystem, titleKey: 'nav.ecosystem' },
     network: { render: renderNetwork, titleKey: 'nav.network' },
     identity: { render: renderIdentity, titleKey: 'nav.identity' },
     devtools: { render: renderDevtools, titleKey: 'nav.devtools' },
@@ -107,7 +114,7 @@ function buildStandaloneAppBundle() {
     updateAppNodeBadge();
 
     let initialTab = getHashTab() || State.currentTab || 'home';
-    if (isLocalNodeOffline() && initialTab !== 'settings') {
+    if (isLocalNodeOffline() && !canUseWithoutLocalNode(initialTab)) {
       initialTab = 'settings';
     }
     navigate(initialTab);
@@ -115,7 +122,7 @@ function buildStandaloneAppBundle() {
     window.addEventListener('hashchange', () => {
       let tab = getHashTab();
       if (tab && tab !== State.currentTab) {
-        if (isLocalNodeOffline() && tab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(tab)) {
           navigate('settings');
           return;
         }
@@ -125,19 +132,19 @@ function buildStandaloneAppBundle() {
 
     Events.on('navigate', (tab) => navigate(tab));
     Events.on('local_node_offline', () => {
-      if (State.currentTab !== 'settings') {
+      if (!canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
     Events.on('local_node_status_changed', () => {
       updateAppNodeBadge();
-      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+      if (isLocalNodeOffline() && !canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
     Events.on('mode_changed', () => {
       updateAppNodeBadge();
-      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+      if (isLocalNodeOffline() && !canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
@@ -158,7 +165,7 @@ function buildStandaloneAppBundle() {
 
   function navigate(tabName) {
     // Local Node Offline Gatekeeping: only Settings can be viewed
-    if (isLocalNodeOffline() && tabName !== 'settings') {
+    if (isLocalNodeOffline() && !canUseWithoutLocalNode(tabName)) {
       const msg = State.language === 'en'
         ? 'Local node is offline. Local mode requires a running node; only Settings is accessible.'
         : '本地节点未启动。使用本地节点需要用户本地真实有节点运行，当前仅开放【系统设置】页。';
@@ -201,7 +208,7 @@ function buildStandaloneAppBundle() {
       item.addEventListener('click', (e) => {
         e.preventDefault();
         const targetTab = item.dataset.tab;
-        if (isLocalNodeOffline() && targetTab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(targetTab)) {
           const msg = State.language === 'en'
             ? 'Local node is offline. Only Settings is accessible.'
             : '本地节点未启动，当前仅开放【系统设置】页。';
@@ -217,7 +224,7 @@ function buildStandaloneAppBundle() {
       item.addEventListener('click', (e) => {
         e.preventDefault();
         const targetTab = item.dataset.tab;
-        if (isLocalNodeOffline() && targetTab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(targetTab)) {
           const msg = State.language === 'en'
             ? 'Local node is offline. Only Settings is accessible.'
             : '本地节点未启动，当前仅开放【系统设置】页。';
@@ -345,6 +352,11 @@ function buildStandaloneAppBundle() {
 }
 
 buildStandaloneAppBundle();
+// The shell version changes only when its fixed assets change.
+const shellAssets=['index.html','app.js','bootstrap.js','style.css','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/icon.svg','i18n/zh.json','i18n/en.json','i18n/zh-CN.json','i18n/en-US.json'];
+const shellHash=createHash('sha256');for(const name of shellAssets){shellHash.update(name+'\0');shellHash.update(fs.readFileSync(path.join(SRC_DIR,name)));}
+const workerPath=path.join(SRC_DIR,'sw.js'),workerTemplate=fs.readFileSync(workerPath,'utf8').replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-build';");shellHash.update(workerTemplate);fs.writeFileSync(workerPath,workerTemplate.replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-"+shellHash.digest('hex').slice(0,20)+"';"));
+if (process.argv.includes('--bundle-only')) process.exit(0);
 
 // 4. Copy directory recursively
 function copyDir(src, dest) {

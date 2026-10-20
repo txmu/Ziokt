@@ -13,7 +13,7 @@ class GuiError(ValueError):
 
 def dispatch(gateway, authorization, payload=None):
     if not isinstance(authorization, str) or not hmac.compare_digest(authorization, 'Bearer '+read_token(gateway.config['admin_token'])):
-        raise GuiError(401, 'Node administrator authentication required')
+        raise GuiError(401, 'Node administrator authentication required; public content uses the independent application API')
     path = gateway.config.get('mcp_config')
     if not path:
         raise GuiError(503, 'GUI tool adapter is not configured')
@@ -28,10 +28,12 @@ def dispatch(gateway, authorization, payload=None):
             config = strict_json(secure_read(path));config['config_path'] = str(path)
             gateway._gui_service = Service(config)
         service = gateway._gui_service
+
     client = service.client('ziokt-operator')
     if not client:
         raise GuiError(403, 'Owner MCP client unavailable')
     principal = {'client':'ziokt-operator','scopes':set(client['scopes']), 'expires':2**63, 'token_id':'gateway-gui-owner'}
+
     if payload is None:
         tools = [{k:v for k,v in tool.items() if k!='scope'} for tool in service.tools.values() if service.permitted(principal, tool)]
         return {'tools':tools, 'count':len(tools)}

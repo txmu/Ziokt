@@ -199,6 +199,9 @@ mod enabled {
                 tasks: Vec::new(),
             })
         }
+        pub fn flavor(&self) -> Arc<ForumFlavor> {
+            self.flavor.clone()
+        }
         pub fn start(&mut self, handle: EtpHandle, peers: HashMap<SocketAddr, [u8; 32]>) {
             let connector = handle.clone();
             self.tasks.push(tokio::spawn(async move {

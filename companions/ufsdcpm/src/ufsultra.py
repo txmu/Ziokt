@@ -747,7 +747,7 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
             f'{scheme}://{host}',
             f'http://{host}',
             f'https://{host}',
-            'https://ziokt-ufs-43-207-75-185.sslip.io',
+            'https://ufs.ziokt.com',
             'https://cor-web.ziokt.com',
             'http://127.0.0.1:8184',
             'http://localhost:8184',
@@ -1300,7 +1300,7 @@ th {{
             <span class="status-pill"><span class="status-dot"></span> RUNNING &bull; 8184</span>
             <span class="status-pill" style="color:var(--accent-cyan);border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.15);">Digest Auth: {html.escape(user)}</span>
             <a href="https://cor-web.ziokt.com/app/ufsdcpm" target="_blank" class="nav-link">🌐 Ziokt DApp</a>
-            <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" class="nav-link">🪐 Shadow6 UI</a>
+            <a href="https://shadow6.ziokt.com/" target="_blank" class="nav-link">🪐 Shadow6 UI</a>
         </div>
     </div>
 </header>

@@ -1,0 +1,24 @@
+[Unit]
+Description=Ziokt Content Fabric, Library and Netnews (opt-in user service)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m ziokt.content_server --config %h/.local/share/ziokt-content/content.json
+WorkingDirectory=%h/Ziokt
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/ziokt-content
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+TasksMax=64
+LimitNOFILE=1024
+CPUQuota=100%
+UMask=0077
+
+[Install]
+WantedBy=default.target

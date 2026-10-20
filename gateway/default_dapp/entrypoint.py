@@ -749,7 +749,7 @@ elif subpath == "ufsdcpm":
             </div>
             <div class="table-row">
                 <span class="label">{tr('公网访问网关', 'Public Gateway')}</span>
-                <span class="val"><a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">https://ziokt-ufs-43-207-75-185.sslip.io/ &rarr;</a></span>
+                <span class="val"><a href="https://ufs.ziokt.com/" target="_blank" style="color:var(--accent-blue);text-decoration:underline;">https://ufs.ziokt.com/ &rarr;</a></span>
             </div>
             <div class="table-row">
                 <span class="label">{tr('HTTP 鉴权模式', 'HTTP Auth Mode')}</span>
@@ -1070,7 +1070,7 @@ elif subpath == "blockchain":
             </div>
             <div class="card">
                 <div class="card-title">{tr('三合一浏览器 PWA', 'Tri Browser PWA')}</div>
-                <div class="card-value" style="font-size:1.1rem;"><a href="https://ziokt-tri-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">{tr('在线直达', 'Open Live')} &rarr;</a></div>
+                <div class="card-value" style="font-size:1.1rem;"><a href="https://tri.ziokt.com/" target="_blank" style="color:var(--accent-blue);">{tr('在线直达', 'Open Live')} &rarr;</a></div>
             </div>
         </div>
         
@@ -1110,7 +1110,7 @@ elif subpath == "watchat":
     c_user = query.get('user', [''])[0].strip() or 'MeshPeer'
     c_msg = query.get('msg', [''])[0].strip()
     if c_msg:
-        prior_chat_list=list(chat_list)
+        prior_chat_list = [x for x in chat_list]
         chat_list.append({
             "user": c_user[:32],
             "msg": c_msg[:512],
@@ -1151,7 +1151,7 @@ elif subpath == "watchat":
         
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
             <span class="status-pill" style="background:#0284c7;">{t('watchat.public_channel')}</span>
-            <a href="https://ziokt-chat-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple">{tr('打开独立 WATChat PWA 界面', 'Open Standalone WATChat PWA')} &rarr;</a>
+            <a href="https://chat.ziokt.com/" target="_blank" class="btn btn-purple">{tr('打开独立 WATChat PWA 界面', 'Open Standalone WATChat PWA')} &rarr;</a>
         </div>
         
         <div style="background:#1e293b;padding:1rem;border-radius:8px;border:1px solid var(--border-color);height:300px;overflow-y:auto;margin-bottom:1rem;">
@@ -1203,7 +1203,7 @@ elif subpath == "sim":
                 <h3 style="font-size:1.05rem;color:var(--accent-purple);margin-bottom:0.5rem;">⚡ {tr('仿真演练与故障注入', 'Simulation Drill &amp; Chaos Fault Injection')}</h3>
                 <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">{tr('可在受控沙盒中注入网络分区或网络延迟:', 'Inject network partitions or synthetic latency in controlled sandbox:')}</p>
                 <div style="display:flex;gap:0.5rem;flex-direction:column;">
-                    <a href="https://ziokt-sim-43-207-75-185.sslip.io/" target="_blank" class="btn btn-purple" style="text-align:center;">{tr('进入完整 SimManager PWA 控制台', 'Enter Full SimManager PWA Console')} &rarr;</a>
+                    <a href="https://sim.ziokt.com/" target="_blank" class="btn btn-purple" style="text-align:center;">{tr('进入完整 SimManager PWA 控制台', 'Enter Full SimManager PWA Console')} &rarr;</a>
                 </div>
             </div>
         </div>
@@ -1236,7 +1236,7 @@ elif subpath == "effort":
             </div>
             <div class="card">
                 <div class="card-title">{tr('独立 API 节点', 'Standalone API Node')}</div>
-                <div class="card-value" style="font-size:1.05rem;"><a href="https://ziokt-effort-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">Port 8081 &rarr;</a></div>
+                <div class="card-value" style="font-size:1.05rem;"><a href="https://fendou.ziokt.com/" target="_blank" style="color:var(--accent-blue);">fendou.ziokt.com &rarr;</a></div>
             </div>
         </div>
         
@@ -1577,7 +1577,7 @@ elif subpath == "shadow6":
                 <h2 style="font-size:1.8rem;margin:0;color:var(--text-primary);">{t('shadow6.title')}</h2>
             </div>
             <div>
-                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn" style="background:#d97706;color:#fff;font-weight:bold;display:inline-flex;align-items:center;gap:6px;">
+                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn" style="background:#d97706;color:#fff;font-weight:bold;display:inline-flex;align-items:center;gap:6px;">
                     🚀 {t('shadow6.btn_open_web')} &rarr;
                 </a>
             </div>
@@ -1615,7 +1615,7 @@ elif subpath == "shadow6":
                 <button type="button" class="btn" onclick="verifyAndUnlockHost()" style="background:#0284c7;color:#fff;font-size:0.85rem;padding:6px 16px;">
                     🔓 {t('shadow6.btn_auth')}
                 </button>
-                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn" style="background:#1e293b;border:1px solid #334155;color:var(--accent-blue);font-size:0.85rem;padding:6px 14px;">
+                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn" style="background:#1e293b;border:1px solid #334155;color:var(--accent-blue);font-size:0.85rem;padding:6px 14px;">
                     🖥️ {t('shadow6.btn_open_web')}
                 </a>
                 <span id="s6-auth-msg" style="font-size:0.85rem;font-family:monospace;color:var(--text-secondary);"></span>
@@ -1739,7 +1739,7 @@ elif subpath == "shadow6":
         </div>
         <div class="table-row">
             <span class="label">{tr('公共 HTTPS 域名网关 (Public Ingress)', 'Public HTTPS Ingress')}</span>
-            <span class="val"><a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" style="color:var(--accent-amber);text-decoration:underline;">https://ziokt-shadow6-43-207-75-185.sslip.io/</a></span>
+            <span class="val"><a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" style="color:var(--accent-amber);text-decoration:underline;">https://shadow6.ziokt.com/</a></span>
         </div>
     </div>
 
@@ -2141,7 +2141,7 @@ if subpath == 'shadow6':
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="btn" onclick="const b=document.getElementById('s6-simple-bearer').value.trim(),p=document.getElementById('s6-simple-pair').value.trim();if(b||p){{localStorage.setItem('shadow6_auth_bearer',b);localStorage.setItem('shadow6_auth_pairing',p);const el=document.getElementById('s6-simple-badge');el.textContent='已授权';el.style.color='#10b981';el.style.borderColor='#10b981';alert('鉴权信息已存入浏览器会话！');}}" style="background:#0284c7;font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_auth')}</button>
-                <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" rel="noreferrer" class="btn btn-green" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_open_web')}</a>
+                <a href="https://shadow6.ziokt.com/" target="_blank" rel="noreferrer" class="btn btn-green" style="font-size:0.85rem;padding:6px 12px;">{t('shadow6.btn_open_web')}</a>
             </div>
         </div>
 
@@ -2168,7 +2168,7 @@ if subpath == 'ufsdcpm':
     <div style="margin:16px 0;background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;">
         <h2 style="font-size:1.1rem;color:var(--accent-blue);margin-bottom:8px;">🌐 {tr('UFS 原生安全存储 HTTP 鉴权信息', 'UFS Native Secure Storage HTTP Credentials')}</h2>
         <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary);">
-            <div>&bull; <strong>{tr('公网网关', 'Public Gateway')}</strong>: <a href="https://ziokt-ufs-43-207-75-185.sslip.io/" target="_blank" style="color:var(--accent-blue);">https://ziokt-ufs-43-207-75-185.sslip.io/</a></div>
+            <div>&bull; <strong>{tr('公网网关', 'Public Gateway')}</strong>: <a href="https://ufs.ziokt.com/" target="_blank" style="color:var(--accent-blue);">https://ufs.ziokt.com/</a></div>
             <div>&bull; <strong>{tr('认证协议', 'Auth Protocol')}</strong>: HTTP Digest Auth (SHA-256)</div>
             <div>&bull; <strong>{tr('凭据存储', 'Credentials Storage')}</strong>: <code>~/.config/dcpm-ufs/config.json</code> ({tr('受本地 0600 权限保护，不向公网暴露', 'Protected by local 0600 permissions, not exposed publicly')})</div>
             <div>&bull; <strong>{tr('安全说明', 'Security Notice')}</strong>: {tr('口令持久化保存在节点主机配置文件中，可在终端执行 <code>cat ~/.config/dcpm-ufs/config.json</code> 查看或配置。', 'Credentials are securely stored in the host node config file. Inspect or update via <code>cat ~/.config/dcpm-ufs/config.json</code> on host.')}</div>
@@ -2181,11 +2181,11 @@ if subpath == 'gui':
     simple_content_html += content_html
 
 ext_links = {
-    'watchat': 'https://ziokt-chat-43-207-75-185.sslip.io/',
-    'sim': 'https://ziokt-sim-43-207-75-185.sslip.io/',
-    'effort': 'https://ziokt-effort-43-207-75-185.sslip.io/',
-    'ufsdcpm': 'https://ziokt-ufs-43-207-75-185.sslip.io/',
-    'shadow6': 'https://ziokt-shadow6-43-207-75-185.sslip.io/',
+    'watchat': 'https://chat.ziokt.com/',
+    'sim': 'https://sim.ziokt.com/',
+    'effort': 'https://fendou.ziokt.com/',
+    'ufsdcpm': 'https://ufs.ziokt.com/',
+    'shadow6': 'https://shadow6.ziokt.com/',
     'gui': '/gateway-assets/gui/index.html'
 }
 if subpath in ext_links:

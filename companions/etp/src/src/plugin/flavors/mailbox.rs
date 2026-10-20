@@ -15,6 +15,10 @@ const FETCH: u8 = 2;
 const FETCH_RESP: u8 = 3;
 const DELETE: u8 = 4;
 const ACK: u8 = 5;
+const REPLICATION_STATUS: u8 = 6;
+use super::mailbox_replication::{
+    ReplicaConfig, Replicas, REPLICA_ACK, REPLICA_PAGE, REPLICA_PUT, REPLICA_SYNC,
+};
 const MAX_MESSAGE: usize = 8192;
 const MAX_RECORDS: usize = 4096;
 const TTL: u64 = 86400;
@@ -22,6 +26,7 @@ const AUTH_LEN: usize = 32 + 8 + 16 + 64;
 
 pub struct MailboxFlavor {
     db: sled::Db,
+    replicas: Option<Replicas>,
     messages: sled::Tree,
     proofs: sled::Tree,
     mutation: Mutex<()>,
@@ -32,14 +37,49 @@ fn now() -> Result<u64> {
 }
 impl MailboxFlavor {
     pub fn new(path: &str, network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>) -> Result<Arc<Self>> {
+        Self::new_with_replication(path, network_tx, None)
+    }
+    /// Existing constructor stays single-node. Replication is an explicit opt-in.
+    pub fn new_with_replication(
+        path: &str,
+        network_tx: mpsc::Sender<(SocketAddr, Vec<u8>)>,
+        config: Option<ReplicaConfig>,
+    ) -> Result<Arc<Self>> {
         let db = sled::open(path)?;
+        let messages = db.open_tree("mail-v2")?;
+        let replicas = config
+            .map(|config| Replicas::new(&db, config, network_tx.clone()))
+            .transpose()?;
+        if let Some(replica) = &replicas {
+            let time = now()?;
+            replica.recover(&messages, time)?;
+            for item in messages.iter() {
+                let (key, value) = item?;
+                if value.len() >= 9 && replica.status(&key).is_err() {
+                    let expires = u64::from_be_bytes(value[..8].try_into()?).saturating_add(TTL);
+                    if expires > time {
+                        replica.journal(&key, Some(&value[8..]), expires)?;
+                    }
+                }
+            }
+        }
+
         Ok(Arc::new(Self {
-            messages: db.open_tree("mail-v2")?,
+            messages,
+            replicas,
             proofs: db.open_tree("proof-v2")?,
             db,
             mutation: Mutex::new(()),
             network_tx,
         }))
+    }
+    /// Called by the host's bounded scheduler; no detached unbounded workers.
+    pub fn reconcile(&self) -> Result<()> {
+        let _guard = self.mutation.lock();
+        if let Some(replica) = &self.replicas {
+            replica.reconcile()?;
+        }
+        Ok(())
     }
     fn proof_message(op: u8, header: &[u8], body: &[u8]) -> Vec<u8> {
         let mut message = b"ETP_MAILBOX_V2\0".to_vec();
@@ -47,6 +87,25 @@ impl MailboxFlavor {
         message.extend_from_slice(header);
         message.extend_from_slice(body);
         message
+    }
+    /// Typed packet entry for native hosts and real-network CI runners.
+    pub fn process_packet(&self, source: SocketAddr, data: &[u8]) -> Result<Vec<u8>> {
+        ensure!(data.len() >= 2 && data[0] == VERSION, "mailbox version");
+        if matches!(
+            data[1],
+            REPLICA_PUT | REPLICA_ACK | REPLICA_SYNC | REPLICA_PAGE
+        ) {
+            let _guard = self.mutation.lock();
+            let time = now()?;
+            self.cleanup(time)?;
+            self.replicas
+                .as_ref()
+                .ok_or_else(|| anyhow!("replication disabled"))?
+                .receive(data, source, &self.messages, time)?;
+            Ok(Vec::new())
+        } else {
+            self.handle(data[1], &data[2..])
+        }
     }
     // Must be called with mutation held, so proof consumption and mutation serialize.
     fn verify_auth(&self, op: u8, data: &[u8]) -> Result<[u8; 32]> {
@@ -108,6 +167,19 @@ impl MailboxFlavor {
                 let owner = &data[..32];
                 let mut key = owner.to_vec();
                 key.extend_from_slice(blake3::hash(&data[32..]).as_bytes());
+                ensure!(
+                    !self
+                        .db
+                        .open_tree("mail-replica-tombstones-v1")?
+                        .contains_key(&key)?,
+                    "retained deletion marker"
+                );
+                if let Some(replica) = &self.replicas {
+                    ensure!(
+                        !replica.deleted(&key)?,
+                        "message has a durable deletion marker"
+                    );
+                }
                 if !self.messages.contains_key(&key)? {
                     ensure!(
                         self.messages.len() < MAX_RECORDS
@@ -116,9 +188,23 @@ impl MailboxFlavor {
                     );
                     let mut value = time.to_be_bytes().to_vec();
                     value.extend_from_slice(&data[32..]);
-                    self.messages.insert(key, value)?;
+                    if let Some(replica) = &self.replicas {
+                        replica.journal(&key, Some(&data[32..]), time.saturating_add(TTL))?;
+                    }
+                    self.messages.insert(&key, value)?;
                 }
                 self.db.flush()?;
+                if let Some(replica) = &self.replicas {
+                    replica.reconcile()?;
+                    let (copies, required) = replica.status(&key)?;
+                    return Ok(vec![
+                        VERSION,
+                        ACK,
+                        u8::from(copies < required),
+                        copies as u8,
+                        required as u8,
+                    ]);
+                }
                 Ok(vec![VERSION, ACK, 0])
             }
             FETCH => {
@@ -127,6 +213,12 @@ impl MailboxFlavor {
                 let mut response = vec![VERSION, FETCH_RESP, 0];
                 for entry in self.messages.scan_prefix(owner).take(4) {
                     let (key, value) = entry?;
+                    if let Some(replica) = &self.replicas {
+                        if replica.deleted(&key)? {
+                            continue;
+                        }
+                    }
+
                     response.push(key.len() as u8);
                     response.extend_from_slice(&key);
                     response.extend_from_slice(&((value.len() - 8) as u32).to_be_bytes());
@@ -152,11 +244,54 @@ impl MailboxFlavor {
                 self.verify_auth(op, data)?;
                 let mut batch = sled::Batch::default();
                 for key in data[AUTH_LEN..].chunks_exact(64) {
+                    if let Some(replica) = &self.replicas {
+                        replica.journal(key, None, time.saturating_add(TTL))?;
+                    }
                     batch.remove(key);
                 }
                 self.messages.apply_batch(batch)?;
                 self.db.flush()?;
+                if let Some(replica) = &self.replicas {
+                    replica.reconcile()?;
+                    let mut counts = (1usize, 1usize);
+                    for key in data[AUTH_LEN..].chunks_exact(64) {
+                        let current = replica.status(key)?;
+                        if counts.1 == 1 || current.0 < counts.0 {
+                            counts = current;
+                        }
+                    }
+                    return Ok(vec![
+                        VERSION,
+                        ACK,
+                        u8::from(counts.0 < counts.1),
+                        counts.0 as u8,
+                        counts.1 as u8,
+                    ]);
+                }
                 Ok(vec![VERSION, ACK, 0])
+            }
+            REPLICATION_STATUS => {
+                ensure!(
+                    data.len() == AUTH_LEN + 64,
+                    "status requires exact message key"
+                );
+                let owner = self.verify_auth(op, data)?;
+                let key = &data[AUTH_LEN..];
+                ensure!(key[..32] == owner, "foreign status key");
+                self.db.flush()?;
+                if let Some(replica) = &self.replicas {
+                    let (copies, required) = replica.status(key)?;
+                    Ok(vec![
+                        VERSION,
+                        ACK,
+                        u8::from(copies < required),
+                        copies as u8,
+                        required as u8,
+                    ])
+                } else {
+                    ensure!(self.messages.contains_key(key)?, "message unavailable");
+                    Ok(vec![VERSION, ACK, 0, 1, 1])
+                }
             }
             _ => Err(anyhow!("unknown mailbox operation")),
         }
@@ -169,7 +304,25 @@ impl CapabilityProvider for MailboxFlavor {
 }
 impl Flavor for MailboxFlavor {
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
-        if data.len() < 2 || data[0] != VERSION || !matches!(data[1], DEPOSIT | FETCH | DELETE) {
+        if data.len() >= 2
+            && data[0] == VERSION
+            && matches!(
+                data[1],
+                REPLICA_PUT | REPLICA_ACK | REPLICA_SYNC | REPLICA_PAGE
+            )
+        {
+            if let Some(replica) = &self.replicas {
+                let _guard = self.mutation.lock();
+                if let Ok(time) = now() {
+                    let _ = replica.receive(data, ctx.src_addr, &self.messages, time);
+                }
+            }
+            return true;
+        }
+        if data.len() < 2
+            || data[0] != VERSION
+            || !matches!(data[1], DEPOSIT | FETCH | DELETE | REPLICATION_STATUS)
+        {
             return false;
         }
         // No unbounded task spawning when a consumer stops reading.
@@ -178,7 +331,9 @@ impl Flavor for MailboxFlavor {
         }
         true
     }
-    fn on_connection_open(&self, _: SocketAddr) {}
+    fn on_connection_open(&self, _: SocketAddr) {
+        let _ = self.reconcile();
+    }
     fn on_connection_close(&self, _: SocketAddr) {}
 }
 impl std::fmt::Debug for MailboxFlavor {

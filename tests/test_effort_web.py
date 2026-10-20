@@ -71,6 +71,7 @@ class EffortWebTests(unittest.TestCase):
             status,body=request('GET','/');self.assertEqual(status,200);self.assertEqual(body.count(b'<button'),1);self.assertIn('一键开始奋斗'.encode(),body)
             self.assertEqual(len(pool.jobs),0)
             self.assertEqual(request('POST','/api/job','{}',origin='https://evil.invalid')[0],409)
+            self.assertEqual(request('POST','/api/job','{}',origin='https://unconfigured.ziokt.com')[0],409)
             status,body=request('POST','/api/job','{}');self.assertEqual(status,200);job=json.loads(body)
             proof=json.dumps({'token':job['token'],'nonce':solve(job)})
             self.assertEqual(request('POST','/api/proof',proof)[0],200)

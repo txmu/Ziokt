@@ -1,0 +1,26 @@
+[Unit]
+Description=Ziokt anonymous read-only NNTP public TCP entry
+After=network-online.target ziokt-content.service
+Requires=ziokt-content.service
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+ExecStart=/usr/bin/socat TCP4-LISTEN:119,bind=0.0.0.0,reuseaddr,fork,max-children=16 TCP4:127.0.0.1:8119
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET
+MemoryMax=32M
+TasksMax=20
+LimitNOFILE=128
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

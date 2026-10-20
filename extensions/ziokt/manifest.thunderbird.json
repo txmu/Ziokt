@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "0.1.0",
+  "description": "__MSG_extensionDescription__",
+  "permissions": [
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "Ziokt applications",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "companion@ziokt.local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "default_locale": "en",
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  }
+}

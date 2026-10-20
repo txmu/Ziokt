@@ -1,7 +1,9 @@
 {
 	admin off
 }
-ziokt-effort-43-207-75-185.sslip.io {
+
+# 1. Effort Web (奋斗页)
+fendou.ziokt.com {
 	reverse_proxy 127.0.0.1:8081
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -10,7 +12,8 @@ ziokt-effort-43-207-75-185.sslip.io {
 	}
 }
 
-ziokt-chat-43-207-75-185.sslip.io {
+# 2. WATChat PWA
+chat.ziokt.com {
 	reverse_proxy 127.0.0.1:8182
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -18,7 +21,9 @@ ziokt-chat-43-207-75-185.sslip.io {
 		Referrer-Policy no-referrer
 	}
 }
-ziokt-sim-43-207-75-185.sslip.io {
+
+# 3. SimManager PWA
+sim.ziokt.com {
 	redir / /sim/ 302
 	@gateway path /api/* /app-config
 	handle @gateway {
@@ -40,7 +45,8 @@ ziokt-sim-43-207-75-185.sslip.io {
 	}
 }
 
-ziokt-tri-43-207-75-185.sslip.io {
+# 4. Tri Browser
+tri.ziokt.com {
 	redir / /tri/ 302
 	handle /tri/* {
 		root * /home/admin/.local/share/ziokt-production/apps/tri
@@ -56,7 +62,8 @@ ziokt-tri-43-207-75-185.sslip.io {
 	}
 }
 
-ziokt-gateway-43-207-75-185.sslip.io, ziokt-dapp-43-207-75-185.sslip.io {
+# 5. Gateway / DApp
+gateway.ziokt.com, dapp.ziokt.com {
 	@zioktNative path /api/gateway/* /gateway-assets/* /stream/*
 	handle @zioktNative {
 		reverse_proxy 127.0.0.1:8185 {
@@ -77,14 +84,46 @@ ziokt-gateway-43-207-75-185.sslip.io, ziokt-dapp-43-207-75-185.sslip.io {
 	}
 }
 
+# 6. cor-web.ziokt.com
 cor-web.ziokt.com {
- redir /app/explorer/cbb /app/explorer/blockchain?{query} 302
- redir /gateway-assets/gui/downloads/* https://app.ziokt.com/downloads/ 302
- redir /app/gui* https://app.ziokt.com/ 302
- redir /app/desktop* https://app.ziokt.com/ 302
- redir /app/client* https://app.ziokt.com/ 302
- redir /downloads https://app.ziokt.com/downloads/ 302
- redir /downloads/* https://app.ziokt.com{uri} 302
+	redir /app/explorer/cbb /app/explorer/blockchain?{query} 302
+	redir /gateway-assets/gui/downloads/* https://app.ziokt.com/downloads/ 302
+	redir /app/gui* https://app.ziokt.com/ 302
+	redir /app/desktop* https://app.ziokt.com/ 302
+	redir /app/client* https://app.ziokt.com/ 302
+	redir /downloads https://app.ziokt.com/downloads/ 302
+	redir /downloads/* https://app.ziokt.com{uri} 302
+
+	handle_path /effort/* {
+		reverse_proxy 127.0.0.1:8081 {
+			header_up Host fendou.ziokt.com
+		}
+	}
+	handle_path /chat/* {
+		reverse_proxy 127.0.0.1:8182 {
+			header_up Host chat.ziokt.com
+		}
+	}
+	handle /sim/* {
+		root * /home/admin/.local/share/ziokt-production/apps/sim-manager
+		try_files {path} /sim/index.html
+		file_server
+	}
+	handle /tri/* {
+		root * /home/admin/.local/share/ziokt-production/apps/tri
+		try_files {path} /tri/index.html
+		file_server
+	}
+	handle_path /ufs/* {
+		reverse_proxy 127.0.0.1:8184 {
+			header_up Host ufs.ziokt.com
+		}
+	}
+	handle_path /shadow6/* {
+		reverse_proxy 127.0.0.1:9467 {
+			header_up Host shadow6.ziokt.com
+		}
+	}
 
 	@zioktNative path /api/gateway/* /gateway-assets/* /stream/*
 	handle @zioktNative {
@@ -107,7 +146,8 @@ cor-web.ziokt.com {
 	}
 }
 
-ziokt-ufs-43-207-75-185.sslip.io {
+# 7. UFS & dCPM
+ufs.ziokt.com {
 	reverse_proxy 127.0.0.1:8184 {
 		header_up Host {host}
 		header_up X-Forwarded-Host {host}
@@ -120,6 +160,7 @@ ziokt-ufs-43-207-75-185.sslip.io {
 	}
 }
 
+# 8. MCP Gateway
 mcp.ziokt.com {
 	@root path /
 	handle @root {
@@ -135,7 +176,8 @@ mcp.ziokt.com {
 	}
 }
 
-ziokt-shadow6-43-207-75-185.sslip.io {
+# 9. Shadow6
+shadow6.ziokt.com {
 	reverse_proxy 127.0.0.1:9467 {
 		header_up Host {host}
 		header_up X-Forwarded-Host {host}
@@ -148,37 +190,62 @@ ziokt-shadow6-43-207-75-185.sslip.io {
 	}
 }
 
-
-
+# 10. Unified Graphical Client
 app.ziokt.com {
- handle_path /downloads/* {
-  root * /home/admin/.local/share/ziokt-production/downloads/gui
-  file_server
-  header Cache-Control no-cache
- }
- handle /api/gateway/* {
-  reverse_proxy 127.0.0.1:8185
- }
- handle {
-  root * /home/admin/Ziokt/gateway/gui
-  try_files {path} /index.html
-  file_server
-  header Cache-Control no-cache
- }
- header {
-  Strict-Transport-Security "max-age=31536000"
-  X-Content-Type-Options nosniff
-  Referrer-Policy no-referrer
-  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cor-web.ziokt.com wss://cor-web.ziokt.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
- }
+	handle_path /downloads/* {
+		root * /home/admin/.local/share/ziokt-production/downloads/gui
+		file_server
+		header Cache-Control no-cache
+	}
+	handle /api/gateway/* {
+		reverse_proxy 127.0.0.1:8185
+	}
+	handle {
+		root * /home/admin/Ziokt/gateway/gui
+		try_files {path} /index.html
+		file_server
+		header Cache-Control no-cache
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cor-web.ziokt.com wss://cor-web.ziokt.com https://read.ziokt.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	}
 }
 
+# 11. DNS Server
 dns.ziokt.com {
-	handle {
+	@dns path /dns-query /realms/*/dns-query
+	handle @dns {
 		reverse_proxy 127.0.0.1:8188 {
 			header_up X-Ziokt-Client-IP {remote_host}
 		}
 	}
+	handle {
+		respond "Ziokt DNS — DoH: https://dns.ziokt.com/dns-query ; private suffixes only; no public DNS recursion." 200
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Cache-Control no-store
+	}
+}
+
+# 12. Reader
+read.ziokt.com {
+	reverse_proxy 127.0.0.1:8210
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}
+
+# 13. Netnews
+nntp.ziokt.com {
+	respond "Ziokt Netnews: anonymous read over TLS on port 563 (recommended), or plaintext compatibility on port 119. Authenticated publishing uses https://read.ziokt.com/." 200
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff

@@ -1,0 +1,25 @@
+{
+  "schema": "ziokt.content-node.v1",
+  "root": "/home/admin/.local/share/ziokt-content/state",
+  "listen": "127.0.0.1",
+  "port": 8210,
+  "origins": ["https://read.ziokt.com"],
+  "public_read": true,
+  "quota": 536870912,
+  "tokens": [
+    {
+      "account": "operator",
+      "token": "REPLACE_WITH_A_PRIVATE_APPLICATION_CREDENTIAL",
+      "scopes": ["content:read", "content:write", "library:read", "library:write", "netnews:read", "netnews:write", "applications:read", "applications:write", "optimization:read", "optimization:write", "feeds:read"]
+    }
+  ],
+  "peers": {},
+  "nntp": {
+    "enabled": true,
+    "listen": "127.0.0.1",
+    "port": 8119,
+    "anonymous_read": true,
+    "allow_loopback_auth": false
+  },
+  "nntp_tokens": []
+}

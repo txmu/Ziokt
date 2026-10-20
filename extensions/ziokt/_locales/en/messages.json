@@ -1,0 +1,215 @@
+{
+  "intro": {
+    "message": "Connect your node and use authorized applications."
+  },
+  "endpoint": {
+    "message": "Node address"
+  },
+  "credential": {
+    "message": "Application credential"
+  },
+  "connect": {
+    "message": "Authorize this node and connect"
+  },
+  "disconnected": {
+    "message": "Not connected"
+  },
+  "logout": {
+    "message": "Disconnect and clear session"
+  },
+  "news": {
+    "message": "News"
+  },
+  "books": {
+    "message": "Books"
+  },
+  "community": {
+    "message": "Community"
+  },
+  "applications": {
+    "message": "Applications"
+  },
+  "newsgroups": {
+    "message": "Newsgroups"
+  },
+  "load_groups": {
+    "message": "Load groups"
+  },
+  "subject": {
+    "message": "Subject"
+  },
+  "body": {
+    "message": "Body"
+  },
+  "publish_identity": {
+    "message": "Publish with authorized identity"
+  },
+  "library_search": {
+    "message": "Search books"
+  },
+  "query": {
+    "message": "Title, author or ISBN"
+  },
+  "search": {
+    "message": "Search"
+  },
+  "community_load": {
+    "message": "Load authorized posts"
+  },
+  "publish": {
+    "message": "Publish"
+  },
+  "node_capabilities": {
+    "message": "Node applications"
+  },
+  "load_capabilities": {
+    "message": "Check actual capabilities"
+  },
+  "capability_note": {
+    "message": "Message, group and file features depend on node support and explicit grants. Gateway administration is never inherited."
+  },
+  "extensionName": {
+    "message": "Ziokt Companion"
+  },
+  "extensionDescription": {
+    "message": "Use Ziokt Library, Netnews, Community and content services with an independent application identity."
+  },
+  "settings": {
+    "message": "Preferences"
+  },
+  "language": {
+    "message": "Language"
+  },
+  "theme": {
+    "message": "Theme"
+  },
+  "font": {
+    "message": "Font size"
+  },
+  "limit": {
+    "message": "Articles per page"
+  },
+  "default_tab": {
+    "message": "Default application"
+  },
+  "compact": {
+    "message": "Compact layout"
+  },
+  "save_settings": {
+    "message": "Save preferences"
+  },
+  "connected": {
+    "message": "Connected. Writes use an independent application identity."
+  },
+  "session_cleared": {
+    "message": "Session cleared"
+  },
+  "session_restored": {
+    "message": "Extension session restored"
+  },
+  "settings_saved": {
+    "message": "Preferences saved"
+  },
+  "reply": {
+    "message": "Reply"
+  },
+  "post_saved": {
+    "message": "Article durably published"
+  },
+  "community_saved": {
+    "message": "Community published with the delegated member signature"
+  },
+  "private_book": {
+    "message": "Private collection"
+  },
+  "public_book": {
+    "message": "Public catalogue"
+  },
+  "local_source": {
+    "message": "Local source"
+  },
+  "remote_source": {
+    "message": "Federated catalogue; availability requires verification"
+  },
+  "available": {
+    "message": "Interface available; each action requires its own permission"
+  },
+  "unavailable": {
+    "message": "Not connected on this node"
+  },
+  "permission_denied": {
+    "message": "Node permission was not granted"
+  },
+  "connect_first": {
+    "message": "Connect a node first"
+  },
+  "invalid_origin": {
+    "message": "Enter a node origin without credentials, path or query"
+  },
+  "tls_required": {
+    "message": "Remote nodes require HTTPS"
+  },
+  "request_failed": {
+    "message": "Operation rejected; check permissions or connectivity"
+  },
+  "object_limit": {
+    "message": "Browser limit is 16 MiB; use the streaming client for larger files"
+  },
+  "integrity_error": {
+    "message": "File integrity check failed"
+  },
+  "download": {
+    "message": "Download verified file"
+  },
+  "transfer": {
+    "message": "Transferring"
+  },
+  "profile_name": {
+    "message": "Connection name"
+  },
+  "profiles": {
+    "message": "Saved connections"
+  },
+  "upload": {
+    "message": "Upload a book"
+  },
+  "file": {
+    "message": "File"
+  },
+  "book_title": {
+    "message": "Book title"
+  },
+  "author": {
+    "message": "Author"
+  },
+  "work": {
+    "message": "Work identifier"
+  },
+  "edition": {
+    "message": "Edition identifier"
+  },
+  "license": {
+    "message": "License or right to retain"
+  },
+  "visibility": {
+    "message": "Distribution scope"
+  },
+  "upload_publish": {
+    "message": "Upload and save catalogue record"
+  },
+  "book_saved": {
+    "message": "Book and file durably saved"
+  },
+  "open_tab": {
+    "message": "Open in a full tab"
+  },
+  "upload_book": {
+    "message": "Upload book (up to 16 MiB)"
+  },
+  "attachments": {
+    "message": "Attachments (up to 8; 16 MiB each)"
+  },
+  "attachment_limit": {
+    "message": "Up to 8 attachments"
+  }
+}

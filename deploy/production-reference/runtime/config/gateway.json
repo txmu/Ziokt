@@ -43,7 +43,7 @@
       }
     ]
   },
-  "corix_digest": "sha256:49db3782be4e177297e7d0c40e96dde528f3d16517d328c391968eac82960024",
+  "corix_digest": "sha256:9ef45046c0cfeba4b48392be03567a08cea34e9cb00dec4c1c522326b201355d",
   "registry_db": "/home/admin/.local/share/ziokt-production/config/registry.db",
   "mcp_config": "/home/admin/.local/share/ziokt-production/mcp/mcp.json",
   "dns_config": "/home/admin/.local/share/ziokt-production/config/dns.json",

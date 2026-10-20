@@ -1,0 +1,29 @@
+[Unit]
+Description=Ziokt public reader and local Library/Netnews application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/.local/share/ziokt-content/current
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ziokt.content_server --config /home/admin/.local/share/ziokt-content/content.json
+Restart=on-failure
+RestartSec=4
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/admin/.local/share/ziokt-content/state
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=128M
+MemoryMax=192M
+TasksMax=32
+LimitNOFILE=256
+CPUQuota=35%
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

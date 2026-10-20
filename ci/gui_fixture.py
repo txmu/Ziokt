@@ -16,6 +16,15 @@ def configuration(root):
     federation=root/'federation.json'
     federation.write_bytes(encoded({'schema':'ziokt.federation.v1','enabled':False,'federation_id':'test','providers':[{'native_project':'corium','provider_id':'corium-test','root':str(root),'native_config':str(root/'etc/corix/networks/test/corix.conf'),'state_root':str(root),'network_id':'test','entrypoint_digest':'sha256:'+'a'*64}]}));federation.chmod(0o600)
     path,_=provision(root/'mcp','https://gui.test',federation,gateway)
+    # Exercise the actual delegated Community service, not seeded browser posts.
+    from ziokt.security import sign
+    from ziokt.protocol import secure_read,strict_json
+    from ziokt.mcp import Service
+    settings=strict_json(secure_read(path));authority=root/'mcp/authority.key'
+    owner=sign({},secure_read(authority,32),'gui-fixture')['public_key']
+    settings['content_fabric']={'enabled':True,'root':str(root/'content'),'accounts':{'ziokt-operator':'owner'},'community':{'root':str(root/'mcp/community'),'owner':owner,'policy':str(root/'mcp/policy.json'),'encryption_key':str(root/'mcp/community.key'),'accounts':{'owner':{'public_key':owner,'signing_key':str(authority)}}}}
+    settings['clients']['ziokt-operator']['scopes']=Service(settings).scopes
+    path.write_bytes(encoded(settings));path.chmod(0o600)
     config['mcp_config']=str(path)
     return config
 

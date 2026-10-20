@@ -262,7 +262,7 @@
     "app.ziokt.com",
     "cor-web.ziokt.com",
     "mcp.ziokt.com",
-    "ziokt-gateway-43-207-75-185.sslip.io"
+    "gateway.ziokt.com"
   ],
   "issuer": "https://mcp.ziokt.com",
   "native_package_handoff": {
