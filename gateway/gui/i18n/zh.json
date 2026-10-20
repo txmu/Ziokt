@@ -23,7 +23,9 @@
     "network": "网络节点",
     "identity": "身份与贡献",
     "devtools": "开发工具",
-    "settings": "系统设置"
+    "settings": "系统设置",
+    "library": "Library",
+    "netnews": "Netnews"
   },
   "common": {
     "confirm": "确认",

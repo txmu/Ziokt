@@ -465,13 +465,13 @@ export async function apiRequest(endpoint, options = {}) {
       throw new Error(msg);
     }
   } else {
-    // Mandate authentication for remote nodes
+    // Mandate authentication for remote nodes when required (e.g. destructive writes or private APIs)
     const activeNode = getActiveRemoteNode();
     const token = activeNode?.authToken || State.authToken || getStorage('ziokt_auth_token');
-    if (!token || token.trim() === '') {
+    if (options.requireAuth && (!token || token.trim() === '')) {
       const msg = State.language === 'en'
         ? 'Remote node requires authentication credentials (Auth Token). Please configure a valid token in Settings.'
-        : '使用远程节点需要身份鉴权 (Auth Token)。请在“系统设置”中配置有效的访问凭证。';
+        : '使用该功能需要身份鉴权 (Auth Token)。请在“系统设置”中配置有效的访问凭证。';
       showToast(msg, 'error');
       throw new Error(msg);
     }
@@ -513,10 +513,11 @@ export async function apiRequest(endpoint, options = {}) {
 }
 
 // Real GUI operations share the server's typed MCP authorization, audit and idempotency.
-export async function callTool(name, arguments_, {confirm = false, key = crypto.randomUUID()} = {}) {
+export async function callTool(name, arguments_, {confirm = false, key = crypto.randomUUID(), requireAuth = false} = {}) {
   const result = await apiRequest('/api/gateway/tools/call', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, arguments: arguments_, confirm, idempotency_key: key})
+    body: JSON.stringify({name, arguments: arguments_, confirm, idempotency_key: key}),
+    requireAuth: requireAuth || confirm
   });
   const text = (result.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
   if (result.isError) throw new Error(text || 'Tool execution failed');

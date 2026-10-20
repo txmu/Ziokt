@@ -143,13 +143,13 @@ cor-web.ziokt.com     ziokt-gateway...  ziokt-ufs...    ziokt-chat...       ziok
 - **生产主域名**：`https://cor-web.ziokt.com/`（绑定 Cloudflare DNS，重写路由至 `/nns/corium` 去中心化门户）
 - **论坛直达**：`https://cor-web.ziokt.com/app/forum`（实时渲染 `forum.db` 原生数据）
 - **UFS 存储管理**：`https://cor-web.ziokt.com/app/ufsdcpm`
-- **UFS API 节点**：`https://ziokt-ufs-43-207-75-185.sslip.io/api/stats`（支持 Digest Auth，用户 `admin`）
-- **原始网关替代链接**：`https://ziokt-gateway-43-207-75-185.sslip.io/nns/corium`（完全兼容保留）
+- **UFS API 节点**：`https://ufs.ziokt.com/api/stats`（支持 Digest Auth，用户 `admin`）
+- **原始网关替代链接**：`https://gateway.ziokt.com/nns/corium`（完全兼容保留）
 - **各子系统入口**：
-  - `https://ziokt-chat-43-207-75-185.sslip.io/`（WATChat）
-  - `https://ziokt-sim-43-207-75-185.sslip.io/`（SimManager）
-  - `https://ziokt-effort-43-207-75-185.sslip.io/`（Effort 算力）
-  - `https://ziokt-tri-43-207-75-185.sslip.io/`（Tri 离线状态机）
+  - `https://chat.ziokt.com/`（WATChat）
+  - `https://sim.ziokt.com/`（SimManager）
+  - `https://effort.ziokt.com/`（Effort 算力）
+  - `https://tri.ziokt.com/`（Tri 离线状态机）
 
 ### 1.6 归档打包产物（家目录下）
 

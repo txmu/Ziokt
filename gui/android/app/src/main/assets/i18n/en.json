@@ -23,7 +23,9 @@
     "network": "Network Nodes",
     "identity": "Identity & PoUW",
     "devtools": "Dev Tools",
-    "settings": "Settings"
+    "settings": "Settings",
+    "library": "Library",
+    "netnews": "Netnews"
   },
   "common": {
     "confirm": "Confirm",

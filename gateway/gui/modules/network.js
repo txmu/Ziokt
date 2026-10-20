@@ -45,7 +45,7 @@ export function renderNetwork(container) {
           <p style="font-size: 0.82rem; color: var(--text-muted);">${t('network.subtitle')}</p>
         </div>
         <div style="display: flex; gap: 10px;">
-          <a href="https://ziokt-shadow6-43-207-75-185.sslip.io/" target="_blank" class="btn btn-primary">🪐 打开 Shadow6 Web UI</a>
+          <a href="https://shadow6.ziokt.com/" target="_blank" class="btn btn-primary">🪐 打开 Shadow6 Web UI</a>
           <button id="toggle-sensitive-btn" class="btn btn-secondary">${showSensitive ? '🔒 隐藏敏感内容' : '👁️ 显示敏感内容'}</button>
           <button id="ping-all-btn" class="btn btn-secondary">⚡ ${t('network.ping_test')}</button>
         </div>

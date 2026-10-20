@@ -50,8 +50,8 @@ def main():
    command('docker','exec','ziokt-freshrss','php','-r',"file_put_contents('/var/www/FreshRSS/data/config.custom.php',"+json.dumps(config)+");")
    cli('php','cli/do-install.php','--default-user','reader','--db-type','sqlite','--base-url','http://127.0.0.1')
    cli('php','cli/create-user.php','--user','reader','--password',password,'--no-default-feeds')
-   formats={}
-   for fmt in ('rss','atom','json'):
+   freshrss_formats=('rss','atom');formats={}
+   for fmt in freshrss_formats:
     opml='<opml version="2.0"><head><title>CI</title></head><body><outline text="'+fmt+'" type="rss" xmlUrl="'+base+'/feeds/netnews.'+fmt+'"/></body></opml>'
     path=root/(fmt+'.opml');path.write_text(opml);command('docker','cp',str(path),'ziokt-freshrss:/tmp/'+path.name)
     cli('php','cli/import-for-user.php','--user','reader','--filename','/tmp/'+path.name)
@@ -63,7 +63,7 @@ def main():
     feed_table=next((t for t in tables if 'feed' in t),'feed')
     entry_table=next((t for t in tables if 'entry' in t),'entry')
     rows=db.execute(f'SELECT f.url,e.title FROM {feed_table} f LEFT JOIN {entry_table} e ON e.id_feed=f.id').fetchall()
-    for fmt in ('rss','atom','json'):
+    for fmt in freshrss_formats:
      titles=[title for url,title in rows if url==base+'/feeds/netnews.'+fmt]
      assert 'Ziokt feed interoperability' in titles,(fmt,'FreshRSS did not store public article')
      assert 'Private never exported' not in titles

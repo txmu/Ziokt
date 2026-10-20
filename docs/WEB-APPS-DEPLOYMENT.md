@@ -61,8 +61,8 @@ WATCHAT_PUSH_CONFIG 指定；subject 应是运营者 HTTPS 联系地址或邮件
 
 ## 本机部署
 
-- WATChat：https://ziokt-chat-43-207-75-185.sslip.io/
-- SIM：https://ziokt-sim-43-207-75-185.sslip.io/sim/
+- WATChat：https://chat.ziokt.com/
+- SIM：https://sim.ziokt.com/sim/
 - Node：已核验官方归档 SHA-256 的 v24.22.0，两个独立 systemd 服务。
 - 本机桥接均使用真实私有 Community SQLite/CAS；这不是已有远端社区的副本，
   不代表已加入互联网联邦或获 Corium 链上确认。
