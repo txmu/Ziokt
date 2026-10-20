@@ -25,7 +25,8 @@
     "devtools": "Dev Tools",
     "settings": "Settings",
     "library": "Library",
-    "netnews": "Netnews"
+    "netnews": "Netnews",
+    "ecosystem": "Applications & offline"
   },
   "common": {
     "confirm": "Confirm",

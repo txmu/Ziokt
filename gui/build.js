@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import {createHash} from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,7 @@ function buildStandaloneAppBundle() {
     'modules/files.js',
     'modules/apps.js',
     'modules/content.js',
+    'modules/ecosystem.js',
     'modules/network.js',
     'modules/identity.js',
     'modules/devtools.js',
@@ -84,6 +86,7 @@ function buildStandaloneAppBundle() {
     apps: { render: renderApps, titleKey: 'nav.apps' },
     library: { render: renderLibrary, titleKey: 'nav.library' },
     netnews: { render: renderNetnews, titleKey: 'nav.netnews' },
+    ecosystem: { render: renderEcosystem, titleKey: 'nav.ecosystem' },
     network: { render: renderNetwork, titleKey: 'nav.network' },
     identity: { render: renderIdentity, titleKey: 'nav.identity' },
     devtools: { render: renderDevtools, titleKey: 'nav.devtools' },
@@ -110,7 +113,7 @@ function buildStandaloneAppBundle() {
     updateAppNodeBadge();
 
     let initialTab = getHashTab() || State.currentTab || 'home';
-    if (isLocalNodeOffline() && initialTab !== 'settings') {
+    if (isLocalNodeOffline() && !canUseWithoutLocalNode(initialTab)) {
       initialTab = 'settings';
     }
     navigate(initialTab);
@@ -118,7 +121,7 @@ function buildStandaloneAppBundle() {
     window.addEventListener('hashchange', () => {
       let tab = getHashTab();
       if (tab && tab !== State.currentTab) {
-        if (isLocalNodeOffline() && tab !== 'settings') {
+        if (isLocalNodeOffline() && !canUseWithoutLocalNode(tab)) {
           navigate('settings');
           return;
         }
@@ -128,19 +131,19 @@ function buildStandaloneAppBundle() {
 
     Events.on('navigate', (tab) => navigate(tab));
     Events.on('local_node_offline', () => {
-      if (State.currentTab !== 'settings') {
+      if (!canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
     Events.on('local_node_status_changed', () => {
       updateAppNodeBadge();
-      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+      if (isLocalNodeOffline() && !canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
     Events.on('mode_changed', () => {
       updateAppNodeBadge();
-      if (isLocalNodeOffline() && State.currentTab !== 'settings') {
+      if (isLocalNodeOffline() && !canUseWithoutLocalNode(State.currentTab)) {
         navigate('settings');
       }
     });
@@ -161,7 +164,7 @@ function buildStandaloneAppBundle() {
 
   function navigate(tabName) {
     // Local Node Offline Gatekeeping: only Settings can be viewed
-    if (isLocalNodeOffline() && tabName !== 'settings') {
+    if (isLocalNodeOffline() && !canUseWithoutLocalNode(tabName)) {
       const msg = State.language === 'en'
         ? 'Local node is offline. Local mode requires a running node; only Settings is accessible.'
         : '本地节点未启动。使用本地节点需要用户本地真实有节点运行，当前仅开放【系统设置】页。';
@@ -348,6 +351,10 @@ function buildStandaloneAppBundle() {
 }
 
 buildStandaloneAppBundle();
+// The shell version changes only when its fixed assets change.
+const shellAssets=['index.html','app.js','bootstrap.js','style.css','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/icon.svg','i18n/zh.json','i18n/en.json','i18n/zh-CN.json','i18n/en-US.json'];
+const shellHash=createHash('sha256');for(const name of shellAssets){shellHash.update(name+'\0');shellHash.update(fs.readFileSync(path.join(SRC_DIR,name)));}
+const workerPath=path.join(SRC_DIR,'sw.js');fs.writeFileSync(workerPath,fs.readFileSync(workerPath,'utf8').replace(/const CACHE_NAME = '[^']+';/,"const CACHE_NAME = 'ziokt-gui-shell-v2-"+shellHash.digest('hex').slice(0,20)+"';"));
 if (process.argv.includes('--bundle-only')) process.exit(0);
 
 // 4. Copy directory recursively

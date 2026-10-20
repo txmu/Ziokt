@@ -25,7 +25,8 @@
     "devtools": "开发工具",
     "settings": "系统设置",
     "library": "Library",
-    "netnews": "Netnews"
+    "netnews": "Netnews",
+    "ecosystem": "应用与离线"
   },
   "common": {
     "confirm": "确认",
