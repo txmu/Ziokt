@@ -29,3 +29,24 @@ class EtpContentBoundaryTests(unittest.TestCase):
                 self.assertEqual(f.articles('alice','news.bridge')['items'],[])
                 self.assertEqual(f.export()['events'],[])
             finally:f.close()
+
+    def test_application_policy_status_and_offline_errors(self):
+        import json,threading,urllib.request,urllib.error
+        from ziokt.content_server import server
+        with tempfile.TemporaryDirectory() as area:
+            f=Fabric(Path(area)/'fabric');f.create_group('alice','news.bridge')
+            native={'gateway':{'binary':str(Path(area)/'missing-native-binary'),'digest':'sha256:'+'0'*64,'config':str(Path(area)/'missing-native-config')},'accounts':{'alice':{'aliases':['author'],'topics':['native-forum'],'groups':['news.bridge'],'remote_authors':[]}}}
+            http=server(f,{'port':0,'native_etp':native,'tokens':[{'account':'alice','token':'test-content-account','scopes':['content:read','content:write']}]})
+            thread=threading.Thread(target=http.serve_forever);thread.start()
+            def call(operation,arguments):
+                raw=json.dumps({'operation':operation,'arguments':arguments}).encode()
+                request=urllib.request.Request('http://127.0.0.1:'+str(http.server_port)+'/api',raw,{'Authorization':'Bearer test-content-account','Content-Type':'application/json'})
+                with urllib.request.urlopen(request) as response:return json.load(response)
+            try:
+                self.assertEqual(call('content.etp.status',{})['grants'],[])
+                with self.assertRaises(urllib.error.HTTPError) as denied:call('content.etp.authorize',{'alias':'unassigned','topic':'native-forum','group':'news.bridge','expires':int(time.time())+60})
+                self.assertEqual(denied.exception.code,403);denied.exception.close()
+                with self.assertRaises(urllib.error.HTTPError) as offline:call('content.etp.authorize',{'alias':'author','topic':'native-forum','group':'news.bridge','expires':int(time.time())+60})
+                self.assertEqual(offline.exception.code,503);self.assertEqual(json.load(offline.exception)['code'],'ETP_UNAVAILABLE');offline.exception.close()
+                self.assertEqual(f.articles('alice','news.bridge')['items'],[])
+            finally:http.shutdown();http.server_close();thread.join();f.close()

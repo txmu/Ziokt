@@ -21,7 +21,7 @@ from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHand
 
 from .content_fabric import Fabric, ident, merkle_verify
 from .content_api import invoke, OPERATIONS, ADMIN_OPERATIONS
-from .protocol import encoded, secure_read, strict_json
+from .protocol import ProtocolError, encoded, secure_read, strict_json
 from .security import sign, verify
 from .gateway_store import byte_range
 from .chunkstore import CHUNK_BYTES
@@ -165,6 +165,10 @@ def server(fabric, config):
     tokens=config.get('tokens',[])
     peers=config.get('peers',{})
     fabric.remote_peers=peers
+    fabric.native_etp=None
+    if config.get('native_etp') is not None:
+        from .content_etp_application import EtpApplications
+        fabric.native_etp=EtpApplications(config['native_etp'])
     fabric.tc16_legacy_compiler=config.get('tc16_legacy_compiler')
     fabric.community_config=config.get('community',{})
     fabric.feed_base_url=config.get('feed_base_url','')
@@ -324,12 +328,21 @@ def server(fabric, config):
                 self.send(200,result)
             except RateLimited:self.close_connection=True;self.send(429,{'error':'request rate exceeded'},extra={'Retry-After':'60'})
             except PermissionError:self.close_connection=True;self.send(403,{'error':'access denied'})
+            except ProtocolError as error:
+                unavailable=error.code in {'ETP_NOT_CONFIGURED','ETP_UNAVAILABLE','METHOD_UNSUPPORTED','NATIVE_UNAVAILABLE'}
+                self.close_connection=True;self.send(503 if unavailable else 409,{'error':str(error),'code':error.code,'retryable':unavailable or error.code=='ETP_PARENT_PENDING'})
             except (ValueError,KeyError,TypeError):self.close_connection=True;self.send(400,{'error':'invalid request or operation rejected'})
             except Exception:
                 self.close_connection=True;self.send(503,{'error':'operation failed; inspect durable state before retry'})
     address=config.get('listen','127.0.0.1');port=config.get('port',8210)
     if address not in {'127.0.0.1','::1','localhost'} and not config.get('tls'):raise ValueError('non-loopback listener requires TLS')
     result=BoundedHTTP((address,port),Handler)
+    original_close=result.server_close
+    def close_with_adapters():
+        try:original_close()
+        finally:
+            if fabric.native_etp is not None:fabric.native_etp.close()
+    result.server_close=close_with_adapters
     if config.get('tls'):
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(config['tls']['cert'],config['tls']['key'])

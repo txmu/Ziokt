@@ -56,5 +56,30 @@ def run(root,workers,await_post):
         try:b.ingest('bob',incoming_a,observed[0])
         except PermissionError:pass
         else:raise AssertionError('revoked native identity retained import permission')
-        print(json.dumps({'schema':'ziokt.etp-content-e2e.v1','state':'verified','real_native_nodes':2,'independent_fabric_databases':2,'mutual_signed_grants':True,'reply_mapping':True,'withdrawal_mapping':True,'native_retry_idempotence':True,'loop_suppression':True,'revocation_enforced':True,'attachments_transferred':False,'all_native_adapters_complete':False}))
+        # Application HTTP binding uses the very same already pinned real native process.
+        # No mock transport or replacement Forum is introduced by the binding test.
+        import threading,urllib.request,urllib.error
+        from ziokt.content_server import server
+        route=json.loads((root/'forum-application-router.json').read_text())['components']['etp']
+        remote_author=workers[1].call('etp.forum.identity',{'name':'author'})['author_id']
+        native_config={'gateway':{key:route[key] for key in ('binary','digest','config')},'accounts':{'alice':{'aliases':['author'],'topics':['native-forum'],'groups':['news.bridge'],'remote_authors':[remote_author]}}}
+        http=server(first,{'port':0,'native_etp':native_config,'tokens':[{'account':'alice','token':'native-api-test-token','scopes':['content:read','content:write','netnews:write']}]})
+        first.native_etp.instance=workers[0]
+        thread=threading.Thread(target=http.serve_forever);thread.start()
+        def api(operation,arguments):
+            request=urllib.request.Request('http://127.0.0.1:'+str(http.server_port)+'/api',json.dumps({'operation':operation,'arguments':arguments}).encode(),{'Content-Type':'application/json','Authorization':'Bearer native-api-test-token'})
+            with urllib.request.urlopen(request) as response:return json.load(response)
+        try:
+            assert api('content.etp.status',{})['grants']
+            article=api('netnews.post',{'groups':['news.bridge'],'subject':'Native API article','body':'real application adapter content'})
+            sent=api('content.etp.export',{'grant':outgoing_a,'record':article['id']})
+            assert sent['state']=='native_stored' and not sent['remote_delivery_confirmed']
+            observed_api=await_post(workers[1],sent['native_id'])
+            assert b'real application adapter content' in b''.join(__import__('base64').b64decode(part) for part in observed_api['content_base64'])
+            assert api('content.etp.revoke',{'grant':outgoing_a})['revoked']
+            try:api('content.etp.export',{'grant':outgoing_a,'record':article['id']})
+            except urllib.error.HTTPError as denied:assert denied.code==403;denied.close()
+            else:raise AssertionError('application API bypassed grant revocation')
+        finally:http.shutdown();http.server_close();thread.join()
+        print(json.dumps({'schema':'ziokt.etp-content-e2e.v1','state':'verified','real_native_nodes':2,'independent_fabric_databases':2,'authenticated_application_api':True,'mutual_signed_grants':True,'reply_mapping':True,'withdrawal_mapping':True,'native_retry_idempotence':True,'loop_suppression':True,'revocation_enforced':True,'attachments_transferred':False,'all_native_adapters_complete':False}))
     finally:first.close();second.close()

@@ -8,6 +8,14 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'content.etp.status':({},False),
+ 'content.etp.authorize':({'alias':str,'topic':str,'group':str,'expires':int},True),
+ 'content.etp.offer':({'target_account':str,'alias':str,'topic':str,'group':str,'target':str,'expires':int},True),
+ 'content.etp.accept':({'native_proof':str},True),
+ 'content.etp.export':({'grant':str,'record':str},True),
+ 'content.etp.ingest':({'grant':str,'native_id':str},True),
+ 'content.etp.revoke':({'grant':str},True),
+ 'content.etp.recover':({'grant':str},True),
  'content.rights.report':({'record':str,'complaint':dict},True),
  'content.rights.case':({'case':str},False),
  'content.rights.review':({'case':str},False),
@@ -63,7 +71,7 @@ OPTIONAL={'attachments','application','decoder','node','reply_to','max_chunks','
 
 
 def optional_fields(operation):
-    return OPTIONAL | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
+    return (OPTIONAL-{'group'} if operation.startswith('content.etp.') else OPTIONAL) | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
 
 
 def invoke(fabric, owner, operation, args):
@@ -117,6 +125,12 @@ def invoke(fabric, owner, operation, args):
     if operation.startswith('community.'):
         from .community_application import invoke as community_invoke
         return community_invoke(fabric.community_config,owner,operation,args)
+    if operation.startswith('content.etp.'):
+        adapter=getattr(fabric,'native_etp',None)
+        if adapter is None:
+            from .protocol import ProtocolError
+            raise ProtocolError('ETP_NOT_CONFIGURED','Independent native ETP adapter is not configured')
+        return adapter.invoke(fabric,owner,operation,args)
     if operation.startswith('content.rights.') or operation=='content.policy':
         from .content_rights import Governance
         governance=Governance(fabric)

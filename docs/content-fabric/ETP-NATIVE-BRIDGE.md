@@ -85,3 +85,53 @@ revocation, loop suppression and an injected readback interruption followed by
 actual native retry. Its result must be obtained before marking native interop
 verified. Local unit tests cover denial and transaction rollback, not native mesh
 success.
+
+## Authenticated application API and MCP binding
+
+The independent content service optionally accepts:
+
+```json
+{
+  "native_etp": {
+    "gateway": {
+      "binary": "/owner/native/ziokt_gateway",
+      "digest": "sha256:APPROVED_BINARY_DIGEST",
+      "config": "/owner/private/etp.json"
+    },
+    "accounts": {
+      "alice": {
+        "aliases": ["author"],
+        "topics": ["native-topic"],
+        "groups": ["news.group"],
+        "remote_authors": ["APPROVED_REMOTE_NATIVE_AUTHOR_ID"]
+      }
+    }
+  }
+}
+```
+
+The supplied binary/config use the existing pinned native process boundary.
+Activation is lazy: an offline/missing ETP component does not prevent independent
+Library/Netnews operation or reading local adapter status/revoking local grants.
+Each authenticated account has explicit native signer/topic/group/remote-author
+allowlists. A content token does not grant access to another account's native
+signers. Offers to remote Fabric services require pinned target services.
+
+The shared authenticated HTTP/MCP registry now exposes `content.etp.status`,
+`authorize`, `offer`, `accept`, `export`, `ingest`, `revoke`, and `recover`.
+Read status requires `content:read`; mutations require `content:write` plus the
+actual per-account native delegation. Caller-supplied account overrides are not
+accepted; `target_account` on an offer names the explicitly intended remote
+recipient and requires that recipient's independent acceptance.
+
+Missing adapters/offline native files return explicit unavailable errors;
+unauthorized aliases, groups, authors and grants are denied. Native keys never
+enter HTTP/MCP arguments or Content Fabric state. The adapter's server-owned
+native process is closed with that application server. An existing independently
+managed native service is not reconfigured or stopped.
+
+The native mesh CI additionally invokes the real authenticated content HTTP API,
+publishes a real Netnews article to the same already pinned native node, observes
+it on the other real native peer, and tests API revocation. Local API tests cover
+unassigned aliases and an actually missing native executable; these are denial
+and offline tests, not simulated native success.
