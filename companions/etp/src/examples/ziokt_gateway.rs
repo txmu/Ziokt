@@ -154,7 +154,9 @@ async fn main() -> anyhow::Result<()> {
     let (engine, handle, mut received) = EtpEngine::new(config, plugins).await?;
     #[cfg(feature = "persistence")]
     if let Some(files) = &mut fileshare {
-        files.start(handle.clone(), forum_peers.clone());
+        // One startup handshake owner: connect replaces native Noise state.
+        // Forum/Mailbox already initiate their approved peers when configured.
+        files.start(handle.clone(), forum_peers.clone(), forum.is_none() && mailbox.is_none());
     }
     #[cfg(feature = "persistence")]
     if let Some(mail) = &mut mailbox {

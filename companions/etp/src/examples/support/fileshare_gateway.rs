@@ -43,12 +43,14 @@ mod enabled {
             }
             Ok(Self {flavor, exports, peers: HashMap::new(), network: Some(rx), tasks: Vec::new()})
         }
-        pub fn start(&mut self, handle: EtpHandle, peers: HashMap<SocketAddr, [u8; 32]>) {
+        pub fn start(&mut self, handle: EtpHandle, peers: HashMap<SocketAddr, [u8; 32]>, initiate: bool) {
             self.peers = peers.clone();
             let connect = handle.clone();let initial = peers.clone();
-            self.tasks.push(tokio::spawn(async move {
-                for (peer, key) in initial { let _ = connect.connect(peer, key.to_vec()).await; }
-            }));
+            if initiate {
+                self.tasks.push(tokio::spawn(async move {
+                    for (peer, key) in initial { let _ = connect.connect(peer, key.to_vec()).await; }
+                }));
+            }
             let mut network = self.network.take().expect("FileShare network starts once");
             self.tasks.push(tokio::spawn(async move {
                 let mut reconnect = HashMap::<SocketAddr, Instant>::new();
