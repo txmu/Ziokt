@@ -20,7 +20,7 @@ class EtpAdapterTests(unittest.TestCase):
                     for method,params in [('etp.mailbox.status',{}),('etp.mailbox.request',{'frame_base64':base64.b64encode(bytes([2,6])).decode()})]:
                         with self.assertRaises(ProtocolError) as error:worker.call(method,params)
                         self.assertEqual(error.exception.code,'METHOD_UNSUPPORTED' if code=='METHOD_UNSUPPORTED' else 'ETP_REJECTED')
-                        self.assertIsNone(worker.process)
+                        self.assertIsNotNone(worker.process)
                 finally:worker.close()
 
     def test_pinned_worker_contract_and_fail_closed_route(self):
@@ -113,4 +113,6 @@ class EtpForumAdapterTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 gateway=self.worker(Path(tmp),"for line in sys.stdin:\n r=json.loads(line)\n if r['method']=='etp.shutdown':break\n print(json.dumps("+reply+"),flush=True)\n")
                 with self.assertRaises(ProtocolError) as error:gateway.call('etp.forum.identity',{'name':'alice'})
-                self.assertEqual(error.exception.code,code);self.assertIsNone(gateway.process)
+                self.assertEqual(error.exception.code,code)
+                if code=='METHOD_UNSUPPORTED':self.assertIsNotNone(gateway.process)
+                else:self.assertIsNone(gateway.process)
