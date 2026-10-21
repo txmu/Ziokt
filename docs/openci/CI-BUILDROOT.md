@@ -56,3 +56,19 @@ fallback disabled. Routing decisions are recorded in `compiler-routing.jsonl`.
 Probe compilation counts are captured before the build, so final evidence must
 show additional successful remote compilations beyond that actual baseline.
 This avoids treating a larger probe suite as proof that the build used distcc.
+
+### Retained firmware re-verification
+
+Run 39541559605 successfully produced the ARM64 kernel/root filesystem and
+reached a real guest root shell. Its serial harness then timed out because it
+expected one carriage return, while the actual PTY emitted `\r\r\n` after the
+assertion marker. `OPENCI_BOOT_OK` was present in the actual serial buffer; the
+network assertion was not reached, so that run remains failed.
+
+The marker parser now accepts serial CR expansion while rejecting echoed
+commands and prefixed/suffixed marker text. QEMU remains CI-only. The manual
+`openci-qemu-recheck.yml` workflow downloads retained **real** image artifacts
+from a selected same-repository Buildroot run, records its original build commit
+and image hashes, and reruns serial/rootfs/network/shutdown assertions on CI.
+It does not rebuild images or claim that a failed source run passed. Separate
+artifact/run references distinguish build evidence from re-verification evidence.

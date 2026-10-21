@@ -1,13 +1,19 @@
 """CI-only serial boot and guest assertions. Never infer boot success from QEMU exit."""
 import json
+import os
 from pathlib import Path
 import re
 import sys
 import time
-import pexpect
 
+
+def marker_pattern(name):
+    if name not in {'BOOT_OK','NETWORK_OK'}:raise ValueError('unknown guest assertion')
+    return r'(?m)^OPENCI_'+re.escape(name)+r'\r*$'
 
 def main(target, images, evidence, revision):
+    if os.environ.get('GITHUB_ACTIONS')!='true':raise RuntimeError('QEMU verification runs only in CI')
+    import pexpect
     images, evidence = Path(images).resolve(), Path(evidence)
     rootfs = images/('rootfs.ext4' if target == 'aarch64' else 'rootfs.ext2')
     common = ['-m', '512', '-nographic', '-monitor', 'none', '-no-reboot', '-snapshot']
@@ -31,20 +37,26 @@ def main(target, images, evidence, revision):
         child = pexpect.spawn(binary, args+common, encoding='utf-8', timeout=240)
         child.logfile_read = serial
         try:
+            report['phase']='login'
             child.expect(r'openci login:')
             child.sendline('root')
             child.expect(r'[#] ')
             # The input line does not contain the contiguous expected output marker.
+            report['phase']='rootfs-assertions'
             child.sendline("test \"$(cat /etc/openci-build-id)\" = '"+revision+"' && test -r /proc/mounts && test -d /sys/class/net/eth0 && printf 'OPENCI_%s\\n' BOOT_OK")
-            child.expect(r'(?m)^OPENCI_BOOT_OK\r?$')
+            child.expect(marker_pattern('BOOT_OK'))
+            report['phase']='network-assertions'
             child.sendline("ip -4 addr show eth0; ip route; ping -c 1 -W 5 10.0.2.2 && printf 'OPENCI_%s\\n' NETWORK_OK")
-            child.expect(r'(?m)^OPENCI_NETWORK_OK\r?$')
+            child.expect(marker_pattern('NETWORK_OK'))
+            report['phase']='shutdown'
             child.sendline('poweroff')
             child.expect(pexpect.EOF, timeout=60)
+            child.close(force=False)
+            if child.exitstatus!=0:raise RuntimeError('QEMU did not exit cleanly after guest poweroff')
             serial.flush()
             if re.search(r'Kernel panic|Oops:|BUG:', (evidence/'serial.log').read_text()):
                 raise RuntimeError('Kernel fault in serial log')
-            report.update(state='passed', serial_boot_verified=True, rootfs_build_id_verified=True,
+            report.update(state='passed', qemu_exit_code=child.exitstatus, phase='completed', serial_boot_verified=True, rootfs_build_id_verified=True,
                           network_verified=True, duration_seconds=round(time.monotonic()-started, 3))
         except BaseException as error:
             report.update(state='failed', error=type(error).__name__)

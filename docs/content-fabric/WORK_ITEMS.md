@@ -59,3 +59,11 @@
 本轮修复、权限边界、组件矩阵、迁移/回滚及剩余优先级见 [实施记录](../openci/IMPLEMENTATION-2026-10-20.md)。README 已修正 NNTP feed/MIME 过时说明。
 
 GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧公网 IP，并以同一 profile 表生成路由。真实 Chromium 小屏底部滚动与原生 S6P1 格式互通已验证，真机仍待验收。Buildroot/distcc/QEMU 只在 CI 验证，新增工作流不代表 OpenCI 服务或 PoUW 闭环已经实现。
+
+## 2026-10-21 原生闭环增量
+
+- ETP Legacy 原生前端增加显式 pure Unified 后端，原生 Legacy 返回值与 Python/Rust Unified 执行器差分已通过 CI；原生签名 dCPM 包发布、安装后执行也已通过。兼容范围见 `../openci/ETP-LEGACY-COMPATIBILITY.md`，局部变量编码和额外能力未静默改写，完整 Legacy 应用源码未发现并按用户要求跳过实应用样本。
+- OpenCI 已通过真实 Git webhook → 真实 OCI 两次执行 → 原生对象存储 → 独立比较 → dCPM 签名发布 → 原生文件安装的 CI。此为普通计算任务闭环，Buildroot/PoUW 的最终组合闭环仍未完成。
+- ETP Forum ↔ Netnews 增加双签授权、持久化同步意图、回复、撤回通知、循环抑制、重试幂等、撤权与过期边界；两真实 ETP 节点与两独立 Fabric 数据库 CI 已通过。尚无完整附件获取、FileShare 文件源或自动扫描游标，因此上表 ETP 全量 Adapter 仍不能标为 A。
+- Library 可选版权元数据、私有投诉/申诉历史、本地管理员取消索引和停止分发已实现，真实 HTTP 权限、独立副本与持久化测试通过；无全局删除权。迁移与回滚见 `RIGHTS-GOVERNANCE.md`。
+- dCPM 原生签名引用包、文件版本安装/激活/回滚已实现；不等于全新应用正式发布、全网分发或可执行权限自动批准。

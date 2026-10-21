@@ -1,0 +1,74 @@
+name: OpenCI QEMU verification of retained real firmware
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Same-repository Buildroot run containing the real image artifact
+        required: true
+        type: string
+      target:
+        type: choice
+        options: [aarch64, x86_64]
+        default: aarch64
+permissions:
+  contents: read
+  actions: read
+jobs:
+  serial-and-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate source run and record its actual build identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,subprocess
+          from pathlib import Path
+          run=os.environ['SOURCE_RUN'];target=os.environ['TARGET']
+          if not re.fullmatch(r'[0-9]{1,20}',run) or target not in {'aarch64','x86_64'}:raise ValueError('bounded run and architecture required')
+          data=json.loads(subprocess.check_output(['gh','api','repos/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+run]))
+          if data['path']!='.github/workflows/openci-buildroot.yml' or data['head_repository']['full_name']!=os.environ['GITHUB_REPOSITORY']:raise ValueError('same-repository native Buildroot source required')
+          Path('source-run.json').write_text(json.dumps({'source_run':run,'source_revision':data['head_sha'],'target':target}))
+          PY
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: openci-buildroot-${{ inputs.target }}-${{ inputs.source_run }}
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+          path: retained-firmware
+      - name: Install QEMU on the disposable CI VM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-arm qemu-system-x86 python3-pexpect
+      - name: Boot exact retained native image and verify serial assertions
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          mkdir -p qemu-evidence
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'ci/openci')
+          from qemu_boot import main
+          source=json.loads(Path('source-run.json').read_text())
+          root=Path('retained-firmware');images=root/'output/images'
+          if not images.is_dir():raise RuntimeError('Native image directory absent')
+          hashes={path.name:hashlib.file_digest(path.open('rb'),'sha256').hexdigest() for path in images.iterdir() if path.is_file()}
+          Path('qemu-evidence/source-images.json').write_text(json.dumps({**source,'images_sha256':hashes,'image_rebuilt':False}))
+          main(os.environ['TARGET'],str(images),'qemu-evidence',source['source_revision'])
+          PY
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: openci-qemu-${{ inputs.target }}-${{ inputs.source_run }}
+          path: |
+            qemu-evidence/
+            source-run.json
+          if-no-files-found: error
