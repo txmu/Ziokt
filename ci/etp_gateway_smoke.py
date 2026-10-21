@@ -31,6 +31,8 @@ def forum_smoke(binary, digest, root, required):
     for sock in sockets:sock.close()
     public = [key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex() for key in keys]
     configs=[];workers=[]
+    file_bytes=b'Native FileShare Library source\n'*2400
+    file_source=root/'native-library.txt';file_source.write_bytes(file_bytes);file_source.chmod(0o600)
     from ziokt.application_router import ApplicationRouter
     class RoutedNativeForum:
         def __init__(self, path):self.router=ApplicationRouter(path)
@@ -48,11 +50,11 @@ def forum_smoke(binary, digest, root, required):
     try:
         for index,key in enumerate(keys):
             config=root/f'forum-node-{index}.json'
-            config.write_text(json.dumps({'bind':addresses[index],'private_key':key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()).hex(),'peers':{addresses[1-index]:public[1-index]},'forum':{'database':str(root/f'forum-{index}.sled'),'identities':{'author':secrets.token_hex(32)},'subscriptions':['native-forum']}}))
+            config.write_text(json.dumps({'bind':addresses[index],'private_key':key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()).hex(),'peers':{addresses[1-index]:public[1-index]},'forum':{'database':str(root/f'forum-{index}.sled'),'identities':{'author':secrets.token_hex(32)},'subscriptions':['native-forum']},'fileshare':{'storage':str(root/f'fileshare-{index}'),'exports':{'library-source':str(file_source)} if index==0 else {}}}))
             config.chmod(0o600);configs.append(config)
             if index == 0:
                 route=root/'forum-application-router.json'
-                route.write_text(json.dumps({'schema':'ziokt.application-router.v1','components':{'etp':{'binary':str(binary),'digest':digest,'config':str(config),'methods':['etp.stats','etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get','etp.forum.scan']}}}));route.chmod(0o600)
+                route.write_text(json.dumps({'schema':'ziokt.application-router.v1','components':{'etp':{'binary':str(binary),'digest':digest,'config':str(config),'methods':['etp.stats','etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get','etp.forum.scan','etp.fileshare.list','etp.fileshare.manifest','etp.fileshare.chunk','etp.fileshare.request','etp.fileshare.status']}}}));route.chmod(0o600)
                 worker=RoutedNativeForum(route)
             else:worker=EtpGateway(binary,digest,config)
             workers.append(worker)
@@ -62,6 +64,11 @@ def forum_smoke(binary, digest, root, required):
                 try:worker.call('etp.forum.identity',{'name':'author'})
                 except ProtocolError as error:assert error.code=='METHOD_UNSUPPORTED'
                 else:raise AssertionError('minimal binary advertised unsupported Forum')
+            for worker in workers:
+                try:worker.call('etp.fileshare.list',{})
+                except ProtocolError as error:assert error.code=='METHOD_UNSUPPORTED'
+                else:raise AssertionError('minimal binary advertised unsupported FileShare')
+            assert not (root/'fileshare-0').exists()
             assert not (root/'forum-0.sled').exists()
             print('ETP minimal native gateway: Forum explicitly METHOD_UNSUPPORTED, no database created')
             return
@@ -92,6 +99,8 @@ def forum_smoke(binary, digest, root, required):
             try:restarted.call('etp.forum.publish',invalid)
             except ProtocolError:pass
             else:raise AssertionError('invalid Forum publication accepted')
+        from etp_fileshare_smoke import run as fileshare_run
+        fileshare_run(workers,addresses,file_bytes)
         from etp_content_bridge_smoke import run as bridge_run
         bridge_run(root,workers,await_post)
         print('ETP integrated native Forum: signed fragmented post, actual Ed25519 proof, persisted subscription, same-address restart and bidirectional reply passed')

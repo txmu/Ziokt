@@ -211,6 +211,41 @@ impl FileShareFlavor {
         Ok(bytes)
     }
 
+    pub fn shared_manifest(&self, hash: [u8; 32]) -> Result<FileManifest> {
+        let manifest = self.shared_files.read().get(&hash).cloned()
+            .ok_or_else(|| anyhow::anyhow!("local object not shared"))?;
+        ensure!(manifest.validate() && manifest.root_hash == hash, "invalid native manifest");
+        Ok(manifest)
+    }
+
+    /// Same native chunk validator for wire responses and application adapters.
+    /// Never accepts a caller-controlled filesystem path or returns unchecked bytes.
+    pub fn read_shared_chunk(&self, hash: [u8; 32], index: u32) -> Result<Vec<u8>> {
+        let manifest = self.shared_manifest(hash)?;
+        ensure!(index < manifest.chunk_count, "chunk index");
+        let mut file = regular_read(&self.storage_dir.join(hex::encode(hash)))?;
+        ensure!(file.metadata()?.len() == manifest.file_size, "stored file size changed");
+        file.seek(SeekFrom::Start(index as u64 * CHUNK_SIZE as u64))?;
+        let length = std::cmp::min(CHUNK_SIZE as u64, manifest.file_size - index as u64 * CHUNK_SIZE as u64) as usize;
+        let mut bytes = vec![0; length];
+        file.read_exact(&mut bytes)?;
+        ensure!(manifest.verify_chunk(index, &bytes), "stored chunk changed");
+        Ok(bytes)
+    }
+
+    pub fn download_progress(&self, hash: [u8; 32]) -> (&'static str, usize, usize) {
+        if let Some(manifest) = self.shared_files.read().get(&hash) {
+            return ("locally_indexed", manifest.chunk_count as usize, manifest.chunk_count as usize);
+        }
+        if let Some(task) = self.active_downloads.lock().get(&hash) {
+            return (if task.started.elapsed() < Duration::from_secs(60) { "downloading" } else { "timed_out" }, task.received.len(), task.manifest.chunk_count as usize);
+        }
+        if let Some((_, started)) = self.pending.lock().get(&hash) {
+            return (if started.elapsed() < Duration::from_secs(60) { "requested" } else { "timed_out" }, 0, 0);
+        }
+        ("absent", 0, 0)
+    }
+
     pub async fn start_download(&self, hash: [u8; 32], peer: SocketAddr) -> Result<()> {
         {
             let mut pending = self.pending.lock();
@@ -302,17 +337,7 @@ impl FileShareFlavor {
                 ensure!(data.len() == 38, "chunk request size");
                 let hash: [u8; 32] = data[2..34].try_into()?;
                 let index = u32::from_be_bytes(data[34..38].try_into()?);
-                let shared = self.shared_files.read();
-                let manifest = shared
-                    .get(&hash)
-                    .ok_or_else(|| anyhow::anyhow!("unshared file"))?;
-                ensure!(index < manifest.chunk_count, "chunk index");
-                let mut file = regular_read(&self.storage_dir.join(hex::encode(hash)))?;
-                file.seek(SeekFrom::Start(index as u64 * CHUNK_SIZE as u64))?;
-                let mut bytes = vec![0; CHUNK_SIZE];
-                let len = file.read(&mut bytes)?;
-                bytes.truncate(len);
-                ensure!(manifest.verify_chunk(index, &bytes), "stored chunk changed");
+                let bytes = self.read_shared_chunk(hash, index)?;
                 let mut packet = vec![VERSION, 4];
                 packet.extend_from_slice(&hash);
                 packet.extend_from_slice(&index.to_be_bytes());
@@ -394,6 +419,26 @@ impl std::fmt::Debug for FileShareFlavor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn native_application_chunks_share_wire_validation_and_reject_tampering() {
+        let dir = std::env::temp_dir().join(format!("etp-fs-adapter-{}", rand::random::<u64>()));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.txt");
+        let bytes = vec![42; CHUNK_SIZE + 7];fs::write(&source,&bytes).unwrap();
+        let (tx,_rx)=mpsc::channel(16);
+        let store=FileShareFlavor::new(dir.to_str().unwrap(),tx).unwrap();
+        let hash=store.share_file(&source).unwrap();
+        assert_eq!(store.shared_manifest(hash).unwrap().chunk_count,2);
+        assert_eq!(store.download_progress(hash),("locally_indexed",2,2));
+        assert_eq!(store.read_shared_chunk(hash,0).unwrap(),bytes[..CHUNK_SIZE]);
+        assert_eq!(store.read_shared_chunk(hash,1).unwrap(),bytes[CHUNK_SIZE..]);
+        assert!(store.read_shared_chunk(hash,2).is_err());
+        assert!(store.read_shared_chunk([0;32],0).is_err());
+        let mut changed=bytes;changed[CHUNK_SIZE]=0;
+        fs::write(dir.join(hex::encode(hash)),changed).unwrap();
+        assert!(store.read_shared_chunk(hash,1).is_err());
+        drop(store);fs::remove_dir_all(dir).unwrap();
+    }
     #[tokio::test]
     async fn content_addressed_download_rejects_unsolicited_data_and_completes_after_five_chunks() {
         let dir = std::env::temp_dir().join(format!("etp-fs-{}", rand::random::<u64>()));

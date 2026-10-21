@@ -3,6 +3,8 @@
 mod forum_gateway;
 #[path = "support/mailbox_gateway.rs"]
 mod mailbox_gateway;
+#[path = "support/fileshare_gateway.rs"]
+mod fileshare_gateway;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use etp_core::{
     crypto::noise::KeyPair,
@@ -31,6 +33,8 @@ struct Config {
     forum: Option<forum_gateway::ForumConfig>,
     #[serde(default)]
     mailbox: Option<mailbox_gateway::MailboxConfig>,
+    #[serde(default)]
+    fileshare: Option<fileshare_gateway::FileShareConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,13 +124,15 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "persistence")]
     let forum_peers = config.trusted_peers.clone();
     #[cfg(feature = "persistence")]
+    let mut fileshare = settings.fileshare.take().map(fileshare_gateway::FileShareGateway::prepare).transpose()?;
+    #[cfg(feature = "persistence")]
     let mut mailbox = settings
         .mailbox
         .take()
         .map(|settings| mailbox_gateway::MailboxGateway::prepare(settings, &config.trusted_peers))
         .transpose()?;
     #[cfg(feature = "persistence")]
-    if mailbox.is_some() {
+    if mailbox.is_some() || fileshare.is_some() {
         use etp_core::plugin::{flavors::composite::CompositeFlavor, StandardFlavor};
         let composite = Arc::new(CompositeFlavor::new(Arc::new(StandardFlavor)));
         if let Some(forum) = &forum {
@@ -136,12 +142,20 @@ async fn main() -> anyhow::Result<()> {
             composite.bind_stream(4, mail.flavor.clone());
             plugins.register_flavor(mail.flavor.clone());
         }
+        if let Some(files) = &fileshare {
+            composite.bind_stream(5, files.flavor.clone());
+            plugins.register_flavor(files.flavor.clone());
+        }
         plugins.register_flavor(composite);
         config.default_flavor = "etp.flavor.composite.v1".into();
         config.multiplexing_mode =
             etp_core::transport::reliability::MultiplexingMode::ParallelMulti;
     }
     let (engine, handle, mut received) = EtpEngine::new(config, plugins).await?;
+    #[cfg(feature = "persistence")]
+    if let Some(files) = &mut fileshare {
+        files.start(handle.clone(), forum_peers.clone());
+    }
     #[cfg(feature = "persistence")]
     if let Some(mail) = &mut mailbox {
         mail.start(handle.clone(), forum_peers.clone());
@@ -181,6 +195,12 @@ async fn main() -> anyhow::Result<()> {
    method if method.starts_with("etp.mailbox.") => {
     #[cfg(feature="persistence")]
     {if let Some(mail)=&mailbox{mail.call(method,&request.params)}else{Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}}
+    #[cfg(not(feature="persistence"))]
+    {Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}
+   },
+   method if method.starts_with("etp.fileshare.") => {
+    #[cfg(feature="persistence")]
+    {if let Some(files)=&fileshare{files.call(method,&request.params).await}else{Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}}
     #[cfg(not(feature="persistence"))]
     {Err(anyhow::anyhow!("METHOD_UNSUPPORTED"))}
    },

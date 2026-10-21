@@ -13,6 +13,8 @@ import tempfile
 import time
 from .protocol import ProtocolError,encoded,secure_read,strict_json
 
+from .etp_fileshare import METHODS as FILESHARE_METHODS
+
 FORUM_METHODS=frozenset({'etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get','etp.forum.scan'})
 
 def _forum_text(value, maximum, *, empty=False):
@@ -122,7 +124,7 @@ class EtpGateway:
     def call(self,method,params):
         from .runtime_policy import require_network
         require_network()
-        if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown','etp.mailbox.status','etp.mailbox.request'}|FORUM_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
+        if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown','etp.mailbox.status','etp.mailbox.request'}|FORUM_METHODS|FILESHARE_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
         if method=='etp.onion.send':
             if set(params)!={'hops','ciphertext'} or not isinstance(params['hops'],list) or not 2<=len(params['hops'])<=4:raise ProtocolError('INVALID_ETP','private 2..4-hop path required')
             try:data=base64.b64decode(params['ciphertext'],validate=True)
@@ -134,6 +136,9 @@ class EtpGateway:
             except (ValueError,TypeError):raise ProtocolError('INVALID_ETP','mailbox frame encoding')
             if len(frame)<2 or frame[0]!=2 or frame[1] not in {1,2,4,6}:raise ProtocolError('INVALID_ETP','recipient mailbox operations only')
         elif method in FORUM_METHODS:_forum_params(method,params)
+        elif method in FILESHARE_METHODS:
+            from .etp_fileshare import params as file_params
+            file_params(method,params)
         elif params:raise ProtocolError('INVALID_ETP','exact native query required')
         with self.lock:
             try:current=secure_read(self.config)
@@ -169,6 +174,9 @@ class EtpGateway:
                     code='METHOD_UNSUPPORTED' if isinstance(response.get('error'),dict) and response['error'].get('code')=='METHOD_UNSUPPORTED' else 'ETP_REJECTED'
                     raise ProtocolError(code,'native ETP gateway rejected the operation')
                 result=response.get('result')
+                if method in FILESHARE_METHODS:
+                    from .etp_fileshare import result as file_result
+                    return file_result(method,params,result)
                 return _forum_result(method,params,result) if method in FORUM_METHODS else result
             except BaseException:self.close(graceful=False);raise
 

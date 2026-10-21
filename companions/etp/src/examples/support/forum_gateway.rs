@@ -62,7 +62,7 @@ mod enabled {
             .try_into()
             .map_err(|_| anyhow!("invalid post ID"))
     }
-    fn private_database(value: &str) -> Result<()> {
+    pub(crate) fn private_database(value: &str) -> Result<()> {
         let path = Path::new(value);
         anyhow::ensure!(
             path.is_absolute()
@@ -393,3 +393,5 @@ mod enabled {
 }
 #[cfg(feature = "persistence")]
 pub use enabled::ForumGateway;
+#[cfg(feature = "persistence")]
+pub(crate) use enabled::private_database;
