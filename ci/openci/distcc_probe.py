@@ -44,6 +44,13 @@ def main(output, evidence):
                        check=True, timeout=120, env=env)
         if target.read_bytes() != expected:
             raise RuntimeError('Local and worker object bytes differ')
+    # Configure-style negative preprocessing must not poison healthy workers.
+    negative=evidence/'expected-negative.c';negative.write_text('#error expected configure probe failure\n')
+    rejected=subprocess.run(['distcc',str(compiler),'-c',str(negative),'-o',str(target)],
+        env=dict(os.environ,DISTCC_FALLBACK='0'),timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    if rejected.returncode==0:raise RuntimeError('Expected negative configure probe unexpectedly compiled')
+    subprocess.run(['distcc',str(compiler),'-O2','-c',str(source),'-o',str(target)],check=True,timeout=120)
+    compiler_info['negative_configure_probe_recovered']=True
     # A closed local port must fail, then healthy workers must recover.
     with socket.socket() as unavailable:
         unavailable.bind(('127.0.0.1', 0))

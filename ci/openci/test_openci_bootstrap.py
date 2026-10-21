@@ -13,4 +13,4 @@ def configuration(root):
 
 
 def task(name,image,pool):
-    return {'id':name,'needs':[],'image':image,'argv':['python3','/src/build.py'],'arch':'x86_64','pool':pool,'cpu':1,'memory_mb':128,'timeout':30,'attempts':2}
+    return {'id':name,'needs':[],'outputs':['result.json'],'image':image,'argv':['python3','/src/build.py'],'arch':'x86_64','pool':pool,'cpu':1,'memory_mb':128,'timeout':30,'attempts':2}

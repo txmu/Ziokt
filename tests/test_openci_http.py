@@ -63,5 +63,27 @@ class HTTPTests(unittest.TestCase):
         with self.assertRaises(Error) as rejected:self.worker.request('POST','/v1/claim',{})
         self.assertEqual(rejected.exception.status,401)
 
+    def test_matching_empty_artifacts_cannot_verify_declared_outputs(self):
+        import copy
+        from test_openci_state import task
+        empty=self.root/'empty.tar';empty.write_bytes(b'\0'*10240)
+        reference=self.owner.upload('demo',empty)
+        first=task('build');first['outputs']=['expected.bin']
+        second=task('verify',['build'],'trusted');second['outputs']=['expected.bin']
+        value=pipeline([first,second]);value['source']=reference
+        pid=self.owner.request('POST','/v1/pipelines',value)['pipeline']
+        settings=json.loads(self.config.read_text())
+        settings['principals']['verifier']={'role':'worker','worker':'node2','projects':['demo'],'token_sha256':hashlib.sha256(b'verifier-test').hexdigest()}
+        self.config.write_text(json.dumps(settings))
+        verifier=Client(self.owner.origin,'verifier-test')
+        for worker,pool,client in [('node1','community',self.worker),('node2','trusted',verifier)]:
+            self.owner.request('POST','/v1/workers/approve',{'worker':worker,'arch':'x86_64','pool':pool,'cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
+            claim=client.request('POST','/v1/claim',{})['assignment']
+            client.request('POST','/v1/finish',{'pipeline':pid,'task':claim['task']['id'],'lease':claim['lease'],'exit_code':0,'artifact':reference,'logs':reference})
+        with self.assertRaises(Error) as missing:
+            self.owner.request('POST','/v1/verify',{'pipeline':pid,'task':'build','independent_task':'verify'})
+        self.assertEqual(missing.exception.code,'OUTPUT_MISSING')
+        self.assertTrue(all(row['verification'] is None for row in self.owner.request('GET','/v1/pipelines/'+pid)['tasks']))
+
 
 if __name__=='__main__': unittest.main()

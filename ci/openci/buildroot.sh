@@ -43,6 +43,9 @@ export DISTCC_HOSTS='127.0.0.1:13632/2 127.0.0.1:13633/2'
 export DISTCC_LOG="$build_area/evidence/distcc-client.log"
 export DISTCC_VERBOSE=1
 export DISTCC_FALLBACK=0
+# Configure intentionally compiles invalid programs. Their expected failures
+# must not temporarily remove both otherwise healthy CI workers.
+export DISTCC_BACKOFF_PERIOD=0
 # These workers are processes in one ephemeral GitHub VM. They are NOT a
 # multi-host trust test, and have no production credentials or public listener.
 # Restrict workers to the actual compiler entrypoints in this pinned build.

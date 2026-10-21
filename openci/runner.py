@@ -47,9 +47,9 @@ def unpack_source(archive, destination):
     destination.chmod(0o555)
 
 
-def canonical_outputs(archive, output):
+def canonical_outputs(archive, output, required=()):
     # Output is an archive of untrusted bytes, not an installation request.
-    seen, total = set(), 0
+    seen, total, regular = set(), 0, set()
     with tarfile.open(archive,'r:') as source, tarfile.open(output,'w',format=tarfile.PAX_FORMAT) as target:
         entries = []
         for member in source:
@@ -60,10 +60,12 @@ def canonical_outputs(archive, output):
             if path.is_absolute() or '..' in path.parts or '\\' in entry.name or entry.name in seen or not (entry.isfile() or entry.isdir()):
                 raise Error('ARTIFACT_ARCHIVE','Output contains unsafe member')
             seen.add(entry.name); total += entry.size
+            if entry.isfile():regular.add(str(path))
             if total>64*1024*1024 or entry.size<0: raise Error('ARTIFACT_LIMIT','Output budget exceeded')
             entry.uid=entry.gid=entry.mtime=0;entry.uname=entry.gname='';entry.pax_headers={}
             entry.mode=0o755 if entry.isdir() or entry.mode & 0o111 else 0o644
             target.addfile(entry, source.extractfile(entry) if entry.isfile() else None)
+        if not set(required)<=regular:raise Error('OUTPUT_MISSING','Task did not produce every declared output file',409)
 
 
 class Runner:
@@ -162,7 +164,7 @@ class Runner:
                     if exit_code==0:
                         raw=area/'outputs.raw.tar'
                         with raw.open('wb') as archive:
-                            copied=subprocess.Popen([self.runtime,'cp',name+':/out/.','-'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                            copied=subprocess.Popen([self.runtime,'exec',name,'/bin/tar','-C','/out','-cf','-','.'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
                             count=0;copy_started=time.monotonic()
                             try:
                                 while True:
@@ -179,7 +181,7 @@ class Runner:
                             finally:
                                 if copied.poll() is None:copied.kill();copied.wait(timeout=10)
                                 copied.stdout.close();copied.stderr.close()
-                        canonical_outputs(raw,area/'artifact.tar')
+                        canonical_outputs(raw,area/'artifact.tar',task['outputs'])
                         artifact=self.client.upload(assignment['project'],area/'artifact.tar')
                 except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
                     exit_code=124 if isinstance(error,Error) and error.code=='TASK_TIMEOUT' else 125

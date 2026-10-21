@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import socketserver
 import threading
+import tempfile
+import tarfile
 from urllib.parse import parse_qs, urlsplit
 
 from ziokt.content_fabric import Fabric
@@ -55,6 +57,25 @@ class Controller:
             raise Error('REFERENCE_MISMATCH', 'Object plaintext digest differs from declared input', 409)
         return row
 
+    def check_outputs(self, pipeline, task_id):
+        from .runner import canonical_outputs, MAX_OUTPUT
+        spec=self.state.task_spec(pipeline['pipeline'],task_id)
+        if not spec['outputs']:raise Error('VERIFICATION_OUTPUTS','Declared output files required for build verification',409)
+        task=next((entry for entry in pipeline['tasks'] if entry['id']==task_id),None)
+        if not task or task['state']!='completed' or not task['receipt']:
+            raise Error('VERIFICATION_STATE','Completed task with output receipt required',409)
+        owner='openci-'+pipeline['project']
+        row=self.content_reference(owner,task['receipt']['artifact'])
+        if json.loads(row['metadata'])['size']>MAX_OUTPUT:raise Error('ARTIFACT_LIMIT','Verification artifact exceeds budget',413)
+        with tempfile.TemporaryDirectory(prefix='openci-verify-') as directory:
+            archive=Path(directory)/'artifact.tar'
+            with archive.open('wb') as output,self.fabric.store(owner) as store:
+                for chunk in store.stream(row['reference']):output.write(chunk)
+            try:canonical_outputs(archive,Path(directory)/'checked.tar',spec['outputs'])
+            except (tarfile.TarError,ValueError) as error:
+                if isinstance(error,Error):raise
+                raise Error('ARTIFACT_FORMAT','Artifact is not a valid bounded output archive',409) from None
+
     def dispatch(self, method, path, query, body, actor, principal):
         if method == 'GET' and path == '/v1/pipelines':
             project=query['project'][0];self.project(principal,project)
@@ -63,7 +84,9 @@ class Controller:
             pid=query['pipeline'][0];self.pipeline(principal,pid)
             return 200, {'events':self.state.audit(pid,int(query.get('after',['0'])[0]))}
         if method == 'POST' and path == '/v1/verify':
-            self.pipeline(principal,body['pipeline'],{'admin'})
+            pipeline=self.pipeline(principal,body['pipeline'],{'admin'})
+            for task_id in (body['task'],body['independent_task']):
+                self.check_outputs(pipeline,task_id)
             return 200,self.state.verify_rebuild(actor,body['pipeline'],body['task'],body['independent_task'])
         if method == 'POST' and path == '/v1/pipelines':
             owner = self.project(principal, body.get('project'), {'admin', 'submit'})

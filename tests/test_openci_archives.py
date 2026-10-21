@@ -37,5 +37,11 @@ class ArchiveTests(unittest.TestCase):
                 with self.assertRaises(Error):unpack_source(source,self.root/('dest'+str(len(list(self.root.iterdir())))))
                 with self.assertRaises(Error):canonical_outputs(source,self.root/'out.tar')
 
+    def test_missing_declared_output_is_not_a_valid_artifact(self):
+        source=self.archive([('other.txt','file')])
+        with self.assertRaises(Error) as missing:
+            canonical_outputs(source,self.root/'missing.tar',['result.json'])
+        self.assertEqual(missing.exception.code,'OUTPUT_MISSING')
+
 
 if __name__=='__main__':unittest.main()

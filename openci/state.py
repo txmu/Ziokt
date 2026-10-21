@@ -56,8 +56,14 @@ def validate_pipeline(value):
         raise Error('INVALID_DAG', 'Between one and 128 tasks required')
     tasks = {}
     for task in value['tasks']:
-        if not isinstance(task, dict) or set(task) != {'id', 'needs', 'image', 'argv', 'arch', 'pool', 'cpu', 'memory_mb', 'timeout', 'attempts'}:
+        required={'id', 'needs', 'image', 'argv', 'arch', 'pool', 'cpu', 'memory_mb', 'timeout', 'attempts'}
+        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs'}:
             raise Error('INVALID_TASK', 'Exact task fields required')
+        task=dict(task);task.setdefault('outputs',[])
+        outputs=task['outputs']
+        if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') for p in outputs):
+            raise Error('INVALID_OUTPUTS','Bounded relative output file paths required')
+        if len(set(outputs))!=len(outputs):raise Error('INVALID_OUTPUTS','Duplicate output paths')
         name = identifier(task['id'])
         if name in tasks:
             raise Error('INVALID_DAG', 'Duplicate task')
@@ -320,11 +326,14 @@ class Store:
         with self.transaction() as db:
             rows = [db.execute('SELECT * FROM tasks WHERE pipeline=? AND id=?',(pid,name)).fetchone() for name in (task,independent_task)]
             first,second=rows
+            pipeline=db.execute('SELECT state FROM pipelines WHERE id=?',(pid,)).fetchone()
+            if not pipeline or pipeline['state']!='completed':raise Error('VERIFICATION_STATE','Pipeline must be completed and not cancelled',409)
             if not first or not second or first['state']!='completed' or second['state']!='completed' or first['worker']==second['worker']:
                 raise Error('VERIFICATION_REJECTED','Two completed tasks from distinct approved workers required',409)
             trusted=db.execute("SELECT * FROM workers WHERE id=? AND pool='trusted' AND enabled=1", (second['worker'],)).fetchone()
             if not trusted:raise Error('VERIFIER_NOT_TRUSTED','Independent verification requires enabled Trusted Worker',403)
             a,b=json.loads(first['spec']),json.loads(second['spec'])
+            if not a['outputs'] or a['outputs']!=b['outputs']:raise Error('VERIFICATION_OUTPUTS','Independent builds require identical declared output files',409)
             if any(a[key]!=b[key] for key in ('image','argv','arch')):
                 raise Error('VERIFICATION_INPUT_MISMATCH','Independent build must use the same image, arguments and architecture',409)
             receipt_a,receipt_b=json.loads(first['receipt']),json.loads(second['receipt'])
@@ -336,3 +345,9 @@ class Store:
             db.execute('UPDATE tasks SET verification=? WHERE pipeline=? AND id=?',(encoded(result),pid,task))
             self.event(db,actor,'task.verified',pid,task,{'independent_task':independent_task})
         return result
+
+    def task_spec(self, pid, task):
+        with closing(self.connect()) as db:
+            row=db.execute('SELECT spec FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
+            if not row:raise Error('TASK_NOT_FOUND','Task not found',404)
+            return json.loads(row['spec'])
