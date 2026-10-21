@@ -197,10 +197,13 @@ class GiftOutbox:
         # not permit them to grow. Newly created databases cap allocation at 256MiB.
         self.db.execute('PRAGMA max_page_count='+str(max(pages,MAX_OUTBOX_BYTES//page_size)))
         self.db.execute('CREATE TABLE IF NOT EXISTS gifts(id TEXT PRIMARY KEY,body BLOB,phase TEXT,attempts INTEGER,next_try INTEGER)')
-        columns={row[1] for row in self.db.execute('PRAGMA table_info(gifts)')}
         with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            columns={row[1] for row in self.db.execute('PRAGMA table_info(gifts)')}
             if 'operation_id' not in columns:self.db.execute('ALTER TABLE gifts ADD COLUMN operation_id TEXT')
             if 'delivery_mode' not in columns:self.db.execute("ALTER TABLE gifts ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'legacy'")
+            if 'lease_token' not in columns:self.db.execute('ALTER TABLE gifts ADD COLUMN lease_token TEXT')
+            if 'lease_until' not in columns:self.db.execute('ALTER TABLE gifts ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0')
             # Existing signed bodies and keys are untouched. Preserve the latest old
             # operation intent when migrating a queue whose acknowledgement was lost.
             for ident,attempts in self.db.execute('SELECT id,attempts FROM gifts WHERE operation_id IS NULL').fetchall():
@@ -211,6 +214,7 @@ class GiftOutbox:
     def enqueue(self,tx):
         _,tx_hash,_=_runtime.asset_signed_gift(tx,tx['data']['network_id'])
         with self.lock,self.db:
+            self.db.execute('BEGIN IMMEDIATE')
             old=self.db.execute('SELECT body FROM gifts WHERE id=?',(tx_hash,)).fetchone()
             if old:
                 if self._open(tx_hash,old[0])!=tx: raise ProtocolError('IDEMPOTENCY_CONFLICT','queued gift changed')
@@ -239,7 +243,7 @@ class GiftOutbox:
             raise ProtocolError('INVALID_ZKN','bounded gift work and confirmation policy required')
         with self.lock:
             now=int(time.time())
-            rows=self.db.execute("SELECT id,attempts,operation_id,delivery_mode,next_try FROM gifts WHERE phase!='conflict' AND next_try<=? LIMIT 4096",(now,)).fetchall()
+            rows=self.db.execute("SELECT id,attempts,operation_id,delivery_mode,next_try FROM gifts WHERE phase!='conflict' AND next_try<=? AND lease_until<=? LIMIT 4096",(now,now)).fetchall()
             # Mix newly due entries, but give aged entries bounded-queue FIFO
             # priority so random selection cannot starve an individual gift.
             aged=sorted((row for row in rows if row[4]<=now-60),key=lambda row:row[4])[:maximum]
@@ -248,16 +252,33 @@ class GiftOutbox:
             chosen=aged+fresh[:maximum-len(aged)]
             secrets.SystemRandom().shuffle(chosen)
             for tx_hash,attempts,operation_id,delivery_mode,_ in chosen:
+                if cancellation is not None and cancellation.is_set():break
+                lease=secrets.token_hex(32)
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    now=int(time.time())
+                    claimed=self.db.execute("UPDATE gifts SET lease_token=?,lease_until=? WHERE id=? AND phase!='conflict' AND next_try<=? AND lease_until<=?",(lease,now+300,tx_hash,now,now)).rowcount
+                    if not claimed:continue
+                    attempts,operation_id=self.db.execute('SELECT attempts,operation_id FROM gifts WHERE id=?',(tx_hash,)).fetchone()
                 row=self.db.execute('SELECT length(body),substr(body,1,?) FROM gifts WHERE id=?',(MAX_GIFT_BYTES+29,tx_hash)).fetchone()
                 if row[0]>MAX_GIFT_BYTES+28:raise ProtocolError('OUTBOX_LIMIT','stored gift exceeds row budget')
                 body=row[1]
-                if cancellation is not None and cancellation.is_set(): break
                 tx=self._open(tx_hash,body);phase='queued';route=None
+                def renew():
+                    with self.db:
+                        now=int(time.time())
+                        owned=self.db.execute('UPDATE gifts SET lease_until=? WHERE id=? AND lease_token=? AND lease_until>?',(now+300,tx_hash,lease,now)).rowcount
+                    if not owned:raise ProtocolError('OUTBOX_LEASE_LOST','delivery worker lease expired or changed; reconcile before retry')
+                def owned_call(method,arguments,route):
+                    renew()
+                    result=call(method,arguments,route)
+                    renew()
+                    return result
                 try:
                     route=choose_route(tx_hash,attempts)
                     # Even a confirmed row is rechecked, so a branch rollback
                     # returns it to waiting rather than silently losing custody.
-                    fact=call('zkn.fact',{'transaction_hash':tx_hash},route)
+                    fact=owned_call('zkn.fact',{'transaction_hash':tx_hash},route)
                     if not isinstance(fact,dict):raise ProtocolError('NATIVE_FACT_REJECTED','typed gift inclusion required')
                     if fact.get('phase')=='on-chain':
                         if (fact.get('transaction')!=tx or fact.get('transaction_hash')!=tx_hash or
@@ -269,17 +290,17 @@ class GiftOutbox:
                         phase='waiting'
                     elif fact.get('phase')=='absent':
                         op=operation_id
-                        plan=call('operation.prepare',{'operation_id':op,'action':'zkn.gift','resource':'zkn:'+tx['data']['token_id'],
+                        plan=owned_call('operation.prepare',{'operation_id':op,'action':'zkn.gift','resource':'zkn:'+tx['data']['token_id'],
                                   'arguments':{'transaction':tx},'expected_revision':None},route)
-                        call('operation.commit',{'operation_id':op,'plan_digest':plan['plan_digest']},route)
+                        owned_call('operation.commit',{'operation_id':op,'plan_digest':plan['plan_digest']},route)
                         phase='waiting'
                     else: raise ProtocolError('NATIVE_FACT_REJECTED','unknown gift inclusion phase')
                 except (OSError,ProtocolError) as exc:
                     if isinstance(exc,ProtocolError) and exc.code in {'GIFT_CONFLICT','RECIPIENT_REUSED','POLICY_DENIED'}: phase='conflict'
                     failed=getattr(choose_route,'failed',None)
-                    if failed is not None and route is not None: failed(route)
+                    if failed is not None and route is not None and not (isinstance(exc,ProtocolError) and exc.code=='OUTBOX_LEASE_LOST'): failed(route)
                 with self.db:
-                    self.db.execute('UPDATE gifts SET phase=?,attempts=?,next_try=? WHERE id=?',(phase,min(attempts+1,2**31-1),int(time.time())+(45+secrets.randbelow(46) if phase=='confirmed' else secrets.randbelow(max(2,min(300,2**min(attempts+1,8))))+1),tx_hash))
+                    self.db.execute('UPDATE gifts SET phase=?,attempts=?,next_try=?,lease_token=NULL,lease_until=0 WHERE id=? AND lease_token=?',(phase,min(attempts+1,2**31-1),int(time.time())+(45+secrets.randbelow(46) if phase=='confirmed' else secrets.randbelow(max(2,min(300,2**min(attempts+1,8))))+1),tx_hash,lease))
         return self.status()
 
 

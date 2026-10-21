@@ -93,6 +93,29 @@ connection timing, TLS metadata, packet counts and public on-chain token/owner
 transitions can remain correlatable. Low traffic does not magically create an
 anonymity set, and withholding packets cannot be made impossible.
 
+## Cross-process delivery leases
+
+The outbox now atomically claims each ready row using a random durable lease
+token and a five-minute deadline. Separate processes/connections cannot both
+enter delivery for the same unexpired lease. Each external RPC checks and renews
+its ownership before and after the call. A worker that loses its lease stops
+before any subsequent prepare/commit; final row updates require the same token,
+so an old worker cannot overwrite a replacement worker's result.
+
+After a process crash the signed ciphertext and operation intent remain
+unchanged. Another worker can claim an expired lease and reconciles the native
+fact before considering submission. Lease expiry cannot retract an RPC already
+sent: native operation idempotency and transaction-hash deduplication remain
+required. No exactly-once network delivery or larger anonymity set is claimed.
+The additive migration preserves old ciphertext and intent. Queue insertion and
+schema migration use SQLite write transactions to serialize separate writers.
+
+Three focused tests cover separate SQLite workers, a genuinely terminated child
+process, and a stale worker losing its lease. The recovery deadline is explicitly
+expired by test fault injection rather than a fabricated wall-clock wait.
+Controlled failure callbacks in these unit tests are not native delivery success
+evidence; the actual encrypted multihop integration remains separately tested.
+
 `zkn.fact` is an authenticated observation returned by the configured native
 provider through pinned local/native or mTLS calls. The native query checks its
 chain data/signatures; an arbitrary external JSON object containing
