@@ -4,15 +4,12 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
-use byteorder::{ByteOrder, LittleEndian};
-use log::{debug, error, info, trace, warn};
-use parking_lot::{Mutex, RwLock};
-use serde::{Deserialize, Serialize};
+use anyhow::{anyhow, Result};
+use log::{error, info, trace};
+use parking_lot::RwLock;
 
 use crate::plugin::{CapabilityProvider, Flavor, FlavorContext};
 use crate::NodeID;
@@ -694,6 +691,13 @@ impl Tc16Cpu {
     }
 }
 
+/// Bounded native frontend for versioned package/compiler adapters.
+/// Legacy instruction bytes remain a distinct ISA; callers must not relabel
+/// these bytes as Unified v1. Unsupported source syntax remains an error.
+pub fn compile_legacy_source(source: &str) -> Result<Vec<u8>> {
+    Compiler::new().compile(source)
+}
+
 // ============================================================================
 //  3. TCC 编译器 (Recursive Descent with Frame Pointer)
 // ============================================================================
@@ -748,6 +752,7 @@ impl Compiler {
     }
 
     fn compile(&mut self, src: &str) -> Result<Vec<u8>> {
+        anyhow::ensure!(src.len() <= 65536, "ETP_LEGACY_SOURCE_LIMIT");
         self.tokenize(src)?;
 
         // Entry point setup: CALL main; HALT
@@ -781,6 +786,7 @@ impl Compiler {
             }
         }
 
+        anyhow::ensure!(self.bytecode.len() <= 32768, "ETP_LEGACY_CODE_LIMIT");
         Ok(self.bytecode.clone())
     }
 
@@ -1085,10 +1091,12 @@ impl Tc16Flavor {
             return format!("Error: {error}");
         }
 
-        let start = Instant::now();
         match cpu.execute(1_000_000) {
             // 1M Gas Limit
-            Ok(_) => format!("Success. Output: {}", cpu.get_output()),
+            Ok(VmStatus::Halted) => format!("Success. Output: {}", cpu.get_output()),
+            Ok(VmStatus::ExecutionFault) => format!("Error: ExecutionFault (Instructions: {})", cpu.instructions_used),
+            Ok(VmStatus::WaitingForInterrupt) => format!("Suspended: WaitingForInterrupt (Instructions: {})", cpu.instructions_used),
+            Ok(VmStatus::Running) => "Error: execution returned without a terminal status".to_string(),
             Err(e) => format!("Error: {} (Instructions: {})", e, cpu.instructions_used),
         }
     }
@@ -1122,24 +1130,20 @@ impl Flavor for Tc16Flavor {
                 true
             }
             CMD_COMPILE_RUN => {
-                if let Ok(src) = String::from_utf8(data[2..].to_vec()) {
-                    let mut compiler = Compiler::new();
-                    match compiler.compile(&src) {
-                        Ok(bytecode) => {
-                            let result = self.run_vm(&bytecode);
-                            let tx = self.network_tx.clone();
-                            let addr = ctx.src_addr;
-                            tokio::spawn(async move {
-                                let mut resp = vec![TC16_PROTO_VER, 0xFF];
-                                resp.extend(result.into_bytes());
-                                let _ = tx.send((addr, resp)).await;
-                            });
-                        }
-                        Err(e) => {
-                            warn!("TC16 Compile Error: {}", e);
-                        }
-                    }
-                }
+                let result = match std::str::from_utf8(&data[2..]) {
+                    Ok(src) => match Compiler::new().compile(src) {
+                        Ok(bytecode) => self.run_vm(&bytecode),
+                        Err(error) => format!("Error: ETP_LEGACY_COMPILE: {error}"),
+                    },
+                    Err(_) => "Error: ETP_LEGACY_SOURCE_ENCODING: UTF-8 required".to_string(),
+                };
+                let tx = self.network_tx.clone();
+                let addr = ctx.src_addr;
+                tokio::spawn(async move {
+                    let mut resp = vec![TC16_PROTO_VER, 0xFF];
+                    resp.extend(result.into_bytes());
+                    let _ = tx.send((addr, resp)).await;
+                });
                 true
             }
             _ => false,
@@ -1184,5 +1188,40 @@ mod regression_tests {
         cpu.load_code(&code, 0).unwrap();
         assert_eq!(cpu.execute(1000).unwrap(), VmStatus::Halted);
         assert_eq!(cpu.regs[0], 65535);
+    }
+    #[test]
+    fn native_fault_is_never_reported_as_success_and_source_is_bounded() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let flavor = Tc16Flavor::new(tx);
+        let result = flavor.run_vm(&[0xFE]);
+        assert!(result.starts_with("Error: ExecutionFault"));
+        assert!(!result.contains("Success"));
+        assert!(compile_legacy_source(&" ".repeat(65537)).is_err());
+        assert!(compile_legacy_source("int main() { return 1; }").is_ok());
+    }
+
+    struct LocalContext;
+    impl crate::plugin::SystemContext for LocalContext {
+        fn lookup_peer(&self, _node_id: &NodeID) -> Option<SocketAddr> { None }
+        fn is_connected(&self, _addr: SocketAddr) -> bool { false }
+        fn my_node_id(&self) -> NodeID { [0; 32] }
+    }
+
+    #[tokio::test]
+    async fn native_compile_rejections_have_error_frames() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+        let flavor = Tc16Flavor::new(tx);
+        let peer: SocketAddr = "127.0.0.1:1".parse().unwrap();
+        for payload in [b"not a program".as_slice(), &[0xFF]] {
+            let mut frame = vec![TC16_PROTO_VER, CMD_COMPILE_RUN];
+            frame.extend_from_slice(payload);
+            assert!(flavor.on_stream_data(FlavorContext {
+                src_addr: peer, stream_id: 1, data_len: frame.len(), system: &LocalContext,
+            }, &frame));
+            let (destination, response) = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await.unwrap().unwrap();
+            assert_eq!(destination, peer);
+            assert_eq!(&response[..2], &[TC16_PROTO_VER, 0xFF]);
+            assert!(std::str::from_utf8(&response[2..]).unwrap().starts_with("Error: ETP_LEGACY_"));
+        }
     }
 }

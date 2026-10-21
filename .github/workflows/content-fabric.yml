@@ -47,7 +47,10 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Build native runners only in CI
         working-directory: companions/etp/src
-        run: cargo build --locked --example mailbox_replica_runner --example tc16_unified_runner --example ziokt_gateway --features persistence
+        run: cargo build --locked --example mailbox_replica_runner --example tc16_unified_runner --example ziokt_gateway --features persistence,tc16-tcc
+      - name: Native Legacy compiler and failure-semantics regressions
+        working-directory: companions/etp/src
+        run: cargo test --locked --features persistence,tc16-tcc extensions::tc16_tcc::regression_tests
       - name: Native v2 backward compatibility and signature rejection
         working-directory: companions/etp/src
         run: cargo test --locked --features persistence plugin::flavors::mailbox::tests
