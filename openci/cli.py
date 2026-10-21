@@ -34,7 +34,7 @@ def main():
     sub=parser.add_subparsers(dest='action',required=True)
     sub.add_parser('init')
     sub.add_parser('git-tick')
-    p=sub.add_parser('git-configure');p.add_argument('--project',required=True);p.add_argument('--repository',type=Path,required=True);p.add_argument('--ref',default='refs/heads/main');p.add_argument('--template',type=Path,required=True);p.add_argument('--interval',type=int)
+    p=sub.add_parser('git-configure');p.add_argument('--project',required=True);p.add_argument('--repository',type=Path,required=True);p.add_argument('--ref',default='refs/heads/main');p.add_argument('--template',type=Path,required=True);p.add_argument('--interval',type=int);p.add_argument('--remote-url')
     p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True)
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
@@ -59,7 +59,8 @@ def main():
     if args.action=='git-configure':
         from .git_source import resolve
         identifier(args.project)
-        repository=args.repository.resolve();resolve(repository,args.ref)
+        repository=args.repository.resolve()
+        if not args.remote_url:resolve(repository,args.ref)
         if args.interval is not None and not 60<=args.interval<=2592000:parser.error('interval must be 60..2592000 seconds')
         template=strict_json(args.template.read_bytes(),65536)
         config=strict_json(secure_read(root/'controller.json',65536),65536)
@@ -67,9 +68,13 @@ def main():
         if not key.exists():private_write(key,secrets.token_urlsafe(32).encode())
         value={'repository':str(repository),'ref':args.ref,'template':template,'webhook_key':str(key)}
         if args.interval is not None:value['interval_seconds']=args.interval
+        if args.remote_url:
+            from .git_source import refresh
+            value['remote_url']=args.remote_url
+            refresh(value)
         config.setdefault('git_projects',{})[args.project]=value
         private_write(root/'controller.json',config,replace=True)
-        print(json.dumps({'state':'git_configured','project':args.project,'webhook_key_file':str(key),'mirror_fetch_automatic':False}));return
+        print(json.dumps({'state':'git_configured','project':args.project,'webhook_key_file':str(key),'mirror_fetch_automatic':bool(args.remote_url)}));return
     if args.action=='git-tick':
         from .git_source import tick
         controller=Controller(root,root/'controller.json')

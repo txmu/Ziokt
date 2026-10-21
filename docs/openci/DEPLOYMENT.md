@@ -164,9 +164,11 @@ an executable command, arbitrary repository URL or pipeline file.
 request bytes. Configure the Git service's secret using the raw bytes in the
 owner-only webhook key file. TLS ingress is required across network boundaries;
 the Controller itself binds loopback by default. Invalid signatures never submit
-pipelines. This initial implementation requires commits to be present in the
-local mirror: mirror fetching and private Git credentials remain an operator
-responsibility, reported explicitly as `automatic_mirror_fetch:false`.
+pipelines. Without `--remote-url`, commits must already be present in the local mirror.
+With an owner-approved public HTTPS `--remote-url`, native Git fetches the
+approved branch before submission; credentials, redirects, SSH and file
+transport are disabled. Private repository credential provisioning remains
+separate. Status reports the actual `automatic_mirror_fetch` policy.
 
 Duplicate deliveries return the original pipeline, even after the branch moves;
 reusing a delivery ID for another commit fails. Intent and schedule slots persist
@@ -181,3 +183,21 @@ Rollback: stop the Controller, back up SQLite/config/content, remove the
 project's `git_projects` entry to stop new Git ingestion, and retain journal
 records for audit. Existing task execution and installed releases are independent
 of source mirror availability. Never delete journal rows to hide failed builds.
+
+
+For automatic public HTTPS source refresh, initialize a bare mirror and configure
+its fixed upstream explicitly:
+
+```sh
+git init --bare /owner/mirrors/project.git
+openci --root "$OPenci_ROOT" git-configure --project demo \
+  --repository /owner/mirrors/project.git --ref refs/heads/main \
+  --remote-url https://git.example.org/team/project.git \
+  --template /owner/pipelines/project.json --interval 3600
+```
+
+Webhook payloads cannot override this upstream. Fetch failures are persisted as
+failed delivery states and never converted to successful submission. The actual
+native HTTPS fetch path was exercised against the public distcc upstream without
+compiling or executing any repository code. Private Git authentication has not
+been added to this public HTTPS profile.

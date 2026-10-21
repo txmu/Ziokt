@@ -123,7 +123,9 @@ class Controller:
             with closing(self.state.connect()) as db:
                 deliveries=[dict(row) for row in db.execute('SELECT delivery,commit_id,state,pipeline,error,updated FROM git_deliveries WHERE project=? ORDER BY updated DESC LIMIT 100',(project,))]
                 schedule=db.execute('SELECT next_due FROM git_schedules WHERE project=?',(project,)).fetchone()
-            return 200,{'project':project,'deliveries':deliveries,'next_due':schedule['next_due'] if schedule else None,'automatic_mirror_fetch':False}
+            from .git_source import settings
+            configured=settings(self,project)
+            return 200,{'project':project,'deliveries':deliveries,'next_due':schedule['next_due'] if schedule else None,'automatic_mirror_fetch':bool(configured.get('remote_url'))}
         if method=='POST' and path=='/v1/git/trigger':
             self.project(principal,body['project'],{'admin','submit'})
             from .git_source import trigger

@@ -45,3 +45,11 @@ class GitTests(HTTPTests):
             db.execute("INSERT INTO git_deliveries VALUES(?,?,?,'preparing',NULL,NULL,?)",('demo','interrupted',git('rev-parse','HEAD'),0))
         recovered=tick(self.controller)['schedule_results'];self.assertEqual(len(recovered),1)
         self.assertTrue(recovered[0]['source_snapshot_verified'])
+
+    def test_unsafe_upstreams_never_invoke_native_fetch(self):
+        from openci.git_source import refresh
+        from unittest.mock import patch
+        for url in ['file:///etc','ssh://git@example.invalid/repo','https://user:secret@example.invalid/repo','https://example.invalid/repo?token=secret','-c credential.helper=bad']:
+            with self.subTest(url=url),patch('openci.git_source.subprocess.run') as native:
+                with self.assertRaises(Error):refresh({'repository':str(self.root),'ref':'refs/heads/main','remote_url':url})
+                native.assert_not_called()

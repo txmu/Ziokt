@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 import re
 import selectors
 import subprocess
@@ -21,7 +22,7 @@ def settings(controller,project):
     identifier(project)
     document=strict_json(secure_read(controller.config,65536),65536)
     value=document.get('git_projects',{}).get(project)
-    if not isinstance(value,dict) or not {'repository','ref','template','webhook_key'}<=set(value) or set(value)-{'repository','ref','template','webhook_key','interval_seconds'}:raise Error('GIT_NOT_CONFIGURED','Owner-approved Git source required',409)
+    if not isinstance(value,dict) or not {'repository','ref','template','webhook_key'}<=set(value) or set(value)-{'repository','ref','template','webhook_key','interval_seconds','remote_url'}:raise Error('GIT_NOT_CONFIGURED','Owner-approved Git source required',409)
     path=Path(value['repository'])
     if not path.is_absolute() or not path.is_dir() or path.is_symlink():raise Error('GIT_REPOSITORY','Approved local mirror is unavailable',503)
     if not isinstance(value['ref'],str) or not re.fullmatch(r'refs/heads/[A-Za-z0-9_./-]{1,200}',value['ref']):raise Error('GIT_REF','Explicit branch ref required')
@@ -35,6 +36,22 @@ def command(repository,*args):
 def environment():
     # Do not inherit alternate object databases, config injection, SSH commands or credentials.
     return {'PATH':os.defpath,'HOME':'/nonexistent','LANG':'C','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null','GIT_TERMINAL_PROMPT':'0'}
+
+
+
+def refresh(config):
+    url=config.get('remote_url')
+    if url is None:return {'fetched':False}
+    if not isinstance(url,str) or len(url)>2048:raise Error('GIT_REMOTE','Bounded approved HTTPS repository URL required')
+    parsed=urlsplit(url)
+    if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment or parsed.query:raise Error('GIT_REMOTE','Credential-free approved HTTPS repository URL required')
+    if not isinstance(config['ref'],str) or not re.fullmatch(r'refs/heads/[A-Za-z0-9_./-]{1,200}',config['ref']):raise Error('GIT_REF','Approved branch ref required')
+    argv=command(config['repository'],'-c','credential.helper=','-c','http.followRedirects=false','-c','http.sslVerify=true','-c','protocol.file.allow=never','-c','protocol.ssh.allow=never',
+        'fetch','--force','--no-tags','--depth=1','--no-recurse-submodules',url,config['ref']+':'+config['ref'])
+    try:result=subprocess.run(argv,env=environment(),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60,check=False)
+    except (OSError,subprocess.TimeoutExpired):raise Error('GIT_FETCH_UNAVAILABLE','Approved Git mirror refresh timed out or is unavailable',503) from None
+    if result.returncode:raise Error('GIT_FETCH_FAILED','Approved HTTPS repository fetch failed; no build was submitted',503)
+    return {'fetched':True}
 
 
 def resolve(repository,revision):
@@ -88,7 +105,7 @@ def snapshot(repository,commit,destination):
         process.wait();process.stdout.close()
 
 
-def _trigger(controller,actor,project,commit,delivery):
+def _trigger(controller,actor,project,commit,delivery,*,refresh_mirror=True):
     config=settings(controller,project)
     if not isinstance(commit,str) or not COMMIT.fullmatch(commit):raise Error('GIT_COMMIT','Full lowercase commit ID required')
     if not isinstance(delivery,str) or not 1<=len(delivery)<=128 or any(ord(c)<33 or ord(c)>126 for c in delivery):raise Error('GIT_DELIVERY','Bounded delivery identity required')
@@ -96,10 +113,11 @@ def _trigger(controller,actor,project,commit,delivery):
         prior=db.execute('SELECT * FROM git_deliveries WHERE project=? AND delivery=?',(project,delivery)).fetchone()
         if prior:
             if prior['commit_id']!=commit:raise Error('GIT_DELIVERY_CONFLICT','Delivery identity already belongs to another commit',409)
-            if prior['state']=='submitted':return {'pipeline':prior['pipeline'],'duplicate':True,'git_commit':commit,'git_ref':config['ref'],'source_snapshot_verified':True,'build_completed':False}
+            if prior['state']=='submitted':return {'pipeline':prior['pipeline'],'duplicate':True,'git_commit':commit,'git_ref':config['ref'],'source_snapshot_verified':True,'build_completed':False,'automatic_mirror_fetch':bool(config.get('remote_url'))}
         else:
             if db.execute('SELECT count(*) FROM git_deliveries').fetchone()[0]>=10000:raise Error('GIT_DELIVERY_QUOTA','Archive old Git delivery records before accepting more',429)
             db.execute("INSERT INTO git_deliveries VALUES(?,?,?,'preparing',NULL,NULL,?)",(project,delivery,commit,int(time.time())))
+    if refresh_mirror:refresh(config)
     actual=resolve(config['repository'],commit)
     head=resolve(config['repository'],config['ref'])
     # This initial policy builds only the current approved branch head.
@@ -117,7 +135,7 @@ def _trigger(controller,actor,project,commit,delivery):
     with controller.state.transaction() as db:
         db.execute("UPDATE git_deliveries SET state='submitted',pipeline=?,error=NULL,updated=? WHERE project=? AND delivery=?",(result['pipeline'],int(time.time()),project,delivery))
         controller.state.event(db,actor,'git.submitted',result['pipeline'],detail={'commit':commit,'ref':config['ref'],'delivery':delivery})
-    return {**result,'git_commit':commit,'git_ref':config['ref'],'source_snapshot_verified':True,'build_completed':False}
+    return {**result,'git_commit':commit,'git_ref':config['ref'],'source_snapshot_verified':True,'build_completed':False,'automatic_mirror_fetch':bool(config.get('remote_url'))}
 
 
 def webhook(controller,project,raw,headers):
@@ -133,15 +151,16 @@ def webhook(controller,project,raw,headers):
     return trigger(controller,'git-webhook:'+project,project,value.get('after'),headers.get('X-GitHub-Delivery'))
 
 
-def trigger(controller,actor,project,commit,delivery):
+def trigger(controller,actor,project,commit,delivery,*,refresh_mirror=True):
     if not controller.git_slot.acquire(blocking=False):raise Error('GIT_BUSY','Another snapshot is in progress; retry this delivery',503)
     try:
-        return _trigger(controller,actor,project,commit,delivery)
-    except Error as error:
-        if isinstance(project,str) and isinstance(delivery,str):
+        return _trigger(controller,actor,project,commit,delivery,refresh_mirror=refresh_mirror)
+    except Exception as original:
+        error=original if isinstance(original,Error) else Error('GIT_NATIVE_FAILURE','Native Git snapshot failed; inspect durable delivery status before retry',503)
+        if isinstance(project,str) and isinstance(delivery,str) and isinstance(commit,str):
             with controller.state.transaction() as db:
                 db.execute("UPDATE git_deliveries SET state='failed',error=?,updated=? WHERE project=? AND delivery=? AND commit_id=? AND state!='submitted'",(error.code,int(time.time()),project,delivery,commit))
-        raise
+        raise error from None
     finally:controller.git_slot.release()
 
 
@@ -155,6 +174,7 @@ def tick(controller):
         except Error as error:results.append({'state':'failed','project':entry['project'],'error':error.code})
     document=strict_json(secure_read(controller.config,65536),65536)
     for project,config in document.get('git_projects',{}).items():
+        config=settings(controller,project)
         interval=config.get('interval_seconds')
         if interval is None:continue
         if type(interval) is not int or not 60<=interval<=2592000:
@@ -164,7 +184,9 @@ def tick(controller):
             row=db.execute('SELECT next_due FROM git_schedules WHERE project=?',(project,)).fetchone()
             due=row['next_due'] if row else now
         if due>now:continue
-        try:commit=resolve(config['repository'],config['ref'])
+        try:
+            refresh(config)
+            commit=resolve(config['repository'],config['ref'])
         except Error as error:
             with controller.state.transaction() as db:
                 db.execute('INSERT INTO git_schedules VALUES(?,?) ON CONFLICT(project) DO UPDATE SET next_due=excluded.next_due',(project,now+60))
@@ -179,6 +201,6 @@ def tick(controller):
             # Persist both the due slot and its recoverable intent atomically.
             db.execute("INSERT OR IGNORE INTO git_deliveries VALUES(?,?,?,'preparing',NULL,NULL,?)",(project,delivery,commit,now))
             db.execute('INSERT INTO git_schedules VALUES(?,?) ON CONFLICT(project) DO UPDATE SET next_due=excluded.next_due',(project,now+interval))
-        try:results.append(trigger(controller,'git-schedule',project,commit,delivery))
+        try:results.append(trigger(controller,'git-schedule',project,commit,delivery,refresh_mirror=False))
         except Error as error:results.append({'state':'failed','project':project,'error':error.code})
     return {'schedule_results':results}
