@@ -6,7 +6,8 @@ digests, while authenticated component discovery reveals and validates
 the companion's native resource ownership.
 """
 import re
-from .protocol import ProtocolError
+import hashlib
+from .protocol import ProtocolError,strict_json
 from .naming_tc16 import verify_tc16_service, FORBIDDEN_RUNTIME_KEYS
 
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')
@@ -98,3 +99,35 @@ def verify_companion_service(component, service_dict):
             raise ProtocolError('INVALID_SERVICE', 'dictionary service descriptor required')
         return service_dict
     return verifier(service_dict)
+
+
+def fetch_companion_service(component, reference, fetch, *, authorized=False):
+    """Fetch and verify the exact content-addressed descriptor named by NNS.
+
+    NNS ownership proves who published a reference; it does not prove that the
+    referenced bytes exist or implement the advertised native service. The
+    caller supplies its native object-store fetcher, which must enforce its own
+    transport and access policy. This function verifies the reference digest,
+    bounded JSON document and component schema before returning any descriptor.
+    """
+    if not isinstance(reference,dict) or set(reference)!={'object','access'}:
+        raise ProtocolError('INVALID_SERVICE_REFERENCE','exact signed service reference required')
+    digest=reference['object']
+    if not isinstance(digest,str) or not DIGEST.fullmatch(digest):
+        raise ProtocolError('INVALID_SERVICE_REFERENCE','canonical SHA-256 object reference required')
+    if reference['access'] not in ('public','authenticated'):
+        raise ProtocolError('INVALID_SERVICE_REFERENCE','explicit service access class required')
+    if reference['access']=='authenticated' and authorized is not True:
+        raise ProtocolError('SERVICE_AUTH_REQUIRED','authenticated service descriptor requires local authorization')
+    if not callable(fetch):
+        raise ProtocolError('SERVICE_SOURCE_UNAVAILABLE','native content fetcher required')
+    try:
+        raw=fetch(digest)
+    except Exception as error:
+        raise ProtocolError('SERVICE_SOURCE_UNAVAILABLE','native service object could not be fetched') from error
+    if not isinstance(raw,bytes) or len(raw)>262144:
+        raise ProtocolError('INVALID_SERVICE','bounded native service object required')
+    if hashlib.sha256(raw).hexdigest()!=digest[7:]:
+        raise ProtocolError('SERVICE_INTEGRITY','service bytes do not match signed content reference')
+    value=strict_json(raw,262144)
+    return verify_companion_service(component,value)

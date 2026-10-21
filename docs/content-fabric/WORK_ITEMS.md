@@ -91,3 +91,14 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
   CI acceptance, plus controlled local failure/recovery and MCP lifetime tests.
 - Native CI remains pending for these changes. This does not mark all adapters,
   DHT, Corium Wiki, mainnet migration, or all requested features complete.
+
+#### 2026-10-21 signed service-object verification
+
+- Added a shared resolver helper that fetches only the NNS-signed content
+  reference, checks exact SHA-256 bytes, bounds/parses the document, and invokes
+  the component's native descriptor verifier. Authenticated descriptors fail
+  closed unless the caller supplies a local authorization decision. Naming
+  responses still expose opaque references by default. This does not create a
+  missing native Corium/ETP/Shadow6 service publication or prove remote
+  availability; those rows remain open until the respective native source is
+  wired and exercised.

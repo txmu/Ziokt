@@ -3,6 +3,7 @@ cross-companion ownership verification (Tri, ZDA, UFS, dCPM, Shadow6+Extensions)
 multi-realm isolation, Ed25519 delegations, and wire-level DNS (UDP/TCP/DoH).
 """
 import copy
+import hashlib
 import http.client
 import json
 from pathlib import Path
@@ -22,7 +23,7 @@ from ziokt.security import sign
 from ziokt.naming import Names, NameNetworks, public_records, split_name
 from ziokt.naming_tc16 import TC16Names, verify_tc16_service, DOMAIN as TC16_DOMAIN
 from ziokt.naming_community import ComponentNames, DOMAIN as COMMUNITY_DOMAIN
-from ziokt.companion_services import verify_companion_service
+from ziokt.companion_services import verify_companion_service,fetch_companion_service
 from ziokt.dns_wire import wire_name, answer
 from ziokt.dns_server import servers
 
@@ -278,6 +279,24 @@ class TC16NamingAndDiscoveryTests(unittest.TestCase):
         }
         self.assertEqual(verify_companion_service('shadow6', s6_profile)['profile'], 'core-6-isolated')
         self.assertEqual(verify_companion_service('shadow6', s6_extension)['kind'], 'zkn-gift')
+
+    def test_signed_service_reference_fetches_and_validates_native_object(self):
+        raw=json.dumps({'schema':'ziokt.tri-project.v1','engine':'ternary-computer-simulator',
+                        'program':'PUSH 1\nHALT','state':{'registers':{'pc':0}}},
+                       sort_keys=True,separators=(',',':')).encode()
+        digest='sha256:'+hashlib.sha256(raw).hexdigest()
+        reference={'object':digest,'access':'public'}
+        self.assertEqual(fetch_companion_service('tri',reference,lambda key:raw)['engine'],
+                         'ternary-computer-simulator')
+        with self.assertRaises(ProtocolError) as ctx:
+            fetch_companion_service('tri',reference,lambda key:raw+b' ')
+        self.assertEqual(ctx.exception.code,'SERVICE_INTEGRITY')
+        private={**reference,'access':'authenticated'}
+        with self.assertRaises(ProtocolError) as ctx:
+            fetch_companion_service('tri',private,lambda key:raw)
+        self.assertEqual(ctx.exception.code,'SERVICE_AUTH_REQUIRED')
+        self.assertEqual(fetch_companion_service('tri',private,lambda key:raw,authorized=True)['schema'],
+                         'ziokt.tri-project.v1')
 
     def test_wire_level_dns_udp_tcp_doh(self):
         """End-to-end DNS protocol testing: UDP, TCP, and loopback DoH resolve
