@@ -38,3 +38,55 @@ outbox retains frames under channel backpressure. FileShare's original content
 hashes, manifest validation, peer checks and chunk verification still apply.
 Active downloads have a 300-second lifetime; pending manifests have 60 seconds.
 This change requires the real two-node CI transfer before being marked verified.
+
+### Library intake and delegated access (pending native CI)
+
+`library.etp.begin`, `step`, `status`, and `cancel` are shared HTTP/MCP operations.
+The authenticated account comes from the transport, never the request body.
+Writes require both `library:write` and `content:write`; status requires
+`library:read` and ownership of the import. MCP reuses one digest-pinned native
+ETP child for generic ETP and content operations with identical settings. Do not
+run a separate content service against the same native UDP bind or sled store.
+
+Per-account `native_etp.accounts.ACCOUNT.fileshare` explicitly delegates
+`authors` (native author IDs), `topics`, and `peers` (fixed native peer addresses).
+Existing Forum/Netnews delegation alone does not grant Library intake rights.
+The public, native-signed Forum announcement has schema
+`ziokt.etp-library-source.v1`, topic, native BLAKE3 `hash`, `sha256:` digest, size,
+MIME, `public: true`, and versioned `book` metadata. The actual signed topic must
+match the announcement. Only operator-approved sources can be imported; the
+native component retains signing keys and verifies its original signatures.
+
+An immutable source proof and nonce identify each durable intake. `step` reads
+bounded chunks from original FileShare, persists resumable Fabric uploads, then
+verifies the full declared SHA-256 and Fabric Merkle object before atomically
+creating a new Library book. Existing records cannot be overwritten. Queued,
+waiting-native, receiving, failed, conflict, cancelled, and complete remain
+separate states. Local cancellation discards staged bytes; cancelling a completed
+intake is rejected, requiring an explicit Library withdrawal instead. Author,
+topic and peer delegation are checked on each step and before chunk writes and
+commit. HTTP policy changes require service reload; MCP bindings refresh when
+configuration changes. There is no claim of atomic revocation of already-running
+calls during a configuration reload.
+
+The native source index is currently in-memory. An ETP restart may require
+reacquiring the source; already-verified partial Fabric chunks survive. Native
+announcement expiry or lost author authorization fails closed. Source removal
+is not a global deletion command; automatic source tombstone synchronization,
+DHT discovery, multiple FileShare sources and files above 16 MiB remain incomplete.
+Native cache and Fabric use different addressing/encryption; importing creates
+an intentional verified local copy, not a claim of physical cross-store dedup.
+
+Migration 9 adds `etp_library_jobs` and an active-record reservation index to the
+existing Fabric SQLite database. Back up the database and object directory before
+upgrading. For rollback, stop intake and all Fabric writers, cancel or export
+unfinished jobs, take another backup, then drop `etp_library_jobs` and delete
+migration row 9 in one SQLite transaction before returning to the prior version.
+Completed Library records/objects remain ordinary Fabric data; do not delete
+objects or other migrations during rollback. Reverting code without dropping the
+additive table also preserves normal existing operations.
+
+Local controlled-gateway tests exercise authorization, cancellation, SHA failure,
+and actual SQLite/object recovery, not native cryptographic execution.
+`ci/etp_fileshare_smoke.py:library_run` is the real two-node signed announcement,
+native FileShare and persisted Library acceptance test, executed only by CI.

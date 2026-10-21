@@ -222,14 +222,46 @@ class Service:
             attach(self,config['content_fabric'])
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.etp={}
+        self.content_etp=None;self.content_etp_config=None
 
     def attach_shadow6_control(self,config=None,adapter=None):
         from .shadow6_control_mcp import attach_shadow6_control
         return attach_shadow6_control(self,config=config,adapter=adapter)
 
     def close(self):
+        with self.lock:
+            if self.content_etp is not None:self.content_etp.close();self.content_etp=None
+            for gateway in self.etp.values():gateway.close()
+            self.etp.clear()
         if getattr(self,'shadow6_control',None):
             self.shadow6_control.close()
+
+    def etp_backend(self,settings):
+        from .etp import EtpGateway
+        settings={field:settings[field] for field in ('binary','digest','config')}
+        key='shared-'+hashlib.sha256(encoded(settings)).hexdigest()
+        with self.lock:
+            if key not in self.etp:
+                if len(self.etp)>=16:raise ProtocolError('ETP_BACKEND_QUOTA','Deactivate old native bindings before adding another backend')
+                self.etp[key]=EtpGateway(settings['binary'],settings['digest'],settings['config'])
+            return self.etp[key]
+
+    def native_content_etp(self,settings):
+        config=settings.get('native_etp') if settings.get('enabled') is True else None
+        raw=encoded(config)
+        with self.lock:
+            if raw!=self.content_etp_config:
+                if self.content_etp is not None:self.content_etp.close()
+                previous=json.loads(self.content_etp_config) if self.content_etp_config is not None else None
+                if previous is not None:
+                    key='shared-'+hashlib.sha256(encoded(previous['gateway'])).hexdigest()
+                    old=self.etp.pop(key,None)
+                    if old is not None:old.close()
+                self.content_etp=None;self.content_etp_config=raw
+                if config is not None:
+                    from .content_etp_application import EtpApplications
+                    self.content_etp=EtpApplications(config,transport=lambda method,params:self.etp_backend(config['gateway']).call(method,params))
+            return self.content_etp
 
     def add(self,name,description,input_schema,write,scope,route):
         if name in self.tools:raise ValueError('tool name collision')
@@ -361,14 +393,17 @@ class Service:
         route=self.dispatch[name];kind=route[0]
         if kind=='content-fabric':
             from .content_fabric import Fabric
-            from .content_api import invoke
+            from .content_api import invoke,required_scopes
             settings=self.current()['content_fabric']
+            native_etp=self.native_content_etp(settings)
             if settings.get('enabled') is not True:raise PermissionError('content applications disabled')
+            if not required_scopes(route[1])<=set(principal['scopes']):raise PermissionError('content operation scopes')
             owner=settings.get('accounts',{}).get(principal['client'])
             if not owner:raise PermissionError('explicit content account mapping required')
             fabric=Fabric(settings['root'],quota=settings.get('quota',2*1024**3),peers={p['public_key']:{'groups':p.get('groups',[])} for p in settings.get('peers',{}).values()})
             fabric.remote_peers=settings.get('peers',{})
             fabric.community_config=settings.get('community',{})
+            fabric.native_etp=native_etp
             try:return invoke(fabric,owner,route[1],args)
             finally:fabric.close()
         if kind=='tracker-status':
@@ -513,10 +548,8 @@ class Service:
                 if len(data)>32768:raise ValueError('use local publish-file CLI for larger payloads')
                 return {'root':gateway.store.publish(io.BytesIO(data),args['name'])}
         if kind=='etp':
-            from .etp import EtpGateway
-            settings=self.config['etp'][route[1]]
-            if route[1] not in self.etp:self.etp[route[1]]=EtpGateway(settings['binary'],settings['digest'],settings['config'])
-            return self.etp[route[1]].call(route[2],args['params'])
+            settings=self.current()['etp'][route[1]]
+            return self.etp_backend(settings).call(route[2],args['params'])
         if kind=='telegram':
             from .telegram import TelegramBot
             bot=TelegramBot(self.current()['telegram'])
@@ -822,7 +855,10 @@ def execute(args):
         # Local owner-only administration command; credentials must go into a 0600 file.
         return service.issue(args.client,set(client['scopes']))
     if args.mcp_action=='serve':
-        Server(('127.0.0.1',config.get('port',8186)),http_handler(service)).serve_forever();return {}
+        server=Server(('127.0.0.1',config.get('port',8186)),http_handler(service))
+        try:server.serve_forever()
+        finally:server.server_close();service.close()
+        return {}
     client=os.environ.get('ZIOKT_MCP_CLIENT')
     if client not in config['clients']:raise ValueError('explicit ZIOKT_MCP_CLIENT required')
     principal=service.auth('Bearer '+os.environ.get('ZIOKT_MCP_TOKEN',''))
@@ -841,4 +877,5 @@ def execute(args):
         except McpError as exc:response={'jsonrpc':'2.0','id':request_id,'error':{'code':exc.code,'message':exc.message}}
         except Exception:response={'jsonrpc':'2.0','id':request_id,'error':{'code':-32600,'message':'invalid request'}}
         sys.stdout.buffer.write(encoded(response)+b'\n');sys.stdout.buffer.flush()
+    service.close()
     return None

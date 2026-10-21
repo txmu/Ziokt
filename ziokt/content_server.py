@@ -322,8 +322,8 @@ def server(fabric, config):
                     result=download(fabric,owner,args['book'],args['sources'],peers,max_chunks=args.get('max_chunks',128))
                 else:
                     fields,write=OPERATIONS[op]
-                    scope='content:admin' if op in ADMIN_OPERATIONS else op.split('.')[0]+(':write' if write else ':read')
-                    if scope not in scopes:raise PermissionError('scope')
+                    from .content_api import required_scopes
+                    if not required_scopes(op)<=set(scopes):raise PermissionError('scope')
                     result=invoke(fabric,owner,op,args)
                 self.send(200,result)
             except RateLimited:self.close_connection=True;self.send(429,{'error':'request rate exceeded'},extra={'Retry-After':'60'})

@@ -7,26 +7,36 @@ from .protocol import ProtocolError,strict_json
 
 
 class EtpApplications:
-    def __init__(self,config):
+    def __init__(self,config,*,transport=None):
         if not isinstance(config,dict) or set(config)!={'gateway','accounts'}:raise ValueError('exact native ETP configuration required')
         gateway=config['gateway']
         if not isinstance(gateway,dict) or set(gateway)!={'binary','digest','config'}:raise ValueError('pinned native ETP gateway required')
-        self.config=config;self.lock=threading.RLock();self.instance=None
+        self.config=config;self.lock=threading.RLock();self.instance=None;self.transport=transport
         accounts=config['accounts']
         if not isinstance(accounts,dict) or len(accounts)>128:raise ValueError('native account policy budget')
         for owner,policy in accounts.items():
             from .content_fabric import ident,GROUP
             ident(owner)
-            if not isinstance(policy,dict) or set(policy)!={'aliases','topics','groups','remote_authors'}:raise ValueError('explicit native identity/topic/group policy required')
-            for field in policy:
+            if not isinstance(policy,dict) or not {'aliases','topics','groups','remote_authors'}<=set(policy) or set(policy)-{'aliases','topics','groups','remote_authors','fileshare'}:raise ValueError('explicit native identity/topic/group policy required')
+            for field in ('aliases','topics','groups','remote_authors'):
                 if not isinstance(policy[field],list) or len(policy[field])>64 or any(not isinstance(item,str) for item in policy[field]) or len(set(policy[field]))!=len(policy[field]):raise ValueError('native account allowlist budget')
             for alias in policy['aliases']:_forum_name(alias)
             for topic in policy['topics']:_forum_text(topic,256)
             for group in policy['groups']:
                 if not isinstance(group,str) or not GROUP.fullmatch(group):raise ValueError('native mapped group')
             for author in policy['remote_authors']:_forum_id(author)
+            if 'fileshare' in policy:
+                file_policy=policy['fileshare']
+                if not isinstance(file_policy,dict) or set(file_policy)!={'authors','topics','peers'}:raise ValueError('separate native file source delegation required')
+                for field in file_policy:
+                    if not isinstance(file_policy[field],list) or len(file_policy[field])>32 or any(not isinstance(v,str) for v in file_policy[field]) or len(set(file_policy[field]))!=len(file_policy[field]):raise ValueError('file source allowlist budget')
+                for author in file_policy['authors']:_forum_id(author)
+                for topic in file_policy['topics']:_forum_text(topic,256)
+                from .etp_fileshare import params as file_params
+                for peer in file_policy['peers']:file_params('etp.fileshare.request',{'hash':'0'*64,'peer':peer})
 
     def call(self,method,params):
+        if self.transport is not None:return self.transport(method,params)
         with self.lock:
             if self.instance is None:
                 try:self.instance=EtpGateway(**self.config['gateway'])
@@ -39,6 +49,15 @@ class EtpApplications:
 
     def invoke(self,fabric,owner,operation,args):
         policy=self.config['accounts'].get(owner)
+        if operation.startswith('library.etp.'):
+            from .content_etp_library import EtpLibrary
+            intake=EtpLibrary(fabric,self,lambda account:self.config['accounts'].get(account,{}).get('fileshare'))
+            if operation=='library.etp.status':return intake.status(owner,args['job'])
+            if operation=='library.etp.cancel':return intake.cancel(owner,args['job'])
+            if not policy or 'fileshare' not in policy:raise PermissionError('native Library source delegation not configured')
+            if operation=='library.etp.begin':return intake.begin(owner,args['proof'],args['peer'],args['record'],args.get('visibility','private'),args['nonce'])
+            if operation=='library.etp.step':return intake.step(owner,args['job'],args.get('max_chunks',8))
+            raise ValueError('unknown Library native operation')
         if policy is None:raise PermissionError('native account delegation not configured')
         bridge=EtpNews(fabric,self)
         if operation=='content.etp.status':

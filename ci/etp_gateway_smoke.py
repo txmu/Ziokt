@@ -101,6 +101,8 @@ def forum_smoke(binary, digest, root, required):
             else:raise AssertionError('invalid Forum publication accepted')
         from etp_fileshare_smoke import run as fileshare_run
         fileshare_run(workers,addresses,file_bytes)
+        from etp_fileshare_smoke import library_run
+        library_run(root,workers,addresses,file_bytes,await_post)
         from etp_content_bridge_smoke import run as bridge_run
         bridge_run(root,workers,await_post)
         print('ETP integrated native Forum: signed fragmented post, actual Ed25519 proof, persisted subscription, same-address restart and bidirectional reply passed')

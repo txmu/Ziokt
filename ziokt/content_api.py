@@ -8,6 +8,10 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'library.etp.begin':({'proof':str,'peer':str,'record':str,'visibility':str,'nonce':str},True),
+ 'library.etp.step':({'job':str,'max_chunks':int},True),
+ 'library.etp.status':({'job':str},False),
+ 'library.etp.cancel':({'job':str},True),
  'content.etp.status':({},False),
  'content.etp.sync':({'grant':str,'limit':int},True),
  'content.etp.authorize':({'alias':str,'topic':str,'group':str,'expires':int},True),
@@ -73,6 +77,13 @@ OPERATIONS={
 OPTIONAL={'attachments','application','decoder','node','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
 
 
+def required_scopes(operation):
+    _,write=OPERATIONS[operation]
+    required={'content:admin' if operation in ADMIN_OPERATIONS else operation.split('.')[0]+(':write' if write else ':read')}
+    if operation.startswith('library.etp.') and write:required.add('content:write')
+    return required
+
+
 def optional_fields(operation):
     return (OPTIONAL-{'group'} if operation.startswith('content.etp.') else OPTIONAL) | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
 
@@ -128,7 +139,7 @@ def invoke(fabric, owner, operation, args):
     if operation.startswith('community.'):
         from .community_application import invoke as community_invoke
         return community_invoke(fabric.community_config,owner,operation,args)
-    if operation.startswith('content.etp.'):
+    if operation.startswith(('content.etp.','library.etp.')):
         adapter=getattr(fabric,'native_etp',None)
         if adapter is None:
             from .protocol import ProtocolError
@@ -213,4 +224,6 @@ def attach(service, config):
         if operation=='optimization.evaluate':
             props['joint']={'type':'array','minItems':1,'maxItems':4096,'items':{'type':'object','maxProperties':4}}
             props['decoder']={'type':'array','maxItems':4096,'items':{'type':'object','maxProperties':3}}
-        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-optional_fields(operation)),write,('content:admin' if operation in ADMIN_OPERATIONS else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))
+        name=operation.replace('.','_')
+        service.add(name,'Content application: '+operation,schema(props,set(fields)-optional_fields(operation)),write,('content:admin' if operation in ADMIN_OPERATIONS else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))
+        service.tools[name]['securitySchemes'][0]['scopes']=sorted(required_scopes(operation))

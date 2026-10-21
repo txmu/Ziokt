@@ -79,3 +79,15 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
 - 地理学习页、经纬网互动、精简小字提示、旧浏览器 ES5 网络协作已实现。真实浏览器关闭 WebCrypto/SW/Worker/fetch 后通过实际端点 mTLS 测试；多宽度滚动验证通过。
 - 新增有认证/限额/背压/序号/半关闭的轻量流适配器，原生出口调用锁定的 libshadow6。填充仅作用于活跃帧，不声明旁路监听者完全不可见。
 - 真实 Shadow6 部署链路、Android 32 位硬件、多运营商迷惑路径、持久服务证明/主网结算尚未验收，参见 `docs/openci/PEOPLE-HELP.md`。
+
+#### 2026-10-21 native FileShare transport and Library intake follow-up
+
+- Native FileShare's 16 KiB response exceeded the engine's 1 KiB unframed limit.
+  Added explicitly selected bounded v2 native message framing and early errors
+  for oversized raw sends; original v1 callers retain their wire version.
+- Added durable signed-source Library intake and shared HTTP/MCP authorization.
+  Native source/channel identity and local book ownership remain independent.
+- Added actual native two-node FileShare → signed source → persisted Library
+  CI acceptance, plus controlled local failure/recovery and MCP lifetime tests.
+- Native CI remains pending for these changes. This does not mark all adapters,
+  DHT, Corium Wiki, mainnet migration, or all requested features complete.
