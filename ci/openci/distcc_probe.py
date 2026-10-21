@@ -66,7 +66,7 @@ def main(output, evidence):
     # Exercise a real ccache hit with the native target wrapper.
     env = dict(os.environ, CCACHE_PREFIX=os.environ['OPenci_DISTCC_PREFIX'], CCACHE_COMPILERCHECK='content')
     for attempt in range(2):
-        subprocess.run([compiler, '-O2', '-c', source, '-o', target], check=True, timeout=120, env=(dict(env,CCACHE_RECACHE='1') if attempt==0 else env))
+        subprocess.run([output/'host/bin/ccache',compiler, '-O2', '-c', source, '-o', target], check=True, timeout=120, env=(dict(env,CCACHE_RECACHE='1') if attempt==0 else env))
     # Ordinary distributed preprocessing strips comments used by old host tools
     # as fallthrough annotations. Host compilation must remain on the coordinator.
     host=evidence/'host-fallthrough.c'
@@ -76,6 +76,7 @@ def main(output, evidence):
     if not any(entry['compiler']=='/usr/bin/gcc' and entry['remote'] is False for entry in routing):raise RuntimeError('Host preprocessing isolation was not observed')
     if not any(entry['remote'] is True for entry in routing):raise RuntimeError('Actual target compiler did not use distcc prefix')
     compiler_info['host_tools_kept_on_coordinator']=True
+    compiler_info['explicit_ccache_invocation_verified']=True
     compiler_info['probe_remote_compiles']=sum(path.read_text().count('COMPILE_OK') for path in evidence.glob('distccd-*.log'))
     compiler_info['probe_object_sha256'] = hashlib.sha256(expected).hexdigest()
     compiler_info['workers_verified'] = [13632, 13633]

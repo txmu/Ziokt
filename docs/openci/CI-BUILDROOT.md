@@ -72,3 +72,12 @@ from a selected same-repository Buildroot run, records its original build commit
 and image hashes, and reruns serial/rootfs/network/shutdown assertions on CI.
 It does not rebuild images or claim that a failed source run passed. Separate
 artifact/run references distinguish build evidence from re-verification evidence.
+
+The next x86_64 attempt (39546304858) stopped at the routing probe: manual
+invocation of Buildroot's target wrapper did not activate ccache, so no target
+prefix execution was observed. That assertion correctly failed before claiming
+distributed-build evidence. The probe now invokes the actual prepared ccache
+binary explicitly around the native target compiler, forces one real miss and
+then tests the hit. This follows the actual ccache execution path used by the
+Buildroot package make environment rather than assuming standalone wrapper calls
+always enable it.
