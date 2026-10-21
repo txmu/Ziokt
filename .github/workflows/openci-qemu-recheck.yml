@@ -1,5 +1,13 @@
 name: OpenCI QEMU verification of retained real firmware
 on:
+  workflow_call:
+    inputs:
+      source_run:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       source_run:

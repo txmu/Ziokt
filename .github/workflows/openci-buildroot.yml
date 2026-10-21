@@ -2,6 +2,10 @@ name: OpenCI Buildroot distcc and QEMU validation
 on:
   workflow_dispatch:
     inputs:
+      source_run:
+        description: Optional retained-image run for QEMU re-verification without rebuilding
+        type: string
+        default: ''
       target:
         description: Native Buildroot QEMU target
         type: choice
@@ -9,11 +13,19 @@ on:
         default: all
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: openci-buildroot-${{ github.ref }}-${{ inputs.target }}
   cancel-in-progress: false
 jobs:
+  verify-retained-image:
+    if: inputs.source_run != ''
+    uses: ./.github/workflows/openci-qemu-recheck.yml
+    with:
+      source_run: ${{ inputs.source_run }}
+      target: ${{ inputs.target }}
   prepare:
+    if: inputs.source_run == ''
     runs-on: ubuntu-24.04
     outputs:
       targets: ${{ steps.matrix.outputs.targets }}
