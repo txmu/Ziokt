@@ -260,7 +260,13 @@ class Service:
                 self.content_etp=None;self.content_etp_config=raw
                 if config is not None:
                     from .content_etp_application import EtpApplications
-                    self.content_etp=EtpApplications(config,transport=lambda method,params:self.etp_backend(config['gateway']).call(method,params))
+                    def live_file_policy(account):
+                        live=self.current().get('content_fabric',{})
+                        if live.get('enabled') is not True:return None
+                        current=live.get('native_etp')
+                        if not isinstance(current,dict):return None
+                        return current.get('accounts',{}).get(account,{}).get('fileshare')
+                    self.content_etp=EtpApplications(config,transport=lambda method,params:self.etp_backend(config['gateway']).call(method,params),file_policy=live_file_policy)
             return self.content_etp
 
     def add(self,name,description,input_schema,write,scope,route):

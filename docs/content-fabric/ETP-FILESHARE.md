@@ -90,3 +90,10 @@ Local controlled-gateway tests exercise authorization, cancellation, SHA failure
 and actual SQLite/object recovery, not native cryptographic execution.
 `ci/etp_fileshare_smoke.py:library_run` is the real two-node signed announcement,
 native FileShare and persisted Library acceptance test, executed only by CI.
+
+MCP rechecks the current configuration-backed author/topic/peer delegation on
+source reads and every intake step, including the final commit. Revoking the
+configured source grant therefore blocks the next step while an already-running
+step may finish its current bounded read; the write and commit each recheck the
+live grant. The HTTP service uses its startup configuration and requires a
+controlled service reload to apply changed policy.

@@ -34,3 +34,12 @@ class NativeMcpBindingTests(unittest.TestCase):
         for operation in ('begin','step','cancel'):
             self.assertEqual(required_scopes('library.etp.'+operation),{'library:write','content:write'})
         self.assertEqual(required_scopes('library.etp.status'),{'library:read'})
+    def test_inflight_library_steps_read_current_revocable_policy(self):
+        from ziokt.content_etp_application import EtpApplications
+        live=[self.config['accounts']['alice']['fileshare']]
+        app=EtpApplications(self.config,file_policy=lambda owner:live[0] if owner=='alice' else None)
+        try:
+            self.assertEqual(app.file_policy('alice')['topics'],['books'])
+            live[0]=None
+            self.assertIsNone(app.file_policy('alice'))
+        finally:app.close()

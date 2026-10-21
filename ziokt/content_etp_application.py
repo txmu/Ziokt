@@ -7,11 +7,11 @@ from .protocol import ProtocolError,strict_json
 
 
 class EtpApplications:
-    def __init__(self,config,*,transport=None):
+    def __init__(self,config,*,transport=None,file_policy=None):
         if not isinstance(config,dict) or set(config)!={'gateway','accounts'}:raise ValueError('exact native ETP configuration required')
         gateway=config['gateway']
         if not isinstance(gateway,dict) or set(gateway)!={'binary','digest','config'}:raise ValueError('pinned native ETP gateway required')
-        self.config=config;self.lock=threading.RLock();self.instance=None;self.transport=transport
+        self.config=config;self.lock=threading.RLock();self.instance=None;self.transport=transport;self.file_policy=file_policy or (lambda account:self.config['accounts'].get(account,{}).get('fileshare'))
         accounts=config['accounts']
         if not isinstance(accounts,dict) or len(accounts)>128:raise ValueError('native account policy budget')
         for owner,policy in accounts.items():
@@ -51,7 +51,7 @@ class EtpApplications:
         policy=self.config['accounts'].get(owner)
         if operation.startswith('library.etp.'):
             from .content_etp_library import EtpLibrary
-            intake=EtpLibrary(fabric,self,lambda account:self.config['accounts'].get(account,{}).get('fileshare'))
+            intake=EtpLibrary(fabric,self,self.file_policy)
             if operation=='library.etp.status':return intake.status(owner,args['job'])
             if operation=='library.etp.cancel':return intake.cancel(owner,args['job'])
             if not policy or 'fileshare' not in policy:raise PermissionError('native Library source delegation not configured')
