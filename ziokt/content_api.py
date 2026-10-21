@@ -61,6 +61,7 @@ OPERATIONS={
  'content.maintenance':({},True),
  'library.publish':({'metadata':dict},True),
  'library.search':({'query':str,'limit':int,'offset':int,'filters':dict},False),
+ 'content.search':({'query':str,'sources':list,'limit':int,'offset':int,'filters':dict},False),
  'library.extract':({'id':str},False),
  'library.get':({'id':str},False),
  'library.reading.get':({'id':str},False),
@@ -74,7 +75,7 @@ OPERATIONS={
  'content.subscription.get':({'kind':str,'target':str},False),
  'content.subscription.save':({'kind':str,'target':str,'settings':dict},True),
 }
-OPTIONAL={'attachments','application','decoder','node','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
+OPTIONAL={'sources','attachments','application','decoder','node','reply_to','max_chunks','filters','query','mime','limit','offset','message_id','references','low','description','visibility','posting','retention'}
 
 
 def required_scopes(operation):
@@ -197,6 +198,11 @@ def invoke(fabric, owner, operation, args):
     if operation=='content.maintenance':return fabric.maintenance()
     if operation=='library.publish':return fabric.create_book(owner,args['metadata'])
     if operation in {'library.search','netnews.search'}:return fabric.search(owner,kind='book' if operation=='library.search' else 'article',**args)
+    if operation=='content.search':
+        sources=args.get('sources',['library','netnews'])
+        if not isinstance(sources,list) or not sources or len(sources)>2 or len(set(sources))!=len(sources) or set(sources)-{'library','netnews'}:raise ValueError('explicit local content search sources required')
+        query=args.get('query','');limit=args.get('limit',30);offset=args.get('offset',0);filters=args.get('filters',{})
+        return {'schema':'ziokt.content-search.v1','query':query,'sources':{source:fabric.search(owner,query,kind='book' if source=='library' else 'article',limit=limit,offset=offset,filters=filters) for source in sources},'pagination':'per-source; stable IDs and authorization follow each native index'}
     if operation in {'library.get','netnews.get'}:
         with fabric.lock:return {'id':args['id'],**fabric._get(owner,args['id'],'book' if operation=='library.get' else 'article')}
     if operation=='library.reading.get':return fabric.state(owner,'reader',args['id'])
@@ -219,6 +225,7 @@ def attach(service, config):
             if field['type']=='string':field['maxLength']=100000
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
+        if operation=='content.search':props['sources']={'type':'array','minItems':1,'maxItems':2,'uniqueItems':True,'items':{'type':'string','enum':['library','netnews']}}
         if operation=='netnews.post':
             props['attachments']={'type':'array','maxItems':8,'items':{'type':'object','properties':{'id':{'type':'string','maxLength':68},'name':{'type':'string','maxLength':255}},'required':['id','name'],'additionalProperties':False}}
         if operation=='optimization.evaluate':

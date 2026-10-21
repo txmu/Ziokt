@@ -7,3 +7,5 @@ HTTP/MCP 共用 `content.reference.create`（`id`, `verify_bytes`）及 `content
 解析不自动跟随 latest。编辑/版本替换返回 `CONTENT_VERSION_CHANGED`；撤回、权限失效、停止本地分发或缺失对象拒绝解析。`verify_bytes: true` 实际读取原生对象进行校验，false 仅表示签名和元数据核对，不声称字节已验证。不复制大文件，不更改原对象的物理存储。
 
 该引用是各 Adapter 的共享基础，不能据此宣称 Corium Wiki、ETP FileShare 或其他尚未接入的原生应用已完成同步。
+
+跨应用搜索入口 `content.search` 当前合并的是同一账户可访问的 Library 与 Netnews 原生索引。每个来源单独保留其过滤、权限、索引、分页与失败语义；它不会合并排序为一个虚假的全局游标，来源仅允许 `library`、`netnews`，默认查询两者。Community Forum、Corium、ETP 和跨节点后台订阅调度尚未接入。
