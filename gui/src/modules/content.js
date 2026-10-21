@@ -40,15 +40,21 @@ export function renderLibrary(container){
   const searchForm=contentElement('div'),query=contentField(searchForm,'搜索书名、作者、ISBN','query','search');query.required=false;
   const results=contentElement('section');results.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px';
   const reader=contentElement('section');reader.hidden=true;
+  let readerGeneration=0;
   async function show(book){
-    reader.hidden=false;reader.replaceChildren(contentElement('h2',book.title));
+    const generation=++readerGeneration;const readTool=async(op,args={},write=false)=>{const result=await contentTool(op,args,write);if(generation!==readerGeneration||!reader.isConnected)throw Error('READER_CHANGED');return result;};
+    reader.hidden=false;reader._zioktReader=null;reader.replaceChildren(contentElement('h2',book.title));
     const personal=contentElement('details'),personalPanel=contentElement('section');personal.append(contentElement('summary',State.language==='en'?'My notes and collections':'我的笔记与藏书'),personalPanel);reader.append(personal);
-    ZioktPersonalViews.library(personalPanel,{call:(op,args)=>contentTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
-    const info=await contentTool('content.object.info',{id:book.file_id});
+    ZioktPersonalViews.library(personalPanel,{call:(op,args)=>readTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>reader._zioktReader?.position()||({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{if(reader._zioktReader)return reader._zioktReader.navigate(anchor);const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
+    const info=await readTool('content.object.info',{id:book.file_id});
+    if(info.mime==='application/epub+zip'){
+      const document=contentElement('section');reader.append(document);reader._zioktReader=await ZioktDocumentReader.mount(document,{call:readTool,id:book.id,language:State.language,status:value=>status.textContent=value});
+      reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:reader._zioktReader.position()},true);status.textContent='阅读位置已保存';},status));return;
+    }
     if(info.size>16*1024*1024)throw Error('此文件超过浏览器阅读预算，请使用流式客户端下载。');
-    const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
+    const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await readTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
     const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');
-    if(['text/plain','text/markdown','text/html'].includes(info.mime)){const text=contentElement('pre',new TextDecoder().decode(bytes));text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font:inherit';text.tabIndex=0;reader.append(text);try{const state=await contentTool('library.reading.get',{id:book.id});text.scrollTop=state?.settings?.scroll||0;}catch(_){}reader.append(contentAction('保存阅读位置',async()=>{await contentTool('library.reading.save',{id:book.id,state:{scroll:text.scrollTop}},true);status.textContent='阅读位置已保存';},status));}
+    if(['text/plain','text/markdown','text/html'].includes(info.mime)){const text=contentElement('pre',new TextDecoder().decode(bytes));text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font:inherit';text.tabIndex=0;reader.append(text);try{const state=await readTool('library.reading.get',{id:book.id});text.scrollTop=state?.settings?.scroll||0;}catch(_){}reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:{scroll:text.scrollTop}},true);status.textContent='阅读位置已保存';},status));}
     else reader.append(contentElement('p','此格式请下载后使用相应阅读器打开。'));
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }

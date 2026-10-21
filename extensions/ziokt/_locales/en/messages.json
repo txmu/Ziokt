@@ -214,5 +214,11 @@
   },
   "personal_library": {
     "message": "My notes and collections"
+  },
+  "read_book": {
+    "message": "Read"
+  },
+  "external_reader": {
+    "message": "Download this format and use an external reader."
   }
 }

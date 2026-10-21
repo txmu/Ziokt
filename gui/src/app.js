@@ -49,6 +49,44 @@ class ZioktApplicationClient {
 }
 globalThis.ZioktApplicationClient=ZioktApplicationClient;
 
+globalThis.ZioktDocumentReader={
+  async mount(container,{call,id,language='en',status=()=>{}}){
+    const zh=language.startsWith('zh'),label=(a,b)=>zh?a:b;
+    const node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
+    const lifetime=Symbol('reader');container._readerLifetime=lifetime;const alive=()=>container.isConnected&&container._readerLifetime===lifetime;
+    let manifestOffset=0,chapterCount=0,chapter=0,offset=0,next=null,sequence=0;
+    const bar=node('div'),select=node('select'),body=node('pre'),pageStatus=node('p'),navigation=node('select');
+    select.setAttribute('aria-label',label('EPUB 章节','EPUB chapter'));navigation.setAttribute('aria-label',label('EPUB 目录','EPUB table of contents'));
+    body.tabIndex=0;body.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';pageStatus.setAttribute('role','status');
+    const action=(text,fn)=>{const button=node('button',text);button.type='button';button.style.minHeight='44px';button.onclick=async()=>{button.disabled=true;try{await fn();}catch(error){status(error.message);}finally{button.disabled=false;}};return button;};
+    const previous=action(label('上一页','Previous page'),async()=>{if(offset>0)await load(chapter,Math.max(0,offset-16384));else if(chapter>0)await load(chapter-1,0);});
+    const following=action(label('下一页','Next page'),async()=>{if(next!==null)await load(chapter,next);else if(chapter+1<chapterCount)await load(chapter+1,0);});
+    const more=action(label('更多章节与目录','More chapters and navigation'),async()=>{manifestOffset+=64;await inventory();});
+    bar.append(select,navigation,previous,following,more);container.replaceChildren(bar,pageStatus,body);
+    async function inventory(){
+      const result=await call('library.reader.manifest',{id,offset:manifestOffset,limit:64});if(!alive())return;
+      chapterCount=result.chapter_count;
+      for(const entry of result.chapters){const option=node('option',String(entry.index+1)+' · '+entry.title);option.value=entry.index;select.append(option);}
+      for(const entry of result.navigation||[]){const option=node('option',entry.title);option.value=JSON.stringify(entry);navigation.append(option);}
+      more.hidden=result.next_offset===null&&result.navigation_next_offset==null;
+      navigation.hidden=!navigation.options.length;
+    }
+    async function load(target,start,fragment=''){
+      if(!alive())return;const request=++sequence;previous.disabled=true;following.disabled=true;
+      const result=await call('library.reader.chapter',{id,chapter:target,offset:start,limit:16384,fragment});
+      if(request!==sequence||!alive())return;
+      chapter=target;offset=result.offset;next=result.next_offset;body.textContent=result.text;
+      if(![...select.options].some(option=>Number(option.value)===chapter)){const option=node('option',String(chapter+1)+' · '+result.title);option.value=chapter;select.append(option);}
+      select.value=String(chapter);previous.disabled=chapter===0&&offset===0;following.disabled=next===null&&chapter+1>=chapterCount;
+      pageStatus.textContent=label('章节 ','Chapter ')+(chapter+1)+' / '+chapterCount+' · '+offset+'–'+Math.min(offset+16384,result.total_characters)+' / '+result.total_characters;
+    }
+    select.onchange=()=>load(Number(select.value),0).catch(error=>status(error.message));
+    navigation.onchange=()=>{const item=JSON.parse(navigation.value);load(item.chapter,0,item.fragment||'').catch(error=>status(error.message));};
+    await inventory();await load(0,0);
+    return {position:()=>({chapter,offset}),navigate:anchor=>load(anchor.chapter||0,anchor.offset||0)};
+  }
+};
+
 /* Same personal-content controls in Content Web, the GUI bundle and extensions. */
 globalThis.ZioktPersonalViews={
   async readstate(container,{call,article,language='en',status=()=>{}}) {
@@ -2368,15 +2406,21 @@ function renderLibrary(container){
   const searchForm=contentElement('div'),query=contentField(searchForm,'搜索书名、作者、ISBN','query','search');query.required=false;
   const results=contentElement('section');results.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px';
   const reader=contentElement('section');reader.hidden=true;
+  let readerGeneration=0;
   async function show(book){
-    reader.hidden=false;reader.replaceChildren(contentElement('h2',book.title));
+    const generation=++readerGeneration;const readTool=async(op,args={},write=false)=>{const result=await contentTool(op,args,write);if(generation!==readerGeneration||!reader.isConnected)throw Error('READER_CHANGED');return result;};
+    reader.hidden=false;reader._zioktReader=null;reader.replaceChildren(contentElement('h2',book.title));
     const personal=contentElement('details'),personalPanel=contentElement('section');personal.append(contentElement('summary',State.language==='en'?'My notes and collections':'我的笔记与藏书'),personalPanel);reader.append(personal);
-    ZioktPersonalViews.library(personalPanel,{call:(op,args)=>contentTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
-    const info=await contentTool('content.object.info',{id:book.file_id});
+    ZioktPersonalViews.library(personalPanel,{call:(op,args)=>readTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>reader._zioktReader?.position()||({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{if(reader._zioktReader)return reader._zioktReader.navigate(anchor);const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
+    const info=await readTool('content.object.info',{id:book.file_id});
+    if(info.mime==='application/epub+zip'){
+      const document=contentElement('section');reader.append(document);reader._zioktReader=await ZioktDocumentReader.mount(document,{call:readTool,id:book.id,language:State.language,status:value=>status.textContent=value});
+      reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:reader._zioktReader.position()},true);status.textContent='阅读位置已保存';},status));return;
+    }
     if(info.size>16*1024*1024)throw Error('此文件超过浏览器阅读预算，请使用流式客户端下载。');
-    const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
+    const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await readTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
     const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');
-    if(['text/plain','text/markdown','text/html'].includes(info.mime)){const text=contentElement('pre',new TextDecoder().decode(bytes));text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font:inherit';text.tabIndex=0;reader.append(text);try{const state=await contentTool('library.reading.get',{id:book.id});text.scrollTop=state?.settings?.scroll||0;}catch(_){}reader.append(contentAction('保存阅读位置',async()=>{await contentTool('library.reading.save',{id:book.id,state:{scroll:text.scrollTop}},true);status.textContent='阅读位置已保存';},status));}
+    if(['text/plain','text/markdown','text/html'].includes(info.mime)){const text=contentElement('pre',new TextDecoder().decode(bytes));text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font:inherit';text.tabIndex=0;reader.append(text);try{const state=await readTool('library.reading.get',{id:book.id});text.scrollTop=state?.settings?.scroll||0;}catch(_){}reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:{scroll:text.scrollTop}},true);status.textContent='阅读位置已保存';},status));}
     else reader.append(contentElement('p','此格式请下载后使用相应阅读器打开。'));
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }

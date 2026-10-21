@@ -8,6 +8,8 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'library.reader.manifest':({'id':str,'limit':int,'offset':int},False),
+ 'library.reader.chapter':({'id':str,'chapter':int,'offset':int,'limit':int,'fragment':str},False),
  'library.note.list':({'book':str,'limit':int,'offset':int},False),
  'library.note.create':({'id':str,'book':str,'text':str,'anchor':dict},True),
  'library.note.update':({'id':str,'book':str,'text':str,'anchor':dict,'revision':int},True),
@@ -98,6 +100,7 @@ def required_scopes(operation):
 
 
 def optional_fields(operation):
+    if operation=='library.reader.chapter':return (OPTIONAL|{'fragment'})
     if operation=='library.collection.manage':return {'name','book'}
     return (OPTIONAL-{'group'} if operation.startswith('content.etp.') else OPTIONAL) | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
 
@@ -128,8 +131,9 @@ def invoke(fabric, owner, operation, args):
         result=collect(fabric,owner,**args)
         for item in result['items']:item['published']=item['published'].isoformat() if item['published'] else None
         return result
-    if operation=='library.extract':
-        from .library_formats import extract,MAX_SOURCE
+    if operation in {'library.extract','library.reader.manifest','library.reader.chapter'}:
+        from .library_formats import MAX_SOURCE
+        from .document_sandbox import parse_document
         with fabric.lock:book=fabric._get(owner,args['id'],'book')
         import json
         with fabric.lock:info=json.loads(fabric.object_info(owner,book['file_id'])['metadata'])
@@ -137,7 +141,12 @@ def invoke(fabric, owner, operation, args):
         source=b''.join(fabric.read_chunk(owner,book['file_id'],i) for i in range((info['size']+16383)//16384))
         import hashlib
         if 'sha256:'+hashlib.sha256(source).hexdigest()!=info['digest']:raise ValueError('reader digest mismatch')
-        return extract(source,info['mime'])
+        mode='preview' if operation=='library.extract' else operation.rsplit('.',1)[-1]
+        arguments={key:value for key,value in args.items() if key!='id'}
+        if mode=='chapter':arguments.setdefault('limit',16384)
+        result=parse_document(source,info['mime'],mode,**arguments)
+        with fabric.lock:fabric._get(owner,args['id'],'book')
+        return result
     if operation=='optimization.get':return fabric.optimizations.get(owner,args.get('application','content'))
     if operation=='optimization.configure':return fabric.optimizations.set(owner,**args)
     if operation=='optimization.configure_defaults':return fabric.optimizations.set(owner,**args)
@@ -255,6 +264,11 @@ def attach(service, config):
         if operation.startswith('netnews.readstate.'):
             props['article']['maxLength']=300
             if 'revision' in props:props['revision'].update(minimum=0,maximum=2**63-2)
+        if operation.startswith('library.reader.'):
+            if 'limit' in props:props['limit'].update(minimum=1,maximum=128 if operation.endswith('.manifest') else 16384)
+            if 'offset' in props:props['offset'].update(minimum=0,maximum=16*1024*1024)
+            if 'chapter' in props:props['chapter'].update(minimum=0,maximum=1023)
+            if 'fragment' in props:props['fragment']['maxLength']=128
         if operation.startswith(('library.note.','library.bookmark.','library.collection.')):
             for key in ('id','book'):
                 if key in props:props[key]['maxLength']=300

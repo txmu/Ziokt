@@ -41,6 +41,44 @@ class ZioktApplicationClient {
 }
 globalThis.ZioktApplicationClient=ZioktApplicationClient;
 
+globalThis.ZioktDocumentReader={
+  async mount(container,{call,id,language='en',status=()=>{}}){
+    const zh=language.startsWith('zh'),label=(a,b)=>zh?a:b;
+    const node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
+    const lifetime=Symbol('reader');container._readerLifetime=lifetime;const alive=()=>container.isConnected&&container._readerLifetime===lifetime;
+    let manifestOffset=0,chapterCount=0,chapter=0,offset=0,next=null,sequence=0;
+    const bar=node('div'),select=node('select'),body=node('pre'),pageStatus=node('p'),navigation=node('select');
+    select.setAttribute('aria-label',label('EPUB 章节','EPUB chapter'));navigation.setAttribute('aria-label',label('EPUB 目录','EPUB table of contents'));
+    body.tabIndex=0;body.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';pageStatus.setAttribute('role','status');
+    const action=(text,fn)=>{const button=node('button',text);button.type='button';button.style.minHeight='44px';button.onclick=async()=>{button.disabled=true;try{await fn();}catch(error){status(error.message);}finally{button.disabled=false;}};return button;};
+    const previous=action(label('上一页','Previous page'),async()=>{if(offset>0)await load(chapter,Math.max(0,offset-16384));else if(chapter>0)await load(chapter-1,0);});
+    const following=action(label('下一页','Next page'),async()=>{if(next!==null)await load(chapter,next);else if(chapter+1<chapterCount)await load(chapter+1,0);});
+    const more=action(label('更多章节与目录','More chapters and navigation'),async()=>{manifestOffset+=64;await inventory();});
+    bar.append(select,navigation,previous,following,more);container.replaceChildren(bar,pageStatus,body);
+    async function inventory(){
+      const result=await call('library.reader.manifest',{id,offset:manifestOffset,limit:64});if(!alive())return;
+      chapterCount=result.chapter_count;
+      for(const entry of result.chapters){const option=node('option',String(entry.index+1)+' · '+entry.title);option.value=entry.index;select.append(option);}
+      for(const entry of result.navigation||[]){const option=node('option',entry.title);option.value=JSON.stringify(entry);navigation.append(option);}
+      more.hidden=result.next_offset===null&&result.navigation_next_offset==null;
+      navigation.hidden=!navigation.options.length;
+    }
+    async function load(target,start,fragment=''){
+      if(!alive())return;const request=++sequence;previous.disabled=true;following.disabled=true;
+      const result=await call('library.reader.chapter',{id,chapter:target,offset:start,limit:16384,fragment});
+      if(request!==sequence||!alive())return;
+      chapter=target;offset=result.offset;next=result.next_offset;body.textContent=result.text;
+      if(![...select.options].some(option=>Number(option.value)===chapter)){const option=node('option',String(chapter+1)+' · '+result.title);option.value=chapter;select.append(option);}
+      select.value=String(chapter);previous.disabled=chapter===0&&offset===0;following.disabled=next===null&&chapter+1>=chapterCount;
+      pageStatus.textContent=label('章节 ','Chapter ')+(chapter+1)+' / '+chapterCount+' · '+offset+'–'+Math.min(offset+16384,result.total_characters)+' / '+result.total_characters;
+    }
+    select.onchange=()=>load(Number(select.value),0).catch(error=>status(error.message));
+    navigation.onchange=()=>{const item=JSON.parse(navigation.value);load(item.chapter,0,item.fragment||'').catch(error=>status(error.message));};
+    await inventory();await load(0,0);
+    return {position:()=>({chapter,offset}),navigate:anchor=>load(anchor.chapter||0,anchor.offset||0)};
+  }
+};
+
 /* Same personal-content controls in Content Web, the GUI bundle and extensions. */
 globalThis.ZioktPersonalViews={
   async readstate(container,{call,article,language='en',status=()=>{}}) {
