@@ -515,6 +515,9 @@ pub struct EtpHandle {
 impl EtpHandle {
     /// 发送应用层数据（默认流）
     pub async fn send_data(&self, target: SocketAddr, data: Vec<u8>) -> Result<(), EtpError> {
+        if data.len() > 1024 {
+            return Err(EtpError::Internal("Unframed stream payload exceeds 1024 bytes; use native message fragmentation".into()));
+        }
         self.data_tx
             .send((target, data))
             .await
@@ -528,6 +531,9 @@ impl EtpHandle {
         id: u32,
         data: Vec<u8>,
     ) -> Result<(), EtpError> {
+        if data.len() > 1024 || id > 4095 {
+            return Err(EtpError::Internal("Unframed stream payload or stream id exceeds limit; use native message fragmentation".into()));
+        }
         self.cmd_tx
             .send(Command::SendStream {
                 target,

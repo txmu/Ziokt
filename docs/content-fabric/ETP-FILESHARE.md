@@ -19,3 +19,22 @@
 - 当前原生下载任务/共享索引仍在内存，配置导出在重启时通过原生 share_file 重建；未配置的下载完成索引不承诺跨进程保留。原生 60 秒任务超时及错误原样保留，重试不报告为断点持久化。
 
 Library 的身份授权、签名来源、持久导入和撤回语义仍需完整连接；不能只凭该原生传输接口记为完成。CI 的传输记录也明确 `library_import_verified:false` 和 `dht_discovery_verified:false`。
+
+### Native large-message transport (pending CI)
+
+The engine's unframed stream limit is 1024 bytes, smaller than the native
+16 KiB FileShare chunk. The gateway now explicitly selects the native flavor's
+v2 message framing: `[2,5,digest32,index:u16be,count:u16be,payload]`.
+Payloads are at most 850 bytes, frames at most 888 bytes, and complete original
+v1 messages at most 40,000 bytes. Both endpoints must opt into this framing;
+this is not negotiated automatically with old peers. Original `new()` callers
+retain v1. Oversized unframed sends now return an error at the handle instead
+of reporting queue admission and being silently discarded later.
+
+Reassembly is keyed by authenticated source address and BLAKE3 message digest,
+with at most 16 assemblies, 30-second expiry, strict index/count/size checks,
+and final complete-message digest verification. The bounded 512-frame native
+outbox retains frames under channel backpressure. FileShare's original content
+hashes, manifest validation, peer checks and chunk verification still apply.
+Active downloads have a 300-second lifetime; pending manifests have 60 seconds.
+This change requires the real two-node CI transfer before being marked verified.

@@ -31,7 +31,7 @@ mod enabled {
             ensure!(settings.exports.len() <= 16, "native export budget");
             super::super::forum_gateway::private_database(&settings.storage)?;
             let (tx, rx) = mpsc::channel(64);
-            let flavor = FileShareFlavor::new(&settings.storage, tx)?;
+            let flavor = FileShareFlavor::new_fragmented_stream(&settings.storage, tx)?;
             let mut exports = HashMap::new();
             for (name, source) in settings.exports {
                 ensure!(!name.is_empty() && name.len() <= 64 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)), "export alias");

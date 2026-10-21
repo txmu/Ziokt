@@ -5,7 +5,7 @@ use bincode::Options;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     net::SocketAddr,
@@ -100,7 +100,15 @@ impl Drop for DownloadTask {
         let _ = fs::remove_file(&self.path);
     }
 }
+// Opt-in v2 framing preserves complete v1 messages while keeping each native
+// stream frame below the engine's 1024-byte application limit.
+struct Assembly { started: Instant, parts: Vec<Option<Vec<u8>>> }
+struct Framing {
+    incoming: HashMap<(SocketAddr, [u8; 32]), Assembly>,
+    outgoing: VecDeque<(SocketAddr, Vec<u8>)>,
+}
 pub struct FileShareFlavor {
+    framing: Mutex<Option<Framing>>,
     storage_dir: PathBuf,
     shared_files: RwLock<HashMap<[u8; 32], FileManifest>>,
     active_downloads: Mutex<HashMap<[u8; 32], DownloadTask>>,
@@ -118,12 +126,53 @@ impl FileShareFlavor {
             "real storage directory required"
         );
         Ok(Arc::new(Self {
+            framing: Mutex::new(None),
             storage_dir: Path::new(storage).canonicalize()?,
             shared_files: RwLock::new(HashMap::new()),
             active_downloads: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             network_tx,
         }))
+    }
+    /// Explicit deployment agreement: both endpoints must enable v2 framing.
+    /// Existing new() callers retain the original wire format unchanged.
+    pub fn new_fragmented_stream(storage: &str, tx: mpsc::Sender<(SocketAddr, Vec<u8>)>) -> Result<Arc<Self>> {
+        let instance = Self::new(storage, tx)?;
+        *instance.framing.lock() = Some(Framing { incoming: HashMap::new(), outgoing: VecDeque::new() });
+        Ok(instance)
+    }
+    fn flush_frames(&self) {
+        let mut state = self.framing.lock();
+        if let Some(state) = state.as_mut() {
+            while let Some(item) = state.outgoing.pop_front() {
+                if let Err(error) = self.network_tx.try_send(item) {
+                    state.outgoing.push_front(error.into_inner());
+                    break;
+                }
+            }
+        }
+    }
+    fn receive_frame(&self, peer: SocketAddr, data: &[u8]) -> Result<Option<Vec<u8>>> {
+        ensure!(data.len() >= 39 && data.len() <= 888 && data[0..2] == [2, 5], "fragment envelope");
+        let id: [u8; 32] = data[2..34].try_into()?;
+        let index = u16::from_be_bytes(data[34..36].try_into()?) as usize;
+        let count = u16::from_be_bytes(data[36..38].try_into()?) as usize;
+        ensure!(count > 0 && count <= MAX_WIRE.div_ceil(850) && index < count, "fragment range");
+        ensure!(index + 1 == count || data.len() == 888, "short intermediate fragment");
+        let mut state = self.framing.lock();
+        let state = state.as_mut().ok_or_else(|| anyhow::anyhow!("v2 framing disabled"))?;
+        state.incoming.retain(|_, entry| entry.started.elapsed() < Duration::from_secs(30));
+        let key = (peer, id);
+        ensure!(state.incoming.contains_key(&key) || state.incoming.len() < MAX_TASKS, "assembly budget");
+        let entry = state.incoming.entry(key).or_insert_with(|| Assembly { started: Instant::now(), parts: vec![None; count] });
+        ensure!(entry.parts.len() == count, "fragment count conflict");
+        if let Some(previous) = &entry.parts[index] { ensure!(previous == &data[38..], "fragment conflict"); }
+        entry.parts[index] = Some(data[38..].to_vec());
+        if entry.parts.iter().any(Option::is_none) { return Ok(None); }
+        let entry = state.incoming.remove(&key).expect("assembly exists");
+        let packet: Vec<u8> = entry.parts.into_iter().flatten().flatten().collect();
+        ensure!(packet.len() <= MAX_WIRE && blake3::hash(&packet).as_bytes() == &id, "message integrity");
+        Ok(Some(packet))
     }
     pub fn share_file(&self, path: &Path) -> Result<[u8; 32]> {
         ensure!(
@@ -238,7 +287,7 @@ impl FileShareFlavor {
             return ("locally_indexed", manifest.chunk_count as usize, manifest.chunk_count as usize);
         }
         if let Some(task) = self.active_downloads.lock().get(&hash) {
-            return (if task.started.elapsed() < Duration::from_secs(60) { "downloading" } else { "timed_out" }, task.received.len(), task.manifest.chunk_count as usize);
+            return (if task.started.elapsed() < Duration::from_secs(300) { "downloading" } else { "timed_out" }, task.received.len(), task.manifest.chunk_count as usize);
         }
         if let Some((_, started)) = self.pending.lock().get(&hash) {
             return (if started.elapsed() < Duration::from_secs(60) { "requested" } else { "timed_out" }, 0, 0);
@@ -267,7 +316,27 @@ impl FileShareFlavor {
         Ok(())
     }
     fn send(&self, peer: SocketAddr, packet: Vec<u8>) -> Result<()> {
-        self.network_tx.try_send((peer, packet))?;
+        ensure!(packet.len() <= MAX_WIRE, "message budget");
+        {
+            let mut state = self.framing.lock();
+            if let Some(state) = state.as_mut() {
+                let count = packet.len().div_ceil(850);
+                ensure!(state.outgoing.len() + count <= 512, "fragment queue full");
+                let id = blake3::hash(&packet);
+                for (index, part) in packet.chunks(850).enumerate() {
+                    let mut frame = vec![2, 5];
+                    frame.extend_from_slice(id.as_bytes());
+                    frame.extend_from_slice(&(index as u16).to_be_bytes());
+                    frame.extend_from_slice(&(count as u16).to_be_bytes());
+                    frame.extend_from_slice(part);
+                    state.outgoing.push_back((peer, frame));
+                }
+            } else {
+                ensure!(packet.len() <= 1024, "legacy stream message exceeds engine limit; enable v2 framing on both peers");
+                self.network_tx.try_send((peer, packet))?;
+            }
+        }
+        self.flush_frames();
         Ok(())
     }
     fn request_chunk(&self, peer: SocketAddr, hash: &[u8; 32], index: u32) -> Result<()> {
@@ -386,6 +455,12 @@ impl Flavor for FileShareFlavor {
         80
     }
     fn on_stream_data(&self, ctx: FlavorContext, data: &[u8]) -> bool {
+        if data.starts_with(&[2, 5]) {
+            if let Ok(Some(packet)) = self.receive_frame(ctx.src_addr, data) {
+                if packet.first() == Some(&VERSION) { let _ = self.handle(ctx.src_addr, &packet); }
+            }
+            return true;
+        }
         if data.len() < 2 || data[0] != VERSION || !(1..=4).contains(&data[1]) {
             return false;
         }
@@ -395,6 +470,10 @@ impl Flavor for FileShareFlavor {
     fn on_connection_open(&self, _: SocketAddr) {}
     fn on_connection_close(&self, _: SocketAddr) {}
     fn poll(&self) {
+        self.flush_frames();
+        if let Some(state) = self.framing.lock().as_mut() {
+            state.incoming.retain(|_, entry| entry.started.elapsed() < Duration::from_secs(30));
+        }
         let mut tasks = self.active_downloads.lock();
         tasks.retain(|_, t| t.started.elapsed() < Duration::from_secs(300));
         for (hash, task) in tasks.iter_mut() {
@@ -419,6 +498,26 @@ impl std::fmt::Debug for FileShareFlavor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn framed_messages_preserve_large_message_boundaries_and_peer_binding() {
+        let dir = std::env::temp_dir().join(format!("etp-fs-frame-{}", rand::random::<u64>()));
+        let (tx, mut rx) = mpsc::channel(64);
+        let store = FileShareFlavor::new_fragmented_stream(dir.to_str().unwrap(), tx).unwrap();
+        let peer: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let other: SocketAddr = "127.0.0.1:12346".parse().unwrap();
+        let mut packet = vec![1, 4]; packet.extend(vec![42; CHUNK_SIZE + 36]);
+        store.send(peer, packet.clone()).unwrap();
+        let mut frames = Vec::new();
+        while let Ok((target, frame)) = rx.try_recv() { assert_eq!(target, peer); assert!(frame.len() <= 888); frames.push(frame); }
+        assert!(frames.len() > 16);
+        assert!(store.receive_frame(other, &frames[0]).unwrap().is_none());
+        let mut result = None;
+        for frame in frames.iter().rev() { if let Some(message) = store.receive_frame(peer, frame).unwrap() { result = Some(message); } }
+        assert_eq!(result, Some(packet));
+        let mut changed = frames[0].clone(); changed[38] ^= 1;
+        assert!(store.receive_frame(other, &changed).is_err());
+        drop(store); fs::remove_dir_all(dir).unwrap();
+    }
     #[tokio::test]
     async fn native_application_chunks_share_wire_validation_and_reject_tampering() {
         let dir = std::env::temp_dir().join(format!("etp-fs-adapter-{}", rand::random::<u64>()));
