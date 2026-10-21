@@ -105,7 +105,7 @@ class EffortPool:
             return {**receipt,'duplicate':False}
 
 
-def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
+def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=()):
     require_network()
     origins = [origin] if isinstance(origin, str) else list(origin)
     for o in origins:
@@ -114,6 +114,12 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
         if p.scheme=='http' and p.hostname not in {'127.0.0.1','localhost','::1'}:raise ProtocolError('INVALID_CONFIG','public workers require HTTPS')
     allowed_hosts = {urlsplit(o).netloc for o in origins}
     allowed_origin_strs = set(origins)
+    if not isinstance(relay_origins,(list,tuple)) or len(relay_origins)>8:raise ProtocolError('INVALID_CONFIG','bounded approved collaboration origins required')
+    for item in relay_origins:
+        from .relay_web import approved_origin
+        try:approved_origin(item)
+        except ValueError:raise ProtocolError('INVALID_CONFIG','exact HTTPS or loopback collaboration origin required') from None
+    connect_sources=' '.join(["'self'"]+list(relay_origins))
     assets=files('ziokt').joinpath('effort');workers=threading.BoundedSemaphore(16);rates={};rate_lock=threading.Lock()
     class Handler(http.server.BaseHTTPRequestHandler):
         def setup(self):super().setup();self.connection.settimeout(35)
@@ -121,7 +127,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
         def send_value(self,status,value,kind='application/json'):
             data=value if isinstance(value,bytes) else encoded(value)
             self.send_response_only(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
-            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
+            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; connect-src "+connect_sources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
             self.end_headers();self.wfile.write(data)
         def valid_origin(self,post=False):
             # Public GETs are read-only, including navigation from WeChat or an
@@ -148,13 +154,14 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None):
         def do_GET(self):
             try:
                 self.valid_origin()
+                if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','relay_origins':list(relay_origins)})
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)
                     return self.send_value(200,explorer.query(self.path))
                 if explorer is not None and self.path in {'/explorer','/explorer/','/explorer/app.js','/explorer/style.css'}:
                     name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/explorer','/explorer/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
                     return self.send_value(200,files_resource('ziokt').joinpath('explorer',name).read_bytes(),kind)
-                files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
+                files={'/':('index.html','text/html; charset=utf-8'),'/relay.js':('relay.js','text/javascript'),'/geography.js':('geography.js','text/javascript'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
                 if self.path not in files:return self.send_value(404,{'error':'NOT_FOUND'})
                 name,kind=files[self.path];self.send_value(200,assets.joinpath(name).read_bytes(),kind)
             except ProtocolError as exc:self.send_value(404 if exc.code=='NOT_FOUND' else 429 if exc.code=='BACKPRESSURE' else 503 if exc.code=='CHAIN_UNAVAILABLE' else 403 if exc.code=='ORIGIN_REJECTED' else 400,{'error':exc.code})
@@ -191,7 +198,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
     required={'schema','origin','listen','port','federation_config','provider','submitter','state_root'}
-    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
     address=ipaddress.ip_address(config['listen'])
@@ -205,7 +212,7 @@ def main(argv=None):
         # Refuse to open the web listener until the configured native chain is ready.
         from .explorer import ChainExplorer
         explorer=ChainExplorer(provider['state_root'],provider['network_id']) if config.get('explorer',False) else None
-        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer)
+        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]))
         try:
             if tls:
                 if not {'certificate','private_key'}<=set(config) or urlsplit(config['origin']).scheme!='https':raise ProtocolError('INVALID_CONFIG','complete HTTPS credentials required')

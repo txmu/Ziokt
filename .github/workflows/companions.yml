@@ -58,6 +58,8 @@ jobs:
           node tools/sim_storage_race_smoke.cjs
           node tools/tri_browser_smoke.cjs
           node tools/effort_browser_smoke.cjs
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'test_relay*.py' -v
+          node tools/people_relay_browser_smoke.cjs
       - uses: actions/upload-artifact@v7.0.2
         if: success()
         with:
@@ -84,11 +86,16 @@ jobs:
         env:
           BROWSER: ${{ matrix.browser }}
         run: node ci/browser/node_modules/playwright/cli.js install --with-deps "$BROWSER"
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
       - name: Effort worker and read-only explorer across engines
         env:
           BROWSER: ${{ matrix.browser }}
         run: |
           node tools/effort_browser_smoke.cjs
+          node tools/people_relay_browser_smoke.cjs
           node tools/explorer_browser_smoke.cjs
           node gui/build.js
           node tools/gui_browser_smoke.cjs

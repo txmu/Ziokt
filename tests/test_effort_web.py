@@ -42,7 +42,7 @@ class EffortWebTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result=inventory(Path(temporary))
         self.assertEqual(len(result['components']),11)
-        self.assertIn('一键开始奋斗',files('ziokt').joinpath('effort/index.html').read_text())
+        self.assertIn('一键人民助力',files('ziokt').joinpath('effort/index.html').read_text())
         self.assertEqual(files('ziokt').joinpath('ecosystem.json').read_bytes(),(Path(__file__).resolve().parents[1]/'companions/ecosystem.json').read_bytes())
 
     def test_proofs_ranges_replay_and_restart_reconciliation(self):
@@ -68,7 +68,7 @@ class EffortWebTests(unittest.TestCase):
             def request(method,path,data=None,origin='http://127.0.0.1:0'):
                 conn=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5)
                 conn.request(method,path,data,{'Host':'127.0.0.1:0','Origin':origin,'Content-Type':'application/json'});response=conn.getresponse();body=response.read();conn.close();return response.status,body
-            status,body=request('GET','/');self.assertEqual(status,200);self.assertEqual(body.count(b'<button'),1);self.assertIn('一键开始奋斗'.encode(),body)
+            status,body=request('GET','/');self.assertEqual(status,200);self.assertEqual(body.count(b'<button'),1);self.assertIn('一键人民助力'.encode(),body)
             self.assertEqual(len(pool.jobs),0)
             self.assertEqual(request('POST','/api/job','{}',origin='https://evil.invalid')[0],409)
             self.assertEqual(request('POST','/api/job','{}',origin='https://unconfigured.ziokt.com')[0],409)
