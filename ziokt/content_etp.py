@@ -23,6 +23,9 @@ class EtpNews:
             fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_links(native_id TEXT PRIMARY KEY,record TEXT NOT NULL,grant_id TEXT NOT NULL,direction TEXT NOT NULL,author TEXT NOT NULL)')
             fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_proofs(native_id TEXT PRIMARY KEY,post BLOB NOT NULL,content BLOB NOT NULL,FOREIGN KEY(native_id) REFERENCES etp_content_links(native_id))')
             fabric.db.execute('INSERT OR IGNORE INTO migrations VALUES(7,unixepoch())')
+            fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_scan_cursors(grant_id TEXT PRIMARY KEY,snapshot TEXT NOT NULL,after_id TEXT NOT NULL,updated INTEGER NOT NULL)')
+            fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_scan_queue(grant_id TEXT NOT NULL,native_id TEXT NOT NULL,state TEXT NOT NULL,error TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(grant_id,native_id))')
+            fabric.db.execute('INSERT OR IGNORE INTO migrations VALUES(8,unixepoch())')
 
     def native(self,identifier):
         post=self.gateway.call('etp.forum.get',{'id':identifier})['post']
@@ -153,7 +156,10 @@ class EtpNews:
             if not authorization or authorization['revoked'] or grant['expires']<=int(time.time()):raise PermissionError('authorization revoked before import')
             linked=f.db.execute('SELECT * FROM etp_content_links WHERE native_id=?',(native_id,)).fetchone()
             if linked:
-                if linked['grant_id']!=grant_id:raise PermissionError('native object belongs to another grant')
+                if linked['grant_id']!=grant_id:
+                    previous=f.db.execute('SELECT owner,proof FROM etp_content_grants WHERE id=?',(linked['grant_id'],)).fetchone()
+                    prior=json.loads(previous['proof'])['payload']['grant'] if previous else {}
+                    if not previous or previous['owner']!=owner or linked['author']!=grant['native_author'] or any(prior.get(key)!=grant[key] for key in ('topic_hash','group')):raise PermissionError('native object belongs to another authorization scope')
                 return {'state':'already_linked','record':linked['record'],'duplicate':True}
             if f.db.execute('SELECT count(*) FROM etp_content_links').fetchone()[0]>=10000:raise ValueError('ETP import retention limit')
             parent=[]
@@ -165,6 +171,7 @@ class EtpNews:
             subject='ETP Forum '+native_id[:16];body=content.decode();source=None
             try:value=strict_json(content,32768,string_limit=16384)
             except (ValueError,ProtocolError):value=None
+            if isinstance(value,dict) and value.get('schema')=='ziokt.etp-content-grant.v1':return {'state':'authorization_record','imported':False}
             if isinstance(value,dict) and value.get('schema')=='ziokt.etp-news.v1':
                 source=value.get('source')
                 if not isinstance(source,dict) or set(source)!={'fabric','record','event'}:raise ValueError('source reference')
@@ -210,3 +217,45 @@ class EtpNews:
             try:results.append(self.export(owner,grant_id,row['record']))
             except Exception as error:results.append({'state':'failed','record':row['record'],'error':getattr(error,'code',type(error).__name__)})
         return {'results':results,'all_recovered':all(value['state']=='native_stored' for value in results)}
+
+
+    def sync(self,owner,grant_id,limit=16):
+        if type(limit) is not int or not 1<=limit<=64:raise ValueError('native scan page limit')
+        grant=self.grant(owner,grant_id,require_signer=False);f=self.fabric
+        with f.lock:cursor=f.db.execute('SELECT * FROM etp_scan_cursors WHERE grant_id=?',(grant_id,)).fetchone()
+        page=self.gateway.call('etp.forum.scan',{'topic':grant['topic'],'author_id':grant['native_author'],'snapshot':cursor['snapshot'] if cursor else '', 'after':cursor['after_id'] if cursor else '', 'limit':limit})
+        if page['topic_hash']!=grant['topic_hash'] or page['author_id']!=grant['native_author']:raise ProtocolError('ETP_SCAN_SCOPE','Native inventory changed authorization scope')
+        results=[]
+        with f.transaction():
+            self._scan_authorized(owner,grant_id,grant)
+            if page['state']=='snapshot_changed':
+                f.db.execute('INSERT OR REPLACE INTO etp_scan_cursors VALUES(?,?,?,?)',(grant_id,page['snapshot'],'',int(time.time())))
+                return {'state':'restarting_snapshot','scan_complete':False,'content_complete':False,'results':[],'retryable':True}
+            # Intake and cursor admission are one transaction. Unapplied posts stay
+            # in a durable queue, including replies whose parents arrive later.
+            for identifier in page['ids']:
+                if not f.db.execute('SELECT 1 FROM etp_scan_queue WHERE grant_id=? AND native_id=?',(grant_id,identifier)).fetchone():
+                    if f.db.execute('SELECT count(*) FROM etp_scan_queue').fetchone()[0]>=10000:raise ValueError('native scan retention limit')
+                    f.db.execute("INSERT INTO etp_scan_queue VALUES(?,?,'pending','',?)",(grant_id,identifier,time.time_ns()))
+            f.db.execute('INSERT OR REPLACE INTO etp_scan_cursors VALUES(?,?,?,?)',(grant_id,'' if page['complete'] else page['snapshot'],'' if page['complete'] else page['after'],int(time.time())))
+            pending=f.db.execute("SELECT native_id,state,error FROM etp_scan_queue WHERE grant_id=? AND state NOT IN ('applied','ignored') ORDER BY updated,native_id LIMIT ?",(grant_id,limit)).fetchall()
+        for entry in pending:
+            identifier=entry['native_id'];error=''
+            try:
+                result=self.ingest(owner,grant_id,identifier)
+                state='ignored' if result['state']=='authorization_record' else 'applied'
+            except Exception as exception:
+                error=getattr(exception,'code',type(exception).__name__)
+                state={'ETP_PARENT_PENDING':'waiting_parent','ETP_LOOP':'waiting_outbound','ETP_ATTACHMENT_SOURCE_REQUIRED':'waiting_attachment','ETP_CONTENT_UNAVAILABLE':'waiting_native','PROVIDER_TIMEOUT':'waiting_native'}.get(error,'rejected' if isinstance(exception,(ValueError,PermissionError)) else 'failed')
+            with f.transaction():
+                self._scan_authorized(owner,grant_id,grant)
+                f.db.execute('UPDATE etp_scan_queue SET state=?,error=?,updated=? WHERE grant_id=? AND native_id=?',(state,error,time.time_ns(),grant_id,identifier))
+                if state!=entry['state'] or error!=entry['error']:f._audit(owner,'etp.scan.'+state,identifier)
+            results.append({'native_id':identifier,'state':state,'error':error})
+        with f.lock:remaining=f.db.execute("SELECT count(*) FROM etp_scan_queue WHERE grant_id=? AND state NOT IN ('applied','ignored')",(grant_id,)).fetchone()[0]
+        complete=page['complete'] and remaining==0
+        return {'state':'synchronized_page' if complete else 'partial','scan_complete':page['complete'],'content_complete':complete,'remaining':remaining,'results':results,'remote_delivery_confirmed':False}
+
+    def _scan_authorized(self,owner,identifier,grant):
+        row=self.fabric.db.execute('SELECT revoked FROM etp_content_grants WHERE id=? AND owner=?',(identifier,owner)).fetchone()
+        if not row or row['revoked'] or grant['expires']<=int(time.time()):raise PermissionError('native scan authorization revoked or expired')

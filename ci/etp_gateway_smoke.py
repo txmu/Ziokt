@@ -50,7 +50,7 @@ def forum_smoke(binary, digest, root, required):
             config.chmod(0o600);configs.append(config)
             if index == 0:
                 route=root/'forum-application-router.json'
-                route.write_text(json.dumps({'schema':'ziokt.application-router.v1','components':{'etp':{'binary':str(binary),'digest':digest,'config':str(config),'methods':['etp.stats','etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get']}}}));route.chmod(0o600)
+                route.write_text(json.dumps({'schema':'ziokt.application-router.v1','components':{'etp':{'binary':str(binary),'digest':digest,'config':str(config),'methods':['etp.stats','etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get','etp.forum.scan']}}}));route.chmod(0o600)
                 worker=RoutedNativeForum(route)
             else:worker=EtpGateway(binary,digest,config)
             workers.append(worker)

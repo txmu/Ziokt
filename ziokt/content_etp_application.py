@@ -48,7 +48,7 @@ class EtpApplications:
                     grant=json.loads(row['proof'])['payload']['grant']
                     grants.append({'id':row['id'],'revoked':bool(row['revoked']),**{key:grant[key] for key in ('expires','native_author','topic','group')}})
                 jobs=[dict(row) for row in fabric.db.execute('SELECT j.id,j.record,j.state,j.native_id,j.error FROM etp_content_jobs j JOIN etp_content_grants g ON g.id=j.grant_id WHERE g.owner=? ORDER BY j.timestamp DESC LIMIT 100',(owner,))]
-            return {'grants':grants,'jobs':jobs,'automatic_native_scan':False,'attachments_transferred':False}
+            return {'grants':grants,'jobs':jobs,'inventory_endpoint':'content.etp.sync','native_capability_probe_required':True,'automatic_background_polling':False,'attachments_transferred':False}
         if operation=='content.etp.revoke':return bridge.revoke(owner,args['grant'])
         if operation in {'content.etp.authorize','content.etp.offer'}:
             if args['alias'] not in policy['aliases'] or args['topic'] not in policy['topics'] or args['group'] not in policy['groups']:raise PermissionError('native identity/topic/group delegation denied')
@@ -61,10 +61,11 @@ class EtpApplications:
             if not isinstance(grant,dict):raise PermissionError('typed native authorization offer required')
             if post['author_id'] not in policy['remote_authors'] or grant.get('topic') not in policy['topics'] or grant.get('group') not in policy['groups']:raise PermissionError('remote native identity/topic/group not delegated')
             return bridge.accept_authorization(owner,args['native_proof'],allow=True)
-        grant=bridge.grant(owner,args['grant'],require_signer=(operation!='content.etp.ingest'))
+        grant=bridge.grant(owner,args['grant'],require_signer=(operation not in {'content.etp.ingest','content.etp.sync'}))
         if grant['topic'] not in policy['topics'] or grant['group'] not in policy['groups']:raise PermissionError('native group delegation revoked')
-        if operation=='content.etp.ingest':
+        if operation in {'content.etp.ingest','content.etp.sync'}:
             if grant['native_author'] not in policy['remote_authors']:raise PermissionError('remote native author delegation revoked')
+            if operation=='content.etp.sync':return bridge.sync(owner,args['grant'],args.get('limit',16))
             return bridge.ingest(owner,args['grant'],args['native_id'])
         if grant['alias'] not in policy['aliases']:raise PermissionError('native signer delegation revoked')
         if operation=='content.etp.export':return bridge.export(owner,args['grant'],args['record'])

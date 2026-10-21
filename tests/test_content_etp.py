@@ -50,3 +50,13 @@ class EtpContentBoundaryTests(unittest.TestCase):
                 self.assertEqual(offline.exception.code,503);self.assertEqual(json.load(offline.exception)['code'],'ETP_UNAVAILABLE');offline.exception.close()
                 self.assertEqual(f.articles('alice','news.bridge')['items'],[])
             finally:http.shutdown();http.server_close();thread.join();f.close()
+
+    def test_native_inventory_ipc_rejects_inconsistent_cursor(self):
+        from ziokt.etp import _forum_result,_forum_params
+        from ziokt.protocol import ProtocolError
+        params={'topic':'native-topic','author_id':'a'*64,'snapshot':'b'*64,'after':'','limit':2}
+        result={'schema':'ziokt.etp-forum-scan.v1','state':'page','topic_hash':'c'*64,'author_id':'a'*64,'snapshot':'b'*64,'ids':['1'*64,'2'*64],'after':'2'*64,'complete':True}
+        self.assertEqual(_forum_result('etp.forum.scan',params,result),result)
+        with self.assertRaises(ProtocolError):_forum_result('etp.forum.scan',params,{**result,'after':'3'*64})
+        with self.assertRaises(ProtocolError):_forum_result('etp.forum.scan',params,{**result,'ids':[],'after':'','complete':False})
+        with self.assertRaises(ProtocolError):_forum_params('etp.forum.scan',{**params,'limit':True})

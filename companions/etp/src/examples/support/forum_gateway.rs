@@ -145,6 +145,15 @@ mod enabled {
     struct Get {
         id: String,
     }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Scan {
+        topic: String,
+        author_id: String,
+        snapshot: String,
+        after: String,
+        limit: usize,
+    }
     pub struct ForumGateway {
         flavor: Arc<ForumFlavor>,
         identities: HashMap<String, SigningKey>,
@@ -299,6 +308,51 @@ mod enabled {
                     let dht_enqueued = self.flavor.publish_prepared_post(post.clone()).await?;
                     Ok(
                         json!({"schema":"ziokt.etp-forum-publish.v1","id":hex::encode(post.id),"stored":true,"dht_enqueued":dht_enqueued,"delivery_confirmed":false,"state":"stored_locally","gossip":"best_effort"}),
+                    )
+                }
+                "etp.forum.scan" => {
+                    let value: Scan = serde_json::from_value(params.clone())?;
+                    topic(&value.topic)?;
+                    anyhow::ensure!((1..=64).contains(&value.limit), "scan limit");
+                    let author = id(&value.author_id)?;
+                    let after = if value.after.is_empty() {
+                        None
+                    } else {
+                        Some(id(&value.after)?)
+                    };
+                    anyhow::ensure!(
+                        !value.snapshot.is_empty() || after.is_none(),
+                        "snapshot required with cursor"
+                    );
+                    if !value.snapshot.is_empty() {
+                        id(&value.snapshot)?;
+                    }
+                    let topic_hash: [u8; 32] = blake3::hash(value.topic.as_bytes()).into();
+                    let inventory = self.flavor.snapshot_ids(topic_hash, author)?;
+                    let mut hasher = blake3::Hasher::new();
+                    hasher.update(b"ETP/FORUM/SCAN/v1\0");
+                    hasher.update(&topic_hash);
+                    hasher.update(&author);
+                    for entry in &inventory {
+                        hasher.update(entry);
+                    }
+                    let snapshot = hasher.finalize().to_hex().to_string();
+                    if !value.snapshot.is_empty() && value.snapshot.to_ascii_lowercase() != snapshot
+                    {
+                        return Ok(
+                            json!({"schema":"ziokt.etp-forum-scan.v1","state":"snapshot_changed","topic_hash":hex::encode(topic_hash),"author_id":hex::encode(author),"snapshot":snapshot,"ids":[],"after":"","complete":false}),
+                        );
+                    }
+                    let mut selected: Vec<_> = inventory
+                        .into_iter()
+                        .filter(|entry| after.map_or(true, |cursor| *entry > cursor))
+                        .take(value.limit + 1)
+                        .collect();
+                    let complete = selected.len() <= value.limit;
+                    selected.truncate(value.limit);
+                    let cursor = selected.last().map(hex::encode).unwrap_or(value.after);
+                    Ok(
+                        json!({"schema":"ziokt.etp-forum-scan.v1","state":"page","topic_hash":hex::encode(topic_hash),"author_id":hex::encode(author),"snapshot":snapshot,"ids":selected.iter().map(hex::encode).collect::<Vec<_>>(),"after":cursor,"complete":complete}),
                     )
                 }
                 "etp.forum.get" => {

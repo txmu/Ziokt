@@ -13,7 +13,7 @@ import tempfile
 import time
 from .protocol import ProtocolError,encoded,secure_read,strict_json
 
-FORUM_METHODS=frozenset({'etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get'})
+FORUM_METHODS=frozenset({'etp.forum.identity','etp.forum.subscribe','etp.forum.publish','etp.forum.get','etp.forum.scan'})
 
 def _forum_text(value, maximum, *, empty=False):
     try:valid=isinstance(value,str) and (empty or bool(value)) and len(value.encode('utf-8'))<=maximum
@@ -29,7 +29,7 @@ def _forum_name(value):
     if not isinstance(value,str) or not 1<=len(value)<=64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in value):raise ProtocolError('INVALID_ETP','configured Forum identity name required')
 
 def _forum_params(method,params):
-    fields={'etp.forum.identity':{'name'},'etp.forum.subscribe':{'topic'},'etp.forum.get':{'id'}}
+    fields={'etp.forum.identity':{'name'},'etp.forum.subscribe':{'topic'},'etp.forum.get':{'id'},'etp.forum.scan':{'topic','author_id','snapshot','after','limit'}}
     if method=='etp.forum.publish':
         if not {'topic','content','author'}<=set(params) or set(params)-{'topic','content','author','parent_id','timestamp'}:raise ProtocolError('INVALID_ETP','explicit named author or null and exact Forum fields required')
         _forum_text(params['content'],32768)
@@ -37,6 +37,11 @@ def _forum_params(method,params):
         if params['author'] is not None:_forum_name(params['author'])
         if params.get('parent_id') is not None:_forum_id(params['parent_id'])
     elif set(params)!=fields[method]:raise ProtocolError('INVALID_ETP','exact Forum query fields required')
+    if method=='etp.forum.scan':
+        _forum_id(params['author_id'])
+        for field in ('snapshot','after'):
+            if params[field]!='':_forum_id(params[field])
+        if type(params['limit']) is not int or not 1<=params['limit']<=64 or params['after'] and not params['snapshot']:raise ProtocolError('INVALID_ETP','bounded native snapshot cursor required')
     if 'topic' in params:
         value=_forum_text(params['topic'],256)
         if any(ord(c)<32 or 127<=ord(c)<=159 for c in value):raise ProtocolError('INVALID_ETP','printable Forum topic required')
@@ -52,6 +57,19 @@ def _forum_result(method,params,result):
         elif method=='etp.forum.subscribe':
             if set(result)!={'subscribed','topic_hash'} or result['subscribed'] is not True:raise ValueError()
             _forum_id(result['topic_hash'])
+        elif method=='etp.forum.scan':
+            if set(result)!={'schema','state','topic_hash','author_id','snapshot','ids','after','complete'} or result['schema']!='ziokt.etp-forum-scan.v1' or result['state'] not in {'page','snapshot_changed'} or result['author_id'].lower()!=params['author_id'].lower() or type(result['complete']) is not bool:raise ValueError()
+            for field in ('topic_hash','author_id','snapshot'):_forum_id(result[field])
+            ids=result['ids']
+            if not isinstance(ids,list) or len(ids)>params['limit'] or len(set(ids))!=len(ids) or ids!=sorted(ids):raise ValueError()
+            for identifier in ids:_forum_id(identifier)
+            if result['after']!='':_forum_id(result['after'])
+            if result['state']=='snapshot_changed':
+                if ids or result['after'] or result['complete']:raise ValueError()
+            elif ids and result['after']!=ids[-1]:raise ValueError()
+            elif not ids and (not result['complete'] or result['after']!=params['after']):raise ValueError()
+            if result['state']=='page' and params['snapshot'] and result['snapshot']!=params['snapshot'].lower():raise ValueError()
+            if ids and params['after'] and ids[0]<=params['after'].lower():raise ValueError()
         elif method=='etp.forum.publish':
             if set(result)!={'schema','id','stored','dht_enqueued','delivery_confirmed','state','gossip'} or result['schema']!='ziokt.etp-forum-publish.v1' or result['stored'] is not True or type(result['dht_enqueued']) is not bool or result['delivery_confirmed'] is not False or result['state']!='stored_locally' or result['gossip']!='best_effort':raise ValueError()
             _forum_id(result['id'])

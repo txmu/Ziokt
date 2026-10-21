@@ -344,6 +344,29 @@ impl ForumStore {
     }
 
     /// 获取时间范围内的帖子 ID (用于构建 Bloom Filter 或响应 Sync)
+    /// Bounded stable identity inventory for application cursors. Original native
+    /// signatures, TTL and topic/author bindings are checked before IDs are exposed.
+    pub fn snapshot_ids(&self, topic: [u8; 32], author: [u8; 32]) -> Result<Vec<[u8; 32]>> {
+        let _guard = self.mutation.lock();
+        let posts = self.db.open_tree("posts")?;
+        anyhow::ensure!(posts.len() <= MAX_POSTS, "forum capacity exceeded");
+        let mut ids = Vec::new();
+        for item in posts.iter() {
+            let (key, bytes) = item?;
+            if let Ok(post) = decode::<ForumPost>(&bytes) {
+                if post.verify()
+                    && post.topic_hash == topic
+                    && post.author_id == Some(author)
+                    && post.id.as_slice() == key.as_ref()
+                {
+                    ids.push(post.id);
+                }
+            }
+        }
+        ids.sort_unstable();
+        Ok(ids)
+    }
+
     pub fn get_posts_in_range(
         &self,
         topic: Option<[u8; 32]>,
@@ -536,6 +559,10 @@ impl ForumFlavor {
 
     pub fn parent_status(&self, post: &ForumPost) -> ParentStatus {
         self.store.parent_status(post)
+    }
+
+    pub fn snapshot_ids(&self, topic: [u8; 32], author: [u8; 32]) -> Result<Vec<[u8; 32]>> {
+        self.store.snapshot_ids(topic, author)
     }
 
     pub fn local_author_id(&self) -> Option<NodeID> {
@@ -1178,6 +1205,45 @@ mod tests {
         post.sign(&SigningKey::from_bytes(&[42; 32]));
         post
     }
+    #[test]
+    fn application_inventory_verifies_scope_and_late_arrivals() {
+        let dir = Directory::new();
+        let store = ForumStore::open(dir.path()).unwrap();
+        let first = signed("current");
+        store.save_post(&first).unwrap();
+        assert_eq!(
+            store
+                .snapshot_ids([8; 32], first.author_id.unwrap())
+                .unwrap(),
+            vec![first.id]
+        );
+        assert!(store
+            .snapshot_ids([9; 32], first.author_id.unwrap())
+            .unwrap()
+            .is_empty());
+        assert!(store.snapshot_ids([8; 32], [0; 32]).unwrap().is_empty());
+        let mut late = signed("late timestamp");
+        late.timestamp -= 3600;
+        late.sign(&SigningKey::from_bytes(&[42; 32]));
+        store.save_post(&late).unwrap();
+        let mut expected = vec![first.id, late.id];
+        expected.sort_unstable();
+        assert_eq!(
+            store
+                .snapshot_ids([8; 32], first.author_id.unwrap())
+                .unwrap(),
+            expected
+        );
+        drop(store);
+        let store = ForumStore::open(dir.path()).unwrap();
+        assert_eq!(
+            store
+                .snapshot_ids([8; 32], first.author_id.unwrap())
+                .unwrap(),
+            expected
+        );
+    }
+
     #[test]
     fn subscriptions_persist_and_reopen_without_network_side_effects() {
         let dir = Directory::new();

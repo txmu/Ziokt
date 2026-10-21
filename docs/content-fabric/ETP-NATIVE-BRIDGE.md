@@ -135,3 +135,29 @@ publishes a real Netnews article to the same already pinned native node, observe
 it on the other real native peer, and tests API revocation. Local API tests cover
 unassigned aliases and an actually missing native executable; these are denial
 and offline tests, not simulated native success.
+
+## Bounded native inventory and durable polling cursors
+
+`etp.forum.scan` now obtains a signed/TTL-validated topic-and-author inventory
+from the **original native Sled store**, with pages of at most 64 IDs and a
+versioned BLAKE3 snapshot identifier. It creates no duplicate Forum index or
+transport. The original store's 4096-post cap bounds scanning. A changed snapshot
+returns an explicit reset state; timestamps are not used as arrival cursors, so
+late arrivals carrying older valid timestamps are discovered on the next scan.
+
+`content.etp.sync` admits each native page and its cursor into a durable local
+queue transaction. Replies waiting for unmapped parents stay pending and retry
+fairly. Authorization records are typed non-content records. Applied, ignored,
+waiting-parent, waiting-attachment, rejected and failed items remain distinct;
+`scan_complete` never implies `content_complete` when queued work remains.
+Snapshot resets and partial processing never return content-complete success.
+Each completed cycle restarts inventory discovery, while persisted IDs/mappings
+prevent duplicate articles. Fresh grants in the same account/topic/group can
+recognize previously imported native identities without silently changing scope.
+
+Migration 8 adds `etp_scan_cursors` and `etp_scan_queue`. Preserve these journals
+and adapter migration 7 during rollback; automatic background polling is still
+an explicit operator scheduling responsibility. Native capability is established
+by actually invoking the scan endpoint, not merely by finding configuration.
+The CI suite tests original-store late arrivals, actual cross-node snapshot
+reset, unmapped-parent errors and eventual durable queue convergence.

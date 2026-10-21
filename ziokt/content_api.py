@@ -9,6 +9,7 @@ ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_d
 
 OPERATIONS={
  'content.etp.status':({},False),
+ 'content.etp.sync':({'grant':str,'limit':int},True),
  'content.etp.authorize':({'alias':str,'topic':str,'group':str,'expires':int},True),
  'content.etp.offer':({'target_account':str,'alias':str,'topic':str,'group':str,'target':str,'expires':int},True),
  'content.etp.accept':({'native_proof':str},True),

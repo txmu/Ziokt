@@ -11,10 +11,10 @@ def run(root,workers,await_post):
     try:
         first.create_group('alice','news.bridge');second.create_group('bob','news.bridge')
         a=EtpNews(first,workers[0]);b=EtpNews(second,workers[1]);expires=int(time.time())+3600
-        outgoing_a=a.authorize('alice','author','native-forum','news.bridge',expires=expires,allow=True)['id']
-        outgoing_b=b.authorize('bob','author','native-forum','news.bridge',expires=expires,allow=True)['id']
-        offer_a=a.offer_authorization('bob','author','native-forum','news.bridge',target=second.public,expires=expires,allow=True)
-        offer_b=b.offer_authorization('alice','author','native-forum','news.bridge',target=first.public,expires=expires,allow=True)
+        outgoing_a=a.authorize('alice','author','content-native-bridge','news.bridge',expires=expires,allow=True)['id']
+        outgoing_b=b.authorize('bob','author','content-native-bridge','news.bridge',expires=expires,allow=True)['id']
+        offer_a=a.offer_authorization('bob','author','content-native-bridge','news.bridge',target=second.public,expires=expires,allow=True)
+        offer_b=b.offer_authorization('alice','author','content-native-bridge','news.bridge',target=first.public,expires=expires,allow=True)
         await_post(workers[1],offer_a['native_proof']);await_post(workers[0],offer_b['native_proof'])
         incoming_a=b.accept_authorization('bob',offer_a['native_proof'],allow=True)['id']
         incoming_b=a.accept_authorization('alice',offer_b['native_proof'],allow=True)['id']
@@ -52,6 +52,24 @@ def run(root,workers,await_post):
         try:second._get('bob',original['id'])
         except PermissionError:pass
         else:raise AssertionError('withdrawn article remained visible')
+        # A native inventory snapshot detects new old-timestamp arrivals; it never
+        # advances a timestamp cursor past delayed signed content.
+        initial=b.sync('bob',incoming_a,limit=1);assert not initial['scan_complete']
+        late=workers[0].call('etp.forum.publish',{'topic':'content-native-bridge','author':'author','content':'late-arriving native text','parent_id':None,'timestamp':int(time.time())-3600})
+        await_post(workers[1],late['id'])
+        assert b.sync('bob',incoming_a,limit=1)['state']=='restarting_snapshot'
+        parent_native=workers[0].call('etp.forum.publish',{'topic':'content-native-bridge','author':'author','content':'native parent for mapping','parent_id':None})
+        child_native=workers[0].call('etp.forum.publish',{'topic':'content-native-bridge','author':'author','content':'native child for mapping','parent_id':parent_native['id']})
+        await_post(workers[1],child_native['id']);await_post(workers[1],parent_native['id'])
+        try:b.ingest('bob',incoming_a,child_native['id'])
+        except ProtocolError as error:assert error.code=='ETP_PARENT_PENDING'
+        else:raise AssertionError('unmapped native parent was silently discarded')
+        for _ in range(64):
+            synchronized=b.sync('bob',incoming_a,limit=2)
+            if synchronized['content_complete']:break
+        else:raise AssertionError('durable native inventory/parent queue did not converge: '+json.dumps(synchronized))
+        assert second._get('bob','<etp-'+late['id']+'@etp.invalid>')['body']=='late-arriving native text'
+        assert second._get('bob','<etp-'+child_native['id']+'@etp.invalid>')['references']==['<etp-'+parent_native['id']+'@etp.invalid>']
         b.revoke('bob',incoming_a)
         try:b.ingest('bob',incoming_a,observed[0])
         except PermissionError:pass
@@ -62,7 +80,7 @@ def run(root,workers,await_post):
         from ziokt.content_server import server
         route=json.loads((root/'forum-application-router.json').read_text())['components']['etp']
         remote_author=workers[1].call('etp.forum.identity',{'name':'author'})['author_id']
-        native_config={'gateway':{key:route[key] for key in ('binary','digest','config')},'accounts':{'alice':{'aliases':['author'],'topics':['native-forum'],'groups':['news.bridge'],'remote_authors':[remote_author]}}}
+        native_config={'gateway':{key:route[key] for key in ('binary','digest','config')},'accounts':{'alice':{'aliases':['author'],'topics':['content-native-bridge'],'groups':['news.bridge'],'remote_authors':[remote_author]}}}
         http=server(first,{'port':0,'native_etp':native_config,'tokens':[{'account':'alice','token':'native-api-test-token','scopes':['content:read','content:write','netnews:write']}]})
         first.native_etp.instance=workers[0]
         thread=threading.Thread(target=http.serve_forever);thread.start()
@@ -81,5 +99,5 @@ def run(root,workers,await_post):
             except urllib.error.HTTPError as denied:assert denied.code==403;denied.close()
             else:raise AssertionError('application API bypassed grant revocation')
         finally:http.shutdown();http.server_close();thread.join()
-        print(json.dumps({'schema':'ziokt.etp-content-e2e.v1','state':'verified','real_native_nodes':2,'independent_fabric_databases':2,'authenticated_application_api':True,'mutual_signed_grants':True,'reply_mapping':True,'withdrawal_mapping':True,'native_retry_idempotence':True,'loop_suppression':True,'revocation_enforced':True,'attachments_transferred':False,'all_native_adapters_complete':False}))
+        print(json.dumps({'schema':'ziokt.etp-content-e2e.v1','state':'verified','real_native_nodes':2,'independent_fabric_databases':2,'native_inventory_cursor':True,'late_arrival_recovered':True,'authenticated_application_api':True,'mutual_signed_grants':True,'reply_mapping':True,'withdrawal_mapping':True,'native_retry_idempotence':True,'loop_suppression':True,'revocation_enforced':True,'attachments_transferred':False,'all_native_adapters_complete':False}))
     finally:first.close();second.close()
