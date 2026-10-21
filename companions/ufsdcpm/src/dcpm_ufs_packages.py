@@ -15,18 +15,20 @@ import stat
 
 from ziokt.protocol import secure_read
 from ziokt.security import sign
-from ziokt.ufsdcpm import read_package
+from ziokt.ufsdcpm import read_package, verify_reference_package
 from dcpm_core import get_package_id, get_version_id, Package
 from ufs_http_security import ConfinedFiles
+from dcpm_file_install import FileInstaller
 
 MAX_PACKAGE = 8*1024*1024
 ID = re.compile('[a-f0-9]{64}\\Z')
 
 
 class PackageStore:
-    def __init__(self, root, signing_key=None, trusted_publishers=None, max_bytes=100*1024**3):
+    def __init__(self, root, signing_key=None, trusted_publishers=None, max_bytes=100*1024**3, *, reference_store=None):
         if type(max_bytes) is not int or not 1<=max_bytes<=1024**4: raise ValueError('DCPM_STORAGE_BUDGET')
         self.max_bytes=max_bytes
+        self.reference_store=reference_store
         self.root = Path(root).absolute()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.root.is_symlink(): raise ValueError('DCPM_STORE_SYMLINK')
@@ -64,7 +66,9 @@ class PackageStore:
                 for version,digest in self.db.execute('SELECT version_id,digest FROM packages LIMIT 4096').fetchall():
                     size=self.files.info([digest]).st_size
                     self.db.execute('UPDATE packages SET size=? WHERE version_id=?',(size,version))
+        self.db.execute('CREATE TABLE IF NOT EXISTS reference_pending(version_id TEXT PRIMARY KEY,package_id TEXT,name TEXT,version TEXT,publisher TEXT,digest TEXT,created INTEGER,size INTEGER,holder TEXT NOT NULL)')
         self.db.commit()
+        if self.reference_store is not None:self.resume_pending()
 
     def close(self): self.db.close(); self.files.close()
 
@@ -77,6 +81,10 @@ class PackageStore:
         signed = envelope.get('manifest') if isinstance(envelope,dict) else None
         public = signed.get('public_key') if isinstance(signed,dict) else None
         if not isinstance(public,str) or public not in self.authorities: raise PermissionError('DCPM_UNTRUSTED_PUBLISHER')
+        if signed.get('payload',{}).get('schema')=='ziokt.dcpm-package.v2':
+            if self.reference_store is None:raise PermissionError('DCPM_REFERENCE_STORE_REQUIRED')
+            report=verify_reference_package(self.reference_store,blob,public)
+            return public,report['manifest'],None
         manifest, files = read_package(blob, public)
         return public, manifest, files
 
@@ -86,15 +94,18 @@ class PackageStore:
         version_id = get_version_id(manifest['name'],public,manifest['version'])
         if expected_id is not None and expected_id not in {package_id,version_id} or expected_version is not None and expected_version != version_id:
             raise ValueError('DCPM_PACKAGE_IDENTITY_MISMATCH')
+        if manifest['schema']=='ziokt.dcpm-package.v2':
+            return self._admit_reference(blob,public,manifest,package_id,version_id)
         digest = hashlib.sha256(blob).hexdigest()
         import time
         with self.lock, self.db:
             self.db.execute('BEGIN IMMEDIATE')
             previous = self.db.execute('SELECT digest FROM packages WHERE version_id=?',(version_id,)).fetchone()
             if previous and previous[0] != digest: raise ValueError('DCPM_VERSION_CONFLICT')
-            if not previous and self.db.execute('SELECT COUNT(*) FROM packages').fetchone()[0]>=4096:
+            if self.db.execute('SELECT 1 FROM reference_pending WHERE version_id=?',(version_id,)).fetchone():raise ValueError('DCPM_VERSION_PENDING')
+            if not previous and self.db.execute('SELECT (SELECT count(*) FROM packages)+(SELECT count(*) FROM reference_pending)').fetchone()[0]>=4096:
                 raise ValueError('DCPM_PACKAGE_RETENTION_LIMIT')
-            used=self.db.execute('SELECT COALESCE(SUM(size),0) FROM packages').fetchone()[0]
+            used=self.db.execute('SELECT (SELECT coalesce(sum(size),0) FROM packages)+(SELECT coalesce(sum(size),0) FROM reference_pending)').fetchone()[0]
             if not previous and used+len(blob)>self.max_bytes: raise ValueError('DCPM_STORAGE_BUDGET_EXHAUSTED')
             self.files.put([digest],io.BytesIO(blob),len(blob))
             self.db.execute('INSERT OR IGNORE INTO packages VALUES (?,?,?,?,?,?,?,?)',
@@ -120,6 +131,9 @@ class PackageStore:
     def package(self, package_id, version_id=None):
         blob=self.blob(package_id,version_id)
         public, manifest, files=self.validate(blob)
+        if files is None:
+            if sum(entry['size'] for entry in manifest['files'])>8*1024*1024:raise ValueError('DCPM_STREAMING_INSTALL_REQUIRED')
+            files={entry['path']:b''.join(self.reference_store.stream(entry['object'])) for entry in manifest['files']}
         package=Package(manifest['name'],manifest['version'],files,'dpkg',manifest['dependencies'])
         package.package_id=get_package_id(package.name,public)
         package.version_id=get_version_id(package.name,public,package.version)
@@ -129,6 +143,74 @@ class PackageStore:
         with self.lock:
             return [dict(zip(('package_id','version_id','name','version','publisher','sha256'), row)) for row in
                 self.db.execute('SELECT package_id,version_id,name,version,publisher,digest FROM packages ORDER BY created DESC LIMIT 128')]
+
+
+    def _admit_reference(self,blob,public,manifest,package_id,version_id):
+        import time
+        digest=hashlib.sha256(blob).hexdigest()
+        holder='sha256:'+hashlib.sha256(b'Ziokt/native-DCPM/reference-pin/v1\0'+str(self.root).encode()+blob).hexdigest()
+        with self.lock,self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            previous=self.db.execute('SELECT digest FROM packages WHERE version_id=?',(version_id,)).fetchone()
+            pending=self.db.execute('SELECT digest FROM reference_pending WHERE version_id=?',(version_id,)).fetchone()
+            if (previous and previous[0]!=digest) or (pending and pending[0]!=digest):raise ValueError('DCPM_VERSION_CONFLICT')
+            if not previous and not pending:
+                count=self.db.execute('SELECT (SELECT count(*) FROM packages)+(SELECT count(*) FROM reference_pending)').fetchone()[0]
+                used=self.db.execute('SELECT (SELECT coalesce(sum(size),0) FROM packages)+(SELECT coalesce(sum(size),0) FROM reference_pending)').fetchone()[0]
+                if count>=4096 or used+len(blob)>self.max_bytes:raise ValueError('DCPM_PACKAGE_BUDGET')
+                self.files.put([digest],io.BytesIO(blob),len(blob))
+                self.db.execute('INSERT INTO reference_pending VALUES(?,?,?,?,?,?,?,?,?)',(version_id,package_id,manifest['name'],manifest['version'],public,digest,time.time_ns(),len(blob),holder))
+        if previous:
+            # Recheck/pin after an interrupted external retention operation.
+            self.reference_store.pin(holder,[entry['object'] for entry in manifest['files']])
+            return self._publication(package_id,version_id,public,digest)
+        return self._resume_reference(version_id)
+
+    @staticmethod
+    def _publication(package_id,version_id,public,digest):
+        return {'package_id':package_id,'version_id':version_id,'publisher':public,'sha256':digest,
+                'durably_stored':True,'replica_count':1,'chain_confirmed':False,
+                'package_schema':'ziokt.dcpm-package.v2','content_referenced':True,
+                'installed':False,'activated':False}
+
+    def _resume_reference(self,version_id):
+        with self.lock:
+            row=self.db.execute('SELECT * FROM reference_pending WHERE version_id=?',(version_id,)).fetchone()
+            if not row:raise FileNotFoundError('DCPM_PENDING_UNAVAILABLE')
+            version,package,name,label,public,digest,created,size,holder=row
+            with self.files.open([digest]) as source:blob=source.read(MAX_PACKAGE+1)
+            if hashlib.sha256(blob).hexdigest()!=digest:raise ValueError('DCPM_PENDING_INTEGRITY')
+            actual,manifest,_=self.validate(blob)
+            if actual!=public or get_package_id(manifest['name'],public)!=package or get_version_id(manifest['name'],public,manifest['version'])!=version:raise ValueError('DCPM_PENDING_IDENTITY')
+            # This pin is committed before the publication row. The durable
+            # pending record makes a crash in between safely resumable.
+            self.reference_store.pin(holder,[entry['object'] for entry in manifest['files']])
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                previous=self.db.execute('SELECT digest FROM packages WHERE version_id=?',(version,)).fetchone()
+                if previous and previous[0]!=digest:raise ValueError('DCPM_VERSION_CONFLICT')
+                self.db.execute('INSERT OR IGNORE INTO packages VALUES(?,?,?,?,?,?,?,?)',(version,package,name,label,public,digest,created,size))
+                self.db.execute('DELETE FROM reference_pending WHERE version_id=?',(version,))
+            return self._publication(package,version,public,digest)
+
+    def resume_pending(self,limit=16):
+        if self.reference_store is None:raise PermissionError('DCPM_REFERENCE_STORE_REQUIRED')
+        if type(limit) is not int or not 1<=limit<=128:raise ValueError('DCPM_RECOVERY_LIMIT')
+        rows=self.db.execute('SELECT version_id FROM reference_pending ORDER BY created LIMIT ?',(limit,)).fetchall()
+        return [self._resume_reference(row[0]) for row in rows]
+
+    def file_installer(self,root):
+        return FileInstaller(self,root)
+
+    def content_files(self,package_id,version_id=None):
+        """Verified files as bounded streams; no untrusted install script execution."""
+        blob=self.blob(package_id,version_id)
+        public,manifest,files=self.validate(blob)
+        if files is not None:
+            for path,data in sorted(files.items()):yield path,len(data),hashlib.sha256(data).hexdigest(),iter([data])
+        else:
+            for entry in manifest['files']:
+                yield entry['path'],entry['size'],entry['sha256'].removeprefix('sha256:'),self.reference_store.stream(entry['object'])
 
 
 def fetch_http(source, package_id, version_id=None):

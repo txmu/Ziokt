@@ -1,9 +1,9 @@
 name: OpenCI Controller and isolated Runner
 on:
   push:
-    paths: ["openci/**", "tests/test_openci*.py", "ci/openci/controller_runner_e2e.py", "ci/openci/test_openci_bootstrap.py", "ci/openci/runner-image.lock.json", ".github/workflows/openci-core.yml"]
+    paths: ["openci/**", "companions/ufsdcpm/src/**", "ziokt/ufsdcpm.py", "tests/test_native*.py", "tests/test_openci*.py", "ci/openci/controller_runner_e2e.py", "ci/openci/test_openci_bootstrap.py", "ci/openci/runner-image.lock.json", ".github/workflows/openci-core.yml"]
   pull_request:
-    paths: ["openci/**", "tests/test_openci*.py", "ci/openci/**", ".github/workflows/openci-core.yml"]
+    paths: ["openci/**", "companions/ufsdcpm/src/**", "ziokt/ufsdcpm.py", "tests/test_native*.py", "tests/test_openci*.py", "ci/openci/**", ".github/workflows/openci-core.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,6 +24,8 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Real SQLite, concurrent leases, native encrypted storage and HTTP ACL
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_openci*.py' -v
+      - name: Native dCPM reference distribution and rollback
+        run: PYTHONPATH=tests:. python -W error::ResourceWarning -m unittest test_native_reference_distribution test_native_file_install -v
       - name: Pull immutable integration image on CI only
         run: |
           image=$(python -c 'import json;print(json.load(open("ci/openci/runner-image.lock.json"))["image"])')

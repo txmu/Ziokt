@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import secrets
 import sqlite3
@@ -61,7 +61,7 @@ def validate_pipeline(value):
             raise Error('INVALID_TASK', 'Exact task fields required')
         task=dict(task);task.setdefault('outputs',[])
         outputs=task['outputs']
-        if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') for p in outputs):
+        if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') or str(PurePosixPath(p))!=p or p=='.' for p in outputs):
             raise Error('INVALID_OUTPUTS','Bounded relative output file paths required')
         if len(set(outputs))!=len(outputs):raise Error('INVALID_OUTPUTS','Duplicate output paths')
         name = identifier(task['id'])
@@ -111,6 +111,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS attempts(pipeline TEXT,id TEXT,attempt INTEGER,worker TEXT,state TEXT,started INTEGER,finished INTEGER,receipt TEXT,PRIMARY KEY(pipeline,id,attempt),FOREIGN KEY(pipeline,id) REFERENCES tasks(pipeline,id));
                 CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,created INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,pipeline TEXT,task TEXT,detail TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS log_chunks(pipeline TEXT,task TEXT,attempt INTEGER,position INTEGER,body BLOB NOT NULL,PRIMARY KEY(pipeline,task,attempt,position),FOREIGN KEY(pipeline,task) REFERENCES tasks(pipeline,id));
+                CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,pipeline TEXT NOT NULL,task TEXT NOT NULL,project TEXT NOT NULL,name TEXT NOT NULL,version TEXT NOT NULL,publisher TEXT NOT NULL,state TEXT NOT NULL,request TEXT NOT NULL,publication TEXT,created INTEGER NOT NULL,UNIQUE(name,version,publisher),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
                 PRAGMA user_version=1;
             ''')
         os.chmod(self.path, 0o600)
@@ -262,6 +263,7 @@ class Store:
 
     def cancel(self, actor, pid):
         with self.transaction() as db:
+            if db.execute("SELECT 1 FROM releases WHERE pipeline=? AND state='published'",(pid,)).fetchone():raise Error('CANCEL_REJECTED','Published releases require an explicit withdrawal operation',409)
             if db.execute("UPDATE pipelines SET state='cancelled' WHERE id=? AND state!='published'", (pid,)).rowcount != 1:
                 raise Error('CANCEL_REJECTED', 'Pipeline not found or already published', 409)
             db.execute("UPDATE tasks SET state='cancelled',lease_hash=NULL,lease_until=NULL WHERE pipeline=? AND state NOT IN ('completed','failed')", (pid,))
@@ -288,7 +290,8 @@ class Store:
             tasks = []
             for row in db.execute('SELECT * FROM tasks WHERE pipeline=? ORDER BY rowid', (pid,)):
                 tasks.append({key: row[key] for key in ('id', 'state', 'attempt', 'worker', 'lease_until')} | {'receipt': json.loads(row['receipt']) if row['receipt'] else None, 'verification': json.loads(row['verification']) if row['verification'] else None})
-            return {'pipeline': pid, 'project': pipeline['project'], 'state': pipeline['state'], 'tasks': tasks, 'release': 'unpublished', 'settlement': 'not_requested'}
+            publications=[dict(row) for row in db.execute('SELECT id,state,name,version,publisher FROM releases WHERE pipeline=? ORDER BY created',(pid,))]
+            return {'pipeline': pid, 'project': pipeline['project'], 'state': pipeline['state'], 'tasks': tasks, 'release': 'published' if any(row['state']=='published' for row in publications) else 'unpublished', 'releases':publications, 'settlement': 'not_requested'}
 
     def append_log(self, worker, pid, task, lease, position, data):
         integer(position, 0, 65535)
@@ -351,3 +354,56 @@ class Store:
             row=db.execute('SELECT spec FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
             if not row:raise Error('TASK_NOT_FOUND','Task not found',404)
             return json.loads(row['spec'])
+
+    def prepare_release(self,actor,pid,task,name,version,publisher,request):
+        from ziokt.ufsdcpm import _label
+        _label(name);_label(version)
+        if not isinstance(publisher,str) or not re.fullmatch('[a-f0-9]{64}',publisher):raise Error('RELEASE_PUBLISHER','Verified publisher required')
+        body=encoded(request);rid=hashlib.sha256(body.encode()).hexdigest()
+        with self.transaction() as db:
+            pipeline=db.execute('SELECT * FROM pipelines WHERE id=?',(pid,)).fetchone()
+            row=db.execute('SELECT * FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
+            if not pipeline or pipeline['state']!='completed' or not row or row['state']!='completed' or not row['verification']:
+                raise Error('RELEASE_NOT_VERIFIED','Completed and independently verified output required',409)
+            verification=json.loads(row['verification'])
+            if verification['status']!='matched' or not db.execute("SELECT 1 FROM workers WHERE id=? AND enabled=1 AND pool='trusted'",(verification['verifier_worker'],)).fetchone():
+                raise Error('RELEASE_VERIFIER','Enabled Trusted Worker verification required',409)
+            prior=db.execute('SELECT * FROM releases WHERE name=? AND version=? AND publisher=?',(name,version,publisher)).fetchone()
+            if prior:
+                if prior['id']!=rid or prior['request']!=body:raise Error('RELEASE_VERSION_CONFLICT','Release version already describes another verified build',409)
+                return dict(prior)
+            if db.execute('SELECT count(*) FROM releases').fetchone()[0]>=10000:raise Error('RELEASE_QUOTA','Release retention limit reached',429)
+            db.execute('INSERT INTO releases VALUES(?,?,?,?,?,?,?,?,?,NULL,?)',(rid,pid,task,pipeline['project'],name,version,publisher,'prepared',body,int(self.clock())))
+            self.event(db,actor,'release.prepared',pid,task,{'release':rid})
+            return dict(db.execute('SELECT * FROM releases WHERE id=?',(rid,)).fetchone())
+
+    def complete_release(self,actor,rid,publication):
+        body=encoded(publication)
+        with self.transaction() as db:
+            row=db.execute('SELECT * FROM releases WHERE id=?',(rid,)).fetchone()
+            if not row or row['state'] not in ('prepared','published'):raise Error('RELEASE_STATE','Release cannot be published in current state',409)
+            if row['publication'] and row['publication']!=body:raise Error('RELEASE_RESULT_CONFLICT','Publication already has another result',409)
+            if row['state']=='prepared':
+                pipeline=db.execute('SELECT state FROM pipelines WHERE id=?',(row['pipeline'],)).fetchone()
+                task=db.execute('SELECT verification FROM tasks WHERE pipeline=? AND id=?',(row['pipeline'],row['task'])).fetchone()
+                verification=json.loads(task['verification']) if task and task['verification'] else {}
+                if not pipeline or pipeline['state']!='completed' or not db.execute("SELECT 1 FROM workers WHERE id=? AND enabled=1 AND pool='trusted'",(verification.get('verifier_worker'),)).fetchone():
+                    raise Error('RELEASE_AUTHORIZATION_CHANGED','Pipeline or Trusted Worker authorization changed before publication',409)
+                db.execute("UPDATE releases SET state='published',publication=? WHERE id=?",(body,rid))
+                self.event(db,actor,'release.published',row['pipeline'],row['task'],{'release':rid,'native_package':publication['package_id']})
+        return self.release(rid)
+
+    def release(self,rid):
+        with closing(self.connect()) as db:
+            row=db.execute('SELECT * FROM releases WHERE id=?',(rid,)).fetchone()
+            if not row:raise Error('RELEASE_NOT_FOUND','Release not found',404)
+            result=dict(row);result['request']=json.loads(result['request']);result['publication']=json.loads(result['publication']) if result['publication'] else None
+            return result
+
+    def withdraw_release(self,actor,rid):
+        with self.transaction() as db:
+            row=db.execute('SELECT * FROM releases WHERE id=?',(rid,)).fetchone()
+            if not row or row['state']!='published':raise Error('RELEASE_STATE','Published release required',409)
+            db.execute("UPDATE releases SET state='withdrawn' WHERE id=?",(rid,))
+            self.event(db,actor,'release.withdrawn',row['pipeline'],row['task'],{'release':rid,'independent_copies_deleted':False})
+        return self.release(rid)

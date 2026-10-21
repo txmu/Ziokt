@@ -85,5 +85,30 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(missing.exception.code,'OUTPUT_MISSING')
         self.assertTrue(all(row['verification'] is None for row in self.owner.request('GET','/v1/pipelines/'+pid)['tasks']))
 
+    def test_artifact_set_reuses_native_file_objects_without_storing_archive(self):
+        import io,tarfile
+        from openci.artifacts import publish_outputs
+        source=self.owner.upload('demo',self.source)
+        value=pipeline();value['source']=source;value['tasks'][0]['outputs']=['result.json']
+        pid=self.owner.request('POST','/v1/pipelines',value)['pipeline']
+        archive=self.root/'outputs.tar';data=b'{"result":42}'
+        with tarfile.open(archive,'w') as output:
+            entry=tarfile.TarInfo('result.json');entry.size=len(data);output.addfile(entry,io.BytesIO(data))
+        artifact=publish_outputs(self.owner,'demo',archive,['result.json'],source,value['tasks'][0]['image'])
+        self.owner.request('POST','/v1/workers/approve',{'worker':'node1','arch':'x86_64','pool':'community','cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
+        claim=self.worker.request('POST','/v1/claim',{})['assignment']
+        self.worker.request('POST','/v1/finish',{'pipeline':pid,'task':'build','lease':claim['lease'],'exit_code':0,'artifact':artifact,'logs':source})
+        # A deduplicated object's original MIME hint is not its format authority.
+        with self.controller.fabric.transaction():
+            row=self.controller.fabric.db.execute('SELECT metadata FROM objects WHERE id=?',(artifact['object'],)).fetchone()
+            meta=json.loads(row[0]);meta['mime']='application/octet-stream'
+            self.controller.fabric.db.execute('UPDATE objects SET metadata=? WHERE id=?',(json.dumps(meta),artifact['object']))
+        checked=self.controller.check_outputs(self.controller.state.inspect(pid),'build')
+        self.assertEqual(checked[0]['size'],len(data))
+        destination=self.root/'downloaded-result.json';self.owner.download_artifact_file('demo',artifact,'result.json',destination)
+        self.assertEqual(destination.read_bytes(),data)
+        digest='sha256:'+hashlib.sha256(archive.read_bytes()).hexdigest()
+        self.assertEqual(self.controller.fabric.db.execute("SELECT count(*) FROM objects WHERE json_extract(metadata,'$.digest')=?",(digest,)).fetchone()[0],0)
+
 
 if __name__=='__main__': unittest.main()

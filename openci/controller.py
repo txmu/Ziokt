@@ -1,4 +1,5 @@
 """Standalone Controller API using native Ziokt Content Fabric for object bytes."""
+from contextlib import closing
 import base64
 import hashlib
 import hmac
@@ -67,6 +68,24 @@ class Controller:
         owner='openci-'+pipeline['project']
         row=self.content_reference(owner,task['receipt']['artifact'])
         if json.loads(row['metadata'])['size']>MAX_OUTPUT:raise Error('ARTIFACT_LIMIT','Verification artifact exceeds budget',413)
+        metadata=json.loads(row['metadata'])
+        artifact_set=None
+        if metadata['size']<=65536:
+            with self.fabric.store(owner) as store:payload=b''.join(store.stream(row['reference']))
+            try:
+                candidate=strict_json(payload,65536)
+                if isinstance(candidate,dict) and candidate.get('schema')=='openci.artifact-set.v1':artifact_set=candidate
+            except (ProtocolError,ValueError):pass
+        if artifact_set is not None:
+            from .artifacts import validate_set
+            if metadata['size']>65536:raise Error('ARTIFACT_LIMIT','Artifact manifest exceeds budget',413)
+            with closing(self.state.connect()) as db:source=json.loads(db.execute('SELECT body FROM pipelines WHERE id=?',(pipeline['pipeline'],)).fetchone()[0])['source']
+            value=validate_set(artifact_set,source=source,image=spec['image'],required=spec['outputs'])
+            for entry in value['files']:
+                member=self.content_reference(owner,entry['reference'])
+                if json.loads(member['metadata'])['size']!=entry['size']:raise Error('ARTIFACT_SIZE','Artifact member size differs from native object',409)
+                self.fabric.verify_object(owner,entry['reference']['object'])
+            return value['files']
         with tempfile.TemporaryDirectory(prefix='openci-verify-') as directory:
             archive=Path(directory)/'artifact.tar'
             with archive.open('wb') as output,self.fabric.store(owner) as store:
@@ -83,6 +102,16 @@ class Controller:
         if method == 'GET' and path == '/v1/audit':
             pid=query['pipeline'][0];self.pipeline(principal,pid)
             return 200, {'events':self.state.audit(pid,int(query.get('after',['0'])[0]))}
+        if method == 'POST' and path == '/v1/releases':
+            self.pipeline(principal,body['pipeline'],{'admin'})
+            from .release import ReleaseService
+            return 200,ReleaseService(self).publish(actor,body['pipeline'],body['task'],body['name'],body['version'])
+        if method == 'GET' and path.startswith('/v1/releases/'):
+            release=self.state.release(path.split('/')[-1]);self.project(principal,release['project'])
+            return 200,release
+        if method == 'POST' and path == '/v1/releases/withdraw':
+            release=self.state.release(body['release']);self.project(principal,release['project'],{'admin'})
+            return 200,self.state.withdraw_release(actor,body['release'])
         if method == 'POST' and path == '/v1/verify':
             pipeline=self.pipeline(principal,body['pipeline'],{'admin'})
             for task_id in (body['task'],body['independent_task']):

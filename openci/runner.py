@@ -182,7 +182,8 @@ class Runner:
                                 if copied.poll() is None:copied.kill();copied.wait(timeout=10)
                                 copied.stdout.close();copied.stderr.close()
                         canonical_outputs(raw,area/'artifact.tar',task['outputs'])
-                        artifact=self.client.upload(assignment['project'],area/'artifact.tar')
+                        from .artifacts import publish_outputs
+                        artifact=publish_outputs(self.client,assignment['project'],area/'artifact.tar',task['outputs'],assignment['source'],task['image'])
                 except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
                     exit_code=124 if isinstance(error,Error) and error.code=='TASK_TIMEOUT' else 125
                     with logs.open('ab') as log:log.write(('\nOpenCI Runner: '+type(error).__name__+': '+str(error)+'\n').encode()[:4096])

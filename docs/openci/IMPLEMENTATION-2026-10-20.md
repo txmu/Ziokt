@@ -70,3 +70,21 @@ Corium、Shadow6 为创始原生组件，ETP 等 Companion 保持独立运行。
 - 修复既有 Effort HTTP 的跨站写入：公开 GET 仍可导航，带 cross-site Fetch Metadata 的 POST 明确拒绝。
 - Shadow6 域名清理分支已推送，Ziokt 原生来源锁更新到该实际提交，避免集成测试仍取旧白名单版本。
 - OpenCI 已增加持久 DAG/租约/取消/重试、操作员批准资源与信任池、项目权限、原生内容对象与日志、独立任务输出比较、CLI、隔离 OCI Runner 及 CI。状态测试10项、归档测试2项、实际HTTP与原生分块测试2项已通过。OCI执行必须等待新CI，不能把状态测试称为容器隔离已验收。
+
+### 2026-10-21 native signed release increment
+
+Added real native dCPM reference-package admission with retention journaling,
+versioned file installation/activation/rollback, and OpenCI trusted publication.
+Outputs are stored individually in the existing native encrypted object store;
+small artifact-set and signed package descriptors reuse those objects. Native
+v1 packages remain supported. Owner-only native engine approval and signing
+configuration are required. Release publication and withdrawal are separate
+from installation, execution authorization and PoUW settlement.
+
+Local verification: 26 OpenCI tests passed, including real HTTP/storage/signature
+and interrupted native-publication recovery. Seven new native distribution and
+installation tests passed. Task receipts in these integration tests are explicit
+fixtures; OCI execution is only asserted by the separate CI workflow. The OCI
+workflow now also tests actual native publication and installed payload bytes.
+The full requested feature gate remains false pending the remaining integrations
+and actual CI evidence; these additions do not certify the final Buildroot flow.

@@ -82,3 +82,58 @@ python -m openci --root /srv/openci inspect PIPELINE_ID
 - Pipeline、任务与日志都有上限；全量日志作为原生对象持久保存，实时日志上限1MiB，最终日志上限16MiB。
 - 备份时停止该独立服务或使用 SQLite online backup，同时备份 Content Fabric 数据与账户密钥。升级前备份整个私有状态目录；回滚恢复同版代码与一致状态备份。没有对既有 Corium/ETP/Shadow6 数据库做迁移。
 - 当前自动运行的是手动提交和 API；Git/Webhook、定时触发、签名发布、GUI/MCP、多发行版专用 Runner 与原生 PoUW 仍在实施，不宣称全量完成。
+
+## Native signed file releases
+
+Configure the native dCPM implementation and an owner-only signing key explicitly:
+
+```sh
+openci --root "$OPenci_ROOT" release-configure --native-source /path/to/Ziokt/companions/ufsdcpm/src
+```
+
+The owner calls `POST /v1/releases` with `pipeline`, `task`, `name`, `version`
+only after `/v1/verify` has matched independent output from an enabled Trusted
+Worker. Worker credentials cannot publish. The Controller signs through the
+actual native dCPM engine; the private key is never mounted in build containers.
+Source code digests pin the approved native engine. Upgrading it requires owner
+reconfiguration. Back up `release.key`, Controller SQLite, native registry, and
+Content Fabric together; losing the key prevents future publication under that identity.
+
+`openci.artifact-set.v1` manifests reference individual existing Content Fabric
+objects. Native dCPM v2 packages reference those same objects, plus signed build
+metadata. Large payloads are not copied into JSON or chain state. Publication is
+project-authorized local registry publication; external feed distribution and
+Corium settlement are separate states. A match is not a software safety claim.
+
+Install an explicitly selected release locally:
+
+```sh
+openci --root "$OPenci_ROOT" release-install RELEASE_ID --destination /owner/chosen/packages --activate
+```
+
+This invokes the native versioned file installer. Activation chooses a version;
+it never executes a program, flashes firmware, or authorizes system package
+installation. The native `FileInstaller.rollback(package_id, allow=True)` checks
+the previous installed signed version and atomically restores its selection.
+Offline validation checks retained signed manifests and every installed byte.
+
+`POST /v1/releases/withdraw` accepts `release`; it stops subsequent installation
+through this Controller. It does not erase already installed or independent
+copies. Local native registry retention and physical deletion remain distinct
+operator actions.
+
+### Migration and recovery
+
+The SQLite release table is additive and created transactionally on startup;
+existing pipelines, objects and native v1 packages retain their formats.
+Native reference admission journals pin intent before adding the package index.
+Reopening the native store retries pending admissions. A Controller interruption
+after native admission leaves a prepared release: repeat the identical release
+request to reconcile the signed package and commit publication. Version names
+cannot be silently reassigned to different verified builds.
+
+Before downgrading, back up all state and quiesce publication. Older OpenCI
+binaries ignore the additive release table; older native engines do not support
+v2 reference packages. Keep v1 and v2 registries separate when downgrading a
+native engine; retain installed version directories and signing keys. Do not
+rewrite v2 descriptors into v1 or discard pending pin records.

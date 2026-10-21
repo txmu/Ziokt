@@ -19,6 +19,10 @@ def main():
     image=json.loads(Path('ci/openci/runner-image.lock.json').read_text())['image']
     with tempfile.TemporaryDirectory(prefix='openci-e2e-') as temporary:
         root=Path(temporary);config=configuration(root)
+        from openci.release import configure,ReleaseService
+        native_config=root/'controller.json';native_config.write_bytes(config.read_bytes());native_config.chmod(0o600)
+        configure(root,Path('companions/ufsdcpm/src'))
+        config.write_bytes(native_config.read_bytes())
         controller=Controller(root/'controller',config)
         server=Server(('127.0.0.1',0),handler(controller));thread=threading.Thread(target=server.serve_forever);thread.start()
         try:
@@ -63,17 +67,21 @@ print('Native isolated task completed',flush=True)
             assert state['state']=='completed' and state['release']=='unpublished'
             verification=owner.request('POST','/v1/verify',{'pipeline':pid,'task':'build','independent_task':'verify'})
             assert verification['status']=='matched'
-            output=root/'result.tar';owner.download('demo',state['tasks'][0]['receipt']['artifact'],output)
-            with tarfile.open(output) as archive:
-                result=json.load(archive.extractfile(next(member for member in archive if member.name.endswith('result.json'))))
+            output=root/'result.json';owner.download_artifact_file('demo',state['tasks'][0]['receipt']['artifact'],'result.json',output)
+            result=json.loads(output.read_text())
             assert result=={'isolated':True,'sum':68}
+            release=owner.request('POST','/v1/releases',{'pipeline':pid,'task':'build','name':'oci-ci-result','version':'1'})
+            assert release['state']=='published' and release['publication']['release_signed']
+            installed=ReleaseService(controller).install(release['id'],root/'installed',activate=True)
+            assert not installed['execution_authorized']
+            assert json.loads((Path(installed['directory'])/'result.json').read_text())==result
             events=owner.request('GET','/v1/audit?pipeline='+pid)['events']
             assert any(event['action']=='task.verified' for event in events)
             logs=owner.request('GET','/v1/logs?pipeline='+pid+'&task=build&attempt=1')['chunks']
             assert logs, 'Real-time log stream was not persisted'
             print(json.dumps({'schema':'openci.oci-e2e.v1','state':'passed','pipeline':pid,'image':image,
                 'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
-                'distinct_hosts':False,'release_signed':False,'corium_settled':False}))
+                'distinct_hosts':False,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
         finally:server.shutdown();server.server_close();thread.join();controller.close()
 
 

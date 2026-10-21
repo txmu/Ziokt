@@ -104,7 +104,12 @@ def reference_package(store,name,version,files,dependencies,private):
     return data
 
 
-def verify_reference_package(store,data,authority,*,verify_content=True):
+def reference_manifest(data,authority):
+    """Verify a v2 publisher and metadata without requiring original payload storage.
+
+    Installed, legally acquired files can be checked offline against this signed
+    manifest. This is not an authorization to fetch or execute an object.
+    """
     envelope=strict_json(data,65536)
     if not isinstance(envelope,dict) or set(envelope)!={'manifest'}:
         raise ProtocolError('INVALID_PACKAGE','exact reference package envelope required')
@@ -123,14 +128,28 @@ def verify_reference_package(store,data,authority,*,verify_content=True):
         path=virtual_name(entry['path'])
         if path in paths or any(path.startswith(p+'/') or p.startswith(path+'/') for p in paths):
             raise ProtocolError('INVALID_PACKAGE','duplicate or colliding content paths')
-        paths.add(path);ref=store.reference(entry['object'])
-        if type(entry['size']) is not int or entry['size']!=ref['length'] or entry['sha256']!=ref['digest'] or entry['scope']!=ref['source']:
+        paths.add(path)
+        for field in ('object','sha256'):
+            if not isinstance(entry[field],str) or not re.fullmatch('sha256:[a-f0-9]{64}',entry[field]):
+                raise ProtocolError('PACKAGE_INTEGRITY','canonical digest required')
+        _label(entry['scope'])
+        if type(entry['size']) is not int or not 0<=entry['size']<=MAX_REFERENCE_FILE:
+            raise ProtocolError('PACKAGE_LIMIT','reference file budget exceeded')
+        total+=entry['size']
+        if total>MAX_REFERENCE_PACKAGE:raise ProtocolError('PACKAGE_LIMIT','reference package content quota exceeded')
+    return manifest
+
+
+def verify_reference_package(store,data,authority,*,verify_content=True):
+    manifest=reference_manifest(data,authority)
+    total=0
+    for entry in manifest['files']:
+        ref=store.reference(entry['object'])
+        if entry['size']!=ref['length'] or entry['sha256']!=ref['digest'] or entry['scope']!=ref['source']:
             raise ProtocolError('PACKAGE_INTEGRITY','signed object metadata differs from verified storage')
         total+=entry['size']
-        if entry['size']>MAX_REFERENCE_FILE or total>MAX_REFERENCE_PACKAGE:
-            raise ProtocolError('PACKAGE_LIMIT','reference package content quota exceeded')
         if verify_content:
             for _ in store.stream(entry['object']):pass
     return {'schema':'ziokt.package-verification.v2','manifest':manifest,'publisher':authority,
-            'files_verified':len(entries) if verify_content else 0,'content_verified':verify_content,'content_bytes':total,'installation_authorized':False,
+            'files_verified':len(manifest['files']) if verify_content else 0,'content_verified':verify_content,'content_bytes':total,'installation_authorized':False,
             'execution_authorized':False,'native_signature_verified':False}

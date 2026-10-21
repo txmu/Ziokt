@@ -32,6 +32,8 @@ def main():
     parser.add_argument('--root',type=Path,default=Path.home()/'.local/share/openci')
     sub=parser.add_subparsers(dest='action',required=True)
     sub.add_parser('init')
+    p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True)
+    p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
     p=sub.add_parser('principal-add');p.add_argument('name');p.add_argument('--role',choices=['submit','worker'],required=True);p.add_argument('--project',action='append',required=True);p.add_argument('--worker')
     for name in ['upload','submit','inspect','cancel','retry','worker-approve','runner']:
@@ -49,6 +51,15 @@ def main():
         private_write(root/'owner.token',(token+'\n').encode())
         private_write(root/'controller.json',{'schema':'openci.controller.v1','principals':{'owner':{'role':'admin','projects':[],'token_sha256':hashlib.sha256(token.encode()).hexdigest()}}})
         print(json.dumps({'state':'initialized','config':str(root/'controller.json'),'token_file':str(root/'owner.token')}));return
+    if args.action=='release-configure':
+        from .release import configure
+        print(json.dumps(configure(root,args.native_source)));return
+    if args.action=='release-install':
+        from .release import ReleaseService
+        controller=Controller(root,root/'controller.json')
+        try:print(json.dumps(ReleaseService(controller).install(args.release,args.destination,activate=args.activate)))
+        finally:controller.close()
+        return
     if args.action=='principal-add':
         identifier(args.name)
         if args.role=='worker' and not args.worker:parser.error('--worker required for worker role')

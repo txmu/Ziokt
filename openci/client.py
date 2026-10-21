@@ -39,18 +39,33 @@ class Client:
             except (ValueError, KeyError): raise Error('HTTP_ERROR', 'Controller rejected request', error.code) from None
             raise Error(value['code'], value['message'], error.code) from None
 
-    def upload(self, project, path):
+    def upload(self, project, path, *, mime='application/octet-stream'):
         path = Path(path)
         with path.open('rb') as stream: digest = 'sha256:'+hashlib.file_digest(stream, 'sha256').hexdigest()
+        with path.open('rb') as stream:return self.upload_stream(project,stream,path.stat().st_size,digest,mime=mime)
+
+    def upload_stream(self,project,stream,size,digest,*,mime='application/octet-stream'):
         upload = 'upload-'+secrets.token_hex(16)
         query = '?project='+quote(project, safe='')
-        self.request('POST', '/v1/objects/begin'+query, {'upload':upload, 'size':path.stat().st_size, 'digest':digest})
-        with path.open('rb') as stream:
-            position = 0
-            while chunk := stream.read(16384):
-                self.request('PUT', '/v1/objects/'+upload+'/chunks/'+str(position)+query, raw=chunk)
-                position += 1
+        self.request('POST', '/v1/objects/begin'+query, {'upload':upload, 'size':size, 'digest':digest,'mime':mime})
+        position,total=0,0
+        while chunk := stream.read(16384):
+            total+=len(chunk)
+            if total>size:raise Error('UPLOAD_SIZE','Input changed during upload')
+            self.request('PUT', '/v1/objects/'+upload+'/chunks/'+str(position)+query, raw=chunk)
+            position += 1
+        if total!=size:raise Error('UPLOAD_SIZE','Input truncated during upload')
         return self.request('POST', '/v1/objects/finish'+query, {'upload':upload})['reference']
+
+    def download_artifact_file(self,project,artifact,path,destination):
+        from .artifacts import validate_set,output_path
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix='openci-artifact-set-') as temporary:
+            manifest=Path(temporary)/'set.json';self.download(project,artifact,manifest,65536)
+            value=validate_set(json.loads(manifest.read_bytes()))
+        selected=next((entry for entry in value['files'] if entry['path']==output_path(path)),None)
+        if selected is None:raise Error('ARTIFACT_NOT_FOUND','File is not in the verified artifact set',404)
+        return self.download(project,selected['reference'],destination,selected['size'])
 
     def download(self, project, reference, path, max_size=64*1024*1024):
         query = '?project='+quote(project, safe='')
