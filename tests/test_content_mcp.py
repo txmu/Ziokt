@@ -5,6 +5,24 @@ from ziokt.content_checkpoint import checkpoint,restore
 from ziokt.content_fabric import Fabric
 
 class ContentMcpTests(unittest.TestCase):
+ def test_news_readstate_registered_scopes_and_durable_idempotency(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp)
+   config={'state':str(root/'mcp'),'issuer':'https://test.invalid','clients':{'writer':{'scopes':['netnews:read','netnews:write']},'reader':{'scopes':['netnews:read']}},'bridges':{},'writes_enabled':True,'content_fabric':{'enabled':True,'root':str(root/'fabric'),'accounts':{'writer':'alice','reader':'bob'}}}
+   service=Service(config)
+   try:
+    writer={'client':'writer','scopes':{'netnews:read','netnews:write'}}
+    group=service.call(writer,'netnews_group_create',{'name':'news.public','visibility':'public'},'group-create-00001')
+    self.assertFalse(group['isError'],group)
+    article=service.call(writer,'netnews_post',{'groups':['news.public'],'subject':'Subject','body':'Body'},'article-post-00001')['structuredContent']['id']
+    args={'article':article,'is_read':True,'revision':0}
+    first=service.call(writer,'netnews_readstate_update',args,'readstate-update-01')
+    self.assertFalse(first['isError'],first)
+    self.assertEqual(first,service.call(writer,'netnews_readstate_update',args,'readstate-update-01'))
+    reader={'client':'reader','scopes':{'netnews:read'}}
+    self.assertFalse(service.call(reader,'netnews_readstate_get',{'article':article})['structuredContent']['is_read'])
+    with self.assertRaises(McpError):service.call(reader,'netnews_readstate_update',args,'readstate-denied-01')
+   finally:service.close()
  def test_opt_in_scopes_audit_and_real_store(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp)

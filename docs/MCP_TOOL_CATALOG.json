@@ -7,7 +7,7 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 363,
+  "tool_count": 450,
   "tools": [
     {
       "securitySchemes": [
@@ -1136,6 +1136,41 @@
         "required": [
           "params"
         ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
+      "name": "corium_production_health",
+      "description": "Fresh challenge against the pinned native provider process. Application and peer readiness remain separate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
         "additionalProperties": false
       },
       "annotations": {
@@ -2444,6 +2479,41 @@
         "required": [
           "params"
         ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "shadow6:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "shadow6:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "shadow6:read"
+            ]
+          }
+        ]
+      },
+      "name": "shadow6_production_health",
+      "description": "Fresh challenge against the pinned native provider process. Application and peer readiness remain separate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
         "additionalProperties": false
       },
       "annotations": {
@@ -3919,6 +3989,57 @@
         {
           "type": "oauth2",
           "scopes": [
+            "corium:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "corium:read"
+            ]
+          }
+        ]
+      },
+      "name": "corium_component_health",
+      "description": "corium: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "corium:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
             "corium:write"
           ]
         }
@@ -4948,6 +5069,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "dcpm:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "dcpm:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "dcpm:read"
+            ]
+          }
+        ]
+      },
+      "name": "dcpm_component_health",
+      "description": "dcpm: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -6466,6 +6638,57 @@
         {
           "type": "oauth2",
           "scopes": [
+            "etp:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:read"
+            ]
+          }
+        ]
+      },
+      "name": "etp_component_health",
+      "description": "etp: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
             "etp:write"
           ]
         }
@@ -7553,6 +7776,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "safefs:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "safefs:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "safefs:read"
+            ]
+          }
+        ]
+      },
+      "name": "safefs_component_health",
+      "description": "safefs: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -8682,6 +8956,57 @@
         {
           "type": "oauth2",
           "scopes": [
+            "shadow6:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "shadow6:read"
+            ]
+          }
+        ]
+      },
+      "name": "shadow6_component_health",
+      "description": "shadow6: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "shadow6:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
             "shadow6:write"
           ]
         }
@@ -9769,6 +10094,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "sim-manager:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "sim-manager:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "sim-manager:read"
+            ]
+          }
+        ]
+      },
+      "name": "sim_manager_component_health",
+      "description": "sim-manager: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -11012,6 +11388,57 @@
         {
           "type": "oauth2",
           "scopes": [
+            "tc16:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "tc16:read"
+            ]
+          }
+        ]
+      },
+      "name": "tc16_component_health",
+      "description": "tc16: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "tc16:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
             "tc16:write"
           ]
         }
@@ -12171,6 +12598,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "tri:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "tri:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "tri:read"
+            ]
+          }
+        ]
+      },
+      "name": "tri_component_health",
+      "description": "tri: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -13451,6 +13929,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "ufs:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "ufs:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "ufs:read"
+            ]
+          }
+        ]
+      },
+      "name": "ufs_component_health",
+      "description": "ufs: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -15175,6 +15704,57 @@
         {
           "type": "oauth2",
           "scopes": [
+            "watchat:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "watchat:read"
+            ]
+          }
+        ]
+      },
+      "name": "watchat_component_health",
+      "description": "watchat: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "watchat:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
             "watchat:write"
           ]
         }
@@ -16551,6 +17131,57 @@
             "type": "object",
             "properties": {},
             "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "zda:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "zda:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "zda:read"
+            ]
+          }
+        ]
+      },
+      "name": "zda_component_health",
+      "description": "zda: component.health through its authenticated application bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
             "additionalProperties": false
           }
         },
@@ -18344,6 +18975,159 @@
           }
         ]
       },
+      "name": "etp_etp_health",
+      "description": "Pinned native ETP etp.health; fresh stats challenge, peer readiness separate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:read"
+            ]
+          }
+        ]
+      },
+      "name": "etp_etp_mailbox_status",
+      "description": "Pinned native ETP etp.mailbox.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:write"
+            ]
+          }
+        ]
+      },
+      "name": "etp_etp_mailbox_request",
+      "description": "Pinned native ETP etp.mailbox.request Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "frame_base64": {
+                "type": "string",
+                "maxLength": 12000
+              }
+            },
+            "required": [
+              "frame_base64"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:read"
+            ]
+          }
+        ]
+      },
       "name": "etp_etp_stats",
       "description": "Pinned native ETP etp.stats",
       "inputSchema": {
@@ -18730,6 +19514,159 @@
         "openWorldHint": true
       },
       "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:read"
+            ]
+          }
+        ]
+      },
+      "name": "etp_peer_etp_health",
+      "description": "Pinned native ETP etp.health; fresh stats challenge, peer readiness separate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              }
+            },
+            "required": [
+              "challenge"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:read"
+            ]
+          }
+        ]
+      },
+      "name": "etp_peer_etp_mailbox_status",
+      "description": "Pinned native ETP etp.mailbox.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "etp:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "etp:write"
+            ]
+          }
+        ]
+      },
+      "name": "etp_peer_etp_mailbox_request",
+      "description": "Pinned native ETP etp.mailbox.request Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "frame_base64": {
+                "type": "string",
+                "maxLength": 12000
+              }
+            },
+            "required": [
+              "frame_base64"
+            ],
+            "additionalProperties": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "etp:write"
     },
     {
       "securitySchemes": [
@@ -20487,6 +21424,3462 @@
         "openWorldHint": true
       },
       "scope": "ziokt:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:read"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_readstate_get",
+      "description": "Content application: netnews.readstate.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "article": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "article"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:write"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_readstate_update",
+      "description": "Content application: netnews.readstate.update Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "article": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "is_read": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775806
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "article",
+          "revision",
+          "is_read"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write",
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write",
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_etp_begin",
+      "description": "Content application: library.etp.begin Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proof": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "peer": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "record": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "visibility": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "nonce": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "nonce",
+          "proof",
+          "record",
+          "peer"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write",
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write",
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_etp_step",
+      "description": "Content application: library.etp.step Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "max_chunks": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_etp_status",
+      "description": "Content application: library.etp.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write",
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write",
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_etp_cancel",
+      "description": "Content application: library.etp.cancel Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_status",
+      "description": "Content application: content.etp.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_sync",
+      "description": "Content application: content.etp.sync Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_authorize",
+      "description": "Content application: content.etp.authorize Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "topic": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "group": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "expires": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "alias",
+          "expires",
+          "topic",
+          "group"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_offer",
+      "description": "Content application: content.etp.offer Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target_account": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "alias": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "topic": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "group": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "expires": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "expires",
+          "target",
+          "target_account",
+          "group",
+          "alias",
+          "topic"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_accept",
+      "description": "Content application: content.etp.accept Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "native_proof": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "native_proof"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_export",
+      "description": "Content application: content.etp.export Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "record": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "record",
+          "grant"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_ingest",
+      "description": "Content application: content.etp.ingest Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "native_id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "grant",
+          "native_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_revoke",
+      "description": "Content application: content.etp.revoke Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_etp_recover",
+      "description": "Content application: content.etp.recover Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_rights_report",
+      "description": "Content application: content.rights.report Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "complaint": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "complaint",
+          "record"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_rights_case",
+      "description": "Content application: content.rights.case",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "case"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "content_rights_review",
+      "description": "Content application: content.rights.review",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "case"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_rights_appeal",
+      "description": "Content application: content.rights.appeal Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "case",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "content_rights_decide",
+      "description": "Content application: content.rights.decide Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "decision": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "case",
+          "decision",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "content_policy",
+      "description": "Content application: content.policy Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "action": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "action",
+          "reason",
+          "record"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "feeds:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "feeds:read"
+            ]
+          }
+        ]
+      },
+      "name": "feeds_describe",
+      "description": "Content application: feeds.describe",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "feeds:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "feeds:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "feeds:read"
+            ]
+          }
+        ]
+      },
+      "name": "feeds_items",
+      "description": "Content application: feeds.items",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "group": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "feeds:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "optimization:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "optimization:read"
+            ]
+          }
+        ]
+      },
+      "name": "optimization_get",
+      "description": "Content application: optimization.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "optimization:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "optimization:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "optimization:write"
+            ]
+          }
+        ]
+      },
+      "name": "optimization_configure",
+      "description": "Content application: optimization.configure Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "revision",
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "optimization:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "optimization_configure_defaults",
+      "description": "Content application: optimization.configure_defaults Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "application": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "node": {
+            "type": "boolean"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "revision",
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "optimization:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "optimization:read"
+            ]
+          }
+        ]
+      },
+      "name": "optimization_evaluate",
+      "description": "Content application: optimization.evaluate",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "joint": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "maxProperties": 4
+            }
+          },
+          "decoder": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "maxProperties": 3
+            }
+          }
+        },
+        "required": [
+          "joint"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "optimization:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_download_control",
+      "description": "Content application: library.download.control Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "job",
+          "paused"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_reference_create",
+      "description": "Content application: content.reference.create",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "verify_bytes": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "verify_bytes"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_reference_resolve",
+      "description": "Content application: content.reference.resolve",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "verify_bytes": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reference",
+          "verify_bytes"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_references",
+      "description": "Content application: content.references",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:write"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_attachment_download",
+      "description": "Content application: netnews.attachment.download Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "article": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "max_chunks": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "id",
+          "article"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_objects_list",
+      "description": "Content application: content.objects.list",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_upload_abort",
+      "description": "Content application: content.upload.abort Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_object_release",
+      "description": "Content application: content.object.release Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_collect",
+      "description": "Content application: content.collect Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "applications:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "applications:read"
+            ]
+          }
+        ]
+      },
+      "name": "applications_capabilities",
+      "description": "Content application: applications.capabilities",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "applications:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "community:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "community:read"
+            ]
+          }
+        ]
+      },
+      "name": "community_forum_list",
+      "description": "Content application: community.forum.list",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "community:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "community:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "community:write"
+            ]
+          }
+        ]
+      },
+      "name": "community_forum_post",
+      "description": "Content application: community.forum.post Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "operation": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "reply_to": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "body",
+          "title",
+          "operation"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "community:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_health",
+      "description": "Content application: content.health",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "content_sync",
+      "description": "Content application: content.sync Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "peer": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "peer"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_download",
+      "description": "Content application: library.download Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "book": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "max_chunks": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "book"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "applications:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "applications:write"
+            ]
+          }
+        ]
+      },
+      "name": "applications_tc16_compile",
+      "description": "Content application: applications.tc16.compile Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "syntax": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "source",
+          "profile",
+          "syntax",
+          "target"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "applications:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "applications:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "applications:write"
+            ]
+          }
+        ]
+      },
+      "name": "applications_tc16_execute",
+      "description": "Content application: applications.tc16.execute Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "cycles": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "package",
+          "cycles"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "applications:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_upload_begin",
+      "description": "Content application: content.upload.begin Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "size": {
+            "type": "integer"
+          },
+          "digest": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "mime": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "digest",
+          "upload",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_upload_put",
+      "description": "Content application: content.upload.put Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "position": {
+            "type": "integer"
+          },
+          "data": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "upload",
+          "data",
+          "position"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_upload_status",
+      "description": "Content application: content.upload.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_upload_finish",
+      "description": "Content application: content.upload.finish Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_object_get",
+      "description": "Content application: content.object.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "position": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "position"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_object_info",
+      "description": "Content application: content.object.info",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_object_verify",
+      "description": "Content application: content.object.verify",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_withdraw",
+      "description": "Content application: content.withdraw Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:admin"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:admin"
+            ]
+          }
+        ]
+      },
+      "name": "content_maintenance",
+      "description": "Content application: content.maintenance Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_publish",
+      "description": "Content application: library.publish Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "metadata"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_search",
+      "description": "Content application: library.search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "filters": {
+            "type": "object",
+            "maxProperties": 48
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_search",
+      "description": "Content application: content.search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "library",
+                "netnews"
+              ]
+            }
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "filters": {
+            "type": "object",
+            "maxProperties": 48
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_extract",
+      "description": "Content application: library.extract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_get",
+      "description": "Content application: library.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_reading_get",
+      "description": "Content application: library.reading.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_reading_save",
+      "description": "Content application: library.reading.save Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "state": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:read"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_groups",
+      "description": "Content application: netnews.groups",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:write"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_group_create",
+      "description": "Content application: netnews.group.create Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "visibility": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "posting": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "retention": {
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:write"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_post",
+      "description": "Content application: netnews.post Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "message_id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 68
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 255
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "body",
+          "groups",
+          "subject"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:read"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_articles",
+      "description": "Content application: netnews.articles",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "low": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:read"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_search",
+      "description": "Content application: netnews.search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "filters": {
+            "type": "object",
+            "maxProperties": 48
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "netnews:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "netnews:read"
+            ]
+          }
+        ]
+      },
+      "name": "netnews_get",
+      "description": "Content application: netnews.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "netnews:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:read"
+            ]
+          }
+        ]
+      },
+      "name": "content_subscription_get",
+      "description": "Content application: content.subscription.get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "target",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "content:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "content:write"
+            ]
+          }
+        ]
+      },
+      "name": "content_subscription_save",
+      "description": "Content application: content.subscription.save Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "settings": {
+            "type": "object",
+            "maxProperties": 48
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "target",
+          "settings",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "content:write"
     }
   ]
 }

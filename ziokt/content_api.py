@@ -8,6 +8,8 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'netnews.readstate.get':({'article':str},False),
+ 'netnews.readstate.update':({'article':str,'is_read':bool,'revision':int},True),
  'library.etp.begin':({'proof':str,'peer':str,'record':str,'visibility':str,'nonce':str},True),
  'library.etp.step':({'job':str,'max_chunks':int},True),
  'library.etp.status':({'job':str},False),
@@ -208,6 +210,7 @@ def invoke(fabric, owner, operation, args):
     if operation=='library.reading.get':return fabric.state(owner,'reader',args['id'])
     if operation=='library.reading.save':return fabric.state(owner,'reader',args['id'],args['state'])
     if operation=='netnews.groups':return fabric.groups(owner)
+    if operation in {'netnews.readstate.get','netnews.readstate.update'}:return fabric.news_readstate(owner,**args)
     if operation=='netnews.group.create':return fabric.create_group(owner,**args)
     if operation=='netnews.post':return fabric.post(owner,**args)
     if operation=='netnews.articles':return fabric.articles(owner,**args)
@@ -226,6 +229,9 @@ def attach(service, config):
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
         if operation=='content.search':props['sources']={'type':'array','minItems':1,'maxItems':2,'uniqueItems':True,'items':{'type':'string','enum':['library','netnews']}}
+        if operation.startswith('netnews.readstate.'):
+            props['article']['maxLength']=300
+            if 'revision' in props:props['revision'].update(minimum=0,maximum=2**63-2)
         if operation=='netnews.post':
             props['attachments']={'type':'array','maxItems':8,'items':{'type':'object','properties':{'id':{'type':'string','maxLength':68},'name':{'type':'string','maxLength':255}},'required':['id','name'],'additionalProperties':False}}
         if operation=='optimization.evaluate':

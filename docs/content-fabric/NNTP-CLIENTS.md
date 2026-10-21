@@ -1,5 +1,19 @@
 # 普通 NNTP 客户端
 
+## 应用阅读标记
+
+共用 HTTP/MCP API 提供 `netnews.readstate.get(article)` 与
+`netnews.readstate.update(article,is_read,revision)`。MCP 名称按现有规则用下划线，
+TG 可通过 `/mcp netnews_readstate_get {"article":"<MESSAGE-ID>"}` 调用同一工具。
+读取需 `netnews:read`，写入需 `netnews:write`；每次均重新检查最终文章权限。
+初始 revision 为 0；更新返回新版本，旧版本冲突必须重新读取后由用户解决。
+相同请求重试不会再次递增；MCP 还沿用已有幂等键日志。
+
+阅读状态只保存在节点私有 SQLite，不进入联邦日志、公开搜索或链状态；
+它不是数据库字段加密。每账户最多十万条。迁移 10 添加独立表，保留原内容、
+身份、订阅和密钥；回滚时保留该表，旧程序不读取新标记。
+当前尚未接入 NNTP 客户端自己的本地已读文件、GUI 按钮或跨节点离线同步。
+
 PhoNews、Thunderbird、slrn 和 tin 应连接 `nntp.ziokt.com` 的隐式 TLS 端口 563，启用服务器证书验证。119 为兼容性明文匿名只读入口，不接受密码。客户端发布/回复使用独立 Ziokt 新闻账户；不能使用 Gateway 管理凭证。
 
 TLS 终止代理转发到独立的 IPv4 loopback 8120；公开明文 119 仅转发到不含账户的 8119。配置项 `nntp_tls_bridge` 必须明确启用 `allow_loopback_auth`，仅适用于受信任的本机 TLS 代理。不得把带凭证的后端端口直接暴露公网。若不使用终止代理，可直接配置 NNTP `tls.cert`/`tls.key`。

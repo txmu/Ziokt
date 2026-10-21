@@ -153,6 +153,9 @@ class Fabric:
             self.db.execute('INSERT OR IGNORE INTO migrations VALUES(5,unixepoch())')
         from .content_rights import initialize
         initialize(self)
+        with self.db:
+            self.db.execute('CREATE TABLE IF NOT EXISTS news_readstate(owner TEXT NOT NULL,article TEXT NOT NULL,is_read INTEGER NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(owner,article))')
+            self.db.execute('INSERT OR IGNORE INTO migrations VALUES(10,unixepoch())')
         os.chmod(path,0o600)
 
     def close(self):
@@ -555,6 +558,25 @@ class Fabric:
                 self.db.execute('INSERT INTO events(id,envelope) VALUES(?,?)',(eid,encoded(envelope)))
                 accepted+=1
             return {'accepted':accepted,'durable':True}
+
+    def news_readstate(self, owner, article, is_read=None, revision=None):
+        """Account-local marks; optimistic revisions prevent silent offline overwrites."""
+        ident(owner)
+        if is_read is not None and (type(is_read) is not bool or type(revision) is not int or not 0<=revision<2**63-1):raise ValueError('readstate fields')
+        with self.transaction():
+            self._get(owner,article,'article')
+            row=self.db.execute('SELECT is_read,revision FROM news_readstate WHERE owner=? AND article=?',(owner,article)).fetchone()
+            current=bool(row[0]) if row else False
+            version=row[1] if row else 0
+            if is_read is not None:
+                # An identical retry after a lost acknowledgement is safe.
+                if revision!=version:
+                    if revision+1==version and current==is_read:return {'article':article,'is_read':current,'revision':version}
+                    raise ValueError('readstate revision conflict')
+                if not row and self.db.execute('SELECT count(*) FROM news_readstate WHERE owner=?',(owner,)).fetchone()[0]>=100000:raise ValueError('readstate quota')
+                version+=1;current=is_read
+                self.db.execute('INSERT OR REPLACE INTO news_readstate VALUES(?,?,?,?)',(owner,article,int(current),version))
+            return {'article':article,'is_read':current,'revision':version}
 
     def state(self, owner, kind, target, settings=None):
         ident(owner);text(target,300)
