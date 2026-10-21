@@ -9,6 +9,7 @@ from ziokt.ufsdcpm import reference_package
 
 def main():
     binary=Path(sys.argv[1]).resolve();runtime=Path(sys.argv[2]).resolve()
+    stat=binary.stat();print(json.dumps({'native_compiler_bytes':stat.st_size,'links':stat.st_nlink,'mode':oct(stat.st_mode & 0o777)}),flush=True)
     result=compile_native('int main(){return 65535+43;}',{'binary':str(binary),'sha256':'sha256:'+hashlib.sha256(binary.read_bytes()).hexdigest()})
     blob=base64.b64decode(result['package'])
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'companions/ufsdcpm/src'))

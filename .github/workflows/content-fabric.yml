@@ -54,6 +54,14 @@ jobs:
       - name: Native v2 backward compatibility and signature rejection
         working-directory: companions/etp/src
         run: cargo test --locked --features persistence plugin::flavors::mailbox::tests
+      - name: Package bounded native executables after compiler tests
+        working-directory: companions/etp/src
+        run: |
+          for executable in mailbox_replica_runner tc16_unified_runner tc16_legacy_compiler ziokt_gateway; do
+            stat --format='%n bytes=%s links=%h mode=%a' "target/debug/examples/$executable"
+            strip "target/debug/examples/$executable"
+            test "$(stat --format=%s "target/debug/examples/$executable")" -le 134217728
+          done
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: native-content-runners
