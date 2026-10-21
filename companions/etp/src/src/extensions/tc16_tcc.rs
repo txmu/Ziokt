@@ -723,7 +723,35 @@ enum TokenType {
     Eof,
 }
 
+/// Native Legacy parser with a versioned, fail-closed pure Unified backend.
+/// v1 does not reinterpret legacy frame-encoding bugs or contract capabilities.
+pub fn compile_legacy_unified(source: &str) -> Result<serde_json::Value> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use sha2::{Digest, Sha256};
+    let mut compiler = Compiler::new();
+    compiler.unified = true;
+    let code = compiler.compile(source)?;
+    let metadata = serde_json::json!({"isa_id":"tc16-unified-v1","abi_id":"tc16-unified-abi-v1","binary_format":"tc16-package-v1","capability_profile":"pure-v1","entrypoint":0,"code_size":code.len(),"sha256":hex::encode(Sha256::digest(&code))});
+    let header = serde_json::to_vec(&metadata)?;
+    let mut package = b"TC16PKG1".to_vec();
+    package.extend_from_slice(&(header.len() as u32).to_be_bytes());
+    package.extend_from_slice(&header);
+    package.extend_from_slice(&code);
+    let legacy = compile_legacy_source(source)?;
+    let mut old = Tc16Cpu::new(Arc::new(EphemeralStorage::default()));
+    old.load_code(&legacy, 0)?;
+    let status = old.execute(10000)?;
+    anyhow::ensure!(
+        status == VmStatus::Halted,
+        "ETP_LEGACY_RUNTIME: source did not halt in compatibility budget"
+    );
+    Ok(
+        serde_json::json!({"schema":"etp.legacy-compiled.v1","semantic_profile":"etp-legacy-pure-return-v1","source_sha256":hex::encode(Sha256::digest(source.as_bytes())),"compiler":"etp-native-legacy-unified-v1","package":STANDARD.encode(package),"debug":{"functions":compiler.functions},"legacy_result":old.regs[0]}),
+    )
+}
+
 struct Compiler {
+    unified: bool,
     tokens: Vec<TokenType>,
     pos: usize,
     bytecode: Vec<u8>,
@@ -741,6 +769,7 @@ struct Compiler {
 impl Compiler {
     fn new() -> Self {
         Self {
+            unified: false,
             tokens: Vec::new(),
             pos: 0,
             bytecode: Vec::new(),
@@ -756,10 +785,10 @@ impl Compiler {
         self.tokenize(src)?;
 
         // Entry point setup: CALL main; HALT
-        self.emit(0x63); // CALL
+        self.op(0x63); // CALL
         let main_call_patch = self.bytecode.len();
         self.emit_u16(0); // Placeholder
-        self.emit(0x00); // HALT
+        self.op(0x00); // HALT
 
         // Program body
         while self.peek() != TokenType::Eof {
@@ -867,11 +896,16 @@ impl Compiler {
 
         // Function Prologue
         // PUSH FP
-        self.emit(0x50);
+        self.op(0x50);
         self.emit(REG_FP as u8);
         // MOV FP, SP
-        self.emit(0x31);
-        self.emit((REG_FP as u8) << 4 | (REG_SP as u8));
+        if self.unified {
+            self.emit(40);
+            self.emit(REG_FP as u8);
+        } else {
+            self.op(0x31);
+            self.emit((REG_FP as u8) << 4 | (REG_SP as u8));
+        }
 
         self.locals.clear();
         self.local_offset = 0; // Stack grows down
@@ -883,13 +917,18 @@ impl Compiler {
 
         // Epilogue (Implicit return if void)
         // MOV SP, FP
-        self.emit(0x31);
-        self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
+        if self.unified {
+            self.emit(41);
+            self.emit(REG_FP as u8);
+        } else {
+            self.op(0x31);
+            self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
+        }
         // POP FP
-        self.emit(0x51);
+        self.op(0x51);
         self.emit(REG_FP as u8);
         // RET
-        self.emit(0x64);
+        self.op(0x64);
 
         Ok(())
     }
@@ -897,6 +936,7 @@ impl Compiler {
     fn parse_statement(&mut self) -> Result<()> {
         match self.peek() {
             TokenType::KwInt => {
+                anyhow::ensure!(!self.unified,"ETP_LEGACY_UNMAPPABLE_LOCAL_V1: native v1 frame encoding differs; explicit migration required");
                 // int x = 5;
                 self.advance();
                 let name = self.expect_id()?;
@@ -909,7 +949,7 @@ impl Compiler {
                 self.locals.insert(name, self.local_offset);
 
                 // PUSH R0 (Save to stack)
-                self.emit(0x50);
+                self.op(0x50);
                 self.emit(0);
             }
             TokenType::KwReturn => {
@@ -918,19 +958,28 @@ impl Compiler {
                 self.consume(TokenType::Semi)?;
 
                 // Epilogue code
-                self.emit(0x31);
-                self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
-                self.emit(0x51);
+                if self.unified {
+                    self.emit(41);
+                    self.emit(REG_FP as u8);
+                } else {
+                    self.op(0x31);
+                    self.emit((REG_SP as u8) << 4 | (REG_FP as u8));
+                }
+                self.op(0x51);
                 self.emit(REG_FP as u8);
-                self.emit(0x64);
+                self.op(0x64);
             }
             TokenType::KwContract => {
+                anyhow::ensure!(
+                    !self.unified,
+                    "ETP_LEGACY_CAPABILITY: contract storage is not available in pure-v1"
+                );
                 // contract_store(key_ptr, val_ptr); (Intrinsic)
                 self.advance();
                 self.consume(TokenType::LPar)?;
                 self.parse_expression()?; // Arg1 -> R0
                                           // MOV R1, R0 (Save key ptr)
-                self.emit(0x31);
+                self.op(0x31);
                 self.emit(1 << 4 | 0);
                 self.consume(TokenType::Comma)?;
                 self.parse_expression()?; // Arg2 -> R0 (Val ptr)
@@ -938,8 +987,8 @@ impl Compiler {
                 self.consume(TokenType::Semi)?;
 
                 // EXT: CONTRACT_KEY_STORE R1, R0
-                self.emit(0xFF);
-                self.emit(0x03);
+                self.op(0xFF);
+                self.op(0x03);
                 self.emit(1 << 4 | 0);
             }
             _ => {
@@ -952,7 +1001,7 @@ impl Compiler {
                     self.consume(TokenType::Semi)?;
 
                     // STORE [FP+Offset], R0
-                    self.emit(0x20);
+                    self.op(0x20);
                     self.emit(0);
                     self.emit(offset as u8);
                 } else {
@@ -966,27 +1015,31 @@ impl Compiler {
     fn parse_expression(&mut self) -> Result<()> {
         self.parse_term()?;
         while let TokenType::Op(op) = self.peek() {
+            anyhow::ensure!(
+                !self.unified || op == "+" || op == "-",
+                "ETP_LEGACY_UNMAPPABLE_OPERATOR: native v1 silently discards this operator"
+            );
             self.advance();
             // Push R0 (Left)
-            self.emit(0x50);
+            self.op(0x50);
             self.emit(0);
             self.parse_term()?; // Right in R0
 
             // Pop Left to R1
-            self.emit(0x51);
+            self.op(0x51);
             self.emit(1);
 
             if op == "+" {
                 // ADD R0, R1 (R0 += R1)
-                self.emit(0x40);
+                self.op(0x40);
                 self.emit(0 << 4 | 1);
             } else if op == "-" {
                 // SUB R1, R0 (Need Left - Right). Current: R1=Left, R0=Right.
                 // SUB R1, R0 -> R1 = R1 - R0.
-                self.emit(0x41);
+                self.op(0x41);
                 self.emit(1 << 4 | 0);
                 // Move result back to R0
-                self.emit(0x31);
+                self.op(0x31);
                 self.emit(0 << 4 | 1);
             }
         }
@@ -998,7 +1051,7 @@ impl Compiler {
             TokenType::Num(n) => {
                 self.advance();
                 // MOVI R0, n
-                self.emit(0x30);
+                self.op(0x30);
                 self.emit(0);
                 self.emit_u16(n);
             }
@@ -1006,7 +1059,7 @@ impl Compiler {
                 self.advance();
                 if let Some(&offset) = self.locals.get(&name) {
                     // LOAD R0, [FP+Offset]
-                    self.emit(0x10);
+                    self.op(0x10);
                     self.emit(0);
                     self.emit(offset as u8);
                 } else {
@@ -1054,6 +1107,25 @@ impl Compiler {
             _ => Err(anyhow!("Expected type")),
         }
     }
+    fn op(&mut self, b: u8) {
+        let opcode = if self.unified {
+            match b {
+                0x00 => 0,
+                0x30 => 2,
+                0x31 => 1,
+                0x40 => 7,
+                0x41 => 8,
+                0x50 => 19,
+                0x51 => 20,
+                0x63 => 26,
+                0x64 => 27,
+                _ => panic!("unreachable unsupported Unified emission"),
+            }
+        } else {
+            b
+        };
+        self.emit(opcode);
+    }
     fn emit(&mut self, b: u8) {
         self.bytecode.push(b);
     }
@@ -1094,9 +1166,17 @@ impl Tc16Flavor {
         match cpu.execute(1_000_000) {
             // 1M Gas Limit
             Ok(VmStatus::Halted) => format!("Success. Output: {}", cpu.get_output()),
-            Ok(VmStatus::ExecutionFault) => format!("Error: ExecutionFault (Instructions: {})", cpu.instructions_used),
-            Ok(VmStatus::WaitingForInterrupt) => format!("Suspended: WaitingForInterrupt (Instructions: {})", cpu.instructions_used),
-            Ok(VmStatus::Running) => "Error: execution returned without a terminal status".to_string(),
+            Ok(VmStatus::ExecutionFault) => format!(
+                "Error: ExecutionFault (Instructions: {})",
+                cpu.instructions_used
+            ),
+            Ok(VmStatus::WaitingForInterrupt) => format!(
+                "Suspended: WaitingForInterrupt (Instructions: {})",
+                cpu.instructions_used
+            ),
+            Ok(VmStatus::Running) => {
+                "Error: execution returned without a terminal status".to_string()
+            }
             Err(e) => format!("Error: {} (Instructions: {})", e, cpu.instructions_used),
         }
     }
@@ -1202,9 +1282,15 @@ mod regression_tests {
 
     struct LocalContext;
     impl crate::plugin::SystemContext for LocalContext {
-        fn lookup_peer(&self, _node_id: &NodeID) -> Option<SocketAddr> { None }
-        fn is_connected(&self, _addr: SocketAddr) -> bool { false }
-        fn my_node_id(&self) -> NodeID { [0; 32] }
+        fn lookup_peer(&self, _node_id: &NodeID) -> Option<SocketAddr> {
+            None
+        }
+        fn is_connected(&self, _addr: SocketAddr) -> bool {
+            false
+        }
+        fn my_node_id(&self) -> NodeID {
+            [0; 32]
+        }
     }
 
     #[tokio::test]
@@ -1215,13 +1301,25 @@ mod regression_tests {
         for payload in [b"not a program".as_slice(), &[0xFF]] {
             let mut frame = vec![TC16_PROTO_VER, CMD_COMPILE_RUN];
             frame.extend_from_slice(payload);
-            assert!(flavor.on_stream_data(FlavorContext {
-                src_addr: peer, stream_id: 1, data_len: frame.len(), system: &LocalContext,
-            }, &frame));
-            let (destination, response) = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await.unwrap().unwrap();
+            assert!(flavor.on_stream_data(
+                FlavorContext {
+                    src_addr: peer,
+                    stream_id: 1,
+                    data_len: frame.len(),
+                    system: &LocalContext,
+                },
+                &frame
+            ));
+            let (destination, response) =
+                tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
             assert_eq!(destination, peer);
             assert_eq!(&response[..2], &[TC16_PROTO_VER, 0xFF]);
-            assert!(std::str::from_utf8(&response[2..]).unwrap().starts_with("Error: ETP_LEGACY_"));
+            assert!(std::str::from_utf8(&response[2..])
+                .unwrap()
+                .starts_with("Error: ETP_LEGACY_"));
         }
     }
 }
