@@ -48,6 +48,7 @@ for (const jf of jsonFiles) {
 // 3. Build standalone universal app.js bundle (No CORS, No ES module restrictions on file://)
 function buildStandaloneAppBundle() {
   const order = [
+    '../../ziokt/web/application-client.js',
     'core.js',
     'private-offline.js',
     'modules/home.js',

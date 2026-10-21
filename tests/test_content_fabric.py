@@ -81,7 +81,8 @@ class FabricTests(unittest.TestCase):
         self.assertEqual(len(self.fabric.search('alice','Open',filters={'author':'Alice'})['items']),1)
         self.assertEqual(self.fabric.search('bob','Open')['items'],[])
         self.assertEqual(self.fabric.search('alice','Open',filters={'author':'Other'})['items'],[])
-        self.assertEqual(self.fabric.db.execute('SELECT max(version) FROM migrations').fetchone()[0],6)
+        self.assertEqual({row[0] for row in self.fabric.db.execute('SELECT version FROM migrations')},{1,2,3,4,5,6,10})
+        self.assertEqual([row[1] for row in self.fabric.db.execute('PRAGMA table_info(news_readstate)')],['owner','article','is_read','revision'])
     def test_http_scope_range_and_origin(self):
         obj=self.upload(b'abcdefghij');self.book(obj,'public')
         token='x'*40

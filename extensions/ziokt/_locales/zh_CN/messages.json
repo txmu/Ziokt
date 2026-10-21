@@ -211,5 +211,8 @@
   },
   "attachment_limit": {
     "message": "最多 8 个附件"
+  },
+  "personal_library": {
+    "message": "我的笔记与藏书"
   }
 }

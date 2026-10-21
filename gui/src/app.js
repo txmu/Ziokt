@@ -5,6 +5,133 @@
 (function() {
   "use strict";
 
+  // --- Module: ../../ziokt/web/application-client.js ---
+/* Shared application client for WebExtensions and independent Ziokt pages.
+ * No Gateway operations, caller paths, redirects, cookies or persistent secrets.
+ */
+'use strict';
+class ZioktApplicationClient {
+  constructor({endpoint,token}) {
+    const url=new URL(endpoint);
+    if(url.username||url.password||url.search||url.hash||!['','/'].includes(url.pathname))throw Error('INVALID_APPLICATION_ORIGIN');
+    if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))throw Error('APPLICATION_TLS_REQUIRED');
+    this.endpoint=url.origin;this.token=token;
+  }
+  async call(operation,args={}) {
+    const headers={'Content-Type':'application/json'};if(this.token)headers.Authorization='Bearer '+this.token;
+    const response=await fetch(this.endpoint+'/api',{method:'POST',headers,body:JSON.stringify({operation,arguments:args}),credentials:'omit',redirect:'error'});
+    const result=await response.json();
+    if(!response.ok){const error=Error('APPLICATION_REJECTED');error.status=response.status;throw error;}
+    return result;
+  }
+  static async digest(bytes) {return 'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');}
+  async upload(file,{id=crypto.randomUUID(),progress=()=>{}}={}) {
+    if(file.size>16*1024*1024)throw Error('BROWSER_OBJECT_LIMIT');
+    const digest=await ZioktApplicationClient.digest(await file.arrayBuffer());
+    const state=await this.call('content.upload.begin',{upload:id,size:file.size,digest,mime:file.type||'application/octet-stream',name:file.name||'content.bin'});
+    if(state.state!=='complete')for(let position=state.next_missing,start=position*16384;start<file.size;position++,start+=16384){
+      const bytes=new Uint8Array(await file.slice(start,start+16384).arrayBuffer());let raw='';for(const b of bytes)raw+=String.fromCharCode(b);
+      await this.call('content.upload.put',{upload:id,position,data:btoa(raw)});progress(Math.min(file.size,start+16384),file.size);
+    }
+    const object=await this.call('content.upload.finish',{upload:id});progress(file.size,file.size);return object;
+  }
+  async download(id,{progress=()=>{}}={}) {
+    const metadata=await this.call('content.object.info',{id});
+    if(metadata.size>16*1024*1024)throw Error('BROWSER_OBJECT_LIMIT');
+    const parts=[];
+    for(let position=0;position<Math.ceil(metadata.size/16384);position++){
+      const part=await this.call('content.object.get',{id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));progress(Math.min(metadata.size,(position+1)*16384),metadata.size);
+    }
+    const blob=new Blob(parts,{type:'application/octet-stream'});
+    if(await ZioktApplicationClient.digest(await blob.arrayBuffer())!==metadata.digest)throw Error('OBJECT_INTEGRITY');
+    return {blob,metadata};
+  }
+}
+globalThis.ZioktApplicationClient=ZioktApplicationClient;
+
+/* Same personal-content controls in Content Web, the GUI bundle and extensions. */
+globalThis.ZioktPersonalViews={
+  async readstate(container,{call,article,language='en',status=()=>{}}) {
+    const zh=language.startsWith('zh'),node=document.createElement('button');
+    node.style.minHeight='44px';node.disabled=true;container.append(node);
+    let state;
+    const refresh=()=>{node.textContent=state.is_read?(zh?'标为未读':'Mark unread'):(zh?'标为已读':'Mark read');node.disabled=false;node.setAttribute('aria-pressed',String(state.is_read));};
+    node.textContent=zh?'读取阅读状态…':'Loading read state…';
+    try {state=await call('netnews.readstate.get',{article});if(!node.isConnected)return;refresh();}
+    catch(error){node.textContent=zh?'阅读状态不可用':'Read state unavailable';status(error.message);return;}
+    node.onclick=async()=>{node.disabled=true;try{state=await call('netnews.readstate.update',{article,is_read:!state.is_read,revision:state.revision});if(node.isConnected)refresh();}
+      catch(error){status((zh?'更新未完成；重新加载文章后重试。':'Update incomplete; reopen the article to retry. ')+error.message);node.disabled=false;}};
+  },
+  library(container,{call,book,language='en',status=()=>{},position=()=>({offset:0}),navigate=()=>{}}) {
+    const zh=language.startsWith('zh'),label=(a,b)=>zh?a:b;
+    const el=(tag,value)=>{const node=document.createElement(tag);if(value!==undefined)node.textContent=value;return node;};
+    const alive=()=>container.isConnected;
+    const action=(text,fn)=>{const node=el('button',text);node.type='button';node.style.minHeight='44px';node.onclick=async()=>{node.disabled=true;try{await fn();}catch(error){status(error.message);}finally{node.disabled=false;}};return node;};
+    const field=(title,tag='input')=>{const wrap=el('label',title),node=el(tag);node.style.cssText='display:block;min-height:44px;width:100%;max-width:100%;box-sizing:border-box';wrap.append(node);container.append(wrap);return node;};
+    container.append(el('h3',label('我的笔记、书签与藏书','My notes, bookmarks and collections')));
+    const editor=field(label('私人笔记','Private note'),'textarea');editor.maxLength=8192;editor.rows=3;
+    let editing=null,noteOffset=0,bookmarkOffset=0,collectionOffset=0,selectedCollection=null,collectionRequest=0;
+    let pendingNoteId=crypto.randomUUID();
+    const notes=el('div'),marks=el('div'),collectionSelect=field(label('我的藏书','My collections'),'select');
+    const collectionName=field(label('新藏书名称','New collection name'));collectionName.maxLength=512;
+    const noteSave=action(label('保存笔记','Save note'),async()=>{
+      const args={id:editing?.id||pendingNoteId,book:book.id,text:editor.value,anchor:editing?.anchor||position()};
+      await call(editing?'library.note.update':'library.note.create',editing?{...args,revision:editing.revision}:args);
+      if(!alive())return;editor.value='';editing=null;pendingNoteId=crypto.randomUUID();noteOffset=0;await loadNotes();status(label('笔记已保存','Note saved'));
+    });
+    container.append(noteSave,action(label('取消编辑','Cancel editing'),async()=>{editing=null;editor.value='';pendingNoteId=crypto.randomUUID();}));
+    const bookmarkLabel=field(label('书签名称','Bookmark name'));bookmarkLabel.maxLength=512;
+    let pendingMark=null;
+    container.append(action(label('添加书签','Add bookmark'),async()=>{
+      // Keep exact intent after an uncertain response; editing creates a new intent.
+      if(!pendingMark)pendingMark={id:crypto.randomUUID(),book:book.id,label:bookmarkLabel.value,anchor:position(),revision:0};
+      await call('library.bookmark.set',pendingMark);pendingMark=null;if(alive()){bookmarkOffset=0;await loadBookmarks();}
+    }));
+    const addCollection=action(label('加入选中藏书','Add to selected collection'),async()=>{
+      selectedCollection=collectionSelect.selectedOptions[0]?._entry;
+      if(!selectedCollection)throw Error(label('请先选择藏书','Select a collection first'));
+      const result=await call('library.collection.manage',{id:selectedCollection.id,action:'add',book:book.id,revision:selectedCollection.revision});
+      if(alive()){collectionSelect.selectedOptions[0]._entry=result;status(label('已加入藏书','Added to collection'));}
+    });addCollection.disabled=true;
+    container.append(notes,marks,action(label('创建藏书','Create collection'),async()=>{
+      const name=collectionName.value;if(!name)throw Error(label('请填写藏书名称','Enter a collection name'));
+      if(!collectionName.dataset.intent)collectionName.dataset.intent=crypto.randomUUID();
+      await call('library.collection.manage',{id:collectionName.dataset.intent,action:'create',name,revision:0});
+      if(!alive())return;collectionName.value='';delete collectionName.dataset.intent;collectionOffset=0;await loadCollections();
+    }),addCollection);
+    async function loadNotes(){
+      const result=await call('library.note.list',{book:book.id,limit:30,offset:noteOffset});if(!alive())return;
+      notes.replaceChildren(el('h4',label('笔记','Notes')));
+      for(const item of result.items){const row=el('article');row.append(el('p',item.text),action(label('编辑','Edit'),async()=>{editing=item;editor.value=item.text;editor.focus();}),action(label('删除笔记','Delete note'),async()=>{
+        if(!confirm(label('删除这条私人笔记？','Delete this private note?')))return;
+        await call('library.note.delete',{id:item.id,revision:item.revision});await loadNotes();
+      }));notes.append(row);}
+      if(noteOffset)notes.append(action(label('上一页笔记','Previous notes'),async()=>{noteOffset=Math.max(0,noteOffset-30);await loadNotes();}));
+      if(result.next_offset!==null)notes.append(action(label('下一页笔记','Next notes'),async()=>{noteOffset=result.next_offset;await loadNotes();}));
+    }
+    async function loadBookmarks(){
+      const result=await call('library.bookmark.list',{book:book.id,limit:30,offset:bookmarkOffset});if(!alive())return;
+      marks.replaceChildren(el('h4',label('书签','Bookmarks')));
+      for(const item of result.items)marks.append(action(item.label||label('跳转书签','Go to bookmark'),async()=>navigate(item.anchor)),action(label('删除书签','Delete bookmark'),async()=>{
+        if(!confirm(label('删除这个书签？','Delete this bookmark?')))return;
+        await call('library.bookmark.delete',{id:item.id,revision:item.revision});await loadBookmarks();
+      }));
+      if(bookmarkOffset)marks.append(action(label('上一页书签','Previous bookmarks'),async()=>{bookmarkOffset=Math.max(0,bookmarkOffset-30);await loadBookmarks();}));
+      if(result.next_offset!==null)marks.append(action(label('下一页书签','Next bookmarks'),async()=>{bookmarkOffset=result.next_offset;await loadBookmarks();}));
+    }
+    async function loadCollections(){
+      const request=++collectionRequest;addCollection.disabled=true;
+      const result=await call('library.collection.list',{limit:30,offset:collectionOffset});if(!alive()||request!==collectionRequest)return;
+      collectionSelect.replaceChildren();for(const item of result.items){const option=el('option',item.name);option.value=item.id;option._entry=item;collectionSelect.append(option);}
+      collectionSelect.dataset.next=result.next_offset===null?'':String(result.next_offset);
+      addCollection.disabled=result.items.length===0;
+    }
+    container.append(action(label('上一页藏书','Previous collections'),async()=>{collectionOffset=Math.max(0,collectionOffset-30);await loadCollections();}),action(label('下一页藏书','Next collections'),async()=>{if(collectionSelect.dataset.next){collectionOffset=Number(collectionSelect.dataset.next);await loadCollections();}}),action(label('加载我的笔记和藏书','Load my notes and collections'),async()=>{await loadNotes();await loadBookmarks();await loadCollections();}));
+    return {loadNotes,loadBookmarks,loadCollections};
+  }
+};
+
+
   // --- Module: core.js ---
 // ==============================================================================
 // Ziokt Unified Graphical Client - Core Application Framework & State Manager
@@ -2243,6 +2370,8 @@ function renderLibrary(container){
   const reader=contentElement('section');reader.hidden=true;
   async function show(book){
     reader.hidden=false;reader.replaceChildren(contentElement('h2',book.title));
+    const personal=contentElement('details'),personalPanel=contentElement('section');personal.append(contentElement('summary',State.language==='en'?'My notes and collections':'我的笔记与藏书'),personalPanel);reader.append(personal);
+    ZioktPersonalViews.library(personalPanel,{call:(op,args)=>contentTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
     const info=await contentTool('content.object.info',{id:book.file_id});
     if(info.size>16*1024*1024)throw Error('此文件超过浏览器阅读预算，请使用流式客户端下载。');
     const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
@@ -2277,7 +2406,7 @@ function renderNetnews(container){
   const layout=contentElement('div');layout.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px';const groups=contentElement('aside'),list=contentElement('section'),article=contentElement('article');layout.append(groups,list,article);container.append(layout);
   let selected='',refs=[];
   const posting=contentElement('details');posting.open=true;posting.append(contentElement('summary','发布 / 回复'));const form=contentElement('div');posting.append(form);container.append(posting);const groupField=contentField(form,'新闻组','group'),subject=contentField(form,'标题','subject'),body=contentField(form,'正文','body','textarea');
-  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';article.append(text,contentAction('加密保存正文与全部附件',()=>saveOfflineArticle(item,status),status),contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
+  async function loadArticles(name){selected=name;groupField.value=name;list.replaceChildren(contentElement('h2',name));list.append(contentAction('订阅',async()=>{await contentTool('content.subscription.save',{kind:'newsgroup',target:name,settings:{body:true,attachments:false}},true);status.textContent='订阅偏好已保存';},status));const data=await contentTool('netnews.articles',{group:name,low:1,limit:100});for(const item of data.items)list.append(contentAction(item.number+' · '+item.subject,async()=>{article.replaceChildren(contentElement('h2',item.subject),contentElement('p',item.from+' · '+item.date));const text=contentElement('pre',item.body);text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';ZioktPersonalViews.readstate(article,{call:(op,args)=>contentTool(op,args,op.endsWith('.update')),article:item.message_id,language:State.language,status:value=>status.textContent=value});article.append(text,contentAction('加密保存正文与全部附件',()=>saveOfflineArticle(item,status),status),contentAction('回复',()=>{refs=[...(item.references||[]),item.message_id].slice(-32);subject.value='Re: '+item.subject;body.focus();},status));},status));}
   async function loadGroups(){groups.replaceChildren(contentElement('h2','新闻组'));const data=await contentTool('netnews.groups');for(const group of data.items)groups.append(contentAction(group.name,()=>loadArticles(group.name),status));status.textContent=`${data.items.length} 个可见新闻组`;}
   container.insertBefore(contentAction('加载新闻组',loadGroups,status),layout);
   form.append(contentAction('发布',async()=>{if(!groupField.value||!subject.value||!body.value)throw Error('请填写新闻组、标题和正文');await contentTool('netnews.post',{groups:[groupField.value],subject:subject.value,body:body.value,references:refs},true);refs=[];body.value='';await loadArticles(groupField.value);status.textContent='文章已持久发布';},status));

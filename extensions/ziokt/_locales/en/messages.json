@@ -211,5 +211,8 @@
   },
   "attachment_limit": {
     "message": "Up to 8 attachments"
+  },
+  "personal_library": {
+    "message": "My notes and collections"
   }
 }

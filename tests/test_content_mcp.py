@@ -40,8 +40,18 @@ class ContentMcpTests(unittest.TestCase):
    obj=call('content_upload_finish',{'upload':'test-upload'},'operation-finish-001')
    call('library_publish',{'metadata':{'id':'book','work_id':'w','edition_id':'e','file_id':obj['id'],'title':'MCP book','license':'CC0-1.0'}},'operation-book-0001')
    self.assertEqual(len(call('library_search',{})['items']),1)
+   note_args={'id':'mcp-note','book':'book','text':'Private MCP note','anchor':{'offset':4}}
+   note=call('library_note_create',note_args,'operation-note-0001')
+   self.assertEqual(note,call('library_note_create',note_args,'operation-note-0001'))
+   self.assertEqual(call('library_note_list',{'book':'book'})['items'],[note])
+   shelf=call('library_collection_manage',{'id':'mcp-shelf','action':'create','name':'Private MCP collection','revision':0},'operation-shelf-0001')
+   call('library_collection_manage',{'id':shelf['id'],'action':'add','book':'book','revision':shelf['revision']},'operation-add-00001')
+   self.assertEqual(call('library_collection_get',{'id':shelf['id']})['items'][0]['id'],'book')
    reader={'client':'reader','scopes':{'library:read'}}
    self.assertEqual(service.call(reader,'library_search',{})['structuredContent']['items'],[])
+   self.assertEqual(service.call(reader,'library_collection_list',{})['structuredContent']['items'],[])
+   denied=service.call(reader,'library_note_list',{'book':'book'})
+   self.assertTrue(denied['isError'])
    with self.assertRaises(McpError):service.call(reader,'content_upload_finish',{'upload':'test-upload'},'rejected-operation-01')
    service.close()
  def test_cold_checkpoint_and_tamper_rejection(self):

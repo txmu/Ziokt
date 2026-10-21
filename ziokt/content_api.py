@@ -8,6 +8,16 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'library.note.list':({'book':str,'limit':int,'offset':int},False),
+ 'library.note.create':({'id':str,'book':str,'text':str,'anchor':dict},True),
+ 'library.note.update':({'id':str,'book':str,'text':str,'anchor':dict,'revision':int},True),
+ 'library.note.delete':({'id':str,'revision':int},True),
+ 'library.bookmark.list':({'book':str,'limit':int,'offset':int},False),
+ 'library.bookmark.set':({'id':str,'book':str,'label':str,'anchor':dict,'revision':int},True),
+ 'library.bookmark.delete':({'id':str,'revision':int},True),
+ 'library.collection.list':({'limit':int,'offset':int},False),
+ 'library.collection.get':({'id':str,'limit':int,'offset':int},False),
+ 'library.collection.manage':({'id':str,'action':str,'revision':int,'name':str,'book':str},True),
  'netnews.readstate.get':({'article':str},False),
  'netnews.readstate.update':({'article':str,'is_read':bool,'revision':int},True),
  'library.etp.begin':({'proof':str,'peer':str,'record':str,'visibility':str,'nonce':str},True),
@@ -88,6 +98,7 @@ def required_scopes(operation):
 
 
 def optional_fields(operation):
+    if operation=='library.collection.manage':return {'name','book'}
     return (OPTIONAL-{'group'} if operation.startswith('content.etp.') else OPTIONAL) | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
 
 
@@ -97,6 +108,18 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-optional_fields(operation))-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation.startswith(('library.note.','library.bookmark.','library.collection.')):
+        from .library_personal import PersonalLibrary
+        personal=PersonalLibrary(fabric)
+        kind,action=operation.split('.')[1:]
+        if kind=='collection':
+            if action=='list':return personal.collections(owner,**args)
+            if action=='get':return personal.collection_get(owner,**args)
+            return personal.collection_manage(owner,**args)
+        if action=='list':return personal.list(owner,kind,**args)
+        if action=='delete':return personal.delete(owner,kind,**args)
+        values=dict(args);value=values.pop('text' if kind=='note' else 'label')
+        return personal.save(owner,kind,value=value,**values)
     if operation=='feeds.describe':
         from .content_feeds import describe
         return describe(getattr(fabric,'feed_base_url',''))
@@ -232,6 +255,16 @@ def attach(service, config):
         if operation.startswith('netnews.readstate.'):
             props['article']['maxLength']=300
             if 'revision' in props:props['revision'].update(minimum=0,maximum=2**63-2)
+        if operation.startswith(('library.note.','library.bookmark.','library.collection.')):
+            for key in ('id','book'):
+                if key in props:props[key]['maxLength']=300
+            if 'limit' in props:props['limit'].update(minimum=1,maximum=100)
+            if 'offset' in props:props['offset'].update(minimum=0,maximum=10000)
+            if 'revision' in props:props['revision'].update(minimum=0,maximum=2**63-2)
+            if 'text' in props:props['text']['maxLength']=8192
+            if 'label' in props:props['label']['maxLength']=512
+            if 'anchor' in props:props['anchor']={'type':'object','properties':{'chapter':{'type':'integer','minimum':0,'maximum':2**31-1},'offset':{'type':'integer','minimum':0,'maximum':2**31-1},'quote':{'type':'string','maxLength':2048}},'required':[],'additionalProperties':False}
+            if 'action' in props:props['action']['enum']=['create','rename','add','remove','delete']
         if operation=='netnews.post':
             props['attachments']={'type':'array','maxItems':8,'items':{'type':'object','properties':{'id':{'type':'string','maxLength':68},'name':{'type':'string','maxLength':255}},'required':['id','name'],'additionalProperties':False}}
         if operation=='optimization.evaluate':
