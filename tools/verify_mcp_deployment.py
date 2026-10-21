@@ -10,7 +10,7 @@ from ziokt.gateway_store import NoRedirect
 def verify(issuer,admin_token):
  class RedirectToHeader(urllib.request.HTTPRedirectHandler):
   def redirect_request(self,*args,**kwargs):return None
- opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),RedirectToHeader())
+ opener=urllib.request.build_opener(RedirectToHeader())
  def request(path,data=None,headers=None):
   if isinstance(data,dict):data=json.dumps(data).encode()
   req=urllib.request.Request(issuer+path,data=data,headers=headers or {})
