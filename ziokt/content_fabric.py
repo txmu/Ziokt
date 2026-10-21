@@ -418,7 +418,7 @@ class Fabric:
     def groups(self, owner):
         with self.lock:return {'items':[dict(row) for row in self.db.execute("SELECT * FROM groups WHERE visibility='public' OR owner=? ORDER BY name",(owner,))]}
 
-    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None, attachments=None, sender=None):
+    def post(self, owner, groups, subject, body, message_id=None, references=None, author=None, native_headers=None, raw_article=None, attachments=None, sender=None, source_expires=None):
         if not isinstance(groups,list) or not 1<=len(groups)<=8 or len(set(groups))!=len(groups):raise ValueError('groups')
         header(subject);text(body,8192,empty=True)
         if author is not None and author!=owner:raise PermissionError('From must match authenticated identity')
@@ -460,6 +460,9 @@ class Fabric:
                 if existing['deleted'] or existing['owner']!=owner or prior.get('attachments',[])!=value.get('attachments',[]) or any(prior.get(k)!=value[k] for k in ('newsgroups','subject','body','from','references')):raise ValueError('Message-ID conflict')
                 return {'id':mid,**prior,'duplicate':True}
             expiry=int(time.time())+min(p['retention'] for p in policies)
+            if source_expires is not None:
+                if type(source_expires) is not int or source_expires<0 or source_expires and source_expires<=int(time.time()):raise ValueError('source expiry')
+                if source_expires:expiry=min(expiry,source_expires)
             result=self._event(owner,'article',mid,value,visibility,expires=expiry)
             self._number(mid,groups)
             return result

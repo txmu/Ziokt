@@ -21,6 +21,7 @@ class EtpNews:
             fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_grants(id TEXT PRIMARY KEY,owner TEXT NOT NULL,proof BLOB NOT NULL,revoked INTEGER NOT NULL DEFAULT 0)')
             fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_jobs(id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,record TEXT NOT NULL,event TEXT NOT NULL,content BLOB NOT NULL,timestamp INTEGER NOT NULL,state TEXT NOT NULL,native_id TEXT,error TEXT NOT NULL DEFAULT \'\')')
             fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_links(native_id TEXT PRIMARY KEY,record TEXT NOT NULL,grant_id TEXT NOT NULL,direction TEXT NOT NULL,author TEXT NOT NULL)')
+            fabric.db.execute('CREATE TABLE IF NOT EXISTS etp_content_proofs(native_id TEXT PRIMARY KEY,post BLOB NOT NULL,content BLOB NOT NULL,FOREIGN KEY(native_id) REFERENCES etp_content_links(native_id))')
             fabric.db.execute('INSERT OR IGNORE INTO migrations VALUES(7,unixepoch())')
 
     def native(self,identifier):
@@ -54,7 +55,7 @@ class EtpNews:
         if type(value['expires']) is not int or not now<value['expires']<=now+86400:raise PermissionError('native authorization expired')
         subscription=self.gateway.call('etp.forum.subscribe',{'topic':value['topic']})
         if subscription['topic_hash']!=value['topic_hash']:raise PermissionError('authorization topic mismatch')
-        proof=sign({'grant':value,'native_proof':native_proof},f.key,DOMAIN)
+        proof=sign({'grant':value,'native_proof':native_proof,'native_post':post},f.key,DOMAIN)
         identifier=hashlib.sha256(encoded(proof)).hexdigest()
         with f.transaction():
             policy=f.db.execute('SELECT * FROM groups WHERE name=?',(value['group'],)).fetchone()
@@ -94,6 +95,7 @@ class EtpNews:
         with f.transaction():
             row=f.db.execute('SELECT * FROM records WHERE id=?',(record,)).fetchone()
             if not row or row['owner']!=owner or row['origin']!=f.public or row['visibility']!='public':raise PermissionError('owned local public article required')
+            if not row['deleted'] and row['expires'] and row['expires']<=int(time.time()):raise PermissionError('source article expired')
             if row['kind']!='article':raise ValueError('Netnews article required')
             loop=f.db.execute("SELECT native_id FROM etp_content_links WHERE record=? AND direction='import'",(record,)).fetchone()
             if loop:return {'state':'loop_suppressed','native_id':loop['native_id'],'remote_delivery_confirmed':False}
@@ -131,6 +133,8 @@ class EtpNews:
             if content!=encoded(intent['payload']) or post['author_id']!=grant['native_author'] or post['topic_hash']!=grant['topic_hash'] or post['parent_id']!=intent['parent']:raise ProtocolError('ETP_CONTENT_MISMATCH','Native readback differs from journaled content')
             self.grant(owner,grant_id)
             with f.transaction():
+                authorization=f.db.execute('SELECT revoked FROM etp_content_grants WHERE id=? AND owner=?',(grant_id,owner)).fetchone()
+                if not authorization or authorization['revoked'] or grant['expires']<=int(time.time()):raise PermissionError('authorization revoked before commit')
                 current=f.db.execute('SELECT event FROM records WHERE id=?',(record,)).fetchone()
                 if not current or current['event']!=entry['event']:raise ProtocolError('ETP_SOURCE_CHANGED','Source changed during native publication; reconcile the journal')
                 f.db.execute("UPDATE etp_content_jobs SET state='native_stored',native_id=?,error='' WHERE id=?",(published['id'],job))
@@ -145,10 +149,13 @@ class EtpNews:
         grant=self.grant(owner,grant_id,require_signer=False);post,content=self.native(native_id);f=self.fabric
         if post['author_id']!=grant['native_author'] or post['topic_hash']!=grant['topic_hash']:raise PermissionError('native author/topic is outside mutual authorization')
         with f.transaction():
+            authorization=f.db.execute('SELECT revoked FROM etp_content_grants WHERE id=? AND owner=?',(grant_id,owner)).fetchone()
+            if not authorization or authorization['revoked'] or grant['expires']<=int(time.time()):raise PermissionError('authorization revoked before import')
             linked=f.db.execute('SELECT * FROM etp_content_links WHERE native_id=?',(native_id,)).fetchone()
             if linked:
                 if linked['grant_id']!=grant_id:raise PermissionError('native object belongs to another grant')
                 return {'state':'already_linked','record':linked['record'],'duplicate':True}
+            if f.db.execute('SELECT count(*) FROM etp_content_links').fetchone()[0]>=10000:raise ValueError('ETP import retention limit')
             parent=[]
             if post['parent_id']:
                 linked_parent=f.db.execute('SELECT record FROM etp_content_links WHERE native_id=?',(post['parent_id'],)).fetchone()
@@ -166,6 +173,7 @@ class EtpNews:
                 signed=value.get('source_event')
                 event=verify(signed,source['fabric'],EVENT_DOMAIN)
                 if hashlib.sha256(encoded(signed)).hexdigest()!=source['event'] or event['record']!=source['record'] or event['kind']!='article' or event['visibility']!='public':raise PermissionError('native envelope source event mismatch')
+                if type(event['expires']) is not int or event['expires']<0 or (not event['deleted'] and event['expires'] and event['expires']<=int(time.time())):raise PermissionError('signed source content expired')
                 if source['fabric']==f.public:raise ProtocolError('ETP_LOOP','Unreconciled local source; recover outgoing journal instead of copying')
                 if value.get('action')=='withdraw':
                     if event['deleted'] is not True:raise PermissionError('signed source withdrawal required')
@@ -179,12 +187,13 @@ class EtpNews:
                     subject=value['subject'];body=value['body']
                     if value.get('content_references'):raise ProtocolError('ETP_ATTACHMENT_SOURCE_REQUIRED','Native object sources must be authorized and retrieved before attachment import')
                     record=source['record']
-                    f.post(owner,[grant['group']],subject,body,message_id=record,references=parent,sender=event['body']['from'])
+                    f.post(owner,[grant['group']],subject,body,message_id=record,references=parent,sender=event['body']['from'],source_expires=event['expires'])
                 else:raise ValueError('bridge action')
             else:
                 record='<etp-'+native_id+'@etp.invalid>'
                 f.post(owner,[grant['group']],subject,body,message_id=record,references=parent,sender='ETP '+post['author_id'])
             f.db.execute('INSERT INTO etp_content_links VALUES(?,?,?,?,?)',(native_id,record,grant_id,'import',post['author_id']))
+            f.db.execute('INSERT INTO etp_content_proofs VALUES(?,?,?)',(native_id,encoded(post),content))
             f._audit(owner,'etp.content-import',native_id)
             return {'state':'imported','record':record,'native_signature_verified':True,'remote_delivery_confirmed':False}
 
