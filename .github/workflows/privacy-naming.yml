@@ -53,7 +53,7 @@ jobs:
           test_community_network test_mcp test_gateway_native test_native_shielded test_native_deployment
       - name: Actual Corium mine, stake vote and derived-state rebuild
         working-directory: Corium
-        run: python -m unittest -v test_core test_privacy_consensus test_naming_ibc test_engine_governance_cli test_engine_proof_boundary
+        run: python -m unittest -v test_core test_privacy_consensus test_naming_ibc test_engine_governance_cli test_engine_proof_boundary test_work_weight_policy
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'

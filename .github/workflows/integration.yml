@@ -209,7 +209,7 @@ jobs:
         run: |
           bash -n corix_v108.sh
           python ci/static-checks.py
-          python -m unittest -v test_ziokt test_zkt test_gateway test_forum_v3 test_engine_weights test_engine_governance_cli test_engine_proof_boundary
+          python -m unittest -v test_ziokt test_zkt test_gateway test_forum_v3 test_engine_weights test_engine_governance_cli test_engine_proof_boundary test_work_weight_policy
       - name: Verify six isolated signed Extensions with runner user namespaces
         run: |
           original_apparmor_userns="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
