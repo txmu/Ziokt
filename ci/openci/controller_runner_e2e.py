@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tarfile
@@ -49,10 +50,20 @@ print('Native isolated task completed',flush=True)
             with tarfile.open(source,'w') as archive:
                 for name,payload in [('build.py',code.encode()),('input.txt',b'13 21 34')]:
                     member=tarfile.TarInfo(name);member.size=len(payload);archive.addfile(member,io.BytesIO(payload))
-            ref=owner.upload('demo',source)
             primary=task('build',image,'community');second=task('verify',image,'trusted');second['needs']=['build']
-            value={'schema':'openci.pipeline.v1','project':'demo','nonce':'real-oci-e2e','source':ref,'tasks':[primary,second]}
-            pid=owner.request('POST','/v1/pipelines',value)['pipeline']
+            value={'schema':'openci.pipeline.v1','project':'demo','nonce':'real-oci-e2e','source':None,'tasks':[primary,second]}
+            repository=root/'git-source';repository.mkdir()
+            (repository/'build.py').write_text(code);(repository/'input.txt').write_bytes(b'13 21 34')
+            def git(*args):return subprocess.check_output(['git','-C',str(repository),*args],text=True).strip()
+            git('init','-b','main');git('add','build.py','input.txt');git('-c','user.name=OpenCI CI','-c','user.email=ci@example.invalid','commit','-m','Real pipeline source')
+            commit=git('rev-parse','HEAD')
+            settings=json.loads(config.read_text());webhook_key=root/'webhook.key';webhook_key.write_bytes(__import__('secrets').token_urlsafe(32).encode());webhook_key.chmod(0o600)
+            settings['git_projects']={'demo':{'repository':str(repository),'ref':'refs/heads/main','template':value,'webhook_key':str(webhook_key)}}
+            config.write_text(json.dumps(settings))
+            import hashlib,hmac,urllib.request
+            raw=json.dumps({'ref':'refs/heads/main','after':commit,'deleted':False}).encode()
+            request=urllib.request.Request(origin+'/v1/webhooks/github/demo',raw,{'Content-Type':'application/json','X-Hub-Signature-256':'sha256='+hmac.new(webhook_key.read_bytes(),raw,hashlib.sha256).hexdigest(),'X-GitHub-Event':'push','X-GitHub-Delivery':'real-oci-source-commit'},method='POST')
+            with urllib.request.urlopen(request) as response:pid=json.load(response)['pipeline']
             for worker,pool in [('builder','community'),('verifier','trusted')]:
                 owner.request('POST','/v1/workers/approve',{'worker':worker,'arch':'x86_64','pool':pool,'cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
                 runner=Runner(Client(origin,worker+'-integration-token'),root/worker,[image]);runner.recover()
@@ -80,7 +91,7 @@ print('Native isolated task completed',flush=True)
             logs=owner.request('GET','/v1/logs?pipeline='+pid+'&task=build&attempt=1')['chunks']
             assert logs, 'Real-time log stream was not persisted'
             print(json.dumps({'schema':'openci.oci-e2e.v1','state':'passed','pipeline':pid,'image':image,
-                'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
+                'git_webhook_trigger':True,'git_commit':commit,'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
                 'distinct_hosts':False,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
         finally:server.shutdown();server.server_close();thread.join();controller.close()
 

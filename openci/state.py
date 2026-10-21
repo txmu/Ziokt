@@ -111,6 +111,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS attempts(pipeline TEXT,id TEXT,attempt INTEGER,worker TEXT,state TEXT,started INTEGER,finished INTEGER,receipt TEXT,PRIMARY KEY(pipeline,id,attempt),FOREIGN KEY(pipeline,id) REFERENCES tasks(pipeline,id));
                 CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,created INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,pipeline TEXT,task TEXT,detail TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS log_chunks(pipeline TEXT,task TEXT,attempt INTEGER,position INTEGER,body BLOB NOT NULL,PRIMARY KEY(pipeline,task,attempt,position),FOREIGN KEY(pipeline,task) REFERENCES tasks(pipeline,id));
+                CREATE TABLE IF NOT EXISTS git_schedules(project TEXT PRIMARY KEY,next_due INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS git_deliveries(project TEXT NOT NULL,delivery TEXT NOT NULL,commit_id TEXT NOT NULL,state TEXT NOT NULL,pipeline TEXT,error TEXT,updated INTEGER NOT NULL,PRIMARY KEY(project,delivery));
                 CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,pipeline TEXT NOT NULL,task TEXT NOT NULL,project TEXT NOT NULL,name TEXT NOT NULL,version TEXT NOT NULL,publisher TEXT NOT NULL,state TEXT NOT NULL,request TEXT NOT NULL,publication TEXT,created INTEGER NOT NULL,UNIQUE(name,version,publisher),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
                 PRAGMA user_version=1;
             ''')

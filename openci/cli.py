@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 import tempfile
+import threading
 import time
 from ziokt.protocol import secure_read, strict_json
 from .client import Client
@@ -32,12 +33,16 @@ def main():
     parser.add_argument('--root',type=Path,default=Path.home()/'.local/share/openci')
     sub=parser.add_subparsers(dest='action',required=True)
     sub.add_parser('init')
+    sub.add_parser('git-tick')
+    p=sub.add_parser('git-configure');p.add_argument('--project',required=True);p.add_argument('--repository',type=Path,required=True);p.add_argument('--ref',default='refs/heads/main');p.add_argument('--template',type=Path,required=True);p.add_argument('--interval',type=int)
     p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True)
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
     p=sub.add_parser('principal-add');p.add_argument('name');p.add_argument('--role',choices=['submit','worker'],required=True);p.add_argument('--project',action='append',required=True);p.add_argument('--worker')
-    for name in ['upload','submit','inspect','cancel','retry','worker-approve','runner']:
+    for name in ['upload','submit','inspect','cancel','retry','worker-approve','runner','git-trigger','release-publish']:
         p=sub.add_parser(name);p.add_argument('--server',default='http://127.0.0.1:8768');p.add_argument('--token-file',type=Path)
+        if name=='git-trigger':p.add_argument('--project',required=True);p.add_argument('--commit',required=True);p.add_argument('--delivery',required=True)
+        if name=='release-publish':p.add_argument('pipeline');p.add_argument('task');p.add_argument('--name',required=True);p.add_argument('--version',required=True)
         if name=='upload':p.add_argument('--project',required=True);p.add_argument('file',type=Path)
         if name=='submit':p.add_argument('file',type=Path)
         if name in ('inspect','cancel','retry'):p.add_argument('pipeline')
@@ -51,6 +56,26 @@ def main():
         private_write(root/'owner.token',(token+'\n').encode())
         private_write(root/'controller.json',{'schema':'openci.controller.v1','principals':{'owner':{'role':'admin','projects':[],'token_sha256':hashlib.sha256(token.encode()).hexdigest()}}})
         print(json.dumps({'state':'initialized','config':str(root/'controller.json'),'token_file':str(root/'owner.token')}));return
+    if args.action=='git-configure':
+        from .git_source import resolve
+        identifier(args.project)
+        repository=args.repository.resolve();resolve(repository,args.ref)
+        if args.interval is not None and not 60<=args.interval<=2592000:parser.error('interval must be 60..2592000 seconds')
+        template=strict_json(args.template.read_bytes(),65536)
+        config=strict_json(secure_read(root/'controller.json',65536),65536)
+        key=root/('git-'+args.project+'.key')
+        if not key.exists():private_write(key,secrets.token_urlsafe(32).encode())
+        value={'repository':str(repository),'ref':args.ref,'template':template,'webhook_key':str(key)}
+        if args.interval is not None:value['interval_seconds']=args.interval
+        config.setdefault('git_projects',{})[args.project]=value
+        private_write(root/'controller.json',config,replace=True)
+        print(json.dumps({'state':'git_configured','project':args.project,'webhook_key_file':str(key),'mirror_fetch_automatic':False}));return
+    if args.action=='git-tick':
+        from .git_source import tick
+        controller=Controller(root,root/'controller.json')
+        try:print(json.dumps(tick(controller)))
+        finally:controller.close()
+        return
     if args.action=='release-configure':
         from .release import configure
         print(json.dumps(configure(root,args.native_source)));return
@@ -76,13 +101,24 @@ def main():
     if args.action=='serve':
         if not 1<=args.port<=65535:parser.error('invalid port')
         controller=Controller(root,root/'controller.json');server=Server(('127.0.0.1',args.port),handler(controller))
+        stop=threading.Event()
+        def schedules():
+            from .git_source import tick
+            while not stop.wait(5):
+                try:
+                    result=tick(controller)
+                    if result['schedule_results']:print(json.dumps(result),flush=True)
+                except Exception:print(json.dumps({'state':'scheduler_failed','retryable':True}),flush=True)
+        scheduler=threading.Thread(target=schedules,daemon=True);scheduler.start()
         try:server.serve_forever()
         except KeyboardInterrupt:pass
-        finally:server.server_close();controller.close()
+        finally:stop.set();scheduler.join(timeout=45);server.server_close();controller.close()
         return
     token=secure_read(args.token_file or root/'owner.token',4096).decode().strip()
     client=Client(args.server,token)
-    if args.action=='upload':result=client.upload(args.project,args.file)
+    if args.action=='git-trigger':result=client.request('POST','/v1/git/trigger',{'project':args.project,'commit':args.commit,'delivery':args.delivery})
+    elif args.action=='release-publish':result=client.request('POST','/v1/releases',{'pipeline':args.pipeline,'task':args.task,'name':args.name,'version':args.version})
+    elif args.action=='upload':result=client.upload(args.project,args.file)
     elif args.action=='submit':result=client.request('POST','/v1/pipelines',strict_json(args.file.read_bytes(),1024*1024))
     elif args.action=='inspect':result=client.request('GET','/v1/pipelines/'+args.pipeline)
     elif args.action=='cancel':result=client.request('POST','/v1/cancel',{'pipeline':args.pipeline})

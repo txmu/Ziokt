@@ -21,6 +21,7 @@ class Controller:
     def __init__(self, root, config):
         self.root = Path(root)
         self.config = Path(config)
+        self.git_slot=threading.BoundedSemaphore(1)
         self.state = Store(root)
         self.fabric = Fabric(self.root/'content')
 
@@ -117,6 +118,16 @@ class Controller:
             for task_id in (body['task'],body['independent_task']):
                 self.check_outputs(pipeline,task_id)
             return 200,self.state.verify_rebuild(actor,body['pipeline'],body['task'],body['independent_task'])
+        if method=='GET' and path=='/v1/git/status':
+            project=query['project'][0];self.project(principal,project)
+            with closing(self.state.connect()) as db:
+                deliveries=[dict(row) for row in db.execute('SELECT delivery,commit_id,state,pipeline,error,updated FROM git_deliveries WHERE project=? ORDER BY updated DESC LIMIT 100',(project,))]
+                schedule=db.execute('SELECT next_due FROM git_schedules WHERE project=?',(project,)).fetchone()
+            return 200,{'project':project,'deliveries':deliveries,'next_due':schedule['next_due'] if schedule else None,'automatic_mirror_fetch':False}
+        if method=='POST' and path=='/v1/git/trigger':
+            self.project(principal,body['project'],{'admin','submit'})
+            from .git_source import trigger
+            return 202,trigger(self,actor,body['project'],body['commit'],body['delivery'])
         if method == 'POST' and path == '/v1/pipelines':
             owner = self.project(principal, body.get('project'), {'admin', 'submit'})
             self.content_reference(owner, body.get('source'))
@@ -197,7 +208,6 @@ def handler(controller):
                 # API credentials are never accepted from URLs, cookies or bodies.
                 if self.headers.get('Origin'):
                     raise Error('ORIGIN_REJECTED', 'Browser access requires a configured application adapter', 403)
-                actor, principal = controller.authenticate(self.headers.get('Authorization'))
                 url = urlsplit(self.path)
                 body = None
                 if self.command in {'POST', 'PUT'}:
@@ -210,6 +220,11 @@ def handler(controller):
                     if len(raw) != size: raise Error('BODY_TRUNCATED', 'Incomplete request body')
                     body = raw if self.command == 'PUT' else strict_json(raw, limit)
                     if self.command == 'POST' and not isinstance(body, dict): raise Error('INVALID_BODY', 'Object body required')
+                if self.command=='POST' and url.path.startswith('/v1/webhooks/github/'):
+                    from .git_source import webhook
+                    result=webhook(controller,url.path.split('/')[-1],raw,self.headers)
+                    self.send(202,result);return
+                actor, principal = controller.authenticate(self.headers.get('Authorization'))
                 status, result = controller.dispatch(self.command, url.path, parse_qs(url.query, max_num_fields=16), body, actor, principal)
                 self.send(status, result)
             except Error as error:

@@ -137,3 +137,47 @@ binaries ignore the additive release table; older native engines do not support
 v2 reference packages. Keep v1 and v2 registries separate when downgrading a
 native engine; retain installed version directories and signing keys. Do not
 rewrite v2 descriptors into v1 or discard pending pin records.
+
+## Git triggers, webhooks and schedules
+
+Use a dedicated owner-maintained local Git mirror. OpenCI invokes native
+`git archive` for a full approved branch-head commit, validates the exact tar
+with the Runner's confined extractor and uploads it to Content Fabric. Repository
+scripts are never executed on the Controller. Git hooks, global configuration,
+replacement objects and inherited Git credential/config variables are disabled.
+Symlink sources and unresolved submodules are rejected, not silently omitted.
+Snapshots have a 64 MiB / 4096-entry / 30-second limit.
+
+```sh
+openci --root "$OPenci_ROOT" git-configure --project demo \
+  --repository /owner/mirrors/project.git --ref refs/heads/main \
+  --template /owner/pipelines/project.json --interval 3600
+openci --root "$OPenci_ROOT" git-trigger --project demo \
+  --commit FULL_COMMIT_ID --delivery UNIQUE_DELIVERY_ID
+```
+
+The template contains the approved task DAG. Source/project/nonce are derived
+from the configured project and incoming commit; webhook payloads cannot supply
+an executable command, arbitrary repository URL or pipeline file.
+`POST /v1/webhooks/github/PROJECT` accepts push events for the configured ref,
+`X-GitHub-Delivery`, and a SHA-256 HMAC in `X-Hub-Signature-256` over the exact
+request bytes. Configure the Git service's secret using the raw bytes in the
+owner-only webhook key file. TLS ingress is required across network boundaries;
+the Controller itself binds loopback by default. Invalid signatures never submit
+pipelines. This initial implementation requires commits to be present in the
+local mirror: mirror fetching and private Git credentials remain an operator
+responsibility, reported explicitly as `automatic_mirror_fetch:false`.
+
+Duplicate deliveries return the original pipeline, even after the branch moves;
+reusing a delivery ID for another commit fails. Intent and schedule slots persist
+in additive SQLite tables. Interrupted snapshot/submission intents recover on
+the next scheduler tick, while failed attempts expose their actual error code.
+`openci serve` ticks schedules every five seconds; `openci git-tick` provides an
+explicit one-shot alternative. Intervals range from one minute to thirty days.
+`GET /v1/git/status?project=PROJECT` returns scoped delivery states and next due
+time. A submitted Git event is not a completed or verified build.
+
+Rollback: stop the Controller, back up SQLite/config/content, remove the
+project's `git_projects` entry to stop new Git ingestion, and retain journal
+records for audit. Existing task execution and installed releases are independent
+of source mirror availability. Never delete journal rows to hide failed builds.
