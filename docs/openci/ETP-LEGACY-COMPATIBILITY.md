@@ -36,3 +36,26 @@ for the remaining semantics remain unverified.
 
 A new semantic profile is required before correcting Legacy local encoding or
 adding operations. Never silently relabel those changes as v1 compatibility.
+
+## Application service and native distribution
+
+An application service can explicitly configure a prebuilt native compiler:
+
+```json
+{"tc16_legacy_compiler":{"binary":"/owner/native/tc16_legacy_compiler","sha256":"sha256:APPROVED_BINARY_DIGEST"}}
+```
+
+`applications.tc16.compile` with `syntax:"etp-legacy"`,
+`target:"tc16-unified-v1"` and `profile:"pure-v1"` invokes that native compiler.
+The coordinator verifies the approved digest, executes a private stable snapshot,
+checks source/compiler/profile identity and rechecks the actual Unified return
+result. Missing configuration, compilation errors and semantic divergence return
+explicit errors. It does not fall back to the different Python TCC frontend.
+No native build is performed on the application server.
+
+CI also compiles through this adapter, stores program/source/debug files in real
+Content Fabric storage, admits their signed reference package into the native
+dCPM registry, installs and activates its native versioned file package, then
+executes the installed program with both real Unified executors. Test execution
+is explicit: installation itself never grants execution capability. This proves
+the bounded compiler/package/delivery path, not all Legacy language semantics.

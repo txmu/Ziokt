@@ -103,6 +103,7 @@ jobs:
         run: |
           set -o pipefail
           PYTHONPATH=. python ci/tc16_legacy_differential.py dist/native/tc16_legacy_compiler dist/native/tc16_unified_runner | tee tc16-legacy-differential-results.txt
+          PYTHONPATH=. python ci/tc16_legacy_delivery.py dist/native/tc16_legacy_compiler dist/native/tc16_unified_runner | tee tc16-legacy-delivery-results.txt
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

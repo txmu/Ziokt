@@ -134,6 +134,10 @@ def invoke(fabric, owner, operation, args):
         from .content_server import download
         return download(fabric,owner,args['book'],args['sources'],fabric.remote_peers,max_chunks=args.get('max_chunks',128))
     if operation=='applications.tc16.compile':
+        if args.get('syntax')=='etp-legacy':
+            from .tc16_legacy import compile_native
+            if args.get('target','tc16-unified-v1')!='tc16-unified-v1' or args.get('profile','pure-v1')!='pure-v1':raise ValueError('Legacy native backend requires explicit pure Unified target')
+            return compile_native(args['source'],getattr(fabric,'tc16_legacy_compiler',None))
         from .tc16_spec import compile_package
         return {'package':base64.b64encode(compile_package(**args)).decode()}
     if operation=='applications.tc16.execute':

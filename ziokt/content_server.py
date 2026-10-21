@@ -165,6 +165,7 @@ def server(fabric, config):
     tokens=config.get('tokens',[])
     peers=config.get('peers',{})
     fabric.remote_peers=peers
+    fabric.tc16_legacy_compiler=config.get('tc16_legacy_compiler')
     fabric.community_config=config.get('community',{})
     fabric.feed_base_url=config.get('feed_base_url','')
     rate_lock=threading.Lock();rates={}
