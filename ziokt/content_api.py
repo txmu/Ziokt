@@ -5,7 +5,15 @@ Account is always supplied by the authenticated transport, never an argument.
 import base64
 from .content_fabric import Fabric
 
+ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
+
 OPERATIONS={
+ 'content.rights.report':({'record':str,'complaint':dict},True),
+ 'content.rights.case':({'case':str},False),
+ 'content.rights.review':({'case':str},False),
+ 'content.rights.appeal':({'case':str,'reason':str},True),
+ 'content.rights.decide':({'case':str,'decision':str,'reason':str},True),
+ 'content.policy':({'record':str,'action':str,'reason':str},True),
  'feeds.describe':({},False),
  'feeds.items':({'source':str,'group':str,'limit':int,'offset':int},False),
  'optimization.get':({'application':str},False),
@@ -109,6 +117,15 @@ def invoke(fabric, owner, operation, args):
     if operation.startswith('community.'):
         from .community_application import invoke as community_invoke
         return community_invoke(fabric.community_config,owner,operation,args)
+    if operation.startswith('content.rights.') or operation=='content.policy':
+        from .content_rights import Governance
+        governance=Governance(fabric)
+        if operation=='content.rights.report':return governance.report(owner,args['record'],args['complaint'])
+        if operation=='content.rights.case':return governance.case(owner,args['case'])
+        if operation=='content.rights.review':return governance.case(owner,args['case'],operator=True)
+        if operation=='content.rights.appeal':return governance.appeal(owner,args['case'],args['reason'])
+        if operation=='content.rights.decide':return governance.decide(owner,args['case'],args['decision'],args['reason'],allow=True)
+        return governance.policy(owner,args['record'],args['action'],args['reason'],allow=True)
     if operation=='content.health':return fabric.health(owner)
     if operation=='content.sync':
         from .content_server import sync
@@ -169,4 +186,4 @@ def attach(service, config):
         if operation=='optimization.evaluate':
             props['joint']={'type':'array','minItems':1,'maxItems':4096,'items':{'type':'object','maxProperties':4}}
             props['decoder']={'type':'array','maxItems':4096,'items':{'type':'object','maxProperties':3}}
-        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-optional_fields(operation)),write,('content:admin' if operation in {'content.sync','content.maintenance','optimization.configure_defaults'} else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))
+        service.add(operation.replace('.','_'),'Content application: '+operation,schema(props,set(fields)-optional_fields(operation)),write,('content:admin' if operation in ADMIN_OPERATIONS else operation.split('.')[0]+(':write' if write else ':read')),('content-fabric',operation))

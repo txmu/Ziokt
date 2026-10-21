@@ -20,7 +20,7 @@ from urllib.parse import urlsplit,parse_qs
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
 from .content_fabric import Fabric, ident, merkle_verify
-from .content_api import invoke, OPERATIONS
+from .content_api import invoke, OPERATIONS, ADMIN_OPERATIONS
 from .protocol import encoded, secure_read, strict_json
 from .security import sign, verify
 from .gateway_store import byte_range
@@ -317,7 +317,7 @@ def server(fabric, config):
                     result=download(fabric,owner,args['book'],args['sources'],peers,max_chunks=args.get('max_chunks',128))
                 else:
                     fields,write=OPERATIONS[op]
-                    scope='content:admin' if op in {'content.sync','content.maintenance','optimization.configure_defaults'} else op.split('.')[0]+(':write' if write else ':read')
+                    scope='content:admin' if op in ADMIN_OPERATIONS else op.split('.')[0]+(':write' if write else ':read')
                     if scope not in scopes:raise PermissionError('scope')
                     result=invoke(fabric,owner,op,args)
                 self.send(200,result)

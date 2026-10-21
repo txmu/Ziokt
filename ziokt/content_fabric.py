@@ -151,6 +151,8 @@ class Fabric:
         with self.db:
             self.db.execute('CREATE TABLE IF NOT EXISTS feed_observations(owner TEXT,source TEXT,native TEXT,observed INTEGER NOT NULL,PRIMARY KEY(owner,source,native))')
             self.db.execute('INSERT OR IGNORE INTO migrations VALUES(5,unixepoch())')
+        from .content_rights import initialize
+        initialize(self)
         os.chmod(path,0o600)
 
     def close(self):
@@ -193,6 +195,7 @@ class Fabric:
     def _get(self, owner, record, kind=None):
         row=self.db.execute('SELECT * FROM records WHERE id=? AND deleted=0 AND (expires=0 OR expires>?)',(record,int(time.time()))).fetchone()
         if row is None or (row['visibility']!='public' and row['owner']!=owner) or (kind and row['kind']!=kind):raise PermissionError('record unavailable')
+        if row['owner']!=owner and self.db.execute('SELECT 1 FROM local_content_policies WHERE record=? AND distribution_stopped=1',(record,)).fetchone():raise PermissionError('local distribution stopped')
         return json.loads(row['body'])
 
     def _event(self, owner, kind, record, body, visibility='private', deleted=False, expires=0):
@@ -292,7 +295,7 @@ class Fabric:
         row=self.db.execute('SELECT * FROM objects WHERE id=?',(alias[0] if alias else oid,)).fetchone()
         if row is None:raise PermissionError('object unavailable')
         if row['owner']!=owner:
-            permitted=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE ((r.origin=? AND r.owner=? AND c.object=?) OR (? AND c.object=?)) AND r.deleted=0 AND r.visibility='public' AND (r.expires=0 OR r.expires>?) LIMIT 1",(self.public,row['owner'],row['id'],bool(alias),oid,int(time.time()))).fetchone()
+            permitted=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE ((r.origin=? AND r.owner=? AND c.object=?) OR (? AND c.object=?)) AND r.deleted=0 AND r.visibility='public' AND NOT EXISTS(SELECT 1 FROM local_content_policies p WHERE p.record=r.id AND p.distribution_stopped=1) AND (r.expires=0 OR r.expires>?) LIMIT 1",(self.public,row['owner'],row['id'],bool(alias),oid,int(time.time()))).fetchone()
             if not permitted:raise PermissionError('object unavailable')
         return dict(row)
 
@@ -326,9 +329,12 @@ class Fabric:
 
     def create_book(self, owner, metadata):
         if not isinstance(metadata,dict):raise ValueError('metadata')
-        allowed={'id','work_id','edition_id','file_id','title','subtitle','authors','translators','editors','publisher','year','language','isbn','doi','tags','description','cover','pages','format','license','provenance','relations','visibility','text'}
+        allowed={'id','work_id','edition_id','file_id','title','subtitle','authors','translators','editors','publisher','year','language','isbn','doi','tags','description','cover','pages','format','license','provenance','relations','visibility','text','rights'}
         if set(metadata)-allowed:raise ValueError('unknown book fields')
         value=dict(metadata)
+        if 'rights' in value:
+            from .content_rights import metadata as rights_metadata
+            value['rights']=rights_metadata(value['rights'])
         record=ident(value.pop('id',secrets.token_hex(16)))
         visibility=value.pop('visibility','private')
         for field in ('title','work_id','edition_id','file_id','license'):text(value.get(field),2048)
@@ -356,7 +362,7 @@ class Fabric:
         limit=min(limit,profile['search_page_limit'])
         filters=filters or {}
         if not isinstance(filters,dict) or set(filters)-{'language','year','format','isbn','work_id','edition_id','author','tag'}:raise ValueError('search filters')
-        clauses=["r.kind=?","r.deleted=0","(r.expires=0 OR r.expires>?)","(r.visibility='public' OR r.owner=?)"]
+        clauses=["NOT EXISTS(SELECT 1 FROM local_content_policies p WHERE p.record=r.id AND p.deindexed=1)","r.kind=?","r.deleted=0","(r.expires=0 OR r.expires>?)","(r.visibility='public' OR r.owner=?)"]
         values=[kind,int(time.time()),owner]
         for key,value in filters.items():
             if key=='year':
@@ -462,7 +468,7 @@ class Fabric:
         with self.lock:
             policy=self.db.execute('SELECT * FROM groups WHERE name=?',(group,)).fetchone()
             if policy is None or (policy['visibility']!='public' and policy['owner']!=owner):raise PermissionError('group unavailable')
-            rows=self.db.execute("SELECT a.number,r.id,r.body FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number>=? AND r.deleted=0 AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?) ORDER BY a.number LIMIT ?",(group,low,owner,int(time.time()),limit)).fetchall()
+            rows=self.db.execute("SELECT a.number,r.id,r.body FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number>=? AND r.deleted=0 AND NOT EXISTS(SELECT 1 FROM local_content_policies p WHERE p.record=r.id AND p.distribution_stopped=1 AND r.owner!=?) AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?) ORDER BY a.number LIMIT ?",(group,low,owner,owner,int(time.time()),limit)).fetchall()
             return {'items':[{'number':r['number'],'id':r['id'],**json.loads(r['body'])} for r in rows]}
 
     def article_numbers(self, owner, group, low=1, high=2**63-1, *, previous=False, limit=None):
@@ -472,8 +478,8 @@ class Fabric:
         with self.lock:
             policy=self.db.execute('SELECT * FROM groups WHERE name=?',(group,)).fetchone()
             if policy is None or (policy['visibility']!='public' and policy['owner']!=owner):raise PermissionError('group unavailable')
-            query=" FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number BETWEEN ? AND ? AND r.deleted=0 AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?)"
-            args=(group,low,high,owner,int(time.time()))
+            query=" FROM group_articles a JOIN records r ON r.id=a.message WHERE a.name=? AND a.number BETWEEN ? AND ? AND r.deleted=0 AND NOT EXISTS(SELECT 1 FROM local_content_policies p WHERE p.record=r.id AND p.distribution_stopped=1 AND r.owner!=?) AND (r.visibility='public' OR r.owner=?) AND (r.expires=0 OR r.expires>?)"
+            args=(group,low,high,owner,owner,int(time.time()))
             if limit is not None:
                 return [dict(row) for row in self.db.execute('SELECT a.number,a.message'+query+' ORDER BY a.number '+('DESC' if previous else 'ASC')+' LIMIT ?',(*args,limit))]
             row=self.db.execute('SELECT count(*) count,coalesce(min(a.number),1) low,coalesce(max(a.number),0) high'+query,args).fetchone()
@@ -491,6 +497,10 @@ class Fabric:
         if type(after) is not int or after<0 or type(limit) is not int or not 1<=limit<=64:raise ValueError('sync bounds')
         with self.lock:
             rows=self.db.execute('SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?',(after,limit)).fetchall()
+            for row in rows:
+                record=json.loads(row['envelope'])['payload']['record']
+                if self.db.execute('SELECT 1 FROM local_content_policies WHERE record=? AND distribution_stopped=1',(record,)).fetchone():
+                    raise PermissionError('local distribution policy pauses ordered catalogue export; cursor unchanged')
             return {'node':self.public,'events':[json.loads(r['envelope']) for r in rows],'cursor':rows[-1]['seq'] if rows else after}
 
     def ingest(self, envelopes):
@@ -515,6 +525,9 @@ class Fabric:
                 if reason:
                     self.db.execute('INSERT INTO conflicts(record,event,reason,at) VALUES(?,?,?,?)',(value['record'],eid,reason,int(time.time())))
                     continue
+                if value['kind']=='book' and not value['deleted'] and 'rights' in value['body']:
+                    from .content_rights import metadata as rights_metadata
+                    rights_metadata(value['body']['rights'])
                 if value['kind']=='article' and not value['deleted']:
                     body=value['body']
                     if not MESSAGE.fullmatch(value['record']) or body.get('message_id')!=value['record']:raise ValueError('article ID')
