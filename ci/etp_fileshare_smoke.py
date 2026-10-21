@@ -32,6 +32,8 @@ def run(workers,addresses,expected):
     try:workers[1].call('etp.fileshare.request',{'hash':root,'peer':'127.0.0.1:1'})
     except ProtocolError:pass
     else:raise AssertionError('unapproved FileShare peer accepted')
+    assert workers[1].call('etp.stats',{})['schema']=='ziokt.etp-stats.v1'
+    assert workers[1].call('etp.fileshare.status',{'hash':root})['state']=='locally_indexed'
     print(json.dumps({'schema':'ziokt.native-fileshare-evidence.v1','native_etp_transport':True,
         'native_fileshare_flavor':True,'native_root':root,'bytes':len(actual),'sha256':hashlib.sha256(actual).hexdigest(),
         'library_import_verified':False,'dht_discovery_verified':False}))

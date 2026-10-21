@@ -178,6 +178,11 @@ class EtpGateway:
                     from .etp_fileshare import result as file_result
                     return file_result(method,params,result)
                 return _forum_result(method,params,result) if method in FORUM_METHODS else result
+            except ProtocolError as error:
+                # A well-formed native `{ok:false}` is an operation rejection,
+                # not a broken child process. Keep its in-memory native state.
+                if error.code not in {'ETP_REJECTED','METHOD_UNSUPPORTED'}:self.close(graceful=False)
+                raise
             except BaseException:self.close(graceful=False);raise
 
 class EtpRecordSocket:
