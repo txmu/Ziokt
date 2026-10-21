@@ -10,6 +10,7 @@ import time
 
 
 def main(output, evidence):
+    if os.environ.get('GITHUB_ACTIONS')!='true':raise RuntimeError('Native compiler probes run only in CI')
     output, evidence = Path(output), Path(evidence)
     compilers = list((output/'host/bin').glob('*-buildroot-*-gcc'))
     if len(compilers) != 1:
@@ -63,9 +64,19 @@ def main(output, evidence):
             raise RuntimeError('Offline worker was hidden by local fallback')
     compiler_info['offline_worker_rejected'] = True
     # Exercise a real ccache hit with the native target wrapper.
-    env = dict(os.environ, CCACHE_PREFIX='distcc', CCACHE_COMPILERCHECK='content')
-    for _ in range(2):
-        subprocess.run([compiler, '-O2', '-c', source, '-o', target], check=True, timeout=120, env=env)
+    env = dict(os.environ, CCACHE_PREFIX=os.environ['OPenci_DISTCC_PREFIX'], CCACHE_COMPILERCHECK='content')
+    for attempt in range(2):
+        subprocess.run([compiler, '-O2', '-c', source, '-o', target], check=True, timeout=120, env=(dict(env,CCACHE_RECACHE='1') if attempt==0 else env))
+    # Ordinary distributed preprocessing strips comments used by old host tools
+    # as fallthrough annotations. Host compilation must remain on the coordinator.
+    host=evidence/'host-fallthrough.c'
+    host.write_text('int host_probe(int x) { switch(x) { case 1: x++; /* FALLTHROUGH */\ncase 2: return x; default: return 0; } }\n')
+    subprocess.run([output/'host/bin/ccache','/usr/bin/gcc','-Wextra','-Werror=implicit-fallthrough','-c',host,'-o',evidence/'host-fallthrough.o'],check=True,timeout=60,env=dict(env,CCACHE_RECACHE='1'))
+    routing=[json.loads(line) for line in Path(os.environ['OPenci_DISTCC_ROUTING_LOG']).read_text().splitlines()]
+    if not any(entry['compiler']=='/usr/bin/gcc' and entry['remote'] is False for entry in routing):raise RuntimeError('Host preprocessing isolation was not observed')
+    if not any(entry['remote'] is True for entry in routing):raise RuntimeError('Actual target compiler did not use distcc prefix')
+    compiler_info['host_tools_kept_on_coordinator']=True
+    compiler_info['probe_remote_compiles']=sum(path.read_text().count('COMPILE_OK') for path in evidence.glob('distccd-*.log'))
     compiler_info['probe_object_sha256'] = hashlib.sha256(expected).hexdigest()
     compiler_info['workers_verified'] = [13632, 13633]
     compiler_info['software_security_verified'] = False

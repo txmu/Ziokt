@@ -30,8 +30,10 @@ def main(area, buildroot_revision, project_revision, target):
     if qemu['state'] != 'passed':
         raise RuntimeError('QEMU test did not pass')
     remote_compiles = sum(path.read_text().count('COMPILE_OK') for path in evidence.glob('distccd-*.log'))
-    if remote_compiles <= 2:
-        raise RuntimeError('No evidence of remote build compilations beyond the two probes')
+    probes=json.loads((evidence/'toolchain-probe.json').read_text())
+    probe_count=probes['probe_remote_compiles']
+    if type(probe_count) is not int or probe_count<2 or remote_compiles<=probe_count:
+        raise RuntimeError('No evidence of remote build compilations beyond actual probe baseline')
     stats = subprocess.check_output([area/'output/host/bin/ccache', '--print-stats'], text=True)
     (evidence/'ccache-machine-stats.txt').write_text(stats)
     values = dict(line.split() for line in stats.splitlines() if len(line.split()) == 2)
@@ -50,7 +52,7 @@ def main(area, buildroot_revision, project_revision, target):
               'target': target, 'buildroot_revision': buildroot_revision, 'project_revision': project_revision,
               'config_sha256': digest(evidence/'buildroot.config'),
               'host_toolchain_tree_sha256': tree_digest(area/'output/host'), 'images': images,
-              'remote_compiles': remote_compiles, 'ccache_hits': hits,
+              'remote_compiles': remote_compiles, 'probe_remote_compiles':probe_count, 'build_remote_compiles':remote_compiles-probe_count, 'ccache_hits': hits,
               'distcc_topology': 'two-worker-processes-in-one-ephemeral-github-vm',
               'reproducible_build_verified': False, 'software_security_verified': False,
               'ziokt_native_storage_verified': False, 'release_signed': False,

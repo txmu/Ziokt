@@ -62,9 +62,14 @@ for port in 13632 13633; do
     distccd --daemon --no-detach --listen 127.0.0.1 --allow 127.0.0.1 --port "$port" --jobs 2 --job-lifetime 120 --log-level info --log-file "$build_area/evidence/distccd-$port.log" &
     workers+=("$!")
 done
+export OPenci_DISTCC_TARGET_BIN="$out/host/bin"
+export OPenci_DISTCC_ROUTING_LOG="$build_area/evidence/compiler-routing.jsonl"
+export OPenci_DISTCC_PREFIX="$repo_root/ci/openci/distcc_target.py"
 python3 ci/openci/distcc_probe.py "$out" "$build_area/evidence"
 # ccache calls distcc only on cache misses; ordinary preprocessing stays local.
-export CCACHE_PREFIX=distcc
+export CCACHE_PREFIX="$repo_root/ci/openci/distcc_target.py"
+export OPenci_DISTCC_TARGET_BIN="$out/host/bin"
+export OPenci_DISTCC_ROUTING_LOG="$build_area/evidence/compiler-routing.jsonl"
 export CCACHE_COMPILERCHECK=content
 make -C "$build_area/source" O="$out" -j4 2>&1 | tee "$build_area/evidence/build.log"
 unset CCACHE_PREFIX

@@ -38,3 +38,21 @@ QEMU 测试覆盖串口、rootfs 标识、内核错误检查和用户网络探�
 任一必需命令失败使 job 失败；工具链、镜像或启动失败不记为构建成功。distccd 清理只终止本次启动的 PID。QEMU 使用临时快照，不更改交付的 rootfs 原件。重试可复用经 Buildroot 验证的下载缓存与按架构区分的 ccache；不复用跨任务 staging/target 目录。
 
 当前重试由 GitHub Actions 负责。Controller 租约、跨节点任务恢复、独立验证服务与原生存储交付仍属于未实现的 OpenCI 平台工作。
+
+### Compiler routing correction
+
+The first resumed x86_64 build progressed through the toolchain/packages and
+failed in Linux 6.12.27 host objtool `libsubcmd/parse-options.c`. Its fallthrough
+annotations are comments. Ordinary distcc preprocessing removed those comments,
+so host GCC's `-Werror=implicit-fallthrough` rejected valid host source. See the
+[actual Linux source](https://github.com/gregkh/linux/blob/v6.12.27/tools/lib/subcmd/parse-options.c)
+and [GCC's warning semantics](https://gcc.gnu.org/onlinedocs/gcc-12.2.0/gcc/Warning-Options.html).
+
+The ccache prefix now distributes only absolute, approved Buildroot target
+GCC/G++ entrypoints from the prepared toolchain directory. Native host compilers
+remain on the dedicated coordinator. A CI-only host fallthrough regression probe
+keeps warnings enabled, while target probes still require real distcc with local
+fallback disabled. Routing decisions are recorded in `compiler-routing.jsonl`.
+Probe compilation counts are captured before the build, so final evidence must
+show additional successful remote compilations beyond that actual baseline.
+This avoids treating a larger probe suite as proof that the build used distcc.
