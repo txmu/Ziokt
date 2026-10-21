@@ -90,6 +90,8 @@ def forum_smoke(binary, digest, root, required):
             try:restarted.call('etp.forum.publish',invalid)
             except ProtocolError:pass
             else:raise AssertionError('invalid Forum publication accepted')
+        from etp_content_bridge_smoke import run as bridge_run
+        bridge_run(root,workers,await_post)
         print('ETP integrated native Forum: signed fragmented post, actual Ed25519 proof, persisted subscription, same-address restart and bidirectional reply passed')
     finally:
         for worker in workers:worker.close()

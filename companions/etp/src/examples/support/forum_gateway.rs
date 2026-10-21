@@ -138,6 +138,7 @@ mod enabled {
         content: String,
         author: Option<String>,
         parent_id: Option<String>,
+        timestamp: Option<i64>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -277,7 +278,9 @@ mod enabled {
                         id: [0; 32],
                         topic_hash: blake3::hash(value.topic.as_bytes()).into(),
                         author_id: None,
-                        timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64,
+                        timestamp: value.timestamp.unwrap_or(
+                            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64,
+                        ),
                         content: value.content,
                         parent_id: value.parent_id.as_deref().map(id).transpose()?,
                         signature: vec![],

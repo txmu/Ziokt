@@ -161,12 +161,18 @@ class Fabric:
     @contextmanager
     def transaction(self):
         with self.lock:
-            self.db.execute('BEGIN IMMEDIATE')
+            nested=self.db.in_transaction
+            savepoint='fabric_'+secrets.token_hex(8)
+            self.db.execute('SAVEPOINT '+savepoint if nested else 'BEGIN IMMEDIATE')
             try:
                 yield
-                self.db.commit()
+                if nested:self.db.execute('RELEASE SAVEPOINT '+savepoint)
+                else:self.db.commit()
             except BaseException:
-                self.db.rollback()
+                if nested:
+                    self.db.execute('ROLLBACK TO SAVEPOINT '+savepoint)
+                    self.db.execute('RELEASE SAVEPOINT '+savepoint)
+                else:self.db.rollback()
                 raise
 
     @contextmanager

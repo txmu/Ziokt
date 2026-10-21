@@ -31,8 +31,9 @@ def _forum_name(value):
 def _forum_params(method,params):
     fields={'etp.forum.identity':{'name'},'etp.forum.subscribe':{'topic'},'etp.forum.get':{'id'}}
     if method=='etp.forum.publish':
-        if set(params) not in ({'topic','content','author'},{'topic','content','author','parent_id'}):raise ProtocolError('INVALID_ETP','explicit named author or null and exact Forum fields required')
+        if not {'topic','content','author'}<=set(params) or set(params)-{'topic','content','author','parent_id','timestamp'}:raise ProtocolError('INVALID_ETP','explicit named author or null and exact Forum fields required')
         _forum_text(params['content'],32768)
+        if 'timestamp' in params and (type(params['timestamp']) is not int or not 0<=params['timestamp']<(1<<53)):raise ProtocolError('INVALID_ETP','bounded native timestamp required')
         if params['author'] is not None:_forum_name(params['author'])
         if params.get('parent_id') is not None:_forum_id(params['parent_id'])
     elif set(params)!=fields[method]:raise ProtocolError('INVALID_ETP','exact Forum query fields required')

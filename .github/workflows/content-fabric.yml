@@ -34,7 +34,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_webextensions.py' -v 2>&1 | tee webextension-package-results.txt
           python -m unittest discover -s tests -p 'test_netnews_feed.py' -v 2>&1 | tee nntp-feed-results.txt
           python -m unittest discover -s tests -p 'test_community_application.py' -v 2>&1 | tee community-application-results.txt
-          python -m unittest discover -s tests -p 'test_tc16_spec.py' -v 2>&1 | tee tc16-python-results.txt
+          python -m unittest discover -s tests -p 'test_tc16*.py' -v 2>&1 | tee tc16-python-results.txt
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
