@@ -60,7 +60,7 @@ def library_run(root,workers,addresses,expected,await_post):
         intake=EtpLibrary(fabric,workers[1],lambda owner:policy if owner=='native-reader' else None)
         job=intake.begin('native-reader',proof,addresses[0],'etp-library-book','public','native-ci')['job']
         partial=intake.step('native-reader',job,1)
-        assert partial['state']=='receiving' and partial['native_delivery_verified'] is False
+        assert partial['state']=='receiving' and partial['native_delivery_verified'] is False, json.dumps(partial, sort_keys=True)
         fabric.close();fabric=Fabric(area)
         intake=EtpLibrary(fabric,workers[1],lambda owner:policy if owner=='native-reader' else None)
         result=intake.step('native-reader',job,32)
