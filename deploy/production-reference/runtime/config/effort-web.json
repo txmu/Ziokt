@@ -5,6 +5,7 @@
   "port": 8081,
   "federation_config": "/home/admin/.local/share/ziokt-production/config/federation.json",
   "provider": "corium-production",
+  "network_id": "ziokt-main",
   "submitter": "f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415",
   "state_root": "/home/admin/.local/share/ziokt-production/web-state",
   "explorer": true

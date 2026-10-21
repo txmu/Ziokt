@@ -1,5 +1,7 @@
 """Bounded component functionality behind the shared application bridge."""
 import base64
+import re
+import time as _time
 from .protocol import ProtocolError, encoded, strict_json
 
 
@@ -9,6 +11,18 @@ def execute(bridge, method, params):
     if method=='component.status':
         exact([])
         return {'schema':'ziokt.component-status.v1','application':bridge.app,'status':'local-bridge-reachable','native_runtime':'not-observed','vault_ready':bridge.vault_root is not None,'auto_execute_imports':False}
+    if method=='component.health':
+        exact(['challenge'])
+        challenge=params['challenge']
+        if not isinstance(challenge,str) or not re.fullmatch('[a-f0-9]{32}',challenge):raise ProtocolError('INVALID_PARAMS','fresh 128-bit health challenge required')
+        # Reaching this point means the configured application bridge opened its
+        # community database, loaded the scoped application identity and checked
+        # its membership. It does not prove a remote peer or a standalone daemon.
+        return {'schema':'ziokt.component-health.v1','component':bridge.app,'challenge':challenge,
+                'observed_at_ms':_time.time_ns()//1_000_000,
+                'checks':{'application_bridge':'passed','community_database_and_identity':'passed',
+                          'vault_configuration':'configured' if bridge.vault_root is not None else 'not_configured',
+                          'standalone_service':'not_assessed','external_peer':'not_assessed'}}
     if method=='ano.laws':
         exact([])
         from .ano import law_report

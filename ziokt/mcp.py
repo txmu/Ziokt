@@ -22,7 +22,7 @@ from .protocol import ProtocolError, secure_read, strict_json
 
 LATEST='2026-07-28'
 VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
-BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
+BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','component.health','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
 BRIDGE_WRITE={'naming.publish','package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
 READ_NATIVE={'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
 log=logging.getLogger(__name__)
@@ -30,6 +30,26 @@ log=logging.getLogger(__name__)
 
 def schema(properties=None,required=()):
     return {'type':'object','properties':properties or {},'required':list(required),'additionalProperties':False}
+
+
+def _validate_health(result,component,challenge,*,native_etp=False):
+    expected={'pinned_native_process_rpc':'passed','native_engine_stats':'passed','external_peer':'not_assessed'} if native_etp else None
+    now=time.time_ns()//1_000_000
+    if (not isinstance(result,dict) or set(result)!={'schema','component','challenge','observed_at_ms','checks'} or
+            result['schema']!='ziokt.component-health.v1' or result['component']!=component or
+            result['challenge']!=challenge or type(result['observed_at_ms']) is not int or
+            abs(now-result['observed_at_ms'])>5000 or not isinstance(result['checks'],dict)):
+        raise ProtocolError('INVALID_HEALTH_PROOF','fresh component health challenge required')
+    if native_etp and result['checks']!=expected:
+        raise ProtocolError('INVALID_HEALTH_PROOF','native ETP stats checks required')
+    if not native_etp:
+        checks=result['checks']
+        if (set(checks)!={'application_bridge','community_database_and_identity','vault_configuration','standalone_service','external_peer'} or
+                checks['application_bridge']!='passed' or checks['community_database_and_identity']!='passed' or
+                checks['vault_configuration'] not in {'configured','not_configured'} or
+                checks['standalone_service']!='not_assessed' or checks['external_peer']!='not_assessed'):
+            raise ProtocolError('INVALID_HEALTH_PROOF','scoped application bridge checks required')
+    return result
 STRING={'type':'string','maxLength':65536}
 PARAMS={'type':'object','maxProperties':64}
 TELEGRAM_INBOX_MAX_HISTORY=2000
@@ -116,6 +136,7 @@ class Service:
             for provider in federation['providers']:
                 project=provider['native_project'];pid=provider['provider_id']
                 for method in sorted(READ_NATIVE):
+                    if method=='health.challenge':continue
                     if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge','privacy.status','privacy.review.list','privacy.review.get'}):continue
                     if project=='corium' and method=='service.binding':continue
                     native_params = PARAMS
@@ -127,6 +148,7 @@ class Service:
                     elif method == 'privacy.review.get':
                         native_params = schema({'request_id': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}, ('request_id',))
                     self.add(pid.replace('-','_')+'_'+method.replace('.','_'),f'{pid}: native {method}. Parameters follow the pinned native contract.',schema({'params':native_params},('params',)),False,project+':read',('native',pid,method))
+                self.add(pid.replace('-','_')+'_health','Fresh challenge against the pinned native provider process. Application and peer readiness remain separate.',schema(),False,project+':read',('native-health',pid))
                 for action in sorted(OPERATIONS[project]):
                     self.add(pid.replace('-','_')+'_'+action.replace('.','_')+'_plan',f'Create a reviewable {pid} {action} workflow; does not execute it.',schema({'resource':STRING,'arguments':PARAMS,'expected_revision':{'type':['string','null']},'operation_id':{'type':'string','maxLength':64}},('resource','arguments','expected_revision','operation_id')),True,project+':'+action+':plan',('plan',pid,action))
         if config.get('federation'):
@@ -175,8 +197,8 @@ class Service:
                 ('file_publish',True,{'name':STRING,'data_base64':STRING},('name','data_base64'))]:
                 self.add('gateway_'+method,'Native gateway '+method,schema(props,required),write,'gateway:'+('write' if write else 'read'),('gateway',method))
         for item in config.get('etp',{}):
-            for method,write in [('etp.mailbox.status',False),('etp.mailbox.request',True),('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
-                self.add(item.replace('-','_')+'_'+method.replace('.','_'),'Pinned native ETP '+method,schema({'params':ETP.get(method,PARAMS)},('params',)),write,'etp:'+('write' if write else 'read'),('etp',item,method))
+            for method,write in [('etp.health',False),('etp.mailbox.status',False),('etp.mailbox.request',True),('etp.stats',False),('etp.receive',True),('etp.onion.send',True),('etp.forum.identity',True),('etp.forum.subscribe',True),('etp.forum.publish',True),('etp.forum.get',False)]:
+                self.add(item.replace('-','_')+'_'+method.replace('.','_'),'Pinned native ETP '+method+('; fresh stats challenge, peer readiness separate.' if method=='etp.health' else ''),schema({'params':ETP.get(method,PARAMS)},('params',)),write,'etp:'+('write' if write else 'read'),('etp',item,method))
         telegram=config.get('telegram',{})
         if telegram.get('enabled') is True:
             if not isinstance(telegram.get('allowed_chat_ids'),list) or not telegram['allowed_chat_ids']:
@@ -457,12 +479,13 @@ class Service:
                     db.execute('DELETE FROM codes WHERE client=?',(args['client_id'],))
                 else:db.execute('DELETE FROM revoked_clients WHERE client=?',(args['client_id'],))
             return {'client':args['client_id'],'state':'revoked' if route[1]=='revoke' else 'restored'}
-        if kind in {'native','plan','workflow-status','workflow-apply'}:
+        if kind in {'native','native-health','plan','workflow-status','workflow-apply'}:
             from .config import load
             from .client import NativeClient
             from .workflow import WorkflowJournal as Journal
             federation=load(self.config['federation']);providers={p['provider_id']:p for p in federation['providers']}
             if kind=='native':return NativeClient(federation['federation_id'],providers[route[1]]).call(route[2],args['params'])
+            if kind=='native-health':return NativeClient(federation['federation_id'],providers[route[1]]).health()
             # Caller ownership is encoded in the workflow ID; no cross-client plan access.
             prefix=hashlib.sha256(principal['client'].encode()).hexdigest()[:12]+'-'
             with Journal(self.root/'workflows.db') as journal:
@@ -534,7 +557,7 @@ class Service:
             finally:bridge.close()
         if kind=='bridge':
             from .companion_bridge import CompanionBridge
-            bridge=CompanionBridge(self.config.get('exchanges',{}).get(route[1],self.config['bridges'][route[1]]) if route[2].startswith('component.') and route[2]!='component.status' else self.config['bridges'][route[1]])
+            bridge=CompanionBridge(self.config.get('exchanges',{}).get(route[1],self.config['bridges'][route[1]]) if route[2] in {'component.send','component.receive'} else self.config['bridges'][route[1]])
             try:return bridge.call(route[2],args['params'])
             finally:bridge.close()
         if kind=='gateway':

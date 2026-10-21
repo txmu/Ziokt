@@ -10,7 +10,7 @@
 - Shadow6 安全连接、命名、应用部署、恢复传输及重路由闭环。
 - UFS 外部原生服务格式兼容与恢复；dCPM 签名安装、升级及离线交付；ZDNS/NNS 签名发现与故障转移。
 - Forum、Messages/Mail、Groups、Files、Applications 统一业务模型及原生身份授权；各组件继续可独立运行。
-- Companion 原生操作健康证明、跨组件端到端结果；桥接可达不计作完成。
+- Corium/Shadow6 本地 Provider RPC 新鲜挑战已接入 doctor、inventory 和 MCP；ETP 通过 pinned native `stats` 往返、UFS/dCPM 通过应用桥身份/数据库检查接入 read-only 健康挑战。仍缺独立 UFS/dCPM daemon、ZDNS/NNS、真实远端互通回执与恢复路径健康证明。桥接可达不计作这些服务已健康。
 - 扩展 Community 应用授权覆盖评论/频道等业务；现有独立论坛授权接口不代表全面 OAuth/身份委托完成。
 
 ## 2. Content Fabric、授权和恢复
@@ -69,3 +69,5 @@
 - 保留既有 Corium/ETP/Shadow6 等功能的全量回归及部署条件记录。
 
 主网隐私资产的独立密码学审计、共识升级、多节点重放与现实匿名性评估，也不能由本项目的内容复制或签名测试替代，仍应作为独立验收项目保留。
+
+主网自由注册并在注册时自动授予 1000 权重、匿名资产迁移、OpenCI PoW 共识迁移均仍未激活。当前 validator 权重与区块提议规则仍按 Corium 已有主网共识执行；需要新增的共识版本、完整多节点升级/回放证据及治理批准尚未具备。不得把注册 API 返回、CI 构建完成或 PoUW 贡献记录描述为主网权重已生效。

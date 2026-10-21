@@ -6,6 +6,7 @@
   "explorer": true,
   "federation_config": "/srv/ziokt/federation.json",
   "provider": "corium-local",
+  "network_id": "default",
   "submitter": "0000000000000000000000000000000000000000000000000000000000000000",
   "state_root": "/srv/ziokt/effort-state"
 }

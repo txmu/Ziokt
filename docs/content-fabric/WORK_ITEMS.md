@@ -11,7 +11,11 @@
 |TC-16 ISA/ABI 命名与清单|A|版本化包头、显式目标、命名描述验证与 CLI；旧裸二进制不混用|
 |TC-16 Unified 规范、双执行器与差分 CI|B|Legacy 原生前端到 Unified 后端、Python/Rust 差分及签名交付已接入 CI；当前仅有界 pure-return 兼容配置，完整语义迁移未完成；真实应用源码缺失已按用户要求跳过|
 |统一 Forum/Mail/Groups/Files/Applications 业务模型|D|既有 ApplicationRouter 仅构成基础，不等同业务语义统一|
-|Companion 原生健康/端到端互通证明|D|既有桥接状态不作为原生验证证据|
+|Corium/Shadow6 原生 Provider RPC 新鲜健康挑战|A|一次性随机 challenge + 时间窗口 + provider/federation 绑定；源码锁定；test_provider_health 与真实 test_native_integration 通过；仅证明本地原生 RPC 响应|
+|ETP/UFS/dCPM 应用桥健康挑战|A|ETP 在 pinned native gateway 上完成 `etp.stats` 真实往返；UFS/dCPM 在已打开的身份/社区 DB/SafeFS 桥上返回新鲜 challenge；test_application_router、test_etp_adapter、test_mcp 通过；独立 UFS/dCPM daemon 和远端节点明确 not_assessed|
+|全 Companion 原生应用/远端端到端健康证明|D|ZDNS/NNS、独立 UFS/dCPM daemon、跨节点对端回执和恢复路径尚未接入；本地 RPC 在线不冒充应用可用或远端互通|
+|主网自由注册 + 注册时自动发 1000 权重|D|当前 Corium 主网验证权重仍由现行共识/质押状态决定；尚无经过版本化升级、多节点回放和治理验收的注册策略切换，不在当前主网自动激活|
+|匿名资产迁移、OpenCI PoW 共识迁移|D|两项主网迁移均未激活；匿名所有权需独立密码学审计，OpenCI 工作验证与区块共识权重须由明确共识版本连接，不能把普通 CI 完成视为出块权|
 |静态站 Community 授权 API|A|独立应用凭证、成员映射、原生论坛读写与签名证明测试通过；托管 CSP 保持，需要独立应用部署|
 |Library 作品/版本/文件、ISBN 校验|A|book 模型及轻量测试|
 |Library 高级全文/模糊/作品聚合索引|B|SQLite FTS5 元数据/保存文本索引与组合过滤已测试；可选模糊匹配、当前授权结果页作品聚合已测试；全格式提取仍未完成|
@@ -102,3 +106,27 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
   missing native Corium/ETP/Shadow6 service publication or prove remote
   availability; those rows remain open until the respective native source is
   wired and exercised.
+
+#### 2026-10-21 native provider health challenge
+
+- Corium and Shadow6's generated ZFCP provider now expose a bounded fresh
+  challenge response. Ziokt validates its random challenge, provider/federation
+  binding and five-second observation window during `doctor` and inventory.
+  Reports separate pinned local RPC health from application runtime and peer
+  connectivity; the latter two remain `not_assessed` until their native
+  operations are individually probed.
+- Provider protocol copies match the source specification. Real local native
+  provider tests pass. This is not a cryptographic identity signature or a
+  remote end-to-end receipt, and does not satisfy the full Companion health row.
+
+#### 2026-10-21 ETP and application-bridge health
+
+- ETP `etp.health` runs the existing pinned native gateway's `etp.stats` and
+  requires a fresh challenge. The ETP MCP read tool and ApplicationRouter use
+  the same adapter path.
+- `component.health` is available to configured read-only application bridges,
+  including UFS and dCPM. It proves bridge startup, opened community database,
+  and scoped identity membership; SafeFS is reported as configured or absent.
+- These checks do not claim a separately deployed UFS/dCPM HTTP daemon, remote
+  peer, DNS/NNS publication, or end-to-end content recovery is healthy. Those
+  require an explicitly configured native probe and a verified peer receipt.

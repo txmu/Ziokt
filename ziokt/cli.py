@@ -65,16 +65,21 @@ def inspect(config, action, kind):
         item = {"provider_id": provider["provider_id"], "native_project": provider["native_project"]}
         try:
             client = NativeClient(config["federation_id"], provider)
+            proof=client.health()
+            item["health"]={"level":"native-provider-rpc","proof":proof,
+                            "application_readiness":"not_assessed","peer_connectivity":"not_assessed"}
             if action == "inventory":
                 result = client.objects(kind)
                 all_objects.extend(result)
                 item["object_count"] = len(result)
+                item["health"]["inventory_read"]="passed"
             else:
                 result = client.call("status.get" if action == "doctor" else "capabilities.get")
                 if (not isinstance(result, dict) or result.get("provider_id") != provider["provider_id"] or
                         result.get("federation_id") != config["federation_id"] or result.get("enabled") is not True):
                     raise ProtocolError("INVALID_RESPONSE", "provider identity not confirmed")
                 item["result"] = result
+                item["health"]["provider_status"]="passed" if action=="doctor" else "capabilities_read"
             item["healthy"] = True
         except (ProtocolError, OSError) as exc:
             item["healthy"] = False

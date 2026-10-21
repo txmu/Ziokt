@@ -14,7 +14,7 @@ BRIDGE={
  'object.chunk.put':contract({'upload':S,'position':{'type':'integer','minimum':0,'maximum':32767},'digest':D,'data_base64':{'type':'string','maxLength':21848}}),
  'object.reference':contract({'object':D}), 'object.release':contract({'object':D,'upload':S}), 'object.gc':contract({}),
  'object.chunk.get':contract({'object':D,'position':{'type':'integer','minimum':0,'maximum':32767}}),
- 'component.status':contract({}), 'ano.laws':contract({}),
+ 'component.status':contract({}), 'component.health':contract({'challenge':{'type':'string','pattern':'^[a-f0-9]{32}$'}}), 'ano.laws':contract({}),
  'ano.calculate':contract({'kind':S,'operation':S,'left':O,'right':O}),
  'ano.defence':contract({'evidence':O,'required':A}), 'ano.evaluate':contract({'circuit':O}),
  'tc16.run':contract({'source':S,'syntax':{'type':'string','enum':['assembly','tcc']},'cycles':I}),
@@ -33,6 +33,7 @@ BRIDGE={
  'chat.pull':contract({'from':S,'to':S}), 'chat.ack':contract({'from':S,'to':S,'event':D})
 }
 ETP={
+ 'etp.health':contract({'challenge':{'type':'string','pattern':'^[a-f0-9]{32}$'}}),
  'etp.mailbox.status':contract({}),
  'etp.mailbox.request':contract({'frame_base64':{'type':'string','maxLength':12000}}),
  'etp.stats':contract({}), 'etp.receive':contract({}),

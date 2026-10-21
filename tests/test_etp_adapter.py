@@ -10,6 +10,16 @@ from ziokt.protocol import ProtocolError
 from ziokt.cli import write_binary_exclusive
 
 class EtpAdapterTests(unittest.TestCase):
+    def test_native_health_requires_a_real_stats_round_trip_and_binds_fresh_challenge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);binary=root/'worker';config=root/'config.json';write_binary_exclusive(config,b'{}')
+            binary.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if r["method"]=="etp.shutdown":break\n print(json.dumps({"id":r["id"],"ok":True,"result":{"schema":"ziokt.etp-stats.v1","native":{"peers":0}}}),flush=True)\n');binary.chmod(0o700)
+            gateway=EtpGateway(binary,'sha256:'+hashlib.sha256(binary.read_bytes()).hexdigest(),config);self.addCleanup(gateway.close)
+            result=gateway.call('etp.health',{'challenge':'a'*32})
+            self.assertEqual(result['component'],'etp');self.assertEqual(result['challenge'],'a'*32)
+            self.assertEqual(result['checks']['native_engine_stats'],'passed')
+            with self.assertRaises(ProtocolError):gateway.call('etp.health',{'challenge':'invalid'})
+
     def test_rejected_mailbox_operations_never_fabricate_health_or_ack(self):
         for code in ('METHOD_UNSUPPORTED','AUTHORIZATION_DENIED'):
             with self.subTest(code=code),tempfile.TemporaryDirectory() as tmp:

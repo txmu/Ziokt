@@ -60,6 +60,12 @@ class EffortWebTests(unittest.TestCase):
             wrong=EffortPool(chain,'f'*64,Path(temporary)/'wrong');self.addCleanup(wrong.close)
             with self.assertRaises(ProtocolError):wrong.issue()
 
+    def test_expected_mainnet_mismatch_fails_before_issuing_worker_job(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pool=EffortPool(FakeChain(),'a'*64,Path(temporary),expected_network='ziokt-main');self.addCleanup(pool.close)
+            with self.assertRaises(ProtocolError) as error:pool.issue()
+            self.assertEqual(error.exception.code,'NETWORK_MISMATCH');self.assertFalse(pool.jobs)
+
     def test_http_origin_limits_and_one_explicit_start_button(self):
         with tempfile.TemporaryDirectory() as temporary:
             pool=EffortPool(FakeChain(),'a'*64,Path(temporary));self.addCleanup(pool.close)

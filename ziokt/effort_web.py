@@ -21,9 +21,10 @@ from .runtime_policy import require_network
 
 
 class EffortPool:
-    def __init__(self,client,submitter,state):
+    def __init__(self,client,submitter,state,*,expected_network=None):
         if not isinstance(submitter,str) or len(submitter)!=64 or any(c not in '0123456789abcdef' for c in submitter):raise ProtocolError('INVALID_CONFIG','fixed Corium node contribution address required')
-        self.client=client;self.submitter=submitter;self.lock=threading.RLock();self.jobs={};self.cache=None;self.cached_at=0
+        if expected_network is not None and (not isinstance(expected_network,str) or not expected_network or len(expected_network)>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in expected_network)):raise ProtocolError('INVALID_CONFIG','explicit Corium network identifier required')
+        self.client=client;self.submitter=submitter;self.expected_network=expected_network;self.lock=threading.RLock();self.jobs={};self.cache=None;self.cached_at=0
         state=Path(state)
         if not state.is_absolute() or '..' in state.parts or state.is_symlink():raise ProtocolError('UNSAFE_FILE','private absolute effort state directory required')
         state.mkdir(mode=0o700,parents=True,exist_ok=True);make_private(state)
@@ -68,6 +69,7 @@ class EffortPool:
             if self.cache is None or now-self.cached_at>=2:
                 self.cache=self.client.call('compute.challenge',{});self.cached_at=now
             value=self.cache
+            if not isinstance(value,dict) or (self.expected_network is not None and value.get('network_id')!=self.expected_network):raise ProtocolError('NETWORK_MISMATCH','native compute challenge does not match configured mainnet')
             if value['submitter_id']!=self.submitter:raise ProtocolError('SCOPE_MISMATCH','configured contribution address differs from the Corium signer')
             if not value['available']:return {'available':False,'retry_ms':5000}
             token=secrets.token_hex(24);start=secrets.randbits(48)
@@ -197,8 +199,9 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
 def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
-    required={'schema','origin','listen','port','federation_config','provider','submitter','state_root'}
+    required={'schema','origin','listen','port','federation_config','provider','network_id','submitter','state_root'}
     if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config['network_id'],str) or not config['network_id'] or len(config['network_id'])>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in config['network_id']):raise ProtocolError('INVALID_CONFIG','explicit Corium mainnet identifier required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
     address=ipaddress.ip_address(config['listen'])
@@ -206,8 +209,8 @@ def main(argv=None):
     if not address.is_loopback and not tls:raise ProtocolError('INVALID_CONFIG','non-loopback listener requires server TLS')
     federation=load(config['federation_config'])
     provider=next((p for p in federation['providers'] if p['native_project']=='corium' and p['provider_id']==config['provider']),None)
-    if not federation['enabled'] or provider is None:raise ProtocolError('INVALID_CONFIG','enabled Corium provider required')
-    client=NativeClient(federation['federation_id'],provider);pool=EffortPool(client,config['submitter'],config['state_root'])
+    if not federation['enabled'] or provider is None or provider.get('network_id')!=config['network_id']:raise ProtocolError('NETWORK_MISMATCH','enabled Corium provider must match the explicitly configured mainnet')
+    client=NativeClient(federation['federation_id'],provider);client.health();pool=EffortPool(client,config['submitter'],config['state_root'],expected_network=config['network_id'])
     try:
         # Refuse to open the web listener until the configured native chain is ready.
         from .explorer import ChainExplorer

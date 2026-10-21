@@ -127,7 +127,7 @@ class CompanionBridge:
             if set(params)!={'registration'}:raise ProtocolError('INVALID_PARAMS','explicit signed naming registration required')
             from .naming_community import publish
             return publish(self,params['registration'])
-        if method in {'package.build.references','package.verify.references','package.release.references'} or method.startswith('object.') or method in {'component.status','ano.laws','ano.calculate','ano.defence','tc16.run','vault.put','vault.get','vault.publish','tri.put','tri.get','tri.publish','package.build','package.verify','package.publish','sim.reminders.replace','sim.reminders.pull'}:
+        if method in {'package.build.references','package.verify.references','package.release.references'} or method.startswith('object.') or method in {'component.status','component.health','ano.laws','ano.calculate','ano.defence','tc16.run','vault.put','vault.get','vault.publish','tri.put','tri.get','tri.publish','package.build','package.verify','package.publish','sim.reminders.replace','sim.reminders.pull'}:
             from .companion_operations import execute
             return execute(self,method,params)
         if method in {'component.send','component.receive'}:

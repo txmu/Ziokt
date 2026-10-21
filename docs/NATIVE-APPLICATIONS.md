@@ -64,7 +64,7 @@ ETP Forum 的私有库、作者密钥及订阅配置见 [原生论坛网关](ETP
 
 1. 启动配置好的 Corium 节点，确认本地已接受的区块链可读。
 2. 在本机 Corium `[ziokt]` 配置中显式启用 `allow_mutations=TRUE`，允许 `compute.submit`，允许资源 `compute:corium/internal-engine-zero-v1`。保留原有其它允许项。联邦提供者需已启用。
-3. 复制 [奋斗页配置](examples/effort-web.json)，填真实提供者、节点身份、来源和私有状态目录，设 `0600`。
+3. 复制 [奋斗页配置](examples/effort-web.json)，填真实提供者、精确的 `network_id`、节点身份、来源和私有状态目录，设 `0600`。服务启动时验证 provider 与指定 network 一致；每次发工作任务时也校验 Corium 原生 challenge 的 network，防止误接旧链。当前生产参考配置标识为 `ziokt-main`；它只描述配置中的主网 ID，不代表三项主网共识迁移已生效。
 4. 启动：
 
 ```sh

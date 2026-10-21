@@ -143,6 +143,24 @@ class NativeClient:
                    "nonce": secrets.token_hex(16), "deadline_ms": time.time_ns() // 1_000_000 + 25_000}
         return exchange(self.provider, request, timeout=timeout, cancellation=cancellation)
 
+    def health(self, *, timeout=5):
+        """Fresh native-process challenge; it does not imply app or peer readiness."""
+        challenge=secrets.token_hex(16)
+        result=self.call("health.challenge",{"challenge":challenge},timeout=timeout)
+        required={"schema","challenge","native_project","provider_id","federation_id",
+                  "enabled","observed_at_ms","checks"}
+        now=time.time_ns()//1_000_000
+        if (not isinstance(result,dict) or set(result)!=required or
+                result["schema"]!="ziokt.provider-health.v1" or result["challenge"]!=challenge or
+                result["native_project"]!=self.provider["native_project"] or
+                result["provider_id"]!=self.provider["provider_id"] or
+                result["federation_id"]!=self.federation or result["enabled"] is not True or
+                type(result["observed_at_ms"]) is not int or abs(now-result["observed_at_ms"])>5000 or
+                result["checks"]!={"pinned_process_rpc":"passed","application_runtime":"not_assessed",
+                                   "external_peer":"not_assessed"}):
+            raise ProtocolError("INVALID_HEALTH_PROOF","fresh native provider challenge response required")
+        return result
+
     def objects(self, kind="all"):
         records, cursor, snapshot = [], None, None
         for _ in range(MAX_OBJECTS // 100 + 2):

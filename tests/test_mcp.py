@@ -1,5 +1,6 @@
 import base64,hashlib,http.client,json,secrets,tempfile,threading,time,unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import urlencode,urlsplit,parse_qs
 from ziokt.gateway import Server
 from ziokt.gateway_store import database
@@ -82,8 +83,36 @@ class McpTests(unittest.TestCase):
   self.assertIn('tc16',svc.tools['ziokt_name_service']['inputSchema']['properties']['component']['enum'])
   self.assertIn('tc16_naming_publish',svc.tools)
   self.assertEqual(svc.dispatch['tc16_naming_publish'],('bridge','tc16','naming.publish'))
+ def test_native_provider_health_tool_is_read_only_and_separate(self):
+  state=self.root/'corium-state';network=state/'etc/corix/networks/test';network.mkdir(parents=True)
+  native_config=network/'corix.conf';native_config.write_text('[ziokt]\nenabled=FALSE\n');native_config.chmod(0o600)
+  federation=self.root/'federation.json'
+  federation.write_bytes(encoded({'schema':'ziokt.federation.v1','enabled':False,'federation_id':'test',
+   'providers':[{'native_project':'corium','provider_id':'corium-test','root':str(Path(__file__).resolve().parents[1].parent/'Corium'),
+    'native_config':str(native_config),'entrypoint_digest':'sha256:'+'a'*64,'network_id':'test','state_root':str(state)}]}))
+  federation.chmod(0o600)
+  svc=Service({**self.config,'federation':str(federation)})
+  name='corium_test_health'
+  self.assertIn(name,svc.tools)
+  self.assertFalse(svc.tools[name]['annotations']['destructiveHint'])
+  self.assertEqual(svc.tools[name]['scope'],'corium:read')
+  self.assertEqual(svc.dispatch[name],('native-health','corium-test'))
+  health={'schema':'ziokt.provider-health.v1','checks':{'pinned_process_rpc':'passed'}}
+  with patch('ziokt.client.NativeClient.health',return_value=health):
+   self.assertEqual(svc.execute({'client':'reader','scopes':{'corium:read'}},name,{}),health)
 
 class ComponentMcpTests(unittest.TestCase):
+ def test_etp_health_tool_is_read_only_and_routes_through_native_stats(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);worker=root/'etp-health-worker';worker.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if r["method"]=="etp.shutdown":break\n print(json.dumps({"id":r["id"],"ok":True,"result":{"schema":"ziokt.etp-stats.v1","native":{"peers":0}}}),flush=True)\n');worker.chmod(0o700)
+   native_config=root/'etp.json';native_config.write_bytes(encoded({}));native_config.chmod(0o600)
+   config={'state':str(root/'mcp-state'),'issuer':'https://mcp.example','origins':[],'clients':{},'etp':{'node':{'binary':str(worker),'digest':'sha256:'+hashlib.sha256(worker.read_bytes()).hexdigest(),'config':str(native_config)}}}
+   service=Service(config);name='node_etp_health'
+   self.assertIn(name,service.tools);self.assertFalse(service.tools[name]['annotations']['destructiveHint']);self.assertEqual(service.tools[name]['scope'],'etp:read')
+   self.assertEqual(service.dispatch[name],('etp','node','etp.health'))
+   result=service.call({'client':'reader','scopes':{'etp:read'},'expires':int(time.time())+60},name,{'params':{'challenge':'e'*32}})
+   self.assertFalse(result['isError'],result);self.assertEqual(result['structuredContent']['challenge'],'e'*32);service.close()
+
  def test_real_vault_cross_component_exchange(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);admin=root/'admin';admin.write_text('a'*64);admin.chmod(0o600)
@@ -94,7 +123,7 @@ class ComponentMcpTests(unittest.TestCase):
    principal={'client':'ziokt-operator','scopes':set(service.scopes),'expires':int(time.time())+900}
    self.assertGreater(count,150)
    def call(name,args,key):
-    value=service.call(principal,name,{'params':args},key);self.assertFalse(value['isError'],value);return value['structuredContent']
+    value=service.call(principal,name,{'params':args},key);self.assertFalse(value['isError'],name);return value['structuredContent']
    payload=b'large-control-path'*3000;digest='sha256:'+hashlib.sha256(payload).hexdigest()
    call('dcpm_object_begin',{'upload':'mcp-object','size':len(payload),'digest':digest,'ttl':3600},'object-begin-0001')
    for i,start in enumerate(range(0,len(payload),16384)):
@@ -124,6 +153,13 @@ class ComponentMcpTests(unittest.TestCase):
    for index,app in enumerate(apps):
     status=call(app.replace('-','_')+'_component_status',{},None)
     self.assertEqual(status['application'],app)
+    from ziokt.companion_bridge import CompanionBridge
+    direct=CompanionBridge(config['bridges'][app])
+    try:self.assertEqual(direct.call('component.health',{'challenge':'d'*32})['challenge'],'d'*32)
+    finally:direct.close()
+    health=call(app.replace('-','_')+'_component_health',{'challenge':'d'*32},None)
+    self.assertEqual(health['challenge'],'d'*32)
+    self.assertEqual(health['checks']['community_database_and_identity'],'passed')
     item=call(app.replace('-','_')+'_vault_put',{'name':'ring.txt','data_base64':base64.b64encode(app.encode()).decode()},('put-'+str(index)).ljust(16,'x'))
     target=apps[(index+1)%len(apps)]
     offer=call(app.replace('-','_')+'_component_send',{'target':target,'kind':'file','digest':item['digest'],'operation':'ring-'+str(index)},('send-'+str(index)).ljust(16,'x'))
