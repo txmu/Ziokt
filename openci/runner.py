@@ -106,6 +106,14 @@ class Runner:
             else:journal.unlink()
 
     def run_once(self):
+        # Only advertise pinned images which the local OCI engine can inspect.
+        # This is liveness, not attestation: eligibility still needs an operator profile.
+        available=[]
+        for image in sorted(self.images):
+            try:self.command('image','inspect',image,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            except subprocess.CalledProcessError:continue
+            available.append(image)
+        if available:self.client.request('POST','/v1/workers/presence',{'images':available})
         assignment=self.client.request('POST','/v1/claim',{})['assignment']
         if assignment is None:return {'state':'idle'}
         self.assignment=assignment;self.last_heartbeat=time.monotonic()

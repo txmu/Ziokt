@@ -57,9 +57,10 @@ def validate_pipeline(value):
     tasks = {}
     for task in value['tasks']:
         required={'id', 'needs', 'image', 'argv', 'arch', 'pool', 'cpu', 'memory_mb', 'timeout', 'attempts'}
-        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs'}:
+        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs','worker'}:
             raise Error('INVALID_TASK', 'Exact task fields required')
         task=dict(task);task.setdefault('outputs',[])
+        if 'worker' in task:identifier(task['worker'])
         outputs=task['outputs']
         if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') or str(PurePosixPath(p))!=p or p=='.' for p in outputs):
             raise Error('INVALID_OUTPUTS','Bounded relative output file paths required')
@@ -108,6 +109,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS pipelines(id TEXT PRIMARY KEY,project TEXT NOT NULL,nonce TEXT NOT NULL,body TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL,UNIQUE(project,nonce));
                 CREATE TABLE IF NOT EXISTS tasks(pipeline TEXT NOT NULL,id TEXT NOT NULL,spec TEXT NOT NULL,state TEXT NOT NULL,attempt INTEGER NOT NULL DEFAULT 0,worker TEXT,lease_hash TEXT,lease_until INTEGER,receipt TEXT,verification TEXT,PRIMARY KEY(pipeline,id),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
                 CREATE TABLE IF NOT EXISTS workers(id TEXT PRIMARY KEY,arch TEXT NOT NULL,pool TEXT NOT NULL,cpu INTEGER NOT NULL,memory_mb INTEGER NOT NULL,slots INTEGER NOT NULL,projects TEXT NOT NULL,enabled INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS worker_build_profiles(worker TEXT PRIMARY KEY,domain TEXT NOT NULL,images TEXT NOT NULL,evidence TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS worker_presence(worker TEXT PRIMARY KEY,seen INTEGER NOT NULL,images TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS attempts(pipeline TEXT,id TEXT,attempt INTEGER,worker TEXT,state TEXT,started INTEGER,finished INTEGER,receipt TEXT,PRIMARY KEY(pipeline,id,attempt),FOREIGN KEY(pipeline,id) REFERENCES tasks(pipeline,id));
                 CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,created INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,pipeline TEXT,task TEXT,detail TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS log_chunks(pipeline TEXT,task TEXT,attempt INTEGER,position INTEGER,body BLOB NOT NULL,PRIMARY KEY(pipeline,task,attempt,position),FOREIGN KEY(pipeline,task) REFERENCES tasks(pipeline,id));
@@ -154,6 +157,8 @@ class Store:
             if db.execute("SELECT 1 FROM tasks WHERE worker=? AND state='running'", (worker,)).fetchone():
                 raise Error('WORKER_BUSY', 'Drain worker before changing approved caps', 409)
             db.execute('INSERT OR REPLACE INTO workers VALUES(?,?,?,?,?,?,?,1)', (worker, arch, pool, cpu, memory_mb, slots, encoded(sorted(set(projects)))))
+            db.execute('DELETE FROM worker_build_profiles WHERE worker=?',(worker,))
+            db.execute('DELETE FROM worker_presence WHERE worker=?',(worker,))
             self.event(db, actor, 'worker.approved', detail={'worker': worker, 'pool': pool})
 
     def disable_worker(self, actor, worker):
@@ -218,6 +223,7 @@ class Store:
             rows = db.execute("SELECT t.*,p.project,p.body FROM tasks t JOIN pipelines p ON p.id=t.pipeline WHERE t.state='queued' AND p.state NOT IN ('cancelled','published') ORDER BY p.created,t.rowid LIMIT 4096").fetchall()
             for task in rows:
                 spec = json.loads(task['spec'])
+                if spec.get('worker',worker)!=worker:continue
                 if task['project'] not in projects or spec['arch'] != approved['arch'] or spec['pool'] != approved['pool'] or spec['cpu']+cpu_used > approved['cpu'] or spec['memory_mb']+mem_used > approved['memory_mb']: continue
                 lease = secrets.token_urlsafe(32)
                 until, attempt = int(self.clock())+lease_seconds, task['attempt']+1
@@ -338,6 +344,10 @@ class Store:
             trusted=db.execute("SELECT * FROM workers WHERE id=? AND pool='trusted' AND enabled=1", (second['worker'],)).fetchone()
             if not trusted:raise Error('VERIFIER_NOT_TRUSTED','Independent verification requires enabled Trusted Worker',403)
             a,b=json.loads(first['spec']),json.loads(second['spec'])
+            if 'worker' in a or 'worker' in b:
+                profiles=[db.execute('SELECT b.* FROM worker_build_profiles b JOIN workers w ON w.id=b.worker WHERE b.worker=? AND w.enabled=1',(r['worker'],)).fetchone() for r in (first,second)]
+                if any(p is None or a['image'] not in json.loads(p['images']) for p in profiles) or profiles[0]['domain']==profiles[1]['domain']:
+                    raise Error('BUILD_DOMAINS','Replica verification requires enabled approved images in distinct failure domains',409)
             if not a['outputs'] or a['outputs']!=b['outputs']:raise Error('VERIFICATION_OUTPUTS','Independent builds require identical declared output files',409)
             if any(a[key]!=b[key] for key in ('image','argv','arch')):
                 raise Error('VERIFICATION_INPUT_MISMATCH','Independent build must use the same image, arguments and architecture',409)

@@ -97,6 +97,19 @@ class Controller:
                 raise Error('ARTIFACT_FORMAT','Artifact is not a valid bounded output archive',409) from None
 
     def dispatch(self, method, path, query, body, actor, principal):
+        if method=='POST' and path=='/v1/workers/build-profile':
+            if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Build profiles require operator verification',403)
+            from .quorum import approve
+            return 200,approve(self.state,actor,**body)
+        if method=='POST' and path=='/v1/workers/presence':
+            if principal['role']!='worker':raise Error('WORKER_REQUIRED','Dedicated worker identity required',403)
+            from .quorum import presence
+            return 200,presence(self.state,principal['worker'],body['images'])
+        if method=='POST' and path=='/v1/rebuilds':
+            self.pipeline(principal,body['pipeline'],{'admin','submit'})
+            from .quorum import enqueue
+            result=enqueue(self.state,actor,body['pipeline'],body['task'],body['nonce'],body.get('minimum',2))
+            return (202 if result['state']=='submitted' else 200),result
         if method == 'GET' and path == '/v1/pipelines':
             project=query['project'][0];self.project(principal,project)
             return 200, {'pipelines':self.state.list_pipelines(project,before=int(query.get('before',[str(2**63-1)])[0]))}

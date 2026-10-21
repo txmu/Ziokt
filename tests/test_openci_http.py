@@ -12,6 +12,22 @@ from test_openci_state import pipeline
 
 
 class HTTPTests(unittest.TestCase):
+    def test_rebuild_endpoint_scope_and_no_self_approved_resources(self):
+        from test_openci_state import task
+        ref=self.owner.upload('demo',self.source)
+        spec=task();spec['outputs']=['image']
+        value=pipeline([spec]);value['source']=ref
+        pid=self.owner.request('POST','/v1/pipelines',value)['pipeline']
+        request={'pipeline':pid,'task':'build','nonce':'replicas'}
+        with self.assertRaises(Error) as denied:self.other.request('POST','/v1/rebuilds',request)
+        self.assertEqual(denied.exception.status,403)
+        with self.assertRaises(Error):self.worker.request('POST','/v1/workers/build-profile',{})
+        self.owner.request('POST','/v1/workers/approve',{'worker':'node1','arch':'x86_64','pool':'community','cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
+        self.worker.request('POST','/v1/workers/presence',{'images':[spec['image']]})
+        result=self.owner.request('POST','/v1/rebuilds',request)
+        self.assertEqual(result['state'],'disabled')
+        self.assertEqual(result['selection']['workers'],[])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
