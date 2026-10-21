@@ -21,6 +21,22 @@ Publication requires a new tag; adding the workflow does not mean a release
 already exists. Existing releases are never overwritten. Packaging validation
 does not replace the separate Content Fabric browser runtime tests.
 
+Published development installers are also available with the native GUI clients
+on [the Gateway download page](https://app.ziokt.com/downloads/). Actual HTTPS
+downloads and release digests are recorded in
+[PUBLIC-DOWNLOAD-VERIFICATION.json](PUBLIC-DOWNLOAD-VERIFICATION.json).
+To install verified downloaded release files on the existing download site:
+
+```sh
+python3 tools/install_webextension_downloads.py --source RELEASE_DIRECTORY \
+  --destination EXISTING_GUI_DOWNLOAD_DIRECTORY --source-commit FULL_SOURCE_SHA
+```
+
+Back up the existing index before deployment. This command preserves GUI
+installers, verifies all three package digests and the clean source manifest,
+and adds an idempotent extension section plus `extensions.json`. It rejects
+changes to an already installed release directory. No service restart is needed.
+
 For Chromium developer installations, load `dist/extensions/chromium` unpacked. For Firefox development, load its manifest using the temporary add-on debugger. These development packages are unsigned; permanent consumer installation and store review have not been verified. No store publication is performed by this build.
 
 Configure a Content service with `--allow-webextensions` and create a separate application credential. The extension requests permission for the selected node origin. Remote nodes require HTTPS. Credentials remain in extension session storage; saved connection names and UI preferences use local storage. Disconnect clears the current identity's session credential. Gateway administrator credentials must not be used.

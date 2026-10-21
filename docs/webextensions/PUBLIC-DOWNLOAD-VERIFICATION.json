@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-10-21T22:05:49.613770+00:00",
+  "page": "https://app.ziokt.com/downloads/",
+  "page_status": 200,
+  "source_commit": "73717b7fb98dc0b891e3190b4d03523e1d2013e7",
+  "packages": [
+    {
+      "target": "chromium",
+      "url": "https://app.ziokt.com/downloads/extensions/73717b7fb98dc0b891e3190b4d03523e1d2013e7/ziokt-companion-chromium.zip",
+      "status": 200,
+      "bytes": 11747,
+      "sha256": "ce005442ffc61cc3baad12ce0437e1ee95d9aee6653ab27e95a8ba33bd411538"
+    },
+    {
+      "target": "firefox",
+      "url": "https://app.ziokt.com/downloads/extensions/73717b7fb98dc0b891e3190b4d03523e1d2013e7/ziokt-companion-firefox.xpi",
+      "status": 200,
+      "bytes": 11510,
+      "sha256": "0432adf4d1a2c2bda99f6acc4d41fdef3fc18d17eaa06c4b8168411edbad1783"
+    },
+    {
+      "target": "thunderbird",
+      "url": "https://app.ziokt.com/downloads/extensions/73717b7fb98dc0b891e3190b4d03523e1d2013e7/ziokt-companion-thunderbird.xpi",
+      "status": 200,
+      "bytes": 11474,
+      "sha256": "7f5633cf1db0920cdfce67e12c66e0029e9da2d487a28076ff913c786988375c"
+    }
+  ],
+  "existing_gui_links_preserved": true,
+  "store_signed": false
+}

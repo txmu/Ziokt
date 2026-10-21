@@ -15,7 +15,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify package boundaries and reproducibility
-        run: python -m unittest discover -s tests -p test_webextensions.py -v
+        run: |
+          python -m unittest discover -s tests -p test_webextensions.py -v
+          python -m unittest discover -s tests -p test_webextension_downloads.py -v
       - run: python tools/package_webextensions.py
       - name: Check published file digests
         working-directory: dist/extensions
