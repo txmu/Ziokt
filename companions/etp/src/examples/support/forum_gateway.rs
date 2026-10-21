@@ -214,6 +214,7 @@ mod enabled {
         }
         pub fn start(&mut self, handle: EtpHandle, peers: HashMap<SocketAddr, [u8; 32]>) {
             let connector = handle.clone();
+            let reconnect_peers = peers.clone();
             self.tasks.push(tokio::spawn(async move {
                 for (peer, key) in peers {
                     let _ = connector.connect(peer, key.to_vec()).await;
@@ -222,9 +223,18 @@ mod enabled {
             let mut network = self.network.take().expect("Forum network starts once");
             let sender = handle.clone();
             self.tasks.push(tokio::spawn(async move {
+                let mut last_reconnect = HashMap::<SocketAddr, std::time::Instant>::new();
                 while let Some((peer, packet)) = network.recv().await {
                     if sender.send_stream(peer, STREAM, packet).await.is_err() {
-                        break;
+                        // Preserve the consumer for other peers and later native
+                        // inventory retries. Only reconnect explicitly pinned peers.
+                        if let Some(key) = reconnect_peers.get(&peer) {
+                            let due = last_reconnect.get(&peer).map_or(true, |last| last.elapsed() >= std::time::Duration::from_secs(5));
+                            if due {
+                                last_reconnect.insert(peer, std::time::Instant::now());
+                                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sender.connect(peer, key.to_vec())).await;
+                            }
+                        }
                     }
                 }
             }));

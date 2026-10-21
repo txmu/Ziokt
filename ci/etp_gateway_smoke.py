@@ -37,12 +37,14 @@ def forum_smoke(binary, digest, root, required):
         def call(self, method, params):return self.router.call('etp',method,params)
         def close(self):self.router.close()
     def await_post(worker, identifier):
-        deadline=time.monotonic()+20
+        # Native periodic anti-entropy is 60 seconds. A lost initial restart
+        # offer must be allowed one genuine retry cycle, not synthetic success.
+        deadline=time.monotonic()+75
         while time.monotonic()<deadline:
             value=worker.call('etp.forum.get',{'id':identifier})['post']
             if value is not None:return value
             time.sleep(.05)
-        raise AssertionError('real Forum peer did not converge before deadline')
+        raise AssertionError('real Forum peer did not converge within native anti-entropy cycle: '+identifier)
     try:
         for index,key in enumerate(keys):
             config=root/f'forum-node-{index}.json'

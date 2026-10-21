@@ -161,3 +161,7 @@ an explicit operator scheduling responsibility. Native capability is established
 by actually invoking the scan endpoint, not merely by finding configuration.
 The CI suite tests original-store late arrivals, actual cross-node snapshot
 reset, unmapped-parent errors and eventual durable queue convergence.
+
+## 原生断连恢复补强
+
+原生网关的 Forum 发送队列不再因单个 send_stream 失败而退出整个消费循环；仅对已固定公钥的配置对端尝试重新连接，同一对端最多每 5 秒一次，每次等待上限 1 秒。内容仍由原生 Sled/inventory/anti-entropy 处理，不创建替代 Forum。测试保留真实远端帖子断言，等待窗口覆盖原生 60 秒 anti-entropy 周期（75 秒），不把本地发布或调用返回当成远端同步成功。
