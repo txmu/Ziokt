@@ -1,4 +1,4 @@
-import json,re,tempfile,unittest,zipfile
+import hashlib,json,re,tempfile,unittest,zipfile
 from pathlib import Path
 from tools.package_webextensions import package,ROOT
 
@@ -16,5 +16,17 @@ class ExtensionTests(unittest.TestCase):
    for record in first:
     self.assertFalse(record['store_signed'])
     with zipfile.ZipFile(record['path']) as archive:self.assertEqual(archive.read('application-client.js'),(ROOT/'ziokt'/'web'/'application-client.js').read_bytes())
+ def test_release_manifest_and_checksums_cover_exact_installers(self):
+  with tempfile.TemporaryDirectory() as temp:
+   output=Path(temp);records=package(output)
+   manifest=json.loads((output/'build-source.json').read_text())
+   self.assertRegex(manifest['source_commit'],r'^[0-9a-f]{40}$')
+   self.assertFalse(manifest['store_signed'])
+   self.assertEqual({r['file'] for r in manifest['packages']},{Path(r['path']).name for r in records})
+   lines=(output/'SHA256SUMS').read_text().splitlines()
+   self.assertEqual(len(lines),4)
+   for line in lines:
+    digest,name=line.split('  ')
+    self.assertEqual(hashlib.sha256((output/name).read_bytes()).hexdigest(),digest)
 
 if __name__=='__main__':unittest.main()

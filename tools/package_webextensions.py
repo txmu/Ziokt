@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic unsigned WebExtension packages; never publishes to add-on stores."""
-import argparse,hashlib,json,shutil,zipfile
+import argparse,hashlib,json,shutil,zipfile,subprocess
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -25,6 +25,16 @@ def package(output):
     if member.is_file():
      info=zipfile.ZipInfo(str(member.relative_to(directory)),date_time=(2026,1,1,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED;info.external_attr=0o100644<<16;archive.writestr(info,member.read_bytes())
   digest=hashlib.sha256(path.read_bytes()).hexdigest();path.with_suffix(path.suffix+'.sha256').write_text(digest+'  '+path.name+'\n');reports.append({'target':target,'path':str(path),'sha256':digest,'store_signed':False})
+ # Keep provenance outside the archives so identical sources retain identical bytes.
+ revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+ dirty=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=normal','--','extensions/ziokt','ziokt/web/application-client.js','tools/package_webextensions.py'],cwd=ROOT,text=True).strip())
+ versions={target:json.loads((source/f'manifest.{target}.json').read_text())['version'] for target in ('chromium','firefox','thunderbird')}
+ provenance={'schema':'ziokt.webextensions.build.v1','source_commit':revision,'source_dirty':dirty,'store_signed':False,'versions':versions,'packages':[{k:v for k,v in record.items() if k!='path'}|{'file':Path(record['path']).name} for record in reports]}
+ provenance_path=output/'build-source.json'
+ provenance_path.write_text(json.dumps(provenance,sort_keys=True,indent=2)+'\n')
+ checksums=[record['sha256']+'  '+Path(record['path']).name for record in reports]
+ checksums.append(hashlib.sha256(provenance_path.read_bytes()).hexdigest()+'  build-source.json')
+ (output/'SHA256SUMS').write_text('\n'.join(checksums)+'\n')
  return reports
 
 

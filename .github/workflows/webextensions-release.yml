@@ -1,0 +1,61 @@
+name: WebExtensions development release
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'extensions-v*'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify package boundaries and reproducibility
+        run: python -m unittest discover -s tests -p test_webextensions.py -v
+      - run: python tools/package_webextensions.py
+      - name: Check published file digests
+        working-directory: dist/extensions
+        run: sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: webextensions-release-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            dist/extensions/*.zip
+            dist/extensions/*.xpi
+            dist/extensions/*.sha256
+            dist/extensions/SHA256SUMS
+            dist/extensions/build-source.json
+  publish:
+    if: startsWith(github.ref, 'refs/tags/extensions-v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: webextensions-release-${{ github.sha }}
+          path: packages
+      - name: Publish explicitly unsigned development packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Unsigned development packages / 未签名开发包。
+
+          Chromium: unzip the ZIP and load the directory at chrome://extensions with Developer mode enabled.
+          Firefox: use about:debugging for temporary development installation. This XPI is not Mozilla signed and does not promise permanent installation in standard Firefox.
+          Thunderbird: install the Thunderbird XPI through Add-ons, subject to the client's version and signing policy. Runtime compatibility has not been fully verified.
+
+          Verify SHA256SUMS before installation. build-source.json identifies versions and source commit. These are packaging checks, not complete browser or ecosystem acceptance. Android device installation remains unverified; use Content Web on devices without extension support.
+          EOF
+          printf '\nSource commit: %s\n' "$SOURCE_SHA" >> release-notes.md
+          gh release create "$RELEASE_TAG" packages/* --verify-tag --prerelease --title "Ziokt Companion $RELEASE_TAG (unsigned development)" --notes-file release-notes.md

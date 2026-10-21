@@ -6,6 +6,21 @@ Build unsigned, deterministic Chromium ZIP and Firefox/Thunderbird XPI packages:
 python3 tools/package_webextensions.py
 ```
 
+Installers are named `ziokt-companion-chromium.zip`,
+`ziokt-companion-firefox.xpi`, and `ziokt-companion-thunderbird.xpi`.
+`SHA256SUMS` covers the installers and `build-source.json`, which records the
+source commit, dirty source state, per-target versions and unsigned status.
+Check them with `sha256sum --check SHA256SUMS` in the downloaded directory.
+
+The `WebExtensions development release` workflow builds and validates these
+files independently of native compilation. Manual runs produce Actions
+artifacts; pushing an `extensions-v*` tag publishes the same verified artifacts
+as an explicitly unsigned GitHub prerelease at
+[GitHub Releases](https://github.com/txmu/Ziokt/releases).
+Publication requires a new tag; adding the workflow does not mean a release
+already exists. Existing releases are never overwritten. Packaging validation
+does not replace the separate Content Fabric browser runtime tests.
+
 For Chromium developer installations, load `dist/extensions/chromium` unpacked. For Firefox development, load its manifest using the temporary add-on debugger. These development packages are unsigned; permanent consumer installation and store review have not been verified. No store publication is performed by this build.
 
 Configure a Content service with `--allow-webextensions` and create a separate application credential. The extension requests permission for the selected node origin. Remote nodes require HTTPS. Credentials remain in extension session storage; saved connection names and UI preferences use local storage. Disconnect clears the current identity's session credential. Gateway administrator credentials must not be used.
