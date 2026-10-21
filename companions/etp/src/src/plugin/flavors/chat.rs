@@ -769,7 +769,24 @@ mod protocol_regression_tests {
             db.flush().unwrap();
         }
         {
-            let store = ChatStore::open(path.to_str().unwrap()).unwrap();
+            // sled's last background flush can briefly retain the OS lock after
+            // the previous handle drops. Retry only that concrete transient IO
+            // error, with a strict deadline; all other migration failures fail.
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let store = loop {
+                match ChatStore::open(path.to_str().unwrap()) {
+                    Ok(store) => break store,
+                    Err(error) => {
+                        let lock_pending = error.chain().any(|cause| {
+                            matches!(cause.downcast_ref::<sled::Error>(),
+                                Some(sled::Error::Io(io)) if io.kind() == std::io::ErrorKind::WouldBlock)
+                        });
+                        assert!(lock_pending && std::time::Instant::now() < deadline,
+                            "native chat reopen/migration failed: {error:#}");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            };
             assert!(store.get_history(10, 0).unwrap().is_empty());
             let tree = store.db.open_tree("quarantined_chat_v2").unwrap();
             assert_eq!(tree.len(), 1);
