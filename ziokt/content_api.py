@@ -30,6 +30,8 @@ OPERATIONS={
  'optimization.configure_defaults':({'settings':dict,'revision':int,'application':str,'node':bool},True),
  'optimization.evaluate':({'joint':list,'decoder':list},False),
  'library.download.control':({'job':str,'paused':bool},True),
+ 'content.reference.create':({'id':str,'verify_bytes':bool},False),
+ 'content.reference.resolve':({'reference':dict,'verify_bytes':bool},False),
  'content.references':({'id':str},False),
  'netnews.attachment.download':({'article':str,'id':str,'sources':list,'max_chunks':int},True),
  'content.objects.list':({'limit':int,'offset':int},False),
@@ -159,6 +161,12 @@ def invoke(fabric, owner, operation, args):
         from .tc16_spec import execute_package
         if len(args['package'])>94000:raise ValueError('package budget')
         return execute_package(base64.b64decode(args['package'],validate=True),args['cycles'])
+    if operation=='content.reference.create':
+        from .content_reference import create
+        return create(fabric,owner,args['id'],verify_bytes=args['verify_bytes'])
+    if operation=='content.reference.resolve':
+        from .content_reference import resolve
+        return resolve(fabric,owner,args['reference'],verify_bytes=args['verify_bytes'])
     if operation=='content.upload.begin':return fabric.begin(owner,**args)
     if operation=='content.upload.put':
         if len(args['data'])>21848:raise ValueError('chunk budget')
