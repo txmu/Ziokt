@@ -162,6 +162,7 @@ class Store:
             self.event(db, actor, 'worker.approved', detail={'worker': worker, 'pool': pool})
 
     def disable_worker(self, actor, worker):
+        identifier(worker)
         with self.transaction() as db:
             if db.execute('UPDATE workers SET enabled=0 WHERE id=?', (worker,)).rowcount != 1:
                 raise Error('WORKER_UNKNOWN', 'Worker not approved', 404)

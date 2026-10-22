@@ -157,6 +157,11 @@ class Controller:
             self.pipeline(principal, body['pipeline'], {'admin', 'submit'})
             if path == '/v1/cancel': return 200, self.state.cancel(actor, body['pipeline'])
             return 200, self.state.retry(actor, body['pipeline'], body['task'])
+        if method == 'POST' and path == '/v1/workers/disable':
+            if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Worker revocation requires operator approval',403)
+            if not isinstance(body,dict) or set(body)!={'worker'}:raise Error('INVALID_REQUEST','Exact worker identity required')
+            self.state.disable_worker(actor,identifier(body['worker']))
+            return 200,{'state':'disabled','worker':body['worker']}
         if method == 'POST' and path == '/v1/workers/approve':
             if principal['role'] != 'admin': raise Error('ADMIN_REQUIRED', 'Worker caps require operator approval', 403)
             self.state.approve_worker(actor, **body)

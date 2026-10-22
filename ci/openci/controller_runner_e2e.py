@@ -81,6 +81,14 @@ print('Native isolated task completed',flush=True)
             output=root/'result.json';owner.download_artifact_file('demo',state['tasks'][0]['receipt']['artifact'],'result.json',output)
             result=json.loads(output.read_text())
             assert result=={'isolated':True,'sum':68}
+            # Actual OCI outputs must lose release authority when a producer is revoked.
+            from openci.state import Error
+            owner.request('POST','/v1/workers/disable',{'worker':'builder'})
+            try:owner.request('POST','/v1/releases',{'pipeline':pid,'task':'build','name':'oci-ci-result','version':'1'})
+            except Error as error:assert error.code=='RELEASE_VERIFIER'
+            else:raise AssertionError('Revoked producer still authorized a native release')
+            owner.request('POST','/v1/workers/approve',{'worker':'builder','arch':'x86_64','pool':'community','cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
+            owner.request('POST','/v1/verify',{'pipeline':pid,'task':'build','independent_task':'verify'})
             release=owner.request('POST','/v1/releases',{'pipeline':pid,'task':'build','name':'oci-ci-result','version':'1'})
             assert release['state']=='published' and release['publication']['release_signed']
             installed=ReleaseService(controller).install(release['id'],root/'installed',activate=True)
@@ -92,7 +100,7 @@ print('Native isolated task completed',flush=True)
             assert logs, 'Real-time log stream was not persisted'
             print(json.dumps({'schema':'openci.oci-e2e.v1','state':'passed','pipeline':pid,'image':image,
                 'git_webhook_trigger':True,'git_commit':commit,'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
-                'distinct_hosts':False,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
+                'distinct_hosts':False,'producer_revocation_blocks_release':True,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
         finally:server.shutdown();server.server_close();thread.join();controller.close()
 
 
