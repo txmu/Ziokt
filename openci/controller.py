@@ -97,6 +97,11 @@ class Controller:
                 raise Error('ARTIFACT_FORMAT','Artifact is not a valid bounded output archive',409) from None
 
     def dispatch(self, method, path, query, body, actor, principal):
+        if method=='POST' and path=='/v1/contributions/prepare':
+            if type(body) is not dict or set(body)!={'pipeline','task','policy','engine','bounty'}:raise Error('CHAIN_FIELDS','Exact contribution plan fields required')
+            self.pipeline(principal,body['pipeline'],{'admin','submit'})
+            from .chain import prepare
+            return 200,prepare(self.state,body['pipeline'],body['task'],body['policy'],body['engine'],body['bounty'])
         if method=='POST' and path=='/v1/workers/build-profile':
             if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Build profiles require operator verification',403)
             from .quorum import approve

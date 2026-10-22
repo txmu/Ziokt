@@ -2,6 +2,7 @@
 """Pin the same local protocol in independent native deliveries; never run them."""
 import argparse
 import hashlib
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -287,9 +288,37 @@ PY_CORIUM_OPENCI_CONSENSUS
         anchor='_validate_single_transaction() {'
         if updated.count(anchor)!=1:raise SystemExit('native OpenCI validation anchor ambiguous')
         updated=updated.replace(anchor,openci_block+'\n'+anchor,1)
+    work_policy=(ROOT/'spec/work_weight_policy.py').read_text()
+    work_runtime=(ROOT/'spec/work_consensus.py').read_text()
+    work_target=args.corium/'work_consensus.py';work_policy_target=args.corium/'work_weight_policy.py'
+    work_digest=hashlib.sha256(b'Corium/NativeWorkVerifier/v2\0'+work_runtime.encode()+b'\0'+work_policy.encode()).hexdigest()
+    work_embedded=work_runtime.replace('EMBEDDED_SOURCE_DIGEST = None','EMBEDDED_SOURCE_DIGEST = '+repr(work_digest),1)
+    work_embedded=work_embedded.replace('from work_weight_policy import validate,commitment,verify_work,work_digest,integer,encoded,MAX_WEIGHT','')
+    work_embedded=work_embedded.replace("if __name__=='__main__':main(__import__('sys').argv[1:])",'')
+    work_start='# BEGIN CORIUM NATIVE WORK CONSENSUS V2\n';work_end='# END CORIUM NATIVE WORK CONSENSUS V2\n'
+    work_primitives='def _native_work_primitives():\n'+textwrap.indent(work_policy,'    ')+'\n    return locals()\n_work_primitives=_native_work_primitives()\nvalidate,commitment,verify_work,work_digest,integer,encoded,MAX_WEIGHT=(_work_primitives[k] for k in ("validate","commitment","verify_work","work_digest","integer","encoded","MAX_WEIGHT"))\n'
+    work_block=work_start+'''_corium_work_consensus() (
+    ulimit -t 15 -v 262144 || exit 2
+    "${PYTHON_CMD:-python3}" - "$@" <<'PY_CORIUM_WORK_CONSENSUS'
+'''+work_primitives+'\n'+work_embedded+'''
+import sys
+try:
+    main(sys.argv[1:])
+except (ValueError,TypeError,KeyError,InvalidSignature,sqlite3.Error):
+    print('WORK_CONSENSUS_REJECTED',file=sys.stderr)
+    raise SystemExit(2)
+PY_CORIUM_WORK_CONSENSUS
+)
+'''+work_end
+    if work_start in updated:
+        left,tail=updated.split(work_start,1);_,right=tail.split(work_end,1);updated=left+work_block+right
+    else:
+        anchor='_validate_single_transaction() {'
+        if updated.count(anchor)!=1:raise SystemExit('native work validation anchor ambiguous')
+        updated=updated.replace(anchor,work_block+'\n'+anchor,1)
     if args.check:
         mismatches = []
-        for path, expected in ((target, runtime), (script, updated), (shielded_target, shielded_runtime), (openci_target,openci_runtime), (openci_coordinator,openci_runtime),
+        for path, expected in ((target, runtime), (script, updated), (shielded_target, shielded_runtime), (openci_target,openci_runtime), (openci_coordinator,openci_runtime), (work_target,work_runtime), (work_policy_target,work_policy),
                                (coordinator_target, runtime), (currency_target, currency), (static_target,static_runtime)):
             if not path.is_file() or path.read_text() != expected:
                 mismatches.append(str(path))
@@ -301,6 +330,8 @@ PY_CORIUM_OPENCI_CONSENSUS
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(runtime)
         shielded_target.write_text(shielded_runtime)
+        work_target.write_text(work_runtime)
+        work_policy_target.write_text(work_policy)
         openci_target.write_text(openci_runtime)
         openci_coordinator.write_text(openci_runtime)
         coordinator_target.write_text(runtime)

@@ -39,8 +39,9 @@ def main():
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
     p=sub.add_parser('principal-add');p.add_argument('name');p.add_argument('--role',choices=['submit','worker'],required=True);p.add_argument('--project',action='append',required=True);p.add_argument('--worker')
-    for name in ['upload','submit','inspect','cancel','retry','worker-approve','worker-disable','worker-signing-key','worker-build-profile','rebuild','runner','git-trigger','release-publish']:
+    for name in ['upload','submit','inspect','cancel','retry','worker-approve','worker-disable','worker-signing-key','worker-build-profile','rebuild','runner','git-trigger','release-publish','contribution-prepare']:
         p=sub.add_parser(name);p.add_argument('--server',default='http://127.0.0.1:8768');p.add_argument('--token-file',type=Path)
+        if name=='contribution-prepare':p.add_argument('pipeline');p.add_argument('task');p.add_argument('--policy',type=Path,required=True);p.add_argument('--engine',required=True);p.add_argument('--bounty',required=True)
         if name=='git-trigger':p.add_argument('--project',required=True);p.add_argument('--commit',required=True);p.add_argument('--delivery',required=True)
         if name=='release-publish':p.add_argument('pipeline');p.add_argument('task');p.add_argument('--name',required=True);p.add_argument('--version',required=True)
         if name=='upload':p.add_argument('--project',required=True);p.add_argument('file',type=Path)
@@ -125,6 +126,9 @@ def main():
         return
     token=secure_read(args.token_file or root/'owner.token',4096).decode().strip()
     client=Client(args.server,token)
+    if args.action=='contribution-prepare':
+        policy=strict_json(secure_read(args.policy,16384),16384)
+        print(json.dumps(client.request('POST','/v1/contributions/prepare',{'pipeline':args.pipeline,'task':args.task,'policy':policy,'engine':args.engine,'bounty':args.bounty})));return
     if args.action=='git-trigger':result=client.request('POST','/v1/git/trigger',{'project':args.project,'commit':args.commit,'delivery':args.delivery})
     elif args.action=='release-publish':result=client.request('POST','/v1/releases',{'pipeline':args.pipeline,'task':args.task,'name':args.name,'version':args.version})
     elif args.action=='upload':result=client.upload(args.project,args.file)

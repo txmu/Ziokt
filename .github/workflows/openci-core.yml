@@ -41,6 +41,10 @@ jobs:
           path: openci-oci-e2e.log
 
   native-governance-settlement:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [openci, work]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -65,15 +69,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y sqlite3 jq openssl rsync curl gnupg
           python -m pip install --only-binary=:all: -r Ziokt/requirements.txt
-      - name: Actual 133-block native work, governance, settlement and independent Phoenix replay
+      - name: Actual native governance, activation, settlement and independent Phoenix replay
         working-directory: Corium
         env:
           CORIUM_OPENCI_LIVE_CHAIN: '1'
+          CORIUM_WORK_LIVE_CHAIN: '1'
         run: |
           set -o pipefail
-          python -m unittest -v test_openci_consensus 2>&1 | tee native-openci-consensus.txt
+          python -m unittest -v test_${{ matrix.suite }}_consensus 2>&1 | tee native-${{ matrix.suite }}-consensus.txt
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
-          name: native-openci-governance-settlement
-          path: Corium/native-openci-consensus.txt
+          name: native-${{ matrix.suite }}-governance-settlement
+          path: Corium/native-${{ matrix.suite }}-consensus.txt

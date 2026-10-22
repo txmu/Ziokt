@@ -1,0 +1,175 @@
+"""Governed native testnet PoW block bytes and cumulative work policy.
+
+Native callers must still validate transactions and commit/rebuild atomically.
+This module never changes production consensus merely by being present.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import sqlite3
+from cryptography.hazmat.primitives import hashes,serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.exceptions import InvalidSignature
+from work_weight_policy import validate,commitment,verify_work,work_digest,integer,encoded,MAX_WEIGHT
+
+PACKAGE='consensus/work-weight:2'
+SCHEMA='corium.native-work-policy.v2'
+PROOF='corium.native-block-work.v2'
+LEGACY=hashlib.sha256(b'Corium/native-pos/v108').hexdigest()
+EMBEDDED_SOURCE_DIGEST = None
+
+
+def require(test,message):
+    if not test:raise ValueError(message)
+
+
+def source_digest():return EMBEDDED_SOURCE_DIGEST or hashlib.sha256(b'Corium/NativeWorkVerifier/v2\0'+Path(__file__).read_bytes()+b'\0'+Path(__file__).with_name('work_weight_policy.py').read_bytes()).hexdigest()
+def policy_hash(value):return hashlib.sha256(b'Corium/NativeConsensusPolicy/v2\0'+encoded(value)).hexdigest()
+
+def loads(raw):
+    require(type(raw) is str and len(raw.encode())<=65536,'native work message budget')
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            require(key not in value,'duplicate consensus field');value[key]=item
+        return value
+    return json.loads(raw,object_pairs_hook=unique,parse_constant=lambda value:(_ for _ in ()).throw(ValueError('nonfinite consensus number')))
+
+
+def eligible_network(network):require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-')),'testnet-only work consensus')
+
+def check_policy(value,network,genesis):
+    eligible_network(network)
+    require(type(value) is dict and set(value)=={'schema','previous_policy','work_policy','checkpoint'} and value['schema']==SCHEMA,'exact native consensus policy')
+    policy=validate(value['work_policy']);require(policy['network']==network and policy['genesis']==genesis,'native network/genesis binding')
+    require(type(value['previous_policy']) is str and re.fullmatch('[a-f0-9]{64}',value['previous_policy']),'prior consensus commitment')
+    checkpoint=value['checkpoint'];require(type(checkpoint) is dict and set(checkpoint)=={'height','hash'},'governed checkpoint')
+    integer(checkpoint['height'],0,policy['activation_height']-1);require(type(checkpoint['hash']) is str and re.fullmatch('[a-f0-9]{64}',checkpoint['hash']),'checkpoint digest')
+    return value
+
+
+def proposal(db,network,payload,height):
+    require(payload.get('pkg_id')==PACKAGE,'native consensus package')
+    genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
+    value=check_policy(payload.get('work_consensus'),network,genesis[0])
+    require(value['work_policy']['activation_height']>=height+110,'full governance window and enactment delay required')
+    require(payload.get('compute_program_hash')==policy_hash(value) and payload.get('verifier_script_hash')==source_digest(),'native consensus source/policy commitments')
+    checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=? AND height<?',(checkpoint['height'],height)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'checkpoint must precede governance proposal')
+    pending=db.execute("SELECT 1 FROM transactions t LEFT JOIN compute_engines e ON e.engine_id=t.hash WHERE t.type='propose_new_compute_engine' AND json_extract(t.data,'$.pkg_id')=? AND t.block_height<? AND (t.block_height+110>=? OR (e.is_active=1 AND json_extract(t.data,'$.work_consensus.work_policy.activation_height')>?)) LIMIT 1",(PACKAGE,height,height,height)).fetchone();require(pending is None,'prior work transition must resolve before another proposal')
+    previous=active(db,network,height,validate_previous=False)
+    require(value['previous_policy']==(policy_hash(previous) if previous else LEGACY),'consensus predecessor changed')
+    return value
+
+
+def active(db,network,height,validate_previous=True):
+    if not (network.startswith('test-') or network.startswith('ziokt-test-')):return None
+    rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
+    genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
+    accepted=[];previous=LEGACY
+    for row in rows:
+        payload=json.loads(row['data']);value=check_policy(payload.get('work_consensus'),network,genesis[0])
+        activation=value['work_policy']['activation_height']
+        if activation>height:continue
+        require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash']==source_digest() and activation>=row['block_height']+110,'active native governance commitment')
+        if validate_previous:require(value['previous_policy']==previous and (not accepted or activation>accepted[-1]['work_policy']['activation_height']),'native activation sequence')
+        checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(checkpoint['height'],)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'governed checkpoint differs from native prefix')
+        accepted.append(value);previous=policy_hash(value)
+    return accepted[-1] if accepted else None
+
+
+def parent(db,hash_value):
+    row=db.execute('SELECT height,hash,timestamp,total_weight FROM blocks WHERE hash=?',(hash_value,)).fetchone();require(row is not None,'accepted native parent required')
+    return dict(row)
+
+
+def miner_key(value):
+    require(type(value) is str and len(value)<=1024,'bounded native public key')
+    key=serialization.load_pem_public_key(value.encode('ascii'))
+    require(isinstance(key,ec.EllipticCurvePublicKey) and isinstance(key.curve,ec.SECP256K1),'native secp256k1 required')
+    require(key.public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')==value,'canonical public key')
+    return key
+
+
+def signing_bytes(block):
+    return b'Corium/NativeWorkBlock/v2\0'+encoded({k:v for k,v in block.items() if k!='signature'})
+
+
+def context(block):
+    proof=block['work'];body={k:v for k,v in block.items() if k not in {'signature','work'}}
+    body['work']={k:v for k,v in proof.items() if k!='nonce'}
+    return {'height':block['height'],'parent':block['previous_hash'],'body':hashlib.sha256(b'Corium/NativeWorkBody/v2\0'+encoded(body)).hexdigest(),'miner':block['validator']}
+
+
+def verify(db,network,block,expected):
+    require(type(block) is dict and set(block)=={'height','previous_hash','timestamp','validator','signature','transactions','work'},'exact native work block')
+    p=parent(db,block['previous_hash']);require(type(block['height']) is int and block['height']==p['height']+1,'native parent/height')
+    value=active(db,network,block['height']);require(value is not None,'work consensus is not active')
+    proof=block['work'];require(type(proof) is dict and set(proof)=={'schema','activation','policy','miner_public_key','nonce'} and proof['schema']==PROOF,'versioned native work proof')
+    require(proof['activation']==policy_hash(value) and proof['policy']==commitment(value['work_policy']),'exact governed activation')
+    key=miner_key(proof['miner_public_key']);require(block['validator']==hashlib.sha256(proof['miner_public_key'].encode()).hexdigest(),'native miner identity')
+    integer(block['timestamp'],p['timestamp'],2**63-1)
+    txs=block['transactions'];require(type(txs) is list and len(txs)<=200 and all(type(tx) is str and re.fullmatch('[a-f0-9]{64}',tx) for tx in txs) and len(set(txs))==len(txs),'bounded unique transaction hashes')
+    result=verify_work(value['work_policy'],context(block),{'schema':'corium.sha256-work.v1','policy':proof['policy'],'nonce':proof['nonce']},network=network,genesis=value['work_policy']['genesis'],parent_weight=p['total_weight'])
+    raw=signing_bytes(block);require(type(expected) is str and hashlib.sha256(raw).hexdigest()==expected,'native work block identity')
+    signature=block['signature'];require(type(signature) is str and re.fullmatch('[a-f0-9]{16,144}',signature) and len(signature)%2==0,'bounded native DER signature')
+    key.verify(bytes.fromhex(signature),raw,ec.ECDSA(hashes.SHA256()))
+    return {'hash':expected,'height':block['height'],'validator':block['validator'],'total_weight':result['total_weight'],'work_weight':result['weight'],'consensus_policy':policy_hash(value),'work_verified':True,'transactions_validated_by_native_caller':False}
+
+
+def mine(db,network,key_file,previous,timestamp,transactions,attempts=100000,start_nonce=0):
+    p=parent(db,previous);value=active(db,network,p['height']+1);require(value is not None,'work consensus is not active')
+    integer(attempts,1,1000000);integer(start_nonce,0,2**64-attempts)
+    key=serialization.load_pem_private_key(Path(key_file).read_bytes(),password=None)
+    require(isinstance(key,ec.EllipticCurvePrivateKey) and isinstance(key.curve,ec.SECP256K1),'native private key required')
+    public=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
+    block={'height':p['height']+1,'previous_hash':previous,'timestamp':timestamp,'validator':hashlib.sha256(public.encode()).hexdigest(),'signature':'','transactions':transactions,'work':{'schema':PROOF,'activation':policy_hash(value),'policy':commitment(value['work_policy']),'miner_public_key':public,'nonce':0}}
+    ctx=context(block)
+    for nonce in range(start_nonce,start_nonce+attempts):
+        if int(work_digest(value['work_policy'],ctx,nonce),16)>=2**(256-value['work_policy']['difficulty_bits']):continue
+        block['work']['nonce']=nonce;raw=signing_bytes(block);identity=hashlib.sha256(raw).hexdigest();block['signature']=key.sign(raw,ec.ECDSA(hashes.SHA256())).hex()
+        return {'block':block,**verify(db,network,block,identity)}
+    raise ValueError('bounded mining work exhausted')
+
+
+def record(db,network,block,identity):
+    result=verify(db,network,block,identity)
+    row=db.execute('SELECT height,previous_hash,timestamp,validator,signature,transactions,total_weight FROM blocks WHERE hash=?',(identity,)).fetchone();require(row is not None,'native block must already be committed in the enclosing transaction')
+    require(dict(row)=={'height':block['height'],'previous_hash':block['previous_hash'],'timestamp':block['timestamp'],'validator':block['validator'],'signature':block['signature'],'transactions':json.dumps(block['transactions'],separators=(',',':')),'total_weight':result['total_weight']},'stored native block fields differ')
+    old=db.execute('SELECT proof FROM block_work WHERE hash=?',(identity,)).fetchone();require(old is None or json.loads(old[0])==block['work'],'native proof identity conflict')
+    db.execute('INSERT OR IGNORE INTO block_work VALUES(?,?)',(identity,encoded(block['work']).decode()));return result
+
+
+def stored(db,identity):
+    row=db.execute('SELECT height,previous_hash,timestamp,validator,signature,transactions FROM blocks WHERE hash=?',(identity,)).fetchone();require(row is not None,'stored native block required')
+    value=dict(row);value['transactions']=json.loads(value['transactions']);proof=db.execute('SELECT proof FROM block_work WHERE hash=?',(identity,)).fetchone()
+    if proof:value['work']=json.loads(proof[0])
+    return value
+
+
+def main(args):
+    action,path,network=args[:3]
+    with sqlite3.connect(path) as db:
+        db.row_factory=sqlite3.Row
+        if action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
+        elif action=='preactivate':
+            enabled=network.startswith('test-') or network.startswith('ziokt-test-')
+            due=db.execute("SELECT 1 FROM scheduled_state_changes WHERE enactment_height=? AND type='propose_new_compute_engine' AND json_extract(data,'$.pkg_id')=? LIMIT 1",(int(args[3]),PACKAGE)).fetchone() if enabled else None
+            result={'required':bool(due)}
+        elif action=='mode':
+            value=active(db,network,int(args[3]));result={'mode':'pow-v2' if value else 'legacy-pos','policy':policy_hash(value) if value else LEGACY}
+        elif action=='mine':result=mine(db,network,args[3],args[4],int(args[5]),json.loads(args[6]))
+        elif action=='verify':result=verify(db,network,loads(args[3]),args[4])
+        elif action=='verify-file':
+            path=Path(args[3]);require(path.is_file() and path.stat().st_size<=65536,'native block file budget');result=verify(db,network,loads(path.read_text()),args[4])
+        elif action=='record':result=record(db,network,loads(args[3]),args[4])
+        elif action=='stored':result=stored(db,args[3])
+        elif action=='fork-guard':
+            tip=db.execute('SELECT max(height) FROM blocks').fetchone()[0];value=active(db,network,tip);ancestor=db.execute('SELECT height FROM blocks WHERE hash=?',(args[3],)).fetchone();require(ancestor is not None,'known native ancestor')
+            require(value is None or ancestor[0]>=value['checkpoint']['height'],'governed native checkpoint boundary');result={'allowed':True}
+        else:raise ValueError('unknown native work action')
+    print(json.dumps(result,separators=(',',':')))
+
+
+if __name__=='__main__':main(__import__('sys').argv[1:])

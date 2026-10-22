@@ -93,6 +93,7 @@ def active_policy(db,network,engine,height):
     require(row['compute_program_hash']==policy_digest(value) and row['verifier_script_hash']==source_digest(),'active engine commitment mismatch')
     require(value['activation_height']<=height<value['expiry_height'],'bounty admission height')
     integer(row['reward_weight'],1,1000000)
+    require(type(payload.get('reward_weight')) is int and row['reward_weight']==payload['reward_weight'],'signed governance reward weight mismatch')
     return value,row['reward_weight']
 
 
