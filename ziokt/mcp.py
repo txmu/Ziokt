@@ -130,7 +130,7 @@ class Service:
                 write=method in {'register','revoke'}
                 fields={} if method=='status' else {'limit':{'type':'integer','minimum':1,'maximum':8}} if method=='query' else {'sequence':{'type':'integer','minimum':0,'maximum':2**53-1}} if method=='revoke' else {'envelope':PARAMS,'publish':{'type':'boolean','const':True},'anonymous':{'type':'boolean'},'relay_authorization':{'type':['object','null']}}
                 self.add('tracker_'+alias+'_'+method,'Explicit optional Tracker '+method+'; signed federation scope, lease expiry and member permissions apply.',schema(fields,tuple(fields)),write,'ziokt:discovery:'+('write' if write else 'read'),('tracker',alias,method))
-        self.add('ziokt_components','List configured components and enabled native surfaces.',schema(),False,'ziokt:read',('components',))
+        self.add('ziokt_components','List configured components, exact source build and OpenCI receipt integration boundaries; capability presence is not runtime or settlement proof.',schema(),False,'ziokt:read',('components',))
         if config.get('federation'):
             from .config import load
             from ._runtime import OPERATIONS
@@ -461,7 +461,7 @@ class Service:
                 return {'suffix_authorities':SUFFIXES,'realms':{} if networks is None else {key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False,'dns_confers_authorization':False,'nns_default_publication':False,'ech_tls_termination_verified':False}
             if networks is None:raise ValueError('DNS node configuration unavailable')
             return networks.resolve(args['name'],realm=args.get('realm'),component=args.get('component'),public=kind=='name-resolve')
-        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info}
+        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info,'source_features':{'openci':{'worker_receipt_schema':'openci.worker-receipt.v1','signature_domain':'OpenCI/worker-receipt/v1','result_bindings':['pipeline','task','attempt','source','task_digest','lease_digest','worker','result'],'native_delivery':'signed-dcpm-provenance','controller_running':'not_assessed','remote_workers':'not_assessed','hardware_attestation':False,'native_consensus_settlement':'not_implemented','mainnet_consensus_changed':False}}}
         if kind=='registry':
             from .registry import Registry
             from .gateway import Gateway

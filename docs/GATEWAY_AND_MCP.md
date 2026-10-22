@@ -245,3 +245,8 @@ paginates the full catalog and `/help TOOL_NAME` shows its schema. Mutating tool
 calls return a one-time confirmation code and execute only after `/confirm CODE`.
 For private chats the numeric chat ID is also the owner user ID; group deployments
 must separately configure `allowed_user_ids`. Other senders receive no response.
+
+
+### OpenCI签名回执同步（2026-10-22）
+
+复用既有 `ziokt_components` 和 `ziokt://components`，返回当前冻结源码版本及 `source_features.openci` 的回执格式、签名域、任务/输入/租约/产物绑定字段和原生dCPM来源记录能力。该字段明确是源码能力：Controller实际在线、远端Worker与恢复不据此认定；链上共识结算标为not_implemented。未新增重复工具或放宽读写scope，工具总数仍462，目录从真实Service重新生成。TG使用同一MCP源码版本，未发送测试消息。详见 `openci/WORKER-RECEIPTS.md`。

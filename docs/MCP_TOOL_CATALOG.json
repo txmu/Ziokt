@@ -8,7 +8,7 @@
     "2025-03-26"
   ],
   "tool_count": 462,
-  "registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3",
+  "registry_sha256": "5f4abda61d1d4555e4870fabe065fc1dff7ac1db7ac78a952878721037895288",
   "tools": [
     {
       "securitySchemes": [
@@ -245,7 +245,7 @@
         ]
       },
       "name": "ziokt_components",
-      "description": "List configured components and enabled native surfaces.",
+      "description": "List configured components, exact source build and OpenCI receipt integration boundaries; capability presence is not runtime or settlement proof.",
       "inputSchema": {
         "type": "object",
         "properties": {},
