@@ -18,11 +18,13 @@ $('#search').addEventListener('submit',async e=>{e.preventDefault();const v=$('#
 $('#more').addEventListener('click',load);
 $('#pending').addEventListener('click',()=>show('transactions?pending=1'));
 $('#alltx').addEventListener('click',()=>show('transactions'));
+$('#upgrades').textContent=tr('原生升级与贡献结算','Native upgrades and contribution settlement');
+$('#upgrades').addEventListener('click',()=>show('upgrades'));
 $('#home').addEventListener('click',()=>{before=null;load()});
 async function summary(){try{const s=await api('summary');$('#summary').textContent=s.network_id+' · '+tr('高度 ','Height ')+s.tip_height+' · '+tr('活跃验证者 ','Active validators ')+s.active_validators+' · '+tr('待处理 ','Pending ')+s.pending_transactions}catch(e){$('#summary').textContent=failed(e)}}
 async function activity(){try{const data=await api('activity');clear($('#activity'));const max=Math.max(1,...data.blocks.map(b=>b.transaction_count));data.blocks.forEach(b=>{const a=link($('#activity'),'block/'+b.height,'#'+b.height+' · '+b.transaction_count+' '+tr('笔交易','transactions'));a.setAttribute('role','listitem');const bar=document.createElement('progress');bar.max=max;bar.value=b.transaction_count;bar.setAttribute('aria-label',tr('交易数量','Transaction count'));a.appendChild(bar)})}catch(e){$('#activity').textContent=failed(e)}}
 $('#refresh').addEventListener('click',()=>{summary();activity();before=null;load();route()});
 $('#export').addEventListener('click',()=>{if(!current)return;const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='ziokt-chain-query.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000)});
-function route(){const path=location.hash.slice(1);if(/^(block\/(?:[0-9]{1,16}|[a-f0-9]{64})|transaction\/[a-f0-9]{64}|transactions(?:\?pending=1)?)$/.test(path))show(path)}
+function route(){const path=location.hash.slice(1);if(/^(block\/(?:[0-9]{1,16}|[a-f0-9]{64})|transaction\/[a-f0-9]{64}|upgrades|transactions(?:\?pending=1)?)$/.test(path))show(path)}
 addEventListener('hashchange',route);addEventListener('pageshow',e=>{if(e.persisted){summary();route()}});summary();activity();load();route();
 })();

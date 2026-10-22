@@ -127,19 +127,22 @@ def verify_receipts(policy,bounty,proof):
     return {'artifact_digest':artifact,'pipeline':pipeline,'workers':sorted(seen),'hardware_independence_verified':False,'trust_model':'governance-approved witness quorum; not trustless compilation proof'}
 
 
-def validate_claim(db,network,payload,sender,height):
+def validate_claim(db,network,payload,sender,height,accepted_tx=None):
     exact(payload,{'engine_id','problem_id','engine_hash','verifier_hash','proof_data'})
     policy,weight=active_policy(db,network,payload['engine_id'],height)
     require(payload['engine_hash']==policy_digest(policy) and payload['verifier_hash']==source_digest(),'claim engine binding')
     bounties=[b for b in policy['bounties'] if problem(policy,b['name'])==payload['problem_id']];require(len(bounties)==1,'governance-approved bounty required')
     bounty=bounties[0];require(sender==bounty['beneficiary'],'fixed native reward recipient')
+    completed=db.execute('SELECT proof_tx_hash FROM completed_compute_tasks WHERE engine_id=? AND problem_id=?',(payload['engine_id'],payload['problem_id'])).fetchall()
+    pending=db.execute("SELECT p.proof_tx_hash FROM pending_proofs p JOIN transactions t ON t.hash=p.proof_tx_hash WHERE p.problem_id=? AND t.type='submit_math_proof' AND json_extract(t.data,'$.engine_id')=?",(payload['problem_id'],payload['engine_id'])).fetchall()
+    require(all(accepted_tx is not None and row[0]==accepted_tx for row in completed+pending),'bounty already pending or redeemed')
     result=verify_receipts(policy,bounty,payload['proof_data'])
     return result|{'problem_id':payload['problem_id'],'engine_id':payload['engine_id'],'reward':100*weight,'beneficiary':sender}
 
 
 def settle(db,network,tx,height):
     row=db.execute('SELECT data,public_key,block_height FROM transactions WHERE hash=? AND type=\'submit_math_proof\' AND block_height IS NOT NULL',(tx,)).fetchone();require(row is not None,'confirmed native proof required')
-    payload=json.loads(row['data']);sender=hashlib.sha256(row['public_key'].encode()).hexdigest();result=validate_claim(db,network,payload,sender,row['block_height'])
+    payload=json.loads(row['data']);sender=hashlib.sha256(row['public_key'].encode()).hexdigest();result=validate_claim(db,network,payload,sender,row['block_height'],accepted_tx=tx)
     done=db.execute('SELECT proof_tx_hash FROM completed_compute_tasks WHERE engine_id=? AND problem_id=?',(result['engine_id'],result['problem_id'])).fetchone()
     if done:require(done[0]==tx,'bounty already redeemed');return result|{'duplicate':True}
     pending=db.execute('SELECT * FROM pending_proofs WHERE proof_tx_hash=?',(tx,)).fetchone();require(pending is not None and pending['proposer_id']==sender and pending['problem_id']==result['problem_id'] and pending['confirmation_deadline_height']==row['block_height']+10 and height>=pending['confirmation_deadline_height'],'native challenge window must elapse')
@@ -156,7 +159,7 @@ def main(args):
     with sqlite3.connect(database) as db:
         db.row_factory=sqlite3.Row
         if action=='proposal':result=proposal(db,network,json.loads(args[3]),int(args[4]))
-        elif action=='validate':result=validate_claim(db,network,json.loads(args[3]),args[4],int(args[5]))
+        elif action=='validate':result=validate_claim(db,network,json.loads(args[3]),args[4],int(args[5]),accepted_tx=args[6] if len(args)==7 else None)
         elif action=='settle':
             db.execute('BEGIN IMMEDIATE');result=settle(db,network,args[3],int(args[4]))
         else:raise ValueError('unknown native OpenCI action')

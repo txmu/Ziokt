@@ -12,6 +12,22 @@ from test_openci_state import pipeline
 
 
 class HTTPTests(unittest.TestCase):
+    def test_contribution_plan_is_project_and_role_bound(self):
+        ref=self.owner.upload('demo',self.source)
+        value=pipeline();value['source']=ref
+        pid=self.owner.request('POST','/v1/pipelines',value)['pipeline']
+        request={'pipeline':pid,'task':'build','policy':{},'engine':'c'*64,'bounty':'build'}
+        for client in (self.worker,self.other):
+            with self.subTest(client=client.token),self.assertRaises(Error) as denied:
+                client.request('POST','/v1/contributions/prepare',request)
+            self.assertEqual(denied.exception.status,403)
+        with self.assertRaises(Error) as denied:
+            self.owner.request('POST','/v1/contributions/prepare',{**request,'admin':True})
+        self.assertEqual(denied.exception.code,'CHAIN_FIELDS')
+        with self.assertRaises(Error) as rejected:
+            self.owner.request('POST','/v1/contributions/prepare',request)
+        self.assertEqual(rejected.exception.code,'CHAIN_POLICY_REJECTED')
+
     def test_rebuild_endpoint_scope_and_no_self_approved_resources(self):
         from test_openci_state import task
         ref=self.owner.upload('demo',self.source)

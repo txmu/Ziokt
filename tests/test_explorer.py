@@ -20,6 +20,27 @@ class ExplorerTests(unittest.TestCase):
         self.fixture=Fixture();self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
         self.explorer=ChainExplorer(self.fixture.root,'default')
 
+    def test_upgrade_evidence_is_bounded_read_only_and_not_activation_claim(self):
+        initial=self.explorer.query('/api/explorer/upgrades')
+        self.assertEqual(initial['governance_records'],[])
+        self.assertEqual(initial['canonical_work_proof_rows'],0)
+        self.assertEqual(initial['business_validation'],'not_assessed')
+        proposal={'work_consensus':{'work_policy':{'activation_height':200}},'private_marker':'NEVER-PUBLISH-THIS'}
+        with sqlite3.connect(self.explorer.path) as db:
+            for i in range(34):
+                engine=format(i,'064x')
+                db.execute('INSERT INTO transactions VALUES(?,?,?,?,?,?,?)',(engine,'propose_new_compute_engine',json.dumps(proposal),'fixture',self.fixture.pem,0,0))
+                db.execute('INSERT INTO compute_engines VALUES(?,?,?,?,?,?,?)',(engine,'consensus/work-weight:2','private description','a'*64,'b'*64,1,1))
+        before=self.fixture.semantic()
+        view=self.explorer.query('/api/explorer/upgrades')
+        self.assertEqual(len(view['governance_records']),32);self.assertTrue(view['records_truncated'])
+        self.assertEqual(view['governance_records'][0]['declared_activation_height'],200)
+        self.assertNotIn('NEVER-PUBLISH-THIS',json.dumps(view))
+        self.assertNotIn('private description',json.dumps(view))
+        self.assertEqual(view['remote_verified'],'not_assessed')
+        self.assertEqual(self.fixture.semantic(),before)
+        with self.assertRaises(ProtocolError):self.explorer.query('/api/explorer/upgrades?sql=1')
+
     def test_native_inclusion_lookup_validation_and_no_payload_disclosure(self):
         self.fixture.run_core('blockchain_create_transaction set_nickname \'{"nickname":"PRIVATE-PAYLOAD-MARKER"}\' >/dev/null; blockchain_mine_block >/dev/null')
         before=self.fixture.semantic()

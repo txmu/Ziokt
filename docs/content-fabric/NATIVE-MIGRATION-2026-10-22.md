@@ -35,3 +35,20 @@ settlement is claimed. Production Gateway/MCP/effort deployment remains the
 previous frozen revision until replacement acceptance passes. Effort relay and
 Engine Zero work are distinct from Work v2 block mining and native OpenCI bounty
 settlement. `all_requested_features_complete` remains false.
+
+## Shared user entry points
+
+`/api/explorer/upgrades` reads a bounded snapshot of confirmed native governance
+records and completed bounty rows without publishing transaction bodies, source
+receipts, private keys or proposal descriptions. The response explicitly leaves
+business validation, remote verification and anonymity guarantees unassessed.
+Both the effort page and the cor-web portal link to the shared explorer view.
+The existing MCP components resource reports the same experimental implementation
+boundary without adding or renaming tool IDs. This is source capability discovery,
+not a claim that the production controller or consensus has been activated.
+
+The combined CI path now executes two actual OCI tasks, checks artifact bytes,
+exports current signed receipts through the authenticated Controller API, then
+uses those receipts in the native proposal/vote/settlement/replay flow. Both OCI
+containers execute on the same CI host: logical approval domains are not evidence
+of independent physical workers. Run 39870216695 is pending full native acceptance.
