@@ -12,6 +12,11 @@ internal static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Contains("--remove-startup"))
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
+            key?.DeleteValue("ZioktEffort", false); return;
+        }
         ApplicationConfiguration.Initialize();
         if (args.Contains("--self-test")) { SelfTest.Run(); return; }
         using var instance = new Mutex(true, @"Local\ZioktEffort-" + Environment.UserName, out bool first);
@@ -97,7 +102,19 @@ internal sealed class EffortWindow : Form
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
             await web.EnsureCoreWebView2Async(environment);
             web.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            web.CoreWebView2.Settings.IsWebMessageEnabled = false;
+            web.CoreWebView2.Settings.IsWebMessageEnabled = true;
+            web.CoreWebView2.WebMessageReceived += (_, e) =>
+            {
+                if (!Allowed(e.Source)) return;
+                try
+                {
+                    using var message = JsonDocument.Parse(e.WebMessageAsJson);
+                    var value = message.RootElement;
+                    if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("kind", out var kind) || kind.GetString() != "effort-intent" || !value.TryGetProperty("active", out var active) || active.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return;
+                    prefs.Resume = active.GetBoolean(); prefs.Mode = mode.SelectedIndex == 1 ? "compute" : "network"; Save();
+                }
+                catch (JsonException) { }
+            };
             web.CoreWebView2.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             web.CoreWebView2.NavigationStarting += (_, e) => { if (!Allowed(e.Uri)) { e.Cancel = true; state.Text = "已阻止离开官方奋斗页"; } else { ready = false; navigating = true; start.Enabled = false; } };
             web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) && uri.Scheme == "https") Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); };
@@ -106,6 +123,7 @@ internal sealed class EffortWindow : Form
             {
                 navigating = false; ready = e.IsSuccess && Allowed(web.Source?.AbsoluteUri ?? ""); start.Enabled = ready;
                 if (!ready) { state.Text = connected ? "页面暂不可用，点击此处重试" : "网络已断开，等待系统网络恢复"; return; }
+                await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired()))}))},true);'intent-listener-installed'");
                 await PublishNetworkAsync();
                 state.Text = connected ? "就绪 · 两种方式均可选择；可随时停止" : "网络已断开，已暂停";
                 // Automatic contribution requires the user's explicit login-start permission plus saved active intent.

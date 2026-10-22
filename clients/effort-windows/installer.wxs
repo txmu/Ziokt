@@ -4,15 +4,16 @@
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="ZioktEffort">
-        <Component Id="EffortMain" Guid="*">
+        <Component Id="EffortMain" Guid="E3F8D2BF-3D22-474F-A166-9F8207468F70">
           <File Id="EffortExe" Source="$(var.PublishDir)\ZioktEffort.exe" />
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Ziokt Effort" Target="[#EffortExe]" WorkingDirectory="INSTALLFOLDER" />
           <RegistryValue Root="HKCU" Key="Software\Ziokt\Effort" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
-          <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ZioktEffort" Action="removeOnUninstall" />
           <RemoveFolder Id="RemoveEffortDirectory" On="uninstall" />
         </Component>
       </Directory>
     </StandardDirectory>
+    <CustomAction Id="RemoveEffortStartup" FileRef="EffortExe" ExeCommand="--remove-startup" Execute="immediate" Return="check" />
+    <InstallExecuteSequence><Custom Action="RemoveEffortStartup" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" /></InstallExecuteSequence>
     <Feature Id="Effort" Title="Ziokt Effort" Level="1"><ComponentRef Id="EffortMain" /></Feature>
   </Package>
 </Wix>

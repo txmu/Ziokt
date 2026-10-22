@@ -41,9 +41,11 @@ jobs:
           if ($install.ExitCode -notin @(0,3010)) { throw "Install failed: $($install.ExitCode)" }
           if (-not (Test-Path "$env:LOCALAPPDATA/ZioktEffort/ZioktEffort.exe")) { throw 'Installed EXE missing' }
           if (Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run -Name ZioktEffort -ErrorAction SilentlyContinue) { throw 'Installation must not grant autostart' }
+          New-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run -Name ZioktEffort -Value 'CI opt-in removal test' -PropertyType String -Force | Out-Null
           $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart', '/L*v', "$pwd/dist/effort-windows/uninstall.log") -Wait -PassThru
           if ($uninstall.ExitCode -notin @(0,3010)) { throw "Uninstall failed: $($uninstall.ExitCode)" }
           if (Test-Path "$env:LOCALAPPDATA/ZioktEffort/ZioktEffort.exe") { throw 'Uninstall left executable' }
+          if (Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run -Name ZioktEffort -ErrorAction SilentlyContinue) { throw 'Uninstall left autostart' }
       - name: Create traceable unsigned delivery
         shell: pwsh
         run: |
