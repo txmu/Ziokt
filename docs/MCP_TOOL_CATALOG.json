@@ -7,7 +7,8 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 460,
+  "tool_count": 462,
+  "registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3",
   "tools": [
     {
       "securitySchemes": [
@@ -176,8 +177,8 @@
           }
         },
         "required": [
-          "name",
-          "component"
+          "component",
+          "name"
         ],
         "additionalProperties": false
       },
@@ -1232,10 +1233,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1298,10 +1299,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1364,10 +1365,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1430,10 +1431,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1496,10 +1497,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1562,10 +1563,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1628,10 +1629,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1694,10 +1695,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1760,10 +1761,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1826,10 +1827,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1892,10 +1893,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -1958,10 +1959,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2024,10 +2025,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2090,10 +2091,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2156,10 +2157,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2222,10 +2223,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2575,10 +2576,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2641,10 +2642,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2707,10 +2708,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2773,10 +2774,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2839,10 +2840,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -2905,10 +2906,10 @@
           }
         },
         "required": [
-          "resource",
           "arguments",
           "expected_revision",
-          "operation_id"
+          "operation_id",
+          "resource"
         ],
         "additionalProperties": false
       },
@@ -18409,9 +18410,9 @@
           }
         },
         "required": [
+          "confirm",
           "receipt_digest",
-          "selector",
-          "confirm"
+          "selector"
         ],
         "additionalProperties": false
       },
@@ -18510,9 +18511,9 @@
           }
         },
         "required": [
-          "signer",
+          "confirm",
           "decision",
-          "confirm"
+          "signer"
         ],
         "additionalProperties": false
       },
@@ -18565,8 +18566,8 @@
           }
         },
         "required": [
-          "digest",
-          "authority"
+          "authority",
+          "digest"
         ],
         "additionalProperties": false
       },
@@ -18619,8 +18620,8 @@
           }
         },
         "required": [
-          "digest",
-          "authority"
+          "authority",
+          "digest"
         ],
         "additionalProperties": false
       },
@@ -18719,9 +18720,9 @@
           }
         },
         "required": [
-          "workflow_id",
+          "confirm",
           "plan_digest",
-          "confirm"
+          "workflow_id"
         ],
         "additionalProperties": false
       },
@@ -18943,8 +18944,8 @@
           }
         },
         "required": [
-          "name",
-          "data_base64"
+          "data_base64",
+          "name"
         ],
         "additionalProperties": false
       },
@@ -20779,8 +20780,8 @@
         },
         "required": [
           "chat_id",
-          "question",
-          "options"
+          "options",
+          "question"
         ],
         "additionalProperties": false
       },
@@ -21280,9 +21281,9 @@
               }
             },
             "required": [
+              "description",
               "kind",
               "target",
-              "description",
               "weight"
             ],
             "additionalProperties": false
@@ -21410,10 +21411,10 @@
           }
         },
         "required": [
-          "registration_id",
-          "digest",
+          "confirm",
           "decision",
-          "confirm"
+          "digest",
+          "registration_id"
         ],
         "additionalProperties": false
       },
@@ -21424,6 +21425,120 @@
         "openWorldHint": true
       },
       "scope": "ziokt:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_reader_manifest",
+      "description": "Content application: library.reader.manifest",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 128
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_reader_chapter",
+      "description": "Content application: library.reader.chapter",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "chapter": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1023
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "fragment": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "chapter",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
     },
     {
       "securitySchemes": [
@@ -21543,10 +21658,10 @@
           }
         },
         "required": [
-          "id",
-          "text",
+          "anchor",
           "book",
-          "anchor"
+          "id",
+          "text"
         ],
         "additionalProperties": false
       },
@@ -21629,11 +21744,11 @@
           }
         },
         "required": [
-          "book",
-          "text",
           "anchor",
+          "book",
           "id",
-          "revision"
+          "revision",
+          "text"
         ],
         "additionalProperties": false
       },
@@ -21687,8 +21802,8 @@
           }
         },
         "required": [
-          "revision",
-          "id"
+          "id",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -21823,11 +21938,11 @@
           }
         },
         "required": [
-          "book",
           "anchor",
+          "book",
           "id",
-          "revision",
-          "label"
+          "label",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -21881,8 +21996,8 @@
           }
         },
         "required": [
-          "revision",
-          "id"
+          "id",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -22154,9 +22269,9 @@
           }
         },
         "required": [
-          "revision",
           "article",
-          "is_read"
+          "is_read",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -22223,10 +22338,10 @@
           }
         },
         "required": [
-          "proof",
-          "record",
           "nonce",
-          "peer"
+          "peer",
+          "proof",
+          "record"
         ],
         "additionalProperties": false
       },
@@ -22520,10 +22635,10 @@
           }
         },
         "required": [
-          "expires",
-          "topic",
           "alias",
-          "group"
+          "expires",
+          "group",
+          "topic"
         ],
         "additionalProperties": false
       },
@@ -22591,12 +22706,12 @@
           }
         },
         "required": [
-          "target",
           "alias",
           "expires",
+          "group",
+          "target",
           "target_account",
-          "topic",
-          "group"
+          "topic"
         ],
         "additionalProperties": false
       },
@@ -22698,8 +22813,8 @@
           }
         },
         "required": [
-          "record",
-          "grant"
+          "grant",
+          "record"
         ],
         "additionalProperties": false
       },
@@ -22752,8 +22867,8 @@
           }
         },
         "required": [
-          "native_id",
-          "grant"
+          "grant",
+          "native_id"
         ],
         "additionalProperties": false
       },
@@ -22904,8 +23019,8 @@
           }
         },
         "required": [
-          "record",
-          "complaint"
+          "complaint",
+          "record"
         ],
         "additionalProperties": false
       },
@@ -23100,8 +23215,8 @@
           }
         },
         "required": [
-          "decision",
           "case",
+          "decision",
           "reason"
         ],
         "additionalProperties": false
@@ -23160,8 +23275,8 @@
         },
         "required": [
           "action",
-          "record",
-          "reason"
+          "reason",
+          "record"
         ],
         "additionalProperties": false
       },
@@ -23552,8 +23667,8 @@
           }
         },
         "required": [
-          "verify_bytes",
-          "id"
+          "id",
+          "verify_bytes"
         ],
         "additionalProperties": false
       },
@@ -23598,8 +23713,8 @@
           }
         },
         "required": [
-          "verify_bytes",
-          "reference"
+          "reference",
+          "verify_bytes"
         ],
         "additionalProperties": false
       },
@@ -24027,9 +24142,9 @@
           }
         },
         "required": [
+          "body",
           "operation",
-          "title",
-          "body"
+          "title"
         ],
         "additionalProperties": false
       },
@@ -24234,10 +24349,10 @@
           }
         },
         "required": [
-          "source",
           "profile",
-          "target",
-          "syntax"
+          "source",
+          "syntax",
+          "target"
         ],
         "additionalProperties": false
       },
@@ -24354,9 +24469,9 @@
           }
         },
         "required": [
+          "digest",
           "size",
-          "upload",
-          "digest"
+          "upload"
         ],
         "additionalProperties": false
       },
@@ -24412,9 +24527,9 @@
           }
         },
         "required": [
-          "upload",
+          "data",
           "position",
-          "data"
+          "upload"
         ],
         "additionalProperties": false
       },
@@ -24550,8 +24665,8 @@
           }
         },
         "required": [
-          "position",
-          "id"
+          "id",
+          "position"
         ],
         "additionalProperties": false
       },
@@ -25068,8 +25183,8 @@
           }
         },
         "required": [
-          "state",
-          "id"
+          "id",
+          "state"
         ],
         "additionalProperties": false
       },
@@ -25263,9 +25378,9 @@
           }
         },
         "required": [
-          "subject",
+          "body",
           "groups",
-          "body"
+          "subject"
         ],
         "additionalProperties": false
       },

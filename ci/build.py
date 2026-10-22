@@ -5,8 +5,11 @@ import subprocess
 import sys
 import tempfile
 import zipapp
+import json
 
 root = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+from ziokt.build_info import snapshot
 output = root / "dist"
 output.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="ziokt-build-") as directory:
@@ -14,6 +17,7 @@ with tempfile.TemporaryDirectory(prefix="ziokt-build-") as directory:
     shutil.copytree(root / "ziokt", stage / "ziokt", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     shutil.copytree(root / "gateway", stage / "gateway")
     shutil.copytree(root / "openci", stage / "openci", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    (stage / 'ziokt' / '_build_manifest.json').write_text(json.dumps(snapshot(),sort_keys=True)+'\n')
     (stage / "__main__.py").write_text("from ziokt.cli import main\nraise SystemExit(main())\n")
     zipapp.create_archive(stage, output / "ziokt.pyz", compressed=True)
     (stage / "__main__.py").write_text("from openci.cli import main\nmain()\n")

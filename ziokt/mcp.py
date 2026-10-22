@@ -29,7 +29,7 @@ log=logging.getLogger(__name__)
 
 
 def schema(properties=None,required=()):
-    return {'type':'object','properties':properties or {},'required':list(required),'additionalProperties':False}
+    return {'type':'object','properties':properties or {},'required':sorted(required),'additionalProperties':False}
 
 
 def _validate_health(result,component,challenge,*,native_etp=False):
@@ -105,6 +105,8 @@ class McpError(Exception):
 class Service:
     def __init__(self,config):
         self.config=config
+        from .build_info import snapshot
+        self.build_info=snapshot()
         self.root=Path(config['state']);self.root.mkdir(parents=True,mode=0o700,exist_ok=True);self.root.chmod(0o700)
         self.db=self.root/'mcp.db'
         self.lock=threading.RLock()
@@ -459,7 +461,7 @@ class Service:
                 return {'suffix_authorities':SUFFIXES,'realms':{} if networks is None else {key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False,'dns_confers_authorization':False,'nns_default_publication':False,'ech_tls_termination_verified':False}
             if networks is None:raise ValueError('DNS node configuration unavailable')
             return networks.resolve(args['name'],realm=args.get('realm'),component=args.get('component'),public=kind=='name-resolve')
-        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False)}
+        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info}
         if kind=='registry':
             from .registry import Registry
             from .gateway import Gateway
@@ -672,7 +674,10 @@ class Service:
             if version==LATEST:raise McpError(-32601,'initialize is retired in 2026-07-28',404)
             return {'protocolVersion':version,'capabilities':{'tools':{},'resources':{}},'serverInfo':{'name':'ziokt-native','version':'2.0.0'}}
         if method=='notifications/initialized' and version!=LATEST:return None
-        if method=='server/discover':return {'supportedVersions':list(VERSIONS),'capabilities':{'tools':{},'resources':{}},'instructions':'Scoped native tools. Writes deduplicate automatically; review native plan digests before apply. Administrator-approved tools retain native identity and consensus checks.'}
+        if method=='server/discover':
+            from .build_info import registry_digest
+            return {'supportedVersions':list(VERSIONS),'capabilities':{'tools':{},'resources':{}},'instructions':'Scoped native tools. Writes deduplicate automatically; review native plan digests before apply. Administrator-approved tools retain native identity and consensus checks.',
+                    'serverInfo':{'name':'ziokt-native','version':'2.0.0','build':self.build_info},'tool_count':len(self.tools),'registry_sha256':registry_digest(self.tools.values())}
         if method=='ping':return {}
         if method=='tools/list':
             if principal.get('public'):

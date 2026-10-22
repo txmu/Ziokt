@@ -27,6 +27,8 @@ jobs:
           python -m unittest discover -s tests -p test_gateway_observation.py -v
           python -m unittest discover -s tests -p test_public_address.py -v
           python -m unittest discover -s tests -p test_mcp.py -v
+          python -m unittest discover -s tests -p test_mcp_registry_audit.py -v
+          python -m unittest discover -s tests -p test_frozen_deployment.py -v
           python -m unittest discover -s tests -p test_registry.py -v
           python -m unittest discover -s tests -p test_etp_adapter.py -v
       - name: Browser runtime only; no local application build

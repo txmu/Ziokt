@@ -61,6 +61,8 @@ def verify_client(payload, network, now=None):
 
 class Gateway:
     def __init__(self, config, transports=False):
+        from .build_info import snapshot
+        self.build_info=snapshot()
         self.config = config
         self.transports=[]
         self.transport_stop=threading.Event()
@@ -221,7 +223,7 @@ def handler(gateway):
                 if path == '/api/gateway/status':
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
-                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending})
+                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest')})
                 if path == '/api/gateway/registrations':
                     from .registry import Registry
                     return self.send(200,Registry(gateway.config['registry_db'],gateway.config['network']).list())
