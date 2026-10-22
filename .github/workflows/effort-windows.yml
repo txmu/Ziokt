@@ -1,0 +1,66 @@
+name: Windows effort client
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'clients/effort-windows/**'
+      - '.github/workflows/effort-windows.yml'
+      - 'ziokt/effort/**'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish standalone Windows x64 application
+        shell: pwsh
+        run: |
+          dotnet publish clients/effort-windows/ZioktEffort.csproj -c Release -r win-x64 -o dist/effort-windows/publish -p:SourceRevisionId=$env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet tool install wix --version 5.0.2 --tool-path .wix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .wix/wix.exe build clients/effort-windows/installer.wxs -arch x64 -d "PublishDir=$pwd/dist/effort-windows/publish" -o dist/effort-windows/ziokt-effort-windows-x64-unsigned.msi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run real Windows executable boundary checks
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/effort-windows/publish/ZioktEffort.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Executable test failed: $($p.ExitCode)" }
+          $test = Get-Content dist/effort-windows/publish/self-test.json | ConvertFrom-Json
+          if (-not $test.success) { throw 'Missing actual executable evidence' }
+      - name: Verify actual per-user install and uninstall
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path dist/effort-windows/ziokt-effort-windows-x64-unsigned.msi).Path
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart', '/L*v', "$pwd/dist/effort-windows/install.log") -Wait -PassThru
+          if ($install.ExitCode -notin @(0,3010)) { throw "Install failed: $($install.ExitCode)" }
+          if (-not (Test-Path "$env:LOCALAPPDATA/ZioktEffort/ZioktEffort.exe")) { throw 'Installed EXE missing' }
+          if (Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run -Name ZioktEffort -ErrorAction SilentlyContinue) { throw 'Installation must not grant autostart' }
+          $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart', '/L*v', "$pwd/dist/effort-windows/uninstall.log") -Wait -PassThru
+          if ($uninstall.ExitCode -notin @(0,3010)) { throw "Uninstall failed: $($uninstall.ExitCode)" }
+          if (Test-Path "$env:LOCALAPPDATA/ZioktEffort/ZioktEffort.exe") { throw 'Uninstall left executable' }
+      - name: Create traceable unsigned delivery
+        shell: pwsh
+        run: |
+          Copy-Item dist/effort-windows/publish/ZioktEffort.exe dist/effort-windows/ziokt-effort-windows-x64-unsigned.exe
+          Copy-Item dist/effort-windows/publish/self-test.json dist/effort-windows/self-test.json
+          Copy-Item clients/effort-windows/README.md dist/effort-windows/README.md
+          @{schema='ziokt.effort.windows-build.v1'; source_commit=$env:GITHUB_SHA; run_id=$env:GITHUB_RUN_ID; run_url="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"; signing='unsigned-development'; windows_runner='windows-2022'; physical_device_test='not_assessed'; mainnet_consensus_changed=$false} | ConvertTo-Json | Set-Content dist/effort-windows/build-source.json -Encoding utf8NoBOM
+          Get-ChildItem dist/effort-windows -File | Where-Object {$_.Name -ne 'SHA256SUMS'} | Sort-Object Name | ForEach-Object {"$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"} | Set-Content dist/effort-windows/SHA256SUMS -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effort-windows-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            dist/effort-windows/*.msi
+            dist/effort-windows/*.exe
+            dist/effort-windows/*.json
+            dist/effort-windows/*.log
+            dist/effort-windows/README.md
+            dist/effort-windows/SHA256SUMS
