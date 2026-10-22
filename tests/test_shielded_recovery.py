@@ -39,6 +39,19 @@ class RecoveryTests(unittest.TestCase):
             self.f.db.backup(db)
         self.chain.chmod(0o600)
 
+    def test_recovery_rejects_future_spend_and_malformed_canonical_anchor(self):
+        recovered=w.recover_wallet(self.root,self.wallet)
+        image=recovered['recovery']['notes'][0]['key_image']
+        with closing(sqlite3.connect(self.chain)) as db,db:
+            db.execute('INSERT INTO zkn_shield_images VALUES(?,?,?)',(image,999,'d'*64))
+        before=hashlib.sha256(self.chain.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError,'spend height'):w.recover_wallet(self.root,self.wallet)
+        self.assertEqual(hashlib.sha256(self.chain.read_bytes()).hexdigest(),before)
+        with closing(sqlite3.connect(self.chain)) as db,db:
+            db.execute('DELETE FROM zkn_shield_images')
+            db.execute("UPDATE blocks SET hash='malformed' WHERE height=(SELECT max(height) FROM blocks)")
+        with self.assertRaises(ValueError):w.recover_wallet(self.root,self.wallet)
+
     def test_local_recovery_finds_note_and_spend_without_changing_chain(self):
         before = hashlib.sha256(self.chain.read_bytes()).hexdigest()
         value = w.recover_wallet(self.root, self.wallet)

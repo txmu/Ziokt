@@ -166,6 +166,8 @@ def recover_wallet(root, wallet):
         db.execute('BEGIN')
         block = db.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
         if not block: raise ValueError('canonical chain head required')
+        if type(block[0]) is not int or block[0]<0:raise ValueError('canonical chain height is inconsistent')
+        r.zs_hex(block[1])
         if r.zs_exists(db, 'zkn_shield_notes'):
             row = db.execute('SELECT note_id,public_key,commitment,ciphertext,height FROM zkn_shield_notes WHERE public_key=?', (wallet['address']['public_key'],)).fetchone()
             if row:
@@ -174,7 +176,11 @@ def recover_wallet(root, wallet):
                     raise ValueError('canonical note record is inconsistent')
                 witness = open_note(network, note, keys)
                 image = r.zs_mul(r.zs_scalar(keys['spend_key']), r.zs_hp(b'Corium/ZKN/key-image/v1\0' + network.encode() + b'\0', r.zs_point(note['public_key']))).hex()
-                spent = bool(db.execute('SELECT 1 FROM zkn_shield_images WHERE image=?', (image,)).fetchone())
+                spent_row=db.execute('SELECT height,transaction_hash FROM zkn_shield_images WHERE image=?',(image,)).fetchone()
+                if spent_row:
+                    if type(spent_row[0]) is not int or not row[4]<=spent_row[0]<=block[0]:raise ValueError('canonical spend height is inconsistent')
+                    r.zs_hex(spent_row[1])
+                spent = spent_row is not None
                 notes.append({'note_id': row[0], 'height': row[4], 'witness': witness, 'key_image': image, 'spent': spent})
     return {k: wallet[k] for k in ('network_id', 'keys', 'address')} | {
         'recovery': {'schema': 'corium.shielded-recovery.v1', 'anchor': {'height': block[0], 'hash': block[1]}, 'notes': notes}}

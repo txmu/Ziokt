@@ -52,3 +52,14 @@ exports current signed receipts through the authenticated Controller API, then
 uses those receipts in the native proposal/vote/settlement/replay flow. Both OCI
 containers execute on the same CI host: logical approval domains are not evidence
 of independent physical workers. Run 39870216695 is pending full native acceptance.
+
+Wallet recovery additionally rejects future-dated spend images and malformed
+canonical head hashes. Six encrypted wallet recovery tests pass, including
+rollback rescan and secret-free CLI output. The new upgrade browser view passed
+Chromium Chinese/English mobile UI contract checks; its fixture is not native
+chain evidence. The API has a separate actual native SQLite read-only test.
+
+Native OpenCI admission now rejects duplicate pending/completed bounty claims,
+while allowing only the original transaction to be rechecked or settled
+idempotently. Five affected native predicate tests pass. The long CI workflow
+queues subsequent revisions instead of cancelling a running chain replay.

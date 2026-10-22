@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: openci-core-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   controller-and-runner:
     runs-on: ubuntu-24.04
