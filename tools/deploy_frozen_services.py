@@ -46,6 +46,9 @@ def stage(root,revision):
             if any(not (item.isfile() or item.isdir()) for item in source.getmembers()):raise ValueError('release archive links are not allowed')
             source.extractall(tree,filter='data')
         (tree/'DEPLOYED_BUILD.json').write_text(json.dumps({'schema':'ziokt.frozen-source.v1','source_commit':exact},sort_keys=True)+'\n')
+        gui=tree/'gateway/gui'
+        if (gui/'app.js').is_file():
+            (gui/'ziokt-build.json').write_text(json.dumps({'schema':'ziokt.gui-build.v1','source_commit':exact,'app_sha256':hashlib.sha256((gui/'app.js').read_bytes()).hexdigest()},sort_keys=True)+'\n')
         (tree/'RELEASE_SHA256.json').write_text(json.dumps(release_hashes(tree),sort_keys=True)+'\n')
         for path in tree.rglob('*'):
             if path.is_file():path.chmod(0o444)
@@ -63,6 +66,20 @@ def backup_database(source,destination):
     with sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True) as original,sqlite3.connect(destination) as backup:
         original.backup(backup,pages=128,progress=progress,sleep=.01)
     destination.chmod(0o600)
+
+
+def reload_caddy(root,caddy):
+    # Caddy >=2.11 supports a graceful file reload signal even with the admin API disabled.
+    import re
+    text=caddy.read_text()
+    if re.search(r'^\s*admin\s+off\s*$',text,re.M):
+        version=subprocess.check_output([str(root/'bin/caddy'),'version'],text=True)
+        match=re.match(r'v?(\d+)\.(\d+)\.',version)
+        if not match or tuple(map(int,match.groups()))<(2,11):raise ValueError('admin-off graceful reload requires Caddy >=2.11')
+        command=subprocess.check_output(['systemctl','show','ziokt-https','--property=ExecStart','--value'],text=True)
+        if '--resume' in command or str(caddy) not in command:raise ValueError('reviewed file-based Caddy run required')
+        run('sudo','-n','systemctl','kill','--kill-whom=main','--signal=USR1','ziokt-https')
+    else:run(str(root/'bin/caddy'),'reload','--config',str(caddy),'--adapter','caddyfile',capture_output=True)
 
 
 def activate(root,release,revision):
@@ -107,12 +124,14 @@ def activate(root,release,revision):
         caddy.write_text(text);caddy.chmod(0o600)
         run('sudo','-n','systemctl','daemon-reload')
         run('sudo','-n','systemctl','restart',*SERVICES)
-        run(str(root/'bin/caddy'),'reload','--config',str(caddy),'--adapter','caddyfile',capture_output=True)
+        reload_caddy(root,caddy)
         deadline=time.monotonic()+30
         while True:
             try:
                 with urllib.request.urlopen('http://127.0.0.1:8185/api/gateway/status',timeout=3) as response:status=json.load(response)
                 if status.get('build',{}).get('source_commit')!=revision:raise ValueError('Gateway release mismatch')
+                with urllib.request.urlopen('https://app.ziokt.com/ziokt-build.json',timeout=3) as response:gui_status=json.load(response)
+                if gui_status.get('source_commit')!=revision:raise ValueError('public GUI release mismatch')
                 break
             except (OSError,ValueError):
                 if time.monotonic()>deadline:raise
@@ -128,7 +147,7 @@ def activate(root,release,revision):
                 run('sudo','-n','install','-m','0644',str(restore),str(path))
         run('sudo','-n','systemctl','daemon-reload')
         run('sudo','-n','systemctl','restart',*SERVICES)
-        run(str(root/'bin/caddy'),'reload','--config',str(caddy),'--adapter','caddyfile',capture_output=True)
+        reload_caddy(root,caddy)
         raise
     receipt={'schema':'ziokt.frozen-deployment.v1','source_commit':revision,'at':timestamp,'services':list(SERVICES),
              'release':str(release),'backup':str(backup),'gateway_build':status['build'],
