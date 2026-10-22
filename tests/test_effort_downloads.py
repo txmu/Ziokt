@@ -10,7 +10,7 @@ spec=importlib.util.spec_from_file_location('effort_downloads',Path(__file__).re
 class DownloadsTests(unittest.TestCase):
     def fixture(self,root):
         source=root/'ci';source.mkdir();downloads=root/'downloads';downloads.mkdir();(downloads/'index.html').write_text('<html>EXISTING GUI AND EXTENSIONS</html>')
-        values={'build-source.json':json.dumps({'schema':'ziokt.effort.windows-build.v1','source_commit':'a'*40,'run_id':'123','signing':'unsigned-development'}),'README.md':'development','self-test.json':'{"success":true}','ziokt-effort-windows-x64-unsigned.exe':'unit fixture, not runnable','ziokt-effort-windows-x64-unsigned.msi':'unit installer fixture'}
+        values={'build-source.json':json.dumps({'schema':'ziokt.effort.windows-build.v1','source_commit':'a'*40,'run_id':'123','signing':'unsigned-development'}),'README.md':'development','self-test.json':'{"success":true}','ui-test.json':'{"success":true}','ziokt-effort-windows-x64-unsigned.exe':'unit fixture, not runnable','ziokt-effort-windows-x64-unsigned.msi':'unit installer fixture'}
         for name,data in values.items():(source/name).write_text(data)
         (source/'SHA256SUMS').write_text(''.join(hashlib.sha256((source/name).read_bytes()).hexdigest()+'  '+name+'\n' for name in values))
         return source,downloads

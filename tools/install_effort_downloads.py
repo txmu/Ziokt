@@ -28,8 +28,8 @@ def install(source,root):
         name=match[2];path=source/name
         if path.is_symlink() or not path.is_file() or path.stat().st_size>512*1024*1024 or digest(path)!=match[1]:raise ValueError('CI file hash mismatch: '+name)
         checks[name]=match[1]
-    required={'ziokt-effort-windows-x64-unsigned.exe','ziokt-effort-windows-x64-unsigned.msi','build-source.json','README.md','self-test.json'}
-    if not required<=checks.keys() or json.loads((source/'self-test.json').read_text()).get('success') is not True:raise ValueError('actual executable evidence and installers required')
+    required={'ziokt-effort-windows-x64-unsigned.exe','ziokt-effort-windows-x64-unsigned.msi','build-source.json','README.md','self-test.json','ui-test.json'}
+    if not required<=checks.keys() or json.loads((source/'self-test.json').read_text()).get('success') is not True or json.loads((source/'ui-test.json').read_text()).get('success') is not True:raise ValueError('actual executable evidence and installers required')
     index=root/'index.html'
     if not index.is_file():raise ValueError('existing GUI downloads index required')
     target=root/'effort'/commit;target.mkdir(parents=True,exist_ok=True)
