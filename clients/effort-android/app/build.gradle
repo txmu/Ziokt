@@ -1,0 +1,29 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.ziokt.effort'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.ziokt.effort'
+        minSdk 28
+        targetSdk 34
+        versionCode 10000
+        versionName '1.0.0'
+        testInstrumentationRunner 'com.ziokt.effort.Smoke'
+        buildConfigField 'String', 'SOURCE_SHA', '"' + (System.getenv('GITHUB_SHA') ?: 'development') + '"'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        delivery {
+            storeFile file(System.getenv('EFFORT_KEYSTORE') ?: 'missing-keystore')
+            storePassword System.getenv('EFFORT_STORE_PASSWORD')
+            keyAlias 'ziokt-effort'
+            keyPassword System.getenv('EFFORT_STORE_PASSWORD')
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.delivery }
+        release { minifyEnabled false; signingConfig signingConfigs.delivery }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+// Pure Java, no native libraries or bundled browser/runtime: one APK supports ARM32 and ARM64.

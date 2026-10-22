@@ -1,0 +1,103 @@
+name: Lightweight Android effort
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'clients/effort-android/**'
+      - 'tools/effort_android_smoke.py'
+      - '.github/workflows/effort-android.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+      - name: Restore dedicated Android delivery signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.EFFORT_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/effort.p12"
+          chmod 600 "$RUNNER_TEMP/effort.p12"
+      - name: Build small Java-only universal APK and native instrumentation
+        working-directory: clients/effort-android
+        env:
+          EFFORT_KEYSTORE: ${{ runner.temp }}/effort.p12
+          EFFORT_STORE_PASSWORD: ${{ secrets.EFFORT_ANDROID_STORE_PASSWORD }}
+        run: gradle --no-daemon --max-workers=2 --console=plain assembleRelease assembleDebugAndroidTest
+      - name: Verify signatures, API floor, no JNI and strict delivery size
+        run: |
+          mkdir -p dist/effort-android
+          cp clients/effort-android/app/build/outputs/apk/release/app-release.apk dist/effort-android/ziokt-effort-android-universal.apk
+          cp clients/effort-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk dist/effort-android/native-tests.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs dist/effort-android/ziokt-effort-android-universal.apk > dist/effort-android/signature.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging dist/effort-android/ziokt-effort-android-universal.apk > dist/effort-android/package-badging.txt
+          python3 - <<'PY'
+          import json,os,zipfile,pathlib,hashlib
+          root=pathlib.Path('dist/effort-android');apk=root/'ziokt-effort-android-universal.apk'
+          assert apk.stat().st_size<1024*1024,'APK exceeds 1 MiB delivery budget'
+          with zipfile.ZipFile(apk) as z: assert not any(n.startswith('lib/') for n in z.namelist()),'unexpected native runtime'
+          assert "sdkVersion:'28'" in (root/'package-badging.txt').read_text()
+          result={'schema':'ziokt.effort.android-build.v1','source_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'apk_bytes':apk.stat().st_size,'min_sdk':28,'architecture':'Java universal; no native libraries','arm32_compatibility':'ABI independent; physical device not assessed','arm64_compatibility':'ABI independent; physical device not assessed','signing':'dedicated stable development certificate; not a Play Store release','local_heavy_build':False}
+          (root/'build-source.json').write_text(json.dumps(result,indent=2)+'\n')
+          (root/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(root.iterdir()) if p.is_file()))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: effort-android-${{ github.sha }}
+          if-no-files-found: error
+          path: dist/effort-android/*
+      - name: Remove runner signing material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/effort.p12"
+  emulator:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 28
+            arch: x86
+          - api: 34
+            arch: x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: effort-android-${{ github.sha }}
+          path: dist/effort-android
+      - name: Enable runner KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: ${{ matrix.arch }}
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect -cores 2 -memory 2048
+          disable-animations: true
+          script: python3 tools/effort_android_smoke.py --artifacts dist/effort-android --output dist/emulator-${{ matrix.api }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effort-android-emulator-api${{ matrix.api }}-${{ github.sha }}
+          if-no-files-found: error
+          path: dist/emulator-${{ matrix.api }}/*
