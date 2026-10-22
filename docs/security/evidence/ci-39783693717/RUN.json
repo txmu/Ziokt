@@ -1,0 +1,8 @@
+{
+  "id": 39783693717,
+  "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
+  "conclusion": "success",
+  "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
+  "name": "Native gateway and MCP end-to-end",
+  "normalization": "45 unambiguous single-line results; 2 interleaved MCP diagnostic results omitted"
+}

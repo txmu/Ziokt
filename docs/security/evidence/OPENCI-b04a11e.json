@@ -1,0 +1,86 @@
+{
+  "schema": "ziokt.openci-review-rollout.v1",
+  "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
+  "ci": {
+    "openci": {
+      "id": 39783693698,
+      "conclusion": "success",
+      "test_executions": 62,
+      "log_sha256": "391552955609318c4af5818de37f6a44e247d59ccf8c60cb836d0cf2bdb978de",
+      "oci": {
+        "schema": "openci.oci-e2e.v1",
+        "state": "passed",
+        "pipeline": "9b40252d15032486b9ccc88e36ae78eefe7627d1f75c146864d637086d75c683",
+        "image": "docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258",
+        "git_webhook_trigger": true,
+        "git_commit": "c1c63983feaf7b20161fc25edb5d3d679449c71e",
+        "native_content_storage": true,
+        "real_oci_execution": true,
+        "independent_reexecution": true,
+        "distinct_hosts": false,
+        "producer_revocation_blocks_release": true,
+        "release_signed": true,
+        "native_file_installed": true,
+        "corium_settled": false
+      }
+    },
+    "gateway": {
+      "id": 39783693717,
+      "conclusion": "success",
+      "tests": 47,
+      "normalized_observations": 45,
+      "log_sha256": "e26e125e6204d6090708f6c5a3d3c95e156d77c1d84c9be5d8071a18d9d05d51"
+    }
+  },
+  "deployment": {
+    "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
+    "at": "20261022T130610Z",
+    "services": [
+      "ziokt-gateway",
+      "ziokt-mcp",
+      "ziokt-telegram-bot",
+      "ziokt-content"
+    ],
+    "gateway_build": {
+      "assurance": "startup source snapshot; not a runtime or business acceptance proof",
+      "deployment_kind": "frozen-release",
+      "native_sources": {
+        "corium": {
+          "repository": "txmu/Corium",
+          "revision": "131ef705b4ad7454b28c96b6eb4aa9ffb4b9dcde"
+        },
+        "shadow6": {
+          "repository": "txmu/Shadow6",
+          "revision": "92d3bf115bd569662803a9d86c965dd5d90dbfe1"
+        }
+      },
+      "python_sources_sha256": "2c85463cc27da5f4f164fd028f3fe1b550ecd34b0dd47e2d0a8d914f39d99158",
+      "schema": "ziokt.runtime-build.v1",
+      "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
+      "source_file_count": 137,
+      "working_tree_dirty": false
+    },
+    "native_entrypoint_digest": "sha256:9ef45046c0cfeba4b48392be03567a08cea34e9cb00dec4c1c522326b201355d",
+    "consensus_changed": false
+  },
+  "effort": {
+    "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
+    "ci_run_id": 39783693717,
+    "zipapp_sha256": "1750054467b31dadb9c6525f91c8fa74e49583ac3ec845898b784de86b00704a",
+    "public_download_links": "verified",
+    "mainnet_direct_relay": "enabled",
+    "previous_attempt": "rolled_back_after_host_pinning_rejection_in_deployment_probe",
+    "consensus_changed": false
+  },
+  "registry": {
+    "baseline_count": 460,
+    "source_count": 462,
+    "live_count": 462,
+    "all_descriptors_match": true,
+    "source_registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3",
+    "live_registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3"
+  },
+  "corium_settlement_completed": false,
+  "formal_testnet_work_weight_consensus": false,
+  "all_requested_features_complete": false
+}

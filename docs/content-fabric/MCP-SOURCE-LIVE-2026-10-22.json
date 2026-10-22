@@ -1,15 +1,15 @@
 {
   "schema": "ziokt.mcp-registry-audit.v1",
-  "observed_at": "2026-10-22T12:37:58.492608+00:00",
+  "observed_at": "2026-10-22T13:06:58.516603+00:00",
   "endpoint": "https://mcp.ziokt.com/mcp",
   "baseline_count": 460,
   "source_count": 462,
   "live_count": 462,
   "source_build": {
     "schema": "ziokt.runtime-build.v1",
-    "source_commit": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
-    "working_tree_dirty": true,
-    "python_sources_sha256": "04f28f801950d684398a9816ea2394c5cddb2f33cd8e1ca979c8aa93713d685f",
+    "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
+    "working_tree_dirty": false,
+    "python_sources_sha256": "2c85463cc27da5f4f164fd028f3fe1b550ecd34b0dd47e2d0a8d914f39d99158",
     "source_file_count": 137,
     "native_sources": {
       "shadow6": {
@@ -18,7 +18,7 @@
       },
       "corium": {
         "repository": "txmu/Corium",
-        "revision": "4be07b55c76c69decb5b6813307b615119129bf4"
+        "revision": "131ef705b4ad7454b28c96b6eb4aa9ffb4b9dcde"
       }
     },
     "deployment_kind": "working-tree-or-package",
@@ -41,16 +41,16 @@
         "native_sources": {
           "corium": {
             "repository": "txmu/Corium",
-            "revision": "4be07b55c76c69decb5b6813307b615119129bf4"
+            "revision": "131ef705b4ad7454b28c96b6eb4aa9ffb4b9dcde"
           },
           "shadow6": {
             "repository": "txmu/Shadow6",
             "revision": "92d3bf115bd569662803a9d86c965dd5d90dbfe1"
           }
         },
-        "python_sources_sha256": "04f28f801950d684398a9816ea2394c5cddb2f33cd8e1ca979c8aa93713d685f",
+        "python_sources_sha256": "2c85463cc27da5f4f164fd028f3fe1b550ecd34b0dd47e2d0a8d914f39d99158",
         "schema": "ziokt.runtime-build.v1",
-        "source_commit": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+        "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
         "source_file_count": 137,
         "working_tree_dirty": false
       },
@@ -73,16 +73,16 @@
       "native_sources": {
         "corium": {
           "repository": "txmu/Corium",
-          "revision": "4be07b55c76c69decb5b6813307b615119129bf4"
+          "revision": "131ef705b4ad7454b28c96b6eb4aa9ffb4b9dcde"
         },
         "shadow6": {
           "repository": "txmu/Shadow6",
           "revision": "92d3bf115bd569662803a9d86c965dd5d90dbfe1"
         }
       },
-      "python_sources_sha256": "04f28f801950d684398a9816ea2394c5cddb2f33cd8e1ca979c8aa93713d685f",
+      "python_sources_sha256": "2c85463cc27da5f4f164fd028f3fe1b550ecd34b0dd47e2d0a8d914f39d99158",
       "schema": "ziokt.runtime-build.v1",
-      "source_commit": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+      "source_commit": "b04a11e77c36f1f88109ac85970c2aa287809633",
       "source_file_count": 137,
       "working_tree_dirty": false
     },
@@ -5238,13 +5238,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -5338,13 +5338,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -5908,13 +5908,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -5971,13 +5971,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -6034,13 +6034,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -6097,13 +6097,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -6355,13 +6355,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -6581,13 +6581,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -8558,7 +8558,7 @@
         },
         {
           "file": "ziokt/gateway.py",
-          "sha256": "b5ca30ec703975de767a5dde69039aaeda833a72570d00bc426e43b81d88b576"
+          "sha256": "49590368aa63f350deea50be0d5ff32ea7ba16115e57b23e498f366d70c6283c"
         }
       ],
       "test_references": [],
@@ -8600,7 +8600,7 @@
         },
         {
           "file": "ziokt/gateway.py",
-          "sha256": "b5ca30ec703975de767a5dde69039aaeda833a72570d00bc426e43b81d88b576"
+          "sha256": "49590368aa63f350deea50be0d5ff32ea7ba16115e57b23e498f366d70c6283c"
         }
       ],
       "test_references": [],
@@ -8642,7 +8642,7 @@
         },
         {
           "file": "ziokt/gateway.py",
-          "sha256": "b5ca30ec703975de767a5dde69039aaeda833a72570d00bc426e43b81d88b576"
+          "sha256": "49590368aa63f350deea50be0d5ff32ea7ba16115e57b23e498f366d70c6283c"
         }
       ],
       "test_references": [],
@@ -8684,7 +8684,7 @@
         },
         {
           "file": "ziokt/gateway.py",
-          "sha256": "b5ca30ec703975de767a5dde69039aaeda833a72570d00bc426e43b81d88b576"
+          "sha256": "49590368aa63f350deea50be0d5ff32ea7ba16115e57b23e498f366d70c6283c"
         }
       ],
       "test_references": [],
@@ -8726,7 +8726,7 @@
         },
         {
           "file": "ziokt/gateway.py",
-          "sha256": "b5ca30ec703975de767a5dde69039aaeda833a72570d00bc426e43b81d88b576"
+          "sha256": "49590368aa63f350deea50be0d5ff32ea7ba16115e57b23e498f366d70c6283c"
         }
       ],
       "test_references": [],
@@ -10734,13 +10734,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -11382,13 +11382,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -13888,13 +13888,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -15298,13 +15298,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -15712,13 +15712,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -16048,13 +16048,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -19351,13 +19351,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
@@ -19715,13 +19715,13 @@
           "observations": [
             {
               "outcome": "ok",
-              "log": "ci-39779140155/gateway-mcp.txt",
-              "log_sha256": "c55e288c3c4ef7eab4741be8621522fd133660347489d59ccad15a77b754b714",
+              "log": "gateway-tests.txt",
+              "log_sha256": "083b4d0c8f884e23a85fa820af2523b6435dc2233f92d15233b11833d3dbbee2",
               "ci": {
-                "id": 39779140155,
-                "head_sha": "6018f4546b9dcc18bc94b95f95db5c32ff65e90a",
+                "id": 39783693717,
+                "head_sha": "b04a11e77c36f1f88109ac85970c2aa287809633",
                 "conclusion": "success",
-                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39779140155",
+                "html_url": "https://github.com/txmu/Ziokt/actions/runs/39783693717",
                 "name": "Native gateway and MCP end-to-end"
               }
             }
