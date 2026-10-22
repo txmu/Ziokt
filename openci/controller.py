@@ -157,6 +157,10 @@ class Controller:
             self.pipeline(principal, body['pipeline'], {'admin', 'submit'})
             if path == '/v1/cancel': return 200, self.state.cancel(actor, body['pipeline'])
             return 200, self.state.retry(actor, body['pipeline'], body['task'])
+        if method=='POST' and path=='/v1/workers/signing-key':
+            if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Worker signing identity requires operator approval',403)
+            if not isinstance(body,dict) or set(body)!={'worker','public','evidence'}:raise Error('INVALID_REQUEST','Exact signing identity fields required')
+            return 200,self.state.approve_receipt_key(actor,**body)
         if method == 'POST' and path == '/v1/workers/disable':
             if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Worker revocation requires operator approval',403)
             if not isinstance(body,dict) or set(body)!={'worker'}:raise Error('INVALID_REQUEST','Exact worker identity required')
@@ -179,7 +183,7 @@ class Controller:
             self.content_reference(owner, body['logs'])
             if body['exit_code'] == 0: self.content_reference(owner, body['artifact'])
             return 200, self.state.finish(worker, body['pipeline'], body['task'], body['lease'],
-                    exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'])
+                    exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'],attestation=body.get('attestation'))
         if path.startswith('/v1/objects/'):
             project = query.get('project', [None])[0]
             owner = self.project(principal, project)

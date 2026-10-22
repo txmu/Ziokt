@@ -96,14 +96,14 @@ class ReleaseService:
         request={'schema':'openci.release-request.v1','pipeline':pid,'task':task_id,'project':pipeline['project'],
                  'name':name,'version':version,'publisher':self.public,'source':source,'image':spec['image'],
                  'argv':spec['argv'],'files':files,'trusted_worker':verifier['worker'],'verification_task':verifier['id'],
-                 'artifact_set':verifier['receipt']['artifact']}
+                 'artifact_set':verifier['receipt']['artifact'],'worker_attestations':[entry['attestation'] for entry in (task,verifier) if entry.get('attestation')]}
         prepared=self.state.prepare_release(actor,pid,task_id,name,version,self.public,request)
         if prepared['state']!='prepared':return self.state.release(prepared['id'])
         owner='openci-'+pipeline['project']
         provenance={'_type':'https://in-toto.io/Statement/v1','subject':[{'name':entry['path'],'digest':{'sha256':entry['reference']['digest'][7:]}} for entry in files],
             'predicateType':'https://slsa.dev/provenance/v1','predicate':{'buildDefinition':{'buildType':'https://ziokt.org/openci/oci/v1','externalParameters':{'source':source,'image':spec['image'],'argv':spec['argv']},'resolvedDependencies':[{'uri':'native-content:'+source['object'],'digest':{'sha256':source['digest'][7:]}}]},
             'runDetails':{'builder':{'id':'openci-publisher:'+self.public},'metadata':{'invocationId':pid+'/'+task_id},'byproducts':[]}},
-            'openciVerification':{'trusted_worker':verifier['worker'],'independent_task':verifier['id'],'software_security_verified':False,'reproducibility_across_hosts_verified':False}}
+            'openciVerification':{'trusted_worker':verifier['worker'],'independent_task':verifier['id'],'worker_attestations':request['worker_attestations'],'software_security_verified':False,'reproducibility_across_hosts_verified':False}}
         provenance_ref=self.put(owner,provenance,'application/vnd.in-toto+json')
         entries={}
         for entry in files:

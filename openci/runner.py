@@ -69,11 +69,12 @@ def canonical_outputs(archive, output, required=()):
 
 
 class Runner:
-    def __init__(self, client, root, images, runtime='docker'):
+    def __init__(self, client, root, images, runtime='docker',signing_key=None):
         self.client,self.root,self.images,self.runtime=client,Path(root),set(images),runtime
         if not self.images or any(not IMAGE.fullmatch(image) for image in self.images): raise Error('IMAGE_POLICY','Pinned image allowlist required')
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         if self.root.is_symlink(): raise Error('UNSAFE_STATE','Runner root cannot be a symlink')
+        self.signing_key=Path(signing_key) if signing_key else None
         self.assignment=None;self.last_heartbeat=0
         self.client.tick=self.tick
 
@@ -198,6 +199,12 @@ class Runner:
                 log_reference=self.client.upload(assignment['project'],logs)
                 receipt={'pipeline':assignment['pipeline'],'task':assignment['task']['id'],'lease':assignment['lease'],
                          'exit_code':exit_code,'artifact':artifact if exit_code==0 else None,'logs':log_reference}
+                if self.signing_key:
+                    from ziokt.protocol import secure_read
+                    from ziokt.security import sign
+                    from .attestation import DOMAIN,statement
+                    result_fields={key:receipt[key] for key in ('exit_code','artifact','logs')}
+                    receipt['attestation']=sign(statement(assignment['worker'],assignment,result_fields),secure_read(self.signing_key,32),DOMAIN)
                 journal=self.root/('receipt-'+assignment['pipeline']+'-'+assignment['task']['id']+'-'+str(assignment['attempt'])+'.json')
                 fd=os.open(journal,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
                 with os.fdopen(fd,'w') as output:output.write(json.dumps(receipt));output.flush();os.fsync(output.fileno())

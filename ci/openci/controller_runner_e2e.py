@@ -66,7 +66,12 @@ print('Native isolated task completed',flush=True)
             with urllib.request.urlopen(request) as response:pid=json.load(response)['pipeline']
             for worker,pool in [('builder','community'),('verifier','trusted')]:
                 owner.request('POST','/v1/workers/approve',{'worker':worker,'arch':'x86_64','pool':pool,'cpu':1,'memory_mb':128,'slots':1,'projects':['demo']})
-                runner=Runner(Client(origin,worker+'-integration-token'),root/worker,[image]);runner.recover()
+                from ziokt.security import sign
+                import secrets
+                signing_key=root/(worker+'-receipt.key');signing_key.write_bytes(secrets.token_bytes(32));signing_key.chmod(0o600)
+                public=sign({},signing_key.read_bytes(),'OpenCI/key-enrollment/v1')['public_key']
+                owner.request('POST','/v1/workers/signing-key',{'worker':worker,'public':public,'evidence':'sha256:'+hashlib.sha256(public.encode()).hexdigest()})
+                runner=Runner(Client(origin,worker+'-integration-token'),root/worker,[image],signing_key=signing_key);runner.recover()
                 result=runner.run_once()
                 if result['state']!='completed':
                     state=owner.request('GET','/v1/pipelines/'+pid)
@@ -78,6 +83,8 @@ print('Native isolated task completed',flush=True)
             assert state['state']=='completed' and state['release']=='unpublished'
             verification=owner.request('POST','/v1/verify',{'pipeline':pid,'task':'build','independent_task':'verify'})
             assert verification['status']=='matched'
+            signed_state=owner.request('GET','/v1/pipelines/'+pid)
+            assert all(task.get('attestation') for task in signed_state['tasks'])
             output=root/'result.json';owner.download_artifact_file('demo',state['tasks'][0]['receipt']['artifact'],'result.json',output)
             result=json.loads(output.read_text())
             assert result=={'isolated':True,'sum':68}
@@ -94,13 +101,23 @@ print('Native isolated task completed',flush=True)
             installed=ReleaseService(controller).install(release['id'],root/'installed',activate=True)
             assert not installed['execution_authorized']
             assert json.loads((Path(installed['directory'])/'result.json').read_text())==result
+            provenance=json.loads((Path(installed['directory'])/'provenance.json').read_text())
+            attestations=provenance['openciVerification']['worker_attestations']
+            assert len(attestations)==2 and len({entry['public_key'] for entry in attestations})==2
+            from ziokt.security import verify
+            from openci.attestation import DOMAIN
+            for envelope in attestations:
+                worker=envelope['payload']['worker'];approved=sign({},(root/(worker+'-receipt.key')).read_bytes(),'OpenCI/key-enrollment/v1')['public_key']
+                payload=verify(envelope,approved,DOMAIN,maximum=8192)
+                assert payload['pipeline']==pid and payload['result']['exit_code']==0
+                assert payload['source']==signed_state['tasks'][0]['attestation']['payload']['source']
             events=owner.request('GET','/v1/audit?pipeline='+pid)['events']
             assert any(event['action']=='task.verified' for event in events)
             logs=owner.request('GET','/v1/logs?pipeline='+pid+'&task=build&attempt=1')['chunks']
             assert logs, 'Real-time log stream was not persisted'
             print(json.dumps({'schema':'openci.oci-e2e.v1','state':'passed','pipeline':pid,'image':image,
                 'git_webhook_trigger':True,'git_commit':commit,'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
-                'distinct_hosts':False,'producer_revocation_blocks_release':True,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
+                'distinct_hosts':False,'signed_worker_receipts':True,'producer_revocation_blocks_release':True,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
         finally:server.shutdown();server.server_close();thread.join();controller.close()
 
 

@@ -39,7 +39,7 @@ def main():
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
     p=sub.add_parser('principal-add');p.add_argument('name');p.add_argument('--role',choices=['submit','worker'],required=True);p.add_argument('--project',action='append',required=True);p.add_argument('--worker')
-    for name in ['upload','submit','inspect','cancel','retry','worker-approve','worker-disable','worker-build-profile','rebuild','runner','git-trigger','release-publish']:
+    for name in ['upload','submit','inspect','cancel','retry','worker-approve','worker-disable','worker-signing-key','worker-build-profile','rebuild','runner','git-trigger','release-publish']:
         p=sub.add_parser(name);p.add_argument('--server',default='http://127.0.0.1:8768');p.add_argument('--token-file',type=Path)
         if name=='git-trigger':p.add_argument('--project',required=True);p.add_argument('--commit',required=True);p.add_argument('--delivery',required=True)
         if name=='release-publish':p.add_argument('pipeline');p.add_argument('task');p.add_argument('--name',required=True);p.add_argument('--version',required=True)
@@ -49,9 +49,10 @@ def main():
         if name=='retry':p.add_argument('task')
         if name=='worker-disable':p.add_argument('worker')
         if name=='worker-approve':p.add_argument('file',type=Path)
+        if name=='worker-signing-key':p.add_argument('file',type=Path)
         if name=='worker-build-profile':p.add_argument('file',type=Path)
         if name=='rebuild':p.add_argument('pipeline');p.add_argument('task');p.add_argument('--nonce',required=True);p.add_argument('--minimum',type=int,default=2)
-        if name=='runner':p.add_argument('--image',action='append',required=True);p.add_argument('--once',action='store_true')
+        if name=='runner':p.add_argument('--signing-key-file',type=Path);p.add_argument('--image',action='append',required=True);p.add_argument('--once',action='store_true')
     args=parser.parse_args();root=args.root.resolve()
     if args.action=='init':
         root.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -133,6 +134,7 @@ def main():
     elif args.action=='retry':result=client.request('POST','/v1/retry',{'pipeline':args.pipeline,'task':args.task})
     elif args.action=='worker-disable':result=client.request('POST','/v1/workers/disable',{'worker':args.worker})
     elif args.action=='worker-approve':result=client.request('POST','/v1/workers/approve',strict_json(args.file.read_bytes(),65536))
+    elif args.action=='worker-signing-key':result=client.request('POST','/v1/workers/signing-key',strict_json(args.file.read_bytes(),65536))
     elif args.action=='worker-build-profile':result=client.request('POST','/v1/workers/build-profile',strict_json(args.file.read_bytes(),65536))
     elif args.action=='rebuild':result=client.request('POST','/v1/rebuilds',{'pipeline':args.pipeline,'task':args.task,'nonce':args.nonce,'minimum':args.minimum})
     elif args.action=='runner':
@@ -142,7 +144,7 @@ def main():
         fd=os.open(area/'runner.lock',os.O_CREAT|os.O_RDWR|getattr(os,'O_NOFOLLOW',0),0o600)
         with os.fdopen(fd,'w') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            runner=Runner(client,area,args.image);runner.recover()
+            runner=Runner(client,area,args.image,signing_key=args.signing_key_file);runner.recover()
             while True:
                 result=runner.run_once();print(json.dumps(result),flush=True)
                 if args.once:return

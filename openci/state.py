@@ -110,6 +110,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS tasks(pipeline TEXT NOT NULL,id TEXT NOT NULL,spec TEXT NOT NULL,state TEXT NOT NULL,attempt INTEGER NOT NULL DEFAULT 0,worker TEXT,lease_hash TEXT,lease_until INTEGER,receipt TEXT,verification TEXT,PRIMARY KEY(pipeline,id),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
                 CREATE TABLE IF NOT EXISTS workers(id TEXT PRIMARY KEY,arch TEXT NOT NULL,pool TEXT NOT NULL,cpu INTEGER NOT NULL,memory_mb INTEGER NOT NULL,slots INTEGER NOT NULL,projects TEXT NOT NULL,enabled INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS worker_build_profiles(worker TEXT PRIMARY KEY,domain TEXT NOT NULL,images TEXT NOT NULL,evidence TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS worker_receipt_keys(worker TEXT PRIMARY KEY,public TEXT NOT NULL,evidence TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS receipt_attestations(pipeline TEXT NOT NULL,task TEXT NOT NULL,attempt INTEGER NOT NULL,envelope TEXT NOT NULL,PRIMARY KEY(pipeline,task,attempt));
                 CREATE TABLE IF NOT EXISTS worker_presence(worker TEXT PRIMARY KEY,seen INTEGER NOT NULL,images TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS attempts(pipeline TEXT,id TEXT,attempt INTEGER,worker TEXT,state TEXT,started INTEGER,finished INTEGER,receipt TEXT,PRIMARY KEY(pipeline,id,attempt),FOREIGN KEY(pipeline,id) REFERENCES tasks(pipeline,id));
                 CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,created INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,pipeline TEXT,task TEXT,detail TEXT NOT NULL);
@@ -160,6 +162,17 @@ class Store:
             db.execute('DELETE FROM worker_build_profiles WHERE worker=?',(worker,))
             db.execute('DELETE FROM worker_presence WHERE worker=?',(worker,))
             self.event(db, actor, 'worker.approved', detail={'worker': worker, 'pool': pool})
+
+    def approve_receipt_key(self,actor,worker,public,evidence):
+        identifier(worker)
+        if not isinstance(public,str) or not re.fullmatch('[a-f0-9]{64}',public) or not isinstance(evidence,str) or not DIGEST.fullmatch(evidence):
+            raise Error('WORKER_SIGNING_KEY','Exact Ed25519 public key and operator evidence required')
+        with self.transaction() as db:
+            if not db.execute('SELECT 1 FROM workers WHERE id=? AND enabled=1',(worker,)).fetchone():raise Error('WORKER_UNKNOWN','Enabled approved Worker required',404)
+            if db.execute("SELECT 1 FROM tasks WHERE worker=? AND state='running'",(worker,)).fetchone():raise Error('WORKER_BUSY','Drain Worker before rotating its receipt key',409)
+            db.execute('INSERT OR REPLACE INTO worker_receipt_keys VALUES(?,?,?)',(worker,public,evidence))
+            self.event(db,actor,'worker.receipt_key',detail={'worker':worker,'public':public,'evidence':evidence})
+        return {'worker':worker,'public':public,'receipt_signature_required':True,'hardware_attested':False}
 
     def disable_worker(self, actor, worker):
         identifier(worker)
@@ -235,7 +248,7 @@ class Store:
                 db.execute('INSERT INTO attempts VALUES(?,?,?,?,?,?,NULL,NULL)', (task['pipeline'], task['id'], attempt, worker, 'running', int(self.clock())))
                 db.execute("UPDATE pipelines SET state='running' WHERE id=?", (task['pipeline'],))
                 self.event(db, worker, 'task.claimed', task['pipeline'], task['id'], {'attempt': attempt})
-                return {'pipeline': task['pipeline'], 'project': task['project'], 'task': spec, 'source': json.loads(task['body'])['source'], 'attempt': attempt, 'lease': lease, 'lease_until': until}
+                return {'pipeline': task['pipeline'], 'project': task['project'], 'task': spec, 'source': json.loads(task['body'])['source'], 'attempt': attempt, 'worker':worker, 'lease': lease, 'lease_until': until}
             return None
 
     def _lease(self, db, worker, pid, task, lease, active=True):
@@ -255,17 +268,27 @@ class Store:
             db.execute('UPDATE tasks SET lease_until=? WHERE pipeline=? AND id=?', (until, pid, task))
         return {'state': 'running', 'lease_until': until}
 
-    def finish(self, worker, pid, task, lease, *, exit_code, artifact, logs):
+    def finish(self, worker, pid, task, lease, *, exit_code, artifact, logs, attestation=None):
         integer(exit_code, 0, 255); reference(logs)
         if exit_code == 0: reference(artifact)
         elif artifact is not None: raise Error('INVALID_RECEIPT', 'Failed task cannot publish a success artifact')
         receipt = encoded({'exit_code': exit_code, 'artifact': artifact, 'logs': logs})
         with self.transaction() as db:
             row = self._lease(db, worker, pid, task, lease, active=False)
+            prior=db.execute('SELECT envelope FROM receipt_attestations WHERE pipeline=? AND task=? AND attempt=?',(pid,task,row['attempt'])).fetchone()
             if row['receipt']:
+                if (json.loads(prior['envelope']) if prior else None)!=attestation:raise Error('RESULT_CONFLICT','Receipt signature already has another result',409)
                 if row['receipt'] != receipt: raise Error('RESULT_CONFLICT', 'Lease already has another result', 409)
                 return {'state': row['state'], 'duplicate': True}
             self._lease(db, worker, pid, task, lease)
+            key=db.execute('SELECT public FROM worker_receipt_keys WHERE worker=?',(worker,)).fetchone()
+            if key or attestation is not None:
+                if not key:raise Error('WORKER_SIGNING_KEY','Worker signing key has not been independently approved',403)
+                from .attestation import statement,check
+                body=json.loads(db.execute('SELECT body FROM pipelines WHERE id=?',(pid,)).fetchone()['body'])
+                assignment={'pipeline':pid,'task':json.loads(row['spec']),'attempt':row['attempt'],'source':body['source'],'lease':lease}
+                check(attestation,key['public'],statement(worker,assignment,json.loads(receipt)))
+                db.execute('INSERT INTO receipt_attestations VALUES(?,?,?,?)',(pid,task,row['attempt'],encoded(attestation)))
             state = 'completed' if exit_code == 0 else 'failed'
             db.execute('UPDATE tasks SET state=?,receipt=? WHERE pipeline=? AND id=?', (state, receipt, pid, task))
             db.execute('UPDATE attempts SET state=?,finished=?,receipt=? WHERE pipeline=? AND id=? AND attempt=?', (state, int(self.clock()), receipt, pid, task, row['attempt']))
@@ -301,7 +324,8 @@ class Store:
             if not pipeline: raise Error('PIPELINE_NOT_FOUND', 'Pipeline not found', 404)
             tasks = []
             for row in db.execute('SELECT * FROM tasks WHERE pipeline=? ORDER BY rowid', (pid,)):
-                tasks.append({key: row[key] for key in ('id', 'state', 'attempt', 'worker', 'lease_until')} | {'receipt': json.loads(row['receipt']) if row['receipt'] else None, 'verification': json.loads(row['verification']) if row['verification'] else None})
+                signed=db.execute('SELECT envelope FROM receipt_attestations WHERE pipeline=? AND task=? AND attempt=?',(pid,row['id'],row['attempt'])).fetchone()
+                tasks.append({key: row[key] for key in ('id', 'state', 'attempt', 'worker', 'lease_until')} | {'receipt': json.loads(row['receipt']) if row['receipt'] else None, 'verification': json.loads(row['verification']) if row['verification'] else None,'attestation':json.loads(signed['envelope']) if signed else None})
             publications=[dict(row) for row in db.execute('SELECT id,state,name,version,publisher FROM releases WHERE pipeline=? ORDER BY created',(pid,))]
             return {'pipeline': pid, 'project': pipeline['project'], 'state': pipeline['state'], 'tasks': tasks, 'release': 'published' if any(row['state']=='published' for row in publications) else 'unpublished', 'releases':publications, 'settlement': 'not_requested'}
 
@@ -364,6 +388,9 @@ class Store:
                     'software_security_verified':False,'reproducibility_across_hosts_verified':False}
             if profiles is not None:result['build_profiles']=[dict(profile) for profile in profiles]
             db.execute('UPDATE tasks SET verification=? WHERE pipeline=? AND id=?',(encoded(result),pid,task))
+            signing_keys=[db.execute('SELECT public FROM worker_receipt_keys WHERE worker=?',(r['worker'],)).fetchone() for r in (first,second)]
+            if all(signing_keys) and signing_keys[0]['public']==signing_keys[1]['public']:raise Error('SELF_VERIFICATION','Distinct signed Worker identities required',409)
+            if any(signing_keys):self._release_verification(db,pid,task)
             self.event(db,actor,'task.verified',pid,task,{'independent_task':independent_task})
         return result
 
@@ -396,6 +423,16 @@ class Store:
         receipts=[json.loads(r['receipt']) for r in (row,peer)]
         if any(r['exit_code']!=0 or r['artifact']['digest']!=verification.get('artifact',{}).get('digest') for r in receipts):
             raise Error('RELEASE_VERIFIER','Verified output receipts changed',409)
+        for completed in (row,peer):
+            key=db.execute('SELECT public FROM worker_receipt_keys WHERE worker=?',(completed['worker'],)).fetchone()
+            signed=db.execute('SELECT envelope FROM receipt_attestations WHERE pipeline=? AND task=? AND attempt=?',(pid,completed['id'],completed['attempt'])).fetchone()
+            if key or signed:
+                if not key or not signed:raise Error('RELEASE_WORKER_SIGNATURE','Current signed Worker results required; rebuild unsigned historical tasks',409)
+                from .attestation import check
+                envelope=json.loads(signed['envelope']);body=json.loads(db.execute('SELECT body FROM pipelines WHERE id=?',(pid,)).fetchone()['body'])
+                expected={'schema':'openci.worker-receipt.v1','worker':completed['worker'],'pipeline':pid,'task':completed['id'],'attempt':completed['attempt'],'source':body['source'],
+                          'task_digest':'sha256:'+hashlib.sha256(encoded(json.loads(completed['spec'])).encode()).hexdigest(),'lease_digest':'sha256:'+completed['lease_hash'],'result':json.loads(completed['receipt'])}
+                check(envelope,key['public'],expected)
         if 'worker' in a or 'worker' in b:
             profiles=[db.execute('SELECT * FROM worker_build_profiles WHERE worker=?',(r['worker'],)).fetchone() for r in (row,peer)]
             if (any(p is None or a['image'] not in json.loads(p['images']) for p in profiles) or
