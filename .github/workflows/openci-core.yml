@@ -5,6 +5,12 @@ on:
   pull_request:
     paths: ["openci/**", "companions/ufsdcpm/src/**", "ziokt/ufsdcpm.py", "tests/test_native*.py", "tests/test_openci*.py", "ci/openci/**", ".github/workflows/openci-core.yml"]
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Native suite to verify; reuse unchanged suite evidence
+        type: choice
+        options: [all, openci, work]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -44,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [openci, work]
+        suite: ${{ fromJSON(inputs.suite == 'work' && '["work"]' || inputs.suite == 'openci' && '["openci"]' || '["openci","work"]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:

@@ -113,6 +113,22 @@ def observed_tests(directory):
     return observations
 
 
+def build_alignment(source,discovery,gateway):
+    """Build declarations are not proof of the installed native binary revision."""
+    live=discovery.get('serverInfo',{}).get('build') or {}
+    peers={'mcp':live,'gateway':(gateway or {}).get('build') or {}}
+    rows=[]
+    for peer,build in peers.items():
+        for field in ('source_commit','python_sources_sha256','native_sources'):
+            a,b=source.get(field),build.get(field)
+            status='not_assessed' if a is None or b is None else 'match' if a==b else 'mismatch'
+            rows.append({'service':peer,'field':field,'source':a,'deployed_declaration':b,'status':status})
+    return {'declarations':rows,'all_build_metadata_matches':all(row['status']=='match' for row in rows) and source.get('working_tree_dirty') is False,
+            'source_working_tree_dirty':source.get('working_tree_dirty'),'installed_native_revision_verification':'not_assessed',
+            'configured_native_entrypoint_digest':(gateway or {}).get('native_entrypoint_digest'),
+            'limit':'Matching tool descriptors or declared source revisions do not prove native executable provenance or business acceptance.'}
+
+
 def audit(config_path,baseline_path,endpoint,output,evidence=None,gateway_url=None):
     config=strict_json(secure_read(config_path));config['config_path']=str(config_path.resolve())
     with tempfile.TemporaryDirectory(prefix='ziokt-registry-audit-') as state:
@@ -149,6 +165,7 @@ def audit(config_path,baseline_path,endpoint,output,evidence=None,gateway_url=No
             'baseline_count':len(baseline),'source_count':len(source),'live_count':len(live),'source_build':source_build,
             'source_registry_sha256':registry_digest(source),'live_registry_sha256':registry_digest(live),'live_discovery':discovery,
             'baseline_catalog_sha256':hashlib.sha256(baseline_path.read_bytes()).hexdigest(),'gateway':gateway,
+            'build_alignment':build_alignment(source_build,discovery,gateway),
             'summary':dict(Counter(change for row in rows for change in row['source_live_differences'])),
             'representation_only_count':sum(bool(row['representation_only_differences']) for row in rows),
             'all_descriptors_match':not any(row['source_live_differences'] for row in rows),'tools':rows}
@@ -157,12 +174,14 @@ def audit(config_path,baseline_path,endpoint,output,evidence=None,gateway_url=No
     lines=['# MCP 源码与生产注册表逐项对照','',f'基线 {len(baseline)}；当前源码 {len(source)}；实时服务 {len(live)}。',
            '','注册一致不代表业务可用。未取得逐工具原生业务、远端及恢复证明的维度保持 not_assessed。','',
            '|工具|基线|源码/生产差异|真实测试记录|','|---|---|---|---|']
+    alignment=report['build_alignment']
+    lines[6:6]=['构建声明完全一致：'+str(alignment['all_build_metadata_matches'])+'；已安装原生可执行文件修订验证：not_assessed。','']+[r['service']+' '+r['field']+'：'+r['status'] for r in alignment['declarations']]+['']
     for row in rows:
         difference=', '.join(row['source_live_differences'])
         if not difference:difference='仅集合顺序不同（语义一致）' if row['representation_only_differences'] else '一致'
         lines.append('|'+row['tool']+'|'+row['baseline_comparison']+'|'+difference+'|'+str(len(row['test_observations']))+' 条相关测试观察；业务未逐项评估|')
     markdown.write_text('\n'.join(lines)+'\n')
-    return {key:report[key] for key in ('baseline_count','source_count','live_count','summary','all_descriptors_match','source_registry_sha256','live_registry_sha256')}
+    return {key:report[key] for key in ('baseline_count','source_count','live_count','summary','all_descriptors_match','source_registry_sha256','live_registry_sha256','build_alignment')}
 
 
 if __name__=='__main__':

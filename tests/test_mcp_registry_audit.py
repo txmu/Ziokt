@@ -4,13 +4,24 @@ import tempfile
 import threading
 import unittest
 
-from tools.audit_mcp_registry import audit,compare
+from tools.audit_mcp_registry import audit,compare,build_alignment
 from ziokt.build_info import registry_digest,snapshot
 from ziokt.gateway import Server
 from ziokt.mcp import Service,http_handler
 
 
 class RegistryAuditTests(unittest.TestCase):
+    def test_descriptor_equality_cannot_hide_deployment_version_drift(self):
+        source={'source_commit':'a'*40,'python_sources_sha256':'b'*64,'native_sources':{'corium':{'revision':'c'*40}},'working_tree_dirty':False}
+        deployed={**source,'source_commit':'d'*40}
+        result=build_alignment(source,{'serverInfo':{'build':deployed}},{'build':source,'native_entrypoint_digest':'sha256:'+'e'*64})
+        self.assertFalse(result['all_build_metadata_matches'])
+        self.assertEqual(result['declarations'][0]['status'],'mismatch')
+        self.assertEqual(result['installed_native_revision_verification'],'not_assessed')
+        self.assertTrue(build_alignment(source,{'serverInfo':{'build':source}},{'build':source})['all_build_metadata_matches'])
+        self.assertFalse(build_alignment(source,{},None)['all_build_metadata_matches'])
+        self.assertFalse(build_alignment({**source,'working_tree_dirty':True},{'serverInfo':{'build':source}},{'build':source})['all_build_metadata_matches'])
+
     def test_compares_authorization_schema_and_mutation_separately(self):
         tool={'name':'example','scope':'private:read','inputSchema':{'type':'object'},'securitySchemes':[{'scopes':['private:read']}],'annotations':{'readOnlyHint':True}}
         row=compare([tool],[{key:value for key,value in tool.items() if key!='scope'}],[tool])[0]
