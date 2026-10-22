@@ -69,9 +69,9 @@ final class Work {
         if(opened.getString("state").equals("waiting")){status.accept("主网直连已启用 · 等待真实转发任务（非匿名）");pause(5000);return;}
         String token=opened.getString("session");
         if(!opened.getString("state").equals("open")||!opened.getString("network_id").equals("ziokt-main")||!token.matches("[A-Za-z0-9_-]{40,64}"))throw new IOException("INVALID_SESSION");
-        boolean[] fin={false,false};long total=0;String[] sides={"a","b"};
+        boolean[] fin={false,false};long total=0;long began=android.os.SystemClock.elapsedRealtime();String[] sides={"a","b"};
         while(!(fin[0]&&fin[1])) {
-            check();boolean moved=false;
+            check();if(total>8*1024*1024L||android.os.SystemClock.elapsedRealtime()-began>300000)throw new IOException("LOCAL_RELAY_BUDGET");boolean moved=false;
             for(int index=0;index<2;index++) {
                 if(fin[index])continue;String from=sides[index],to=sides[1-index];JSONObject response=relay(from,"read",object("session",from),token);
                 String state=response.getString("state");if(state.equals("idle"))continue;
