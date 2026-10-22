@@ -33,6 +33,14 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Executable test failed: $($p.ExitCode)" }
           $test = Get-Content dist/effort-windows/publish/self-test.json | ConvertFrom-Json
           if (-not $test.success) { throw 'Missing actual executable evidence' }
+      - name: Launch actual WinForms and WebView2 on the official page
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/effort-windows/publish/ZioktEffort.exe -ArgumentList '--ui-smoke' -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw 'UI launch deadline exceeded' }
+          if ($p.ExitCode -ne 0) { throw "UI launch failed: $($p.ExitCode)" }
+          $test = Get-Content dist/effort-windows/publish/ui-test.json | ConvertFrom-Json
+          if (-not $test.success -or -not $test.actual_winforms_webview2) { throw 'Actual UI not verified' }
       - name: Verify actual per-user install and uninstall
         shell: pwsh
         run: |
@@ -51,6 +59,7 @@ jobs:
         run: |
           Copy-Item dist/effort-windows/publish/ZioktEffort.exe dist/effort-windows/ziokt-effort-windows-x64-unsigned.exe
           Copy-Item dist/effort-windows/publish/self-test.json dist/effort-windows/self-test.json
+          Copy-Item dist/effort-windows/publish/ui-test.json dist/effort-windows/ui-test.json
           Copy-Item clients/effort-windows/README.md dist/effort-windows/README.md
           @{schema='ziokt.effort.windows-build.v1'; source_commit=$env:GITHUB_SHA; run_id=$env:GITHUB_RUN_ID; run_url="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"; signing='unsigned-development'; windows_runner='windows-2022'; physical_device_test='not_assessed'; mainnet_consensus_changed=$false} | ConvertTo-Json | Set-Content dist/effort-windows/build-source.json -Encoding utf8NoBOM
           Get-ChildItem dist/effort-windows -File | Where-Object {$_.Name -ne 'SHA256SUMS' -and $_.Extension -ne '.wixpdb'} | Sort-Object Name | ForEach-Object {"$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"} | Set-Content dist/effort-windows/SHA256SUMS -Encoding utf8NoBOM

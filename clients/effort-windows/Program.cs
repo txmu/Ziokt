@@ -21,7 +21,7 @@ internal static class Program
         if (args.Contains("--self-test")) { SelfTest.Run(); return; }
         using var instance = new Mutex(true, @"Local\ZioktEffort-" + Environment.UserName, out bool first);
         if (!first) { MessageBox.Show("Ziokt 助力已在运行，请从系统托盘打开。"); return; }
-        Application.Run(new EffortWindow(args.Contains("--background")));
+        Application.Run(new EffortWindow(args.Contains("--background"), args.Contains("--ui-smoke")));
     }
 }
 
@@ -57,11 +57,11 @@ internal sealed class EffortWindow : Form
     readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Text = "Ziokt 助力 · 可随时停止", Visible = true };
     readonly Preferences prefs = Preferences.Load();
     bool ready, exiting, connected = NetworkInterface.GetIsNetworkAvailable(), navigating;
-    readonly bool background;
+    readonly bool background, smoke;
 
-    internal EffortWindow(bool background)
+    internal EffortWindow(bool background, bool smoke = false)
     {
-        this.background = background;
+        this.background = background; this.smoke = smoke;
         Text = "Ziokt 助力 · Windows"; Width = 1020; Height = 780; MinimumSize = new Size(540, 480);
         mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作"]); mode.SelectedIndex = prefs.Mode == "compute" ? 1 : 0;
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(8) };
@@ -122,10 +122,16 @@ internal sealed class EffortWindow : Form
             web.CoreWebView2.NavigationCompleted += async (_, e) =>
             {
                 navigating = false; ready = e.IsSuccess && Allowed(web.Source?.AbsoluteUri ?? ""); start.Enabled = ready;
+                if (!ready && smoke) { FinishSmoke(false, "navigation_failed"); return; }
                 if (!ready) { state.Text = connected ? "页面暂不可用，点击此处重试" : "网络已断开，等待系统网络恢复"; return; }
                 await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired()))}))},true);'intent-listener-installed'");
                 await PublishNetworkAsync();
                 state.Text = connected ? "就绪 · 两种方式均可选择；可随时停止" : "网络已断开，已暂停";
+                if (smoke)
+                {
+                    var controls = await ScriptAsync("!!(document.getElementById('help-mode')&&document.getElementById('start')&&window.ZioktCompute&&window.ZioktPeopleRelay)");
+                    FinishSmoke(controls == "true", "actual_webview2_official_page"); return;
+                }
                 // Automatic contribution requires the user's explicit login-start permission plus saved active intent.
                 if (prefs.Resume && (background && startup.Checked)) await StartAsync();
             };
@@ -135,11 +141,17 @@ internal sealed class EffortWindow : Form
         }
         catch (WebView2RuntimeNotFoundException)
         {
+            if (smoke) { FinishSmoke(false, "missing_webview2_runtime"); return; }
             state.Text = "需要 Microsoft Edge WebView2 Runtime";
             if (MessageBox.Show("此程序需要微软 WebView2 Runtime。是否打开微软官方下载页？", "安装浏览器运行时", MessageBoxButtons.YesNo) == DialogResult.Yes)
                 Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true });
         }
-        catch (Exception e) { state.Text = "启动失败：" + e.Message; }
+        catch (Exception e) { if (smoke) FinishSmoke(false, e.GetType().Name); else state.Text = "启动失败：" + e.Message; }
+    }
+    void FinishSmoke(bool success, string detail)
+    {
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-test.json"), JsonSerializer.Serialize(new { success, detail, actual_winforms_webview2 = true, computation_started = false, relay_started = false, device_test = "not_assessed" }));
+        Environment.ExitCode = success ? 0 : 1; exiting = true; Close();
     }
     internal static bool Allowed(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.Host == "fendou.ziokt.com" && uri.Port == 443 && uri.UserInfo == "";
     async Task PublishNetworkAsync()
