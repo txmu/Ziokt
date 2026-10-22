@@ -47,14 +47,15 @@ globalThis.ZioktDocumentReader={
     const node=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
     const lifetime=Symbol('reader');container._readerLifetime=lifetime;const alive=()=>container.isConnected&&container._readerLifetime===lifetime;
     let manifestOffset=0,chapterCount=0,chapter=0,offset=0,next=null,sequence=0;
-    const bar=node('div'),select=node('select'),body=node('pre'),pageStatus=node('p'),navigation=node('select');
-    select.setAttribute('aria-label',label('EPUB 章节','EPUB chapter'));navigation.setAttribute('aria-label',label('EPUB 目录','EPUB table of contents'));
+    const bar=node('div'),select=node('select'),body=node('pre'),pageStatus=node('p'),navigation=node('select'),image=node('img');
+    image.hidden=true;image.style.cssText='max-width:100%;height:auto';image.decoding='async';
+    select.setAttribute('aria-label',label('章节或页码','Chapter or page'));navigation.setAttribute('aria-label',label('目录','Table of contents'));
     body.tabIndex=0;body.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';pageStatus.setAttribute('role','status');
     const action=(text,fn)=>{const button=node('button',text);button.type='button';button.style.minHeight='44px';button.onclick=async()=>{button.disabled=true;try{await fn();}catch(error){status(error.message);}finally{button.disabled=false;}};return button;};
     const previous=action(label('上一页','Previous page'),async()=>{if(offset>0)await load(chapter,Math.max(0,offset-16384));else if(chapter>0)await load(chapter-1,0);});
     const following=action(label('下一页','Next page'),async()=>{if(next!==null)await load(chapter,next);else if(chapter+1<chapterCount)await load(chapter+1,0);});
     const more=action(label('更多章节与目录','More chapters and navigation'),async()=>{manifestOffset+=64;await inventory();});
-    bar.append(select,navigation,previous,following,more);container.replaceChildren(bar,pageStatus,body);
+    bar.append(select,navigation,previous,following,more);container.replaceChildren(bar,pageStatus,image,body);
     async function inventory(){
       const result=await call('library.reader.manifest',{id,offset:manifestOffset,limit:64});if(!alive())return;
       chapterCount=result.chapter_count;
@@ -68,6 +69,12 @@ globalThis.ZioktDocumentReader={
       const result=await call('library.reader.chapter',{id,chapter:target,offset:start,limit:16384,fragment});
       if(request!==sequence||!alive())return;
       chapter=target;offset=result.offset;next=result.next_offset;body.textContent=result.text;
+      image.removeAttribute('src');image.hidden=true;
+      if(result.image){
+        const value=result.image;
+        if(value.mime!=='image/jpeg'||typeof value.data!=='string'||value.data.length>190000||!/^[A-Za-z0-9+/]*={0,2}$/.test(value.data)||!Number.isInteger(value.width)||!Number.isInteger(value.height)||value.width<1||value.height<1||value.width>1200||value.height>1200)throw Error('INVALID_RENDERED_PAGE');
+        image.alt=label('第 ','Page ')+(chapter+1);image.src='data:image/jpeg;base64,'+value.data;image.hidden=false;
+      }
       if(![...select.options].some(option=>Number(option.value)===chapter)){const option=node('option',String(chapter+1)+' · '+result.title);option.value=chapter;select.append(option);}
       select.value=String(chapter);previous.disabled=chapter===0&&offset===0;following.disabled=next===null&&chapter+1>=chapterCount;
       pageStatus.textContent=label('章节 ','Chapter ')+(chapter+1)+' / '+chapterCount+' · '+offset+'–'+Math.min(offset+16384,result.total_characters)+' / '+result.total_characters;

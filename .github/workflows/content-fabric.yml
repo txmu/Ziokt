@@ -23,12 +23,13 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install --only-binary=:all: -r requirements.txt -r requirements-reader.txt
       - name: Durable filesystem, TCP NNTP, scopes, three independent HTTP nodes
         run: |
           set -o pipefail
           python -m unittest discover -s tests -p 'test_content*.py' -v 2>&1 | tee content-test-results.txt
           python -m unittest discover -s tests -p 'test_library_formats.py' -v 2>&1 | tee library-format-results.txt
+          python -m unittest discover -s tests -p 'test_raster_reader.py' -v 2>&1 | tee raster-reader-results.txt
           python -m unittest discover -s tests -p 'test_optimization.py' -v 2>&1 | tee optimization-results.txt
           python -m unittest discover -s tests -p 'test_airgap.py' -v 2>&1 | tee airgap-results.txt
           python -m unittest discover -s tests -p 'test_webextensions.py' -v 2>&1 | tee webextension-package-results.txt
@@ -128,7 +129,7 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
-      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install --only-binary=:all: -r requirements.txt -r requirements-reader.txt
       - run: npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
       - run: node ci/browser/node_modules/playwright/cli.js install --with-deps chromium
       - name: Real browser application flows

@@ -1,0 +1,86 @@
+"""PDF/CBZ pages decoded only after the document worker enters seccomp."""
+import base64
+import encodings.utf_16_le
+import io
+import math
+import re
+import warnings
+import zipfile
+from pathlib import PurePosixPath
+import pypdfium2 as pdfium
+from PIL import Image, PngImagePlugin, JpegImagePlugin
+
+MIMES={'application/pdf','application/vnd.comicbook+zip','application/x-cbz'}
+MAX_PIXELS=8_000_000
+Image.init()  # Import trusted codecs before the worker denies filesystem access.
+Image.MAX_IMAGE_PIXELS=MAX_PIXELS
+warnings.simplefilter('error',Image.DecompressionBombWarning)
+
+
+def encoded_image(image):
+    image.thumbnail((1200,1200))
+    if image.mode!='RGB':image=image.convert('RGB')
+    for quality in (85,70,50,30):
+        output=io.BytesIO();image.save(output,format='JPEG',quality=quality)
+        raw=output.getvalue()
+        if len(raw)<=100000:
+            return {'mime':'image/jpeg','data':base64.b64encode(raw).decode('ascii'),'width':image.width,'height':image.height}
+    raise ValueError('rendered page response budget')
+
+
+def read(source,mime,mode,*,chapter=0,offset=0,limit=64,fragment=''):
+    if mode not in {'manifest','chapter'} or type(chapter) is not int or not 0<=chapter<1024:raise ValueError('page index')
+    if type(offset) is not int or not 0<=offset<=16*1024*1024 or type(limit) is not int or not 1<=limit<=(128 if mode=='manifest' else 16384) or fragment:raise ValueError('page bounds')
+    if mime=='application/pdf':
+        if not source.startswith(b'%PDF-'):raise ValueError('PDF signature')
+        doc=pdfium.PdfDocument(source)
+        try:
+            count=len(doc)
+            if not 1<=count<=1024:raise ValueError('PDF page count')
+            if mode=='manifest':return manifest(mime,count,offset,limit)
+            if chapter>=count:raise ValueError('page unavailable')
+            page=doc[chapter]
+            try:
+                width,height=page.get_size()
+                if not all(math.isfinite(v) and 0<v<=100000 for v in (width,height)):raise ValueError('PDF page dimensions')
+                scale=min(2,1200/max(width,height))
+                bitmap=page.render(scale=scale,draw_annots=False)
+                try:image=bitmap.to_pil().copy()
+                finally:bitmap.close()
+                # Bounded text is selectable through the existing reader paging API.
+                textpage=page.get_textpage()
+                try:
+                    total=textpage.count_chars()
+                    if total>1_000_000:raise ValueError('PDF text budget')
+                    text=textpage.get_text_range(offset,min(limit,max(0,total-offset))) if offset<total else ''
+                finally:textpage.close()
+            finally:page.close()
+        finally:doc.close()
+    else:
+        if mime not in MIMES:raise ValueError('unsupported raster format')
+        with zipfile.ZipFile(io.BytesIO(source)) as archive:
+            entries=archive.infolist();names=set();pages=[]
+            if not 1<=len(entries)<=2048 or sum(e.file_size for e in entries)>32*1024*1024:raise ValueError('CBZ expansion budget')
+            for e in entries:
+                path=PurePosixPath(e.filename)
+                if len(e.filename.encode())>1024 or e.filename in names or path.is_absolute() or '..' in path.parts or '\\' in e.filename or '\0' in e.filename or e.flag_bits&1:raise ValueError('CBZ path or encryption')
+                names.add(e.filename)
+                if e.file_size>4*1024*1024 or e.file_size>max(1024,e.compress_size*200):raise ValueError('CBZ member budget')
+                if not e.is_dir():
+                    if path.name.lower()=='comicinfo.xml' and e.file_size<=65536:continue
+                    if path.suffix.lower() not in {'.png','.jpg','.jpeg'}:raise ValueError('CBZ contains unsupported active or non-image member')
+                    pages.append(e.filename)
+            pages.sort(key=lambda name:[int(value) if value.isascii() and value.isdigit() else value.casefold() for value in re.split(r'([0-9]+)',name)]);count=len(pages)
+            if not 1<=count<=1024:raise ValueError('CBZ page count')
+            if mode=='manifest':return manifest(mime,count,offset,limit)
+            if chapter>=count:raise ValueError('page unavailable')
+            raw=archive.read(pages[chapter])
+            with Image.open(io.BytesIO(raw),formats=['PNG','JPEG']) as candidate:
+                if candidate.width*candidate.height>MAX_PIXELS:raise ValueError('CBZ image pixels')
+                candidate.load();image=candidate.copy()
+        text='';total=0
+    return {'chapter':chapter,'title':'Page '+str(chapter+1),'image':encoded_image(image),'text':text,'offset':offset,'next_offset':offset+limit if offset+limit<total else None,'total_characters':total,'scripts_executed':False,'external_resources_loaded':False,'rendered_in_sandbox':True}
+
+
+def manifest(mime,count,offset,limit):
+    return {'format':mime,'chapter_count':count,'chapters':[{'index':i,'title':'Page '+str(i+1)} for i in range(offset,min(count,offset+limit))],'next_offset':offset+limit if offset+limit<count else None,'navigation':[],'navigation_next_offset':None,'scripts_executed':False,'external_resources_loaded':False,'rendered_in_sandbox':True}

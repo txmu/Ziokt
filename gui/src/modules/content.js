@@ -47,7 +47,7 @@ export function renderLibrary(container){
     const personal=contentElement('details'),personalPanel=contentElement('section');personal.append(contentElement('summary',State.language==='en'?'My notes and collections':'我的笔记与藏书'),personalPanel);reader.append(personal);
     ZioktPersonalViews.library(personalPanel,{call:(op,args)=>readTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>reader._zioktReader?.position()||({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{if(reader._zioktReader)return reader._zioktReader.navigate(anchor);const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
     const info=await readTool('content.object.info',{id:book.file_id});
-    if(info.mime==='application/epub+zip'){
+    if(['application/epub+zip','application/pdf','application/vnd.comicbook+zip','application/x-cbz'].includes(info.mime)){
       const document=contentElement('section');reader.append(document);reader._zioktReader=await ZioktDocumentReader.mount(document,{call:readTool,id:book.id,language:State.language,status:value=>status.textContent=value});
       reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:reader._zioktReader.position()},true);status.textContent='阅读位置已保存';},status));return;
     }

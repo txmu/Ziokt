@@ -78,7 +78,7 @@ def implementation(route):
         op=route[1]
         for prefix,module in [('library.note.','library_personal'),('library.bookmark.','library_personal'),('library.collection.','library_personal'),('library.reader.','document_sandbox'),('content.rights.','content_rights'),('content.etp.','content_etp'),('library.etp.','content_etp_library')]:
             if op.startswith(prefix):files.append('ziokt/'+module+'.py')
-        if op.startswith('library.reader.') or op=='library.extract':files.append('ziokt/library_formats.py')
+        if op.startswith('library.reader.') or op=='library.extract':files+=['ziokt/library_formats.py','ziokt/raster_reader.py']
     elif kind=='bridge':files+=['ziokt/bridge.py']
     elif kind=='etp':files+=['ziokt/etp.py']
     elif kind=='gateway':files+=['ziokt/gateway.py']

@@ -19,7 +19,7 @@ def package(output,revision='HEAD',corium=None,shadow6=None):
     lock=json.loads(git(ROOT,'show',source+':native-sources.lock.json'))
     repositories={'Ziokt':(ROOT,source),'Corium':(Path(corium or ROOT.parent/'Corium'),lock['corium']['revision']),'Shadow6':(Path(shadow6 or ROOT.parent/'Shadow6'),lock['shadow6']['revision'])}
     selected={
-        'Ziokt':['spec','ziokt','openci','tests','requirements.txt','requirements-dns.txt','native-sources.lock.json','tools/sync_providers.py','tools/audit_mcp_registry.py','docs/security','docs/content-fabric/ACCEPTANCE.md','docs/content-fabric/WORK_ITEMS.md','docs/content-fabric/REMAINING.md','docs/content-fabric/MCP-SOURCE-LIVE-2026-10-22.json','docs/openci/MAINNET-MIGRATIONS.md','docs/openci/PEOPLE-HELP.md','docs/MCP_TOOL_CATALOG.json'],
+        'Ziokt':['spec','ziokt','openci','tests','requirements.txt','requirements-reader.txt','requirements-dns.txt','native-sources.lock.json','tools/sync_providers.py','tools/audit_mcp_registry.py','docs/security','docs/content-fabric/ACCEPTANCE.md','docs/content-fabric/WORK_ITEMS.md','docs/content-fabric/REMAINING.md','docs/content-fabric/MCP-SOURCE-LIVE-2026-10-22.json','docs/openci/MAINNET-MIGRATIONS.md','docs/openci/PEOPLE-HELP.md','docs/MCP_TOOL_CATALOG.json'],
         'Corium':['corix_v108.sh','shielded_ownership.py','work_weight_policy.py','work_weight_native.py','test_core.py','test_privacy_consensus.py','test_privacy_primitives.py','test_engine_proof_boundary.py','test_engine_governance_cli.py','test_work_weight_policy.py','test_work_weight_native.py','WORK-WEIGHT-POLICY.md'],
         'Shadow6':['Ziokt-Support/zfcp_runtime.py']}
     entries={};files={};total=0

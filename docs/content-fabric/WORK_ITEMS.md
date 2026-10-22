@@ -19,7 +19,7 @@
 |静态站 Community 授权 API|A|独立应用凭证、成员映射、原生论坛读写与签名证明测试通过；托管 CSP 保持，需要独立应用部署|
 |Library 作品/版本/文件、ISBN 校验|A|book 模型及轻量测试|
 |Library 高级全文/模糊/作品聚合索引|B|SQLite FTS5 元数据/保存文本索引与组合过滤已测试；可选模糊匹配、当前授权结果页作品聚合已测试；全格式提取仍未完成|
-|Library EPUB/PDF/CBZ 解析与阅读|B|EPUB 有限安全文本解析、spine 章节导航及权限测试已实现；PDF/CBZ 专用阅读未实现|
+|Library EPUB/PDF/CBZ 解析与阅读|B|EPUB分页/导航；新增PDFium PDF页图和文本分页、Pillow CBZ页图，独立seccomp进程、权限和真实Chromium翻页本地通过。16MiB输入/1024页/PNG-JPEG CBZ/无PDF交互表单，CI及生产新版部署待核验；不能把所有文档格式和设备标为完成|
 |Library TXT/Markdown/HTML 文本阅读、书签|A|真实 Chromium 完成上传、校验、阅读与保存书签；HTML 只显示文本|
 |多源分块下载/Merkle 校验/检查点|A|三节点源离线后从副本继续；新增可配置 1–4 并行分块；最新 CI 待运行|
 |配额、限速、到期隐藏、墓碑|A|基础预算及墓碑测试；物理回收策略尚未完整实现|

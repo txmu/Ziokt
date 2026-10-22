@@ -1,0 +1,3 @@
+# Linux isolated PDF/CBZ worker; install wheels only, never compile locally.
+pypdfium2==5.14.0
+Pillow==13.0.0
