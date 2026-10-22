@@ -107,7 +107,7 @@ class EffortPool:
             return {**receipt,'duplicate':False}
 
 
-def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=()):
+def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None):
     require_network()
     origins = [origin] if isinstance(origin, str) else list(origin)
     for o in origins:
@@ -156,7 +156,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def do_GET(self):
             try:
                 self.valid_origin()
-                if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','relay_origins':list(relay_origins)})
+                if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','relay_origins':list(relay_origins),'direct_relay':{'enabled':direct_relay is not None,'network_id':direct_relay.network if direct_relay else None,'transport':'direct','anonymous':False}})
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)
                     return self.send_value(200,explorer.query(self.path))
@@ -173,10 +173,21 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 self.valid_origin(True)
                 if self.headers.get('Transfer-Encoding') is not None or self.headers.get('Content-Type')!='application/json':raise ProtocolError('INVALID_REQUEST','bounded JSON required')
                 length=self.headers.get('Content-Length','')
-                if not length.isdecimal() or not 1<=int(length)<=2048:raise ProtocolError('REQUEST_LIMIT','worker request exceeds budget')
-                self.rate('worker',120)
-                value=strict_json(self.rfile.read(int(length)),2048)
-                if self.path=='/api/job' and value=={}:result=pool.issue()
+                limit=8192 if self.path.startswith('/api/people/direct/') else 2048
+                if not length.isdecimal() or not 1<=int(length)<=limit:raise ProtocolError('REQUEST_LIMIT','worker request exceeds budget')
+                self.rate('direct' if self.path.startswith('/api/people/direct/') else 'worker',1200 if self.path.startswith('/api/people/direct/') else 120)
+                value=strict_json(self.rfile.read(int(length)),limit)
+                if self.path.startswith('/api/people/direct/'):
+                    if direct_relay is None:raise ProtocolError('NATIVE_UNAVAILABLE','mainnet direct relay is not configured')
+                    if self.headers.get('Origin') not in allowed_origin_strs:raise ProtocolError('ORIGIN_REJECTED','exact origin required for direct relay')
+                    tail=self.path[len('/api/people/direct/'):].split('/')
+                    if isinstance(value,dict) and set(value)=={'arguments','padding'}:
+                        if not isinstance(value['padding'],str) or any(c!='0' for c in value['padding']):raise ProtocolError('INVALID_REQUEST','canonical bounded padding required')
+                        value=value['arguments']
+                    if tail==['open']:result=direct_relay.call(None,'open',value)
+                    elif len(tail)==2:result=direct_relay.call(tail[0],tail[1],value,self.headers.get('Authorization'))
+                    else:raise ProtocolError('NOT_FOUND','fixed direct relay operation required')
+                elif self.path=='/api/job' and value=={}:result=pool.issue()
                 elif self.path=='/api/proof' and isinstance(value,dict) and set(value)=={'token','nonce'}:result=pool.submit(value['token'],value['nonce'])
                 else:raise ProtocolError('INVALID_REQUEST','fixed worker endpoint required')
                 self.send_value(200,result)
@@ -200,7 +211,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
     required={'schema','origin','listen','port','federation_config','provider','network_id','submitter','state_root'}
-    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins','direct_relay'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
     if not isinstance(config['network_id'],str) or not config['network_id'] or len(config['network_id'])>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in config['network_id']):raise ProtocolError('INVALID_CONFIG','explicit Corium mainnet identifier required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
@@ -211,11 +222,14 @@ def main(argv=None):
     provider=next((p for p in federation['providers'] if p['native_project']=='corium' and p['provider_id']==config['provider']),None)
     if not federation['enabled'] or provider is None or provider.get('network_id')!=config['network_id']:raise ProtocolError('NETWORK_MISMATCH','enabled Corium provider must match the explicitly configured mainnet')
     client=NativeClient(federation['federation_id'],provider);client.health();pool=EffortPool(client,config['submitter'],config['state_root'],expected_network=config['network_id'])
+    direct_relay=None
     try:
         # Refuse to open the web listener until the configured native chain is ready.
         from .explorer import ChainExplorer
         explorer=ChainExplorer(provider['state_root'],provider['network_id']) if config.get('explorer',False) else None
-        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]))
+        from .effort_direct import DirectRelay
+        direct_relay=DirectRelay(config['direct_relay'],config['network_id']) if 'direct_relay' in config else None
+        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay)
         try:
             if tls:
                 if not {'certificate','private_key'}<=set(config) or urlsplit(config['origin']).scheme!='https':raise ProtocolError('INVALID_CONFIG','complete HTTPS credentials required')
@@ -224,7 +238,10 @@ def main(argv=None):
             print(encoded({'event':'ziokt.effort-ready','origin':config['origin']}).decode(),flush=True)
             server.serve_forever()
         except KeyboardInterrupt:pass
-        finally:server.server_close()
-    finally:pool.close()
+        finally:
+            server.server_close()
+    finally:
+        if direct_relay is not None:direct_relay.close()
+        pool.close()
 
 if __name__=='__main__':main()

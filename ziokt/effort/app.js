@@ -27,4 +27,4 @@ document.addEventListener('freeze',()=>{if(!backgroundOption.checked)stop();else
 addEventListener('pagehide',event=>{if(!event.persisted||!backgroundOption.checked)stop()});
 addEventListener('pageshow',event=>{if(event.persisted){const resume=active&&backgroundOption.checked;stop();if(resume)start()}});
 
-window.ZioktCompute={stop:()=>stop()};
+window.ZioktCompute={stop:()=>stop(),desired:()=>active||resumeAfterNetwork};

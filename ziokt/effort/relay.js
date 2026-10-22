@@ -5,7 +5,7 @@
   var input = document.getElementById('help-invitation'), status = document.getElementById('status');
   var background = document.getElementById('background'), active = false, epoch = 0;
   var wakeLock = null, resumeAfterNetwork = false;
-  var peers = [], timers = [], requests = [], bytes = 0, completed = 0, origins = null;
+  var peers = [], timers = [], requests = [], bytes = 0, completed = 0, origins = null, directEnabled = false;
   function modern() { return window.isSecureContext === true && window.crypto && window.crypto.subtle && typeof Worker === 'function' && typeof fetch === 'function' && typeof BigInt === 'function' && typeof AbortController === 'function' && typeof TextEncoder === 'function'; }
   function networkMode() { return mode.value === 'network' || mode.value === 'auto' && !modern(); }
   function later(fn, ms) { var timer = setTimeout(function () { var i = timers.indexOf(timer); if (i >= 0) timers.splice(i, 1); fn(); }, ms); timers.push(timer); }
@@ -17,8 +17,8 @@
   function hide() { return document.hidden === true || document.webkitHidden === true; }
   function request(peer, operation, value, callback, generation, retries) {
     var xhr = new XMLHttpRequest(), attempt = retries || 0;
-    requests.push(xhr); xhr.open('POST', peer.origin + '/relay/v1/' + operation, true);
-    xhr.setRequestHeader('Content-Type', 'application/json'); xhr.setRequestHeader('Authorization', 'Bearer ' + peer.token);
+    requests.push(xhr); xhr.open('POST', peer.origin + (peer.prefix || '/relay/v1/') + operation, true);
+    xhr.setRequestHeader('Content-Type', 'application/json'); if (peer.token) xhr.setRequestHeader('Authorization', 'Bearer ' + peer.token);
     xhr.timeout = 12000;
     function done(error, result, retry) {
       var index = requests.indexOf(xhr); if (index >= 0) requests.splice(index, 1);
@@ -47,7 +47,7 @@
     for (i = 0; i < pending.length; i += 1) pending[i].abort();
     for (i = 0; navigator.onLine !== false && window.ZioktHostNetworkAvailable !== false && i < old.length; i += 1) if (old[i].session) {
       try {
-        var xhr = new XMLHttpRequest(); xhr.open('POST', old[i].origin + '/relay/v1/close', true);
+        var xhr = new XMLHttpRequest(); xhr.open('POST', old[i].origin + (old[i].prefix || '/relay/v1/') + 'close', true);
         xhr.setRequestHeader('Content-Type', 'application/json'); xhr.setRequestHeader('Authorization', 'Bearer ' + old[i].token);
         xhr.timeout = 3000; xhr.send(JSON.stringify({session: old[i].session}));
       } catch (_) {}
@@ -68,7 +68,7 @@
         if (receipt.state !== 'native_written') return failed('WRITE_UNCONFIRMED');
         request(from, 'ack', {session: from.session, sequence: frame.sequence}, function (error, ack) {
           if (error || ack.state !== 'acknowledged') return failed(error || 'ACK_UNCONFIRMED');
-          if (frame.kind === 'fin') { completed += 1; if (completed === 2) stop('本次网络协作已完成；尚未结算链上贡献。'); return; }
+          if (frame.kind === 'fin') { completed += 1; if (completed === 2) { var direct = !!from.prefix; stop('本次网络协作已完成；尚未结算链上贡献。'); if (direct) { active = true; button.textContent = '停止助力'; button.setAttribute('aria-pressed', 'true'); directOpen(epoch); } } return; }
           bytes += frame.data.length / 4 * 3 - (frame.data.slice(-2) === '==' ? 2 : frame.data.slice(-1) === '=' ? 1 : 0);
           document.getElementById('metrics').textContent = '网络协作已传输 ' + Math.floor(bytes / 1024) + ' KiB · 尚未结算链上贡献';
           later(function () { pump(from, to, generation); }, 500);
@@ -84,11 +84,27 @@
       peer.session = value.session; callback();
     }, generation);
   }
+  function directOpen(generation) {
+    request({origin: '', prefix: '/api/people/direct/'}, 'open', {}, function (error, value) {
+      if (error) return failed(error);
+      if (value.state === 'waiting') { status.textContent = '主网直连转发已启用 · 等待真实任务（非匿名，不进行探测）'; return later(function () { directOpen(generation); }, 5000); }
+      if (value.state !== 'open' || value.network_id !== 'ziokt-main' || typeof value.session !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(value.session)) return failed('INVALID_DIRECT_SESSION');
+      peers = [{origin: '', prefix: '/api/people/direct/a/', token: value.session, session: 'a'}, {origin: '', prefix: '/api/people/direct/b/', token: value.session, session: 'b'}];
+      bytes = 0; completed = 0; status.textContent = '主网直连转发运行中 · 原生端点加密（非匿名）';
+      pump(peers[0], peers[1], generation); pump(peers[1], peers[0], generation);
+    }, generation);
+  }
   function start() {
     if ((navigator.onLine === false || window.ZioktHostNetworkAvailable === false)) { resumeAfterNetwork = true; button.textContent = '取消自动恢复'; status.textContent = '网络已断开，等待网络恢复'; return; }
     resumeAfterNetwork = false;
     var invitation, list, i;
     if (!window.XMLHttpRequest || !window.JSON) return stop('此浏览器缺少安全网络协作所需的基础支持。');
+    if (!input.value.replace(/\s/g, '')) {
+      if (!directEnabled) return stop('主网直连转发暂不可用，请等待运营者恢复服务。');
+      if (hide() && !background.checked) return stop('请在前台开始，或主动允许后台继续。');
+      if (window.ZioktCompute) window.ZioktCompute.stop();
+      active = true; button.textContent = '停止助力'; button.setAttribute('aria-pressed', 'true'); keepAwake(); directOpen(++epoch); return;
+    }
     if (!origins || !origins.length) return stop('尚未配置可用协作节点，请联系节点运营者。');
     try {
       if (input.value.length > 2048) throw Error();
@@ -120,7 +136,7 @@
   background.addEventListener('change', visibility);
   window.addEventListener('pagehide', function () { if (active) stop('页面已离开；网络协作已停止'); });
   var config = new XMLHttpRequest(); config.open('GET', '/api/people/config', true); config.timeout = 5000;
-  config.onload = function () { try { var value = JSON.parse(config.responseText); if (config.status === 200 && value.schema === 'ziokt.people-help.v1' && Object.prototype.toString.call(value.relay_origins) === '[object Array]') origins = value.relay_origins; } catch (_) {} };
+  config.onload = function () { try { var value = JSON.parse(config.responseText); if (config.status === 200 && value.schema === 'ziokt.people-help.v1' && Object.prototype.toString.call(value.relay_origins) === '[object Array]') { origins = value.relay_origins; directEnabled = !!(value.direct_relay && value.direct_relay.enabled === true && value.direct_relay.network_id === 'ziokt-main' && value.direct_relay.transport === 'direct'); } } catch (_) {} };
   config.send();
-  window.ZioktPeopleRelay = {stop: stop, supported: function () { return !!(window.XMLHttpRequest && window.JSON); }};
+  window.ZioktPeopleRelay = {stop: stop, desired: function () { return active || resumeAfterNetwork; }, supported: function () { return !!(window.XMLHttpRequest && window.JSON); }};
 }());

@@ -58,3 +58,26 @@ python -m ziokt.relay_web --config /private/relay-b.json --port 8769 --native-bi
 `test_relay_stream` / `test_relay_web` 使用真实 socket 和 HTTP，包含重试、乱序、半关闭、背压、限额、来源/凭证/会话边界。`tools/people_relay_browser_smoke.cjs` 在禁用 WebCrypto/SW/Worker/fetch 的真实浏览器中，经两套独立 HTTP 服务传输真实应用 mTLS 数据，并检查地图交互及手表/手机/桌面滚动。测试里的 HTTP 仅在回环；不是公共 TLS 部署证据。Shadow6 SDK 接线和 Android 32 位实体设备还没有该路径的验收证据。
 
 无数据库迁移。关闭接入点会结束活跃连接；撤销凭证并移除奋斗页的 `relay_origins` 即停用新接入。回滚前停止活跃会话；保留原计算入口和原生服务。
+
+
+## 2026-10-22 默认主网直连与 Windows 客户端
+
+轻量网络协作的参与码留空时选择 `direct_relay`，不自动降级其它传输的隐私策略。主网直连明确为非匿名；高级参与码继续走原有双接入点协议。未配置直连时显示不可用；已配置但没有原生入站任务时显示等待，不生成探测流量或贡献奖励。
+
+运营者在 effort-web 配置中增加：
+
+```json
+"direct_relay": {
+  "network_id": "ziokt-main",
+  "listen": "0.0.0.0",
+  "port": 19234,
+  "target_host": "127.0.0.1",
+  "target_port": 9234
+}
+```
+
+本例的 9234 是既有主网原生 TLS 文件服务。19234 是透明入站通道，原生消费者须保持对原始目标证书/身份的验证，再经此通道访问；没有消费者请求就不会连接目标。只能由运营者配置固定回环原生目标；HTTP 用户不能传入目标、路径、凭证或命令。目标服务原有身份和权限检查保持有效，主网共识不变。外层 HTTPS 和内层原生 TLS 分开，浏览器只转发密文字节。已有直连端口继续工作，无需依赖助力者在线。
+
+排队最多四条入站连接、30 秒过期，最多 16 个活跃任务；每方向仍是两帧缓冲、4 MiB 和 300 秒上限。每任务分配临时随机能力，停止/超时后立即失效。没有把 TCP 或 HTTP 成功视为有用工作证明或结算。任务领取和数据读取属于业务请求；网络可用性只通过系统/浏览器事件获知，没有周期连通性探测。
+
+Windows 源码、权限、安装和卸载说明见 `clients/effort-windows/README.md`。CI 独立编译，不在本机编译 ETP。`test_effort_direct` 使用真实 TCP 双向读写、原生写回执、重试去重、撤销、源与能力边界；`DIRECT_RELAY=1 node tools/people_relay_browser_smoke.cjs` 在禁用 WebCrypto/SW/Worker/fetch 的浏览器里用空参与码转发真实双向 mTLS，并执行断网、恢复和取消恢复。实体 Windows/Android 设备验收另记，不能由这些结果替代。

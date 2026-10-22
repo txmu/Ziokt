@@ -61,6 +61,7 @@ jobs:
           node tools/effort_browser_smoke.cjs
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_relay*.py' -v
           node tools/people_relay_browser_smoke.cjs
+          DIRECT_RELAY=1 node tools/people_relay_browser_smoke.cjs
       - uses: actions/upload-artifact@v7.0.2
         if: success()
         with:
@@ -98,6 +99,7 @@ jobs:
           node tools/test_effort_network_events.cjs
           node tools/effort_browser_smoke.cjs
           node tools/people_relay_browser_smoke.cjs
+          DIRECT_RELAY=1 node tools/people_relay_browser_smoke.cjs
           node tools/explorer_browser_smoke.cjs
           node gui/build.js
           node tools/gui_browser_smoke.cjs
