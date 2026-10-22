@@ -69,11 +69,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y sqlite3 jq openssl rsync curl gnupg
           python -m pip install --only-binary=:all: -r Ziokt/requirements.txt
+      - name: Pull pinned OCI image for the combined native contribution path
+        if: matrix.suite == 'openci'
+        run: |
+          image=$(python -c 'import json;print(json.load(open("Ziokt/ci/openci/runner-image.lock.json"))["image"])')
+          docker pull "$image"
       - name: Actual native governance, activation, settlement and independent Phoenix replay
         working-directory: Corium
         env:
           CORIUM_OPENCI_LIVE_CHAIN: '1'
           CORIUM_WORK_LIVE_CHAIN: '1'
+          CORIUM_OPENCI_OCI: '1'
+          PYTHONPATH: ${{ github.workspace }}/Ziokt:${{ github.workspace }}/Ziokt/ci/openci
         run: |
           set -o pipefail
           python -m unittest -v test_${{ matrix.suite }}_consensus 2>&1 | tee native-${{ matrix.suite }}-consensus.txt
