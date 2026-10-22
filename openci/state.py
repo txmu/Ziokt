@@ -166,6 +166,9 @@ class Store:
         with self.transaction() as db:
             if db.execute('UPDATE workers SET enabled=0 WHERE id=?', (worker,)).rowcount != 1:
                 raise Error('WORKER_UNKNOWN', 'Worker not approved', 404)
+            # Revoke outstanding leases atomically: reapproval must never revive them.
+            db.execute("UPDATE tasks SET lease_until=? WHERE worker=? AND state='running'",(int(self.clock()),worker))
+            self.refresh(db)
             self.event(db, actor, 'worker.disabled', detail={'worker': worker})
 
     def submit(self, actor, pipeline):
