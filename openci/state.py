@@ -344,6 +344,7 @@ class Store:
             trusted=db.execute("SELECT * FROM workers WHERE id=? AND pool='trusted' AND enabled=1", (second['worker'],)).fetchone()
             if not trusted:raise Error('VERIFIER_NOT_TRUSTED','Independent verification requires enabled Trusted Worker',403)
             a,b=json.loads(first['spec']),json.loads(second['spec'])
+            profiles=None
             if 'worker' in a or 'worker' in b:
                 profiles=[db.execute('SELECT b.* FROM worker_build_profiles b JOIN workers w ON w.id=b.worker WHERE b.worker=? AND w.enabled=1',(r['worker'],)).fetchone() for r in (first,second)]
                 if any(p is None or a['image'] not in json.loads(p['images']) for p in profiles) or profiles[0]['domain']==profiles[1]['domain']:
@@ -357,6 +358,7 @@ class Store:
             result={'status':'matched','verifier_worker':second['worker'],'independent_task':independent_task,
                     'method':'independent-task-output-equality','artifact':receipt_a['artifact'],
                     'software_security_verified':False,'reproducibility_across_hosts_verified':False}
+            if profiles is not None:result['build_profiles']=[dict(profile) for profile in profiles]
             db.execute('UPDATE tasks SET verification=? WHERE pipeline=? AND id=?',(encoded(result),pid,task))
             self.event(db,actor,'task.verified',pid,task,{'independent_task':independent_task})
         return result
@@ -366,6 +368,37 @@ class Store:
             row=db.execute('SELECT spec FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
             if not row:raise Error('TASK_NOT_FOUND','Task not found',404)
             return json.loads(row['spec'])
+
+    def _release_verification(self,db,pid,task):
+        """Revalidate current authority, exact receipts and independent build profiles.
+
+        Called inside the same write transaction as each release state change.
+        Historical verification is evidence, never a permanent authorization.
+        """
+        row=db.execute('SELECT * FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
+        verification=json.loads(row['verification']) if row and row['verification'] else {}
+        peer=db.execute('SELECT * FROM tasks WHERE pipeline=? AND id=?',(pid,verification.get('independent_task'))).fetchone()
+        if (verification.get('status')!='matched' or not row or not peer or row['id']==peer['id'] or
+                row['state']!='completed' or peer['state']!='completed' or row['worker']==peer['worker'] or
+                peer['worker']!=verification.get('verifier_worker')):
+            raise Error('RELEASE_VERIFIER','Current independent completed task verification required',409)
+        workers=[db.execute('SELECT * FROM workers WHERE id=? AND enabled=1',(r['worker'],)).fetchone() for r in (row,peer)]
+        project=db.execute('SELECT project FROM pipelines WHERE id=?',(pid,)).fetchone()['project']
+        if any(w is None or project not in json.loads(w['projects']) for w in workers) or workers[1]['pool']!='trusted':
+            raise Error('RELEASE_VERIFIER','Both workers must remain authorized and verifier Trusted',409)
+        a,b=json.loads(row['spec']),json.loads(peer['spec'])
+        if any(a[k]!=b[k] for k in ('image','argv','arch','outputs')) or not a['outputs']:
+            raise Error('RELEASE_VERIFIER','Independent build inputs changed',409)
+        receipts=[json.loads(r['receipt']) for r in (row,peer)]
+        if any(r['exit_code']!=0 or r['artifact']['digest']!=verification.get('artifact',{}).get('digest') for r in receipts):
+            raise Error('RELEASE_VERIFIER','Verified output receipts changed',409)
+        if 'worker' in a or 'worker' in b:
+            profiles=[db.execute('SELECT * FROM worker_build_profiles WHERE worker=?',(r['worker'],)).fetchone() for r in (row,peer)]
+            if (any(p is None or a['image'] not in json.loads(p['images']) for p in profiles) or
+                    profiles[0]['domain']==profiles[1]['domain'] or
+                    [dict(p) for p in profiles]!=verification.get('build_profiles')):
+                raise Error('RELEASE_BUILD_PROFILE_CHANGED','Independent build approval changed; verify again',409)
+        return verification
 
     def prepare_release(self,actor,pid,task,name,version,publisher,request):
         from ziokt.ufsdcpm import _label
@@ -377,9 +410,7 @@ class Store:
             row=db.execute('SELECT * FROM tasks WHERE pipeline=? AND id=?',(pid,task)).fetchone()
             if not pipeline or pipeline['state']!='completed' or not row or row['state']!='completed' or not row['verification']:
                 raise Error('RELEASE_NOT_VERIFIED','Completed and independently verified output required',409)
-            verification=json.loads(row['verification'])
-            if verification['status']!='matched' or not db.execute("SELECT 1 FROM workers WHERE id=? AND enabled=1 AND pool='trusted'",(verification['verifier_worker'],)).fetchone():
-                raise Error('RELEASE_VERIFIER','Enabled Trusted Worker verification required',409)
+            self._release_verification(db,pid,task)
             prior=db.execute('SELECT * FROM releases WHERE name=? AND version=? AND publisher=?',(name,version,publisher)).fetchone()
             if prior:
                 if prior['id']!=rid or prior['request']!=body:raise Error('RELEASE_VERSION_CONFLICT','Release version already describes another verified build',409)
@@ -397,10 +428,9 @@ class Store:
             if row['publication'] and row['publication']!=body:raise Error('RELEASE_RESULT_CONFLICT','Publication already has another result',409)
             if row['state']=='prepared':
                 pipeline=db.execute('SELECT state FROM pipelines WHERE id=?',(row['pipeline'],)).fetchone()
-                task=db.execute('SELECT verification FROM tasks WHERE pipeline=? AND id=?',(row['pipeline'],row['task'])).fetchone()
-                verification=json.loads(task['verification']) if task and task['verification'] else {}
-                if not pipeline or pipeline['state']!='completed' or not db.execute("SELECT 1 FROM workers WHERE id=? AND enabled=1 AND pool='trusted'",(verification.get('verifier_worker'),)).fetchone():
-                    raise Error('RELEASE_AUTHORIZATION_CHANGED','Pipeline or Trusted Worker authorization changed before publication',409)
+                if not pipeline or pipeline['state']!='completed':
+                    raise Error('RELEASE_AUTHORIZATION_CHANGED','Pipeline authorization changed before publication',409)
+                self._release_verification(db,row['pipeline'],row['task'])
                 db.execute("UPDATE releases SET state='published',publication=? WHERE id=?",(body,rid))
                 self.event(db,actor,'release.published',row['pipeline'],row['task'],{'release':rid,'native_package':publication['package_id']})
         return self.release(rid)
