@@ -39,3 +39,41 @@ jobs:
         with:
           name: openci-controller-runner-evidence
           path: openci-oci-e2e.log
+
+  native-governance-settlement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: Ziokt
+          persist-credentials: false
+      - id: native
+        run: python Ziokt/ci/native_refs.py
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Corium
+          ref: ${{ steps.native.outputs.corium }}
+          path: Corium
+          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Native execution dependencies only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 jq openssl rsync curl gnupg
+          python -m pip install --only-binary=:all: -r Ziokt/requirements.txt
+      - name: Actual 133-block native work, governance, settlement and independent Phoenix replay
+        working-directory: Corium
+        env:
+          CORIUM_OPENCI_LIVE_CHAIN: '1'
+        run: |
+          set -o pipefail
+          python -m unittest -v test_openci_consensus 2>&1 | tee native-openci-consensus.txt
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: native-openci-governance-settlement
+          path: Corium/native-openci-consensus.txt
