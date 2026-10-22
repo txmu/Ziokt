@@ -1,0 +1,81 @@
+{
+  "schema": "ziokt.self-review-evidence.v1",
+  "source_commit": "e435959a61acbe5cd88837c33853425183e9c0ad",
+  "reviewer": "Codex per user instruction",
+  "external_independent_audit": "not_performed",
+  "gateway_finding": "GATEWAY-ASSET-001",
+  "ci": {
+    "run_id": 39782356970,
+    "url": "https://github.com/txmu/Ziokt/actions/runs/39782356970",
+    "conclusion": "success",
+    "unit_tests": 47,
+    "log_sha256": "53f7eafe3d8a177659e97fe2dcebc4c683dc2b9301f5f73d7a24d73e32d47e67",
+    "browser_runtime": "passed",
+    "portable_delivery": "passed"
+  },
+  "deployment": {
+    "source_commit": "e435959a61acbe5cd88837c33853425183e9c0ad",
+    "at": "20261022T125633Z",
+    "services": [
+      "ziokt-gateway",
+      "ziokt-mcp",
+      "ziokt-telegram-bot",
+      "ziokt-content"
+    ],
+    "gateway_build": {
+      "assurance": "startup source snapshot; not a runtime or business acceptance proof",
+      "deployment_kind": "frozen-release",
+      "native_sources": {
+        "corium": {
+          "repository": "txmu/Corium",
+          "revision": "131ef705b4ad7454b28c96b6eb4aa9ffb4b9dcde"
+        },
+        "shadow6": {
+          "repository": "txmu/Shadow6",
+          "revision": "92d3bf115bd569662803a9d86c965dd5d90dbfe1"
+        }
+      },
+      "python_sources_sha256": "9572e056c1b5e1bc7c2071d6b4475425b9be8681b546806def27d868b58e85eb",
+      "schema": "ziokt.runtime-build.v1",
+      "source_commit": "e435959a61acbe5cd88837c33853425183e9c0ad",
+      "source_file_count": 137,
+      "working_tree_dirty": false
+    },
+    "native_entrypoint_digest": "sha256:9ef45046c0cfeba4b48392be03567a08cea34e9cb00dec4c1c522326b201355d",
+    "gui_app_sha256": "2fba628f2f6475e452904cd1f5fe4f625de40a73b2e7250b80844daf0001adcd",
+    "consensus_changed": false,
+    "native_compilation": false
+  },
+  "registry": {
+    "observed_at": "2026-10-22T12:56:55.624062+00:00",
+    "baseline_count": 460,
+    "source_count": 462,
+    "live_count": 462,
+    "all_descriptors_match": true,
+    "summary": {},
+    "source_registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3",
+    "live_registry_sha256": "e248ebfe6a7e1ce033a15a0b1550bf13a0336bcd358d150e4e6b4fb110757de3"
+  },
+  "sast": {
+    "tool": "Bandit 1.8.6",
+    "source_commit": "e435959a61acbe5cd88837c33853425183e9c0ad",
+    "working_tree_dirty": false,
+    "loc": 24650,
+    "alerts": 74,
+    "severity": {
+      "HIGH": 0,
+      "MEDIUM": 15,
+      "LOW": 59
+    },
+    "raw_sha256": "b451386856d1eb3a4fea9c237b88fe6a78f83e06a9d8242c20fbb6505f0dceb1",
+    "complete_manual_triage": false
+  },
+  "source_packet": {
+    "files": 294,
+    "bytes": 1792264,
+    "sha256": "4b1ed27a4ab6c759675402d329fe9ec7f133bb301a2c9970a2432cb73d1c00a8",
+    "two_builds_identical": true,
+    "all_entry_digests_verified": true
+  },
+  "all_requested_features_complete": false
+}
