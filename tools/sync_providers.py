@@ -170,7 +170,9 @@ def main():
     runtime += '\n' + (ROOT / "spec/recovery_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/compute_runtime.py").read_text()
-    runtime += '\n' + (ROOT / "spec/shielded_runtime.py").read_text()
+    shielded_runtime=(ROOT / 'spec/shielded_runtime.py').read_text()
+    shielded_target=args.corium/'shielded_ownership.py'
+    runtime += '\n' + shielded_runtime
     runtime += '\n' + (ROOT / "spec/asset_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/naming_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/data_runtime.py").read_text()
@@ -262,7 +264,7 @@ def main():
         updated=updated.replace(anchor,static_block+'\n'+anchor,1)
     if args.check:
         mismatches = []
-        for path, expected in ((target, runtime), (script, updated),
+        for path, expected in ((target, runtime), (script, updated), (shielded_target, shielded_runtime),
                                (coordinator_target, runtime), (currency_target, currency), (static_target,static_runtime)):
             if not path.is_file() or path.read_text() != expected:
                 mismatches.append(str(path))
@@ -273,6 +275,7 @@ def main():
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(runtime)
+        shielded_target.write_text(shielded_runtime)
         coordinator_target.write_text(runtime)
         static_target.write_text(static_runtime)
         currency_target.write_text(currency)

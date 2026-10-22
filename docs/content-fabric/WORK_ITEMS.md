@@ -130,3 +130,17 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
 - These checks do not claim a separately deployed UFS/dCPM HTTP daemon, remote
   peer, DNS/NNS publication, or end-to-end content recovery is healthy. Those
   require an explicitly configured native probe and a verified peer receipt.
+
+
+## 2026-10-22 可追溯部署与低配助力交付
+
+|要求|状态|实际证据与限制|
+|---|---|---|
+|460 项基线逐项对照实时 MCP 注册表|A|`MCP-SOURCE-LIVE-2026-10-22.json` 共 462 行；460 项无遗漏，2 项 reader 工具复用既有实现，语义摘要一致；每项业务验证维度分开记录|
+|Gateway/MCP/TG/Content/主 GUI 固定源码部署|A|生产修订6018f45、相同 Python 源摘要与 GUI 版本端点；CI39779140155 的44项 unittest、浏览器与zipapp通过；HTTPS进程PID未变，既有NNTP保留|
+|Windows 助力安装包与奋斗页下载|A|CI39721769104 实际 WinForms/WebView2、MSI安装/卸载、自启项清理；公开MSI完整摘要校验通过；实体设备/长时间运行仍待验收|
+|Android 9+ 极小包、两种方式、系统网络事件|A（模拟器范围）|CI39778006653；33,143字节；2核/2GB，32位API28与64位API34；PSS约23.5/25.2MiB；8组检查每台通过；不等于实体ARM和厂商省电长期验收|
+|主网直连空参与码默认路径|A（生产本机原生端点范围）|公开奋斗页实际转发TLS至原生Corium，公开对象HTTP200且SHA-256一致；不是匿名性、远端节点可达或贡献结算证明|
+|独立第三方密码学审计|D|内部审查和测试仅作为审计材料；尚无外部独立报告，屏蔽所有权主网仍不可启用|
+
+上述 helper 是专用助力入口，不替代完整桌面/Android/鸿蒙统一 GUI 的剩余业务验收。
