@@ -4,7 +4,7 @@
   var button = document.getElementById('start'), mode = document.getElementById('help-mode');
   var input = document.getElementById('help-invitation'), status = document.getElementById('status');
   var background = document.getElementById('background'), active = false, epoch = 0;
-  var wakeLock = null;
+  var wakeLock = null, resumeAfterNetwork = false;
   var peers = [], timers = [], requests = [], bytes = 0, completed = 0, origins = null;
   function modern() { return window.isSecureContext === true && window.crypto && window.crypto.subtle && typeof Worker === 'function' && typeof fetch === 'function' && typeof BigInt === 'function' && typeof AbortController === 'function' && typeof TextEncoder === 'function'; }
   function networkMode() { return mode.value === 'network' || mode.value === 'auto' && !modern(); }
@@ -42,10 +42,10 @@
   function stop(message) {
     var old = peers, pending = requests.slice(0), i;
     if (wakeLock) { wakeLock.release(); wakeLock = null; }
-    active = false; epoch += 1; peers = []; requests = [];
+    resumeAfterNetwork = false; active = false; epoch += 1; peers = []; requests = [];
     for (i = 0; i < timers.length; i += 1) clearTimeout(timers[i]); timers = [];
     for (i = 0; i < pending.length; i += 1) pending[i].abort();
-    for (i = 0; i < old.length; i += 1) if (old[i].session) {
+    for (i = 0; navigator.onLine !== false && i < old.length; i += 1) if (old[i].session) {
       try {
         var xhr = new XMLHttpRequest(); xhr.open('POST', old[i].origin + '/relay/v1/close', true);
         xhr.setRequestHeader('Content-Type', 'application/json'); xhr.setRequestHeader('Authorization', 'Bearer ' + old[i].token);
@@ -85,6 +85,8 @@
     }, generation);
   }
   function start() {
+    if (navigator.onLine === false) { resumeAfterNetwork = true; button.textContent = '取消自动恢复'; status.textContent = '网络已断开，等待网络恢复'; return; }
+    resumeAfterNetwork = false;
     var invitation, list, i;
     if (!window.XMLHttpRequest || !window.JSON) return stop('此浏览器缺少安全网络协作所需的基础支持。');
     if (!origins || !origins.length) return stop('尚未配置可用协作节点，请联系节点运营者。');
@@ -104,10 +106,14 @@
     }); });
   }
   button.addEventListener('click', function (event) {
-    if (!networkMode() && !active) return;
+    if (!networkMode() && !active && !resumeAfterNetwork) return;
     if (event.stopImmediatePropagation) event.stopImmediatePropagation(); event.preventDefault();
-    if (active) stop(); else start();
+    if (active || resumeAfterNetwork) stop(); else start();
   }, true);
+  window.addEventListener('offline', function () {
+    if (active || resumeAfterNetwork) { stop('网络已断开，等待网络恢复'); resumeAfterNetwork = true; button.textContent = '取消自动恢复'; }
+  });
+  window.addEventListener('online', function () { if (resumeAfterNetwork) start(); });
   mode.addEventListener('change', function () { stop(); if (window.ZioktCompute) window.ZioktCompute.stop(); });
   function visibility() { if (active && hide() && !background.checked) stop('已按设置暂停后台协作'); else if (active && background.checked) keepAwake(); else if (wakeLock) { wakeLock.release(); wakeLock = null; } }
   document.addEventListener('visibilitychange', visibility); document.addEventListener('webkitvisibilitychange', visibility);

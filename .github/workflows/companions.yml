@@ -57,6 +57,7 @@ jobs:
           node tools/sim_browser_smoke.cjs
           node tools/sim_storage_race_smoke.cjs
           node tools/tri_browser_smoke.cjs
+          node tools/test_effort_network_events.cjs
           node tools/effort_browser_smoke.cjs
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_relay*.py' -v
           node tools/people_relay_browser_smoke.cjs
@@ -94,6 +95,7 @@ jobs:
         env:
           BROWSER: ${{ matrix.browser }}
         run: |
+          node tools/test_effort_network_events.cjs
           node tools/effort_browser_smoke.cjs
           node tools/people_relay_browser_smoke.cjs
           node tools/explorer_browser_smoke.cjs
