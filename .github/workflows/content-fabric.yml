@@ -28,7 +28,7 @@ jobs:
         run: |
           set -o pipefail
           python -m unittest discover -s tests -p 'test_content*.py' -v 2>&1 | tee content-test-results.txt
-          python -m unittest discover -s tests -p 'test_library_formats.py' -v 2>&1 | tee library-format-results.txt
+          python -m unittest discover -s tests -p 'test_library*.py' -v 2>&1 | tee library-format-results.txt
           python -m unittest discover -s tests -p 'test_raster_reader.py' -v 2>&1 | tee raster-reader-results.txt
           python -m unittest discover -s tests -p 'test_optimization.py' -v 2>&1 | tee optimization-results.txt
           python -m unittest discover -s tests -p 'test_airgap.py' -v 2>&1 | tee airgap-results.txt
@@ -176,6 +176,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           repository: txmu/Corium
+          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           ref: ${{ steps.pins.outputs.corium }}
           path: Corium
       - name: Build source and portable deliveries without local state

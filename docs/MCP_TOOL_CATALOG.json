@@ -8,7 +8,7 @@
     "2025-03-26"
   ],
   "tool_count": 462,
-  "registry_sha256": "5f4abda61d1d4555e4870fabe065fc1dff7ac1db7ac78a952878721037895288",
+  "registry_sha256": "bc254dfad1ac63cdb6769a020579b9f2915247c7fd6724fbb6334dcc29c0d482",
   "tools": [
     {
       "securitySchemes": [
@@ -24940,6 +24940,10 @@
           "filters": {
             "type": "object",
             "maxProperties": 48
+          },
+          "locale": {
+            "type": "string",
+            "maxLength": 63
           }
         },
         "required": [],
@@ -25085,6 +25089,10 @@
           "id": {
             "type": "string",
             "maxLength": 100000
+          },
+          "locale": {
+            "type": "string",
+            "maxLength": 63
           }
         },
         "required": [

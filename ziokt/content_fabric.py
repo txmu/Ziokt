@@ -338,9 +338,16 @@ class Fabric:
 
     def create_book(self, owner, metadata):
         if not isinstance(metadata,dict):raise ValueError('metadata')
-        allowed={'id','work_id','edition_id','file_id','title','subtitle','authors','translators','editors','publisher','year','language','isbn','doi','tags','description','cover','pages','format','license','provenance','relations','visibility','text','rights'}
+        allowed={'id','work_id','edition_id','file_id','title','subtitle','authors','translators','editors','publisher','year','language','isbn','doi','tags','description','cover','pages','format','license','provenance','relations','visibility','text','rights','localized_metadata','bibliography_version','expected_event'}
         if set(metadata)-allowed:raise ValueError('unknown book fields')
         value=dict(metadata)
+        expected_event=value.pop('expected_event',None)
+        if expected_event is not None and (not isinstance(expected_event,str) or expected_event and not re.fullmatch('[a-f0-9]{64}',expected_event)):raise ValueError('expected metadata event')
+        if 'bibliography_version' in value and (type(value['bibliography_version']) is not int or value['bibliography_version'] not in (1,2)):raise ValueError('bibliography version')
+        if 'localized_metadata' in value:
+            if value.get('bibliography_version',2)!=2:raise ValueError('localized bibliography requires version 2')
+            from .library_metadata import validate
+            value['localized_metadata']=validate(value['localized_metadata']);value['bibliography_version']=2
         if 'rights' in value:
             from .content_rights import metadata as rights_metadata
             value['rights']=rights_metadata(value['rights'])
@@ -357,6 +364,10 @@ class Fabric:
         value['isbn']=isbn(value.get('isbn',''))
         text(value.get('text',''),8192,empty=True)
         with self.transaction():
+            if expected_event is not None:
+                previous=self.db.execute('SELECT event,owner,origin FROM records WHERE id=?',(record,)).fetchone()
+                if previous and (previous['owner']!=owner or previous['origin']!=self.public):raise PermissionError('metadata ownership')
+                if (previous['event'] if previous else '')!=expected_event:raise ValueError('metadata version conflict; reload before editing')
             self._rate(owner,'book')
             obj=self.object_info(owner,value['file_id'])
             if obj['owner']!=owner:raise PermissionError('only owned objects may be published')
@@ -364,8 +375,10 @@ class Fabric:
             value['updated_at']=int(time.time())
             return self._event(owner,'book',record,value,visibility)
 
-    def search(self, owner, query='', kind='book', limit=30, offset=0, filters=None):
+    def search(self, owner, query='', kind='book', limit=30, offset=0, filters=None, locale=''):
         text(query,256,empty=True)
+        from .library_metadata import display,language
+        if locale:locale=language(locale)
         if kind not in {'book','article'} or type(limit) is not int or not 1<=limit<=100 or type(offset) is not int or not 0<=offset<=100000:raise ValueError('search bounds')
         profile=self.optimizations.get(owner,'library' if kind=='book' else 'netnews')['effective']
         limit=min(limit,profile['search_page_limit'])
@@ -377,6 +390,16 @@ class Fabric:
             if key=='year':
                 if type(value) is not int or not 0<=value<=100000:raise ValueError('year filter')
             else:text(value,256)
+            if key=='language' and kind=='book':
+                try:tag=language(value)
+                except ValueError:
+                    clauses.append("json_extract(r.body,'$.language')=?");values.append(value);continue
+                clauses.append("(lower(json_extract(r.body,'$.language'))=lower(?) OR json_type(r.body,?)='object')")
+                values.extend([value,'$.localized_metadata.'+json.dumps(tag)])
+                continue
+            if key=='author' and kind=='book':
+                clauses.append("(EXISTS(SELECT 1 FROM json_each(r.body,'$.authors') WHERE value=?) OR EXISTS(SELECT 1 FROM json_each(r.body,'$.localized_metadata') l, json_each(l.value,'$.authors') a WHERE a.value=?))")
+                values.extend([value,value]);continue
             if key in {'author','tag'}:
                 field='authors' if key=='author' else 'tags'
                 clauses.append("EXISTS(SELECT 1 FROM json_each(r.body,'$."+field+"') WHERE value=?)")
@@ -399,6 +422,7 @@ class Fabric:
                 scored=[(difflib.SequenceMatcher(None,query.casefold(),str(json.loads(row['body']).get('title',json.loads(row['body']).get('subject',''))).casefold()).ratio(),row) for row in candidates]
                 rows=[row for score,row in sorted(scored,key=lambda pair:(-pair[0],pair[1]['id'])) if score>=0.5][offset:offset+limit];fuzzy=True
             items=[{'id':r['id'],'origin':r['origin'],'visibility':r['visibility'],'local':r['origin']==self.public,**json.loads(r['body'])} for r in rows]
+            if locale and kind=='book':items=[display(item,locale) for item in items]
             result={'items':items,'offset':offset,'limit':limit,'index':'sqlite-fts5','fuzzy_fallback':fuzzy}
             if kind=='book' and profile['search_group_works']:
                 works={}
@@ -537,6 +561,9 @@ class Fabric:
                 if reason:
                     self.db.execute('INSERT INTO conflicts(record,event,reason,at) VALUES(?,?,?,?)',(value['record'],eid,reason,int(time.time())))
                     continue
+                if value['kind']=='book' and not value['deleted'] and 'localized_metadata' in value['body']:
+                    from .library_metadata import validate
+                    if value['body'].get('bibliography_version')!=2 or validate(value['body']['localized_metadata'])!=value['body']['localized_metadata']:raise ValueError('noncanonical localized bibliography')
                 if value['kind']=='book' and not value['deleted'] and 'rights' in value['body']:
                     from .content_rights import metadata as rights_metadata
                     rights_metadata(value['body']['rights'])

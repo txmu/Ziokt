@@ -17,7 +17,7 @@
 |主网自由注册 + 注册时自动发 1000 权重|D|当前 Corium 主网验证权重仍由现行共识/质押状态决定；尚无经过版本化升级、多节点回放和治理验收的注册策略切换，不在当前主网自动激活|
 |匿名资产迁移、OpenCI PoW 共识迁移|D|两项主网迁移均未激活；匿名所有权需独立密码学审计，OpenCI 工作验证与区块共识权重须由明确共识版本连接，不能把普通 CI 完成视为出块权|
 |静态站 Community 授权 API|A|独立应用凭证、成员映射、原生论坛读写与签名证明测试通过；托管 CSP 保持，需要独立应用部署|
-|Library 作品/版本/文件、ISBN 校验|A|book 模型及轻量测试|
+|Library 作品/版本/文件、ISBN 校验|A|既有book模型和ISBN校验；新增版本化多语言字段、原MCP可选locale、乐观并发编辑、共享GUI编辑器；5项本地测试及真实Chromium编辑/检索通过，新增CI待核验|
 |Library 高级全文/模糊/作品聚合索引|B|SQLite FTS5 元数据/保存文本索引与组合过滤已测试；可选模糊匹配、当前授权结果页作品聚合已测试；全格式提取仍未完成|
 |Library EPUB/PDF/CBZ 解析与阅读|B|EPUB分页/导航；新增PDFium PDF页图和文本分页、Pillow CBZ页图，独立seccomp进程、权限和真实Chromium翻页本地通过。16MiB输入/1024页/PNG-JPEG CBZ/无PDF交互表单，CI及生产新版部署待核验；不能把所有文档格式和设备标为完成|
 |Library TXT/Markdown/HTML 文本阅读、书签|A|真实 Chromium 完成上传、校验、阅读与保存书签；HTML 只显示文本|
@@ -144,3 +144,5 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
 |按用户最新要求自行源码安全审查|进行中|Codex审查、可复现实验、问题修复与回归记录于 `../security/REVIEW-2026-10-22.md`；不等待外部机构，也不冒称第三方报告；治理与共识升级门仍保留|
 
 上述 helper 是专用助力入口，不替代完整桌面/Android/鸿蒙统一 GUI 的剩余业务验收。
+
+- 多语言书目实现与限制见[MULTILINGUAL-BIBLIOGRAPHY.md](MULTILINGUAL-BIBLIOGRAPHY.md)，不将文档全文/跨节点私有同步/自主副本修复并入该项完成证明。

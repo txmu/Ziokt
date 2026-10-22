@@ -87,3 +87,5 @@
 - 2026-10-22 PDF/CBZ阅读新增真实隔离页图渲染及跨Web/GUI/扩展共享翻页；本地实际PDFium、Pillow及Chromium通过。受限为16MiB/1024页、CBZ PNG/JPEG；OCR、复杂交互表单、加密PDF密码输入和大文件Range阅读仍开放。新增CI/部署待记录，整体阅读要求尚未全量满足。
 
 - OpenCI Worker签名回执新增任务/源/产物/租约/重试绑定、当前批准公钥复核、密钥轮换拒绝及dCPM来源凭证保存；不等于硬件证明、原生治理或结算。实际OCI签名流程CI待记录，详情见../openci/WORKER-RECEIPTS.md。
+
+- 新增多语言书目结构、按locale显示/检索、语言/作者过滤、expected_event冲突拒绝及共享编辑器；本地5项与真实Chromium通过。全文文档提取索引、跨节点修复、阅读进度E2EE同步和原生引用仍未完成。

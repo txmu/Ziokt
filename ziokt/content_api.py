@@ -74,10 +74,10 @@ OPERATIONS={
  'content.withdraw':({'id':str},True),
  'content.maintenance':({},True),
  'library.publish':({'metadata':dict},True),
- 'library.search':({'query':str,'limit':int,'offset':int,'filters':dict},False),
+ 'library.search':({'query':str,'limit':int,'offset':int,'filters':dict,'locale':str},False),
  'content.search':({'query':str,'sources':list,'limit':int,'offset':int,'filters':dict},False),
  'library.extract':({'id':str},False),
- 'library.get':({'id':str},False),
+ 'library.get':({'id':str,'locale':str},False),
  'library.reading.get':({'id':str},False),
  'library.reading.save':({'id':str,'state':dict},True),
  'netnews.groups':({},False),
@@ -100,6 +100,7 @@ def required_scopes(operation):
 
 
 def optional_fields(operation):
+    if operation in {'library.get','library.search'}:return OPTIONAL|{'locale'}
     if operation=='library.reader.chapter':return (OPTIONAL|{'fragment'})
     if operation=='library.collection.manage':return {'name','book'}
     return (OPTIONAL-{'group'} if operation.startswith('content.etp.') else OPTIONAL) | ({'source','group'} if operation=='feeds.items' else set()) | ({'name'} if operation=='content.upload.begin' else set())
@@ -238,7 +239,15 @@ def invoke(fabric, owner, operation, args):
         query=args.get('query','');limit=args.get('limit',30);offset=args.get('offset',0);filters=args.get('filters',{})
         return {'schema':'ziokt.content-search.v1','query':query,'sources':{source:fabric.search(owner,query,kind='book' if source=='library' else 'article',limit=limit,offset=offset,filters=filters) for source in sources},'pagination':'per-source; stable IDs and authorization follow each native index'}
     if operation in {'library.get','netnews.get'}:
-        with fabric.lock:return {'id':args['id'],**fabric._get(owner,args['id'],'book' if operation=='library.get' else 'article')}
+        with fabric.lock:
+            body=fabric._get(owner,args['id'],'book' if operation=='library.get' else 'article')
+            row=fabric.db.execute('SELECT event,visibility,owner,origin FROM records WHERE id=?',(args['id'],)).fetchone()
+            result={'id':args['id'],**body}
+            if operation=='library.get':
+                from .library_metadata import display
+                result=display(result,args.get('locale',''))
+                result.update(version_event=row['event'],visibility=row['visibility'],origin=row['origin'],editable=row['owner']==owner and row['origin']==fabric.public)
+            return result
     if operation=='library.reading.get':return fabric.state(owner,'reader',args['id'])
     if operation=='library.reading.save':return fabric.state(owner,'reader',args['id'],args['state'])
     if operation=='netnews.groups':return fabric.groups(owner)
@@ -260,6 +269,7 @@ def attach(service, config):
             if field['type']=='string':field['maxLength']=100000
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
+        if operation in {'library.get','library.search'}:props['locale'].update(maxLength=63)
         if operation=='content.search':props['sources']={'type':'array','minItems':1,'maxItems':2,'uniqueItems':True,'items':{'type':'string','enum':['library','netnews']}}
         if operation.startswith('netnews.readstate.'):
             props['article']['maxLength']=300

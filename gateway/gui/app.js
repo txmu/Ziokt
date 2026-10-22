@@ -114,6 +114,7 @@ globalThis.ZioktPersonalViews={
     const action=(text,fn)=>{const node=el('button',text);node.type='button';node.style.minHeight='44px';node.onclick=async()=>{node.disabled=true;try{await fn();}catch(error){status(error.message);}finally{node.disabled=false;}};return node;};
     const field=(title,tag='input')=>{const wrap=el('label',title),node=el(tag);node.style.cssText='display:block;min-height:44px;width:100%;max-width:100%;box-sizing:border-box';wrap.append(node);container.append(wrap);return node;};
     container.append(el('h3',label('我的笔记、书签与藏书','My notes, bookmarks and collections')));
+    const metadataPanel=el('details');container.append(metadataPanel);ZioktMetadataEditor.mount(metadataPanel,{call,id:book.id,language,status});
     const editor=field(label('私人笔记','Private note'),'textarea');editor.maxLength=8192;editor.rows=3;
     let editing=null,noteOffset=0,bookmarkOffset=0,collectionOffset=0,selectedCollection=null,collectionRequest=0;
     let pendingNoteId=crypto.randomUUID();
@@ -173,6 +174,44 @@ globalThis.ZioktPersonalViews={
     }
     container.append(action(label('上一页藏书','Previous collections'),async()=>{collectionOffset=Math.max(0,collectionOffset-30);await loadCollections();}),action(label('下一页藏书','Next collections'),async()=>{if(collectionSelect.dataset.next){collectionOffset=Number(collectionSelect.dataset.next);await loadCollections();}}),action(label('加载我的笔记和藏书','Load my notes and collections'),async()=>{await loadNotes();await loadBookmarks();await loadCollections();}));
     return {loadNotes,loadBookmarks,loadCollections};
+  }
+};
+
+/* One optimistic multilingual metadata editor in all native GUI/WebExtension shells. */
+globalThis.ZioktMetadataEditor={
+  mount(container,{call,id,language='en',status=()=>{}}){
+    const zh=language.startsWith('zh'),label=(a,b)=>zh?a:b;
+    const node=(tag,value)=>{const element=document.createElement(tag);if(value!==undefined)element.textContent=value;return element;};
+    const body=node('div'),select=node('select'),tag=node('input'),fields={};let current=null,busy=false;
+    container.append(node('summary',label('管理多语言书目','Manage multilingual bibliography')),body);
+    const field=(name,text,type='input')=>{const wrap=node('label',text),input=node(type);input.style.cssText='display:block;min-height:44px;width:100%;max-width:100%;box-sizing:border-box';wrap.append(input);body.append(wrap);fields[name]=input;return input;};
+    const choose=node('label',label('现有书目语言','Existing bibliography language'));select.style.minHeight='44px';choose.append(select);body.append(choose);
+    const tagWrap=node('label',label('语言标签（留空编辑默认书目）','Language tag (empty edits default bibliography)'));tag.maxLength=63;tag.style.minHeight='44px';tagWrap.append(tag);body.append(tagWrap);
+    field('title',label('书目标题','Bibliographic title')).maxLength=2048;
+    field('subtitle',label('书目副标题','Bibliographic subtitle')).maxLength=2048;
+    field('authors',label('书目作者（每行一位）','Authors (one per line)'),'textarea').maxLength=32768;
+    field('translators',label('书目译者（每行一位）','Translators (one per line)'),'textarea').maxLength=32768;
+    field('publisher',label('书目出版者','Bibliographic publisher')).maxLength=2048;
+    field('description',label('书目描述','Bibliographic description'),'textarea').maxLength=4096;
+    const act=(text,fn)=>{const button=node('button',text);button.type='button';button.style.minHeight='44px';button.onclick=async()=>{if(busy)return;busy=true;button.disabled=true;try{await fn();}catch(error){status(error.message);}finally{busy=false;button.disabled=false;}};body.append(button);return button;};
+    const fill=()=>{const entry=tag.value?(current?.localized_metadata?.[tag.value]||{}):current||{};for(const [name,input] of Object.entries(fields))input.value=Array.isArray(entry[name])?entry[name].join('\n'):entry[name]||'';};
+    const inventory=()=>{const existing=Object.keys(current?.localized_metadata||{}).find(key=>key.toLowerCase()===tag.value.toLowerCase());if(existing)tag.value=existing;select.replaceChildren();const base=node('option',label('默认书目','Default bibliography'));base.value='';select.append(base);for(const key of Object.keys(current?.localized_metadata||{}).sort()){const option=node('option',key);option.value=key;select.append(option);}select.value=tag.value;};
+    const load=async()=>{const result=await call('library.get',{id});if(!container.isConnected)return;current=result;inventory();fill();save.disabled=!current.editable;remove.disabled=!current.editable;status(current.editable?label('书目已加载；保存时检查版本','Bibliography loaded; updates check its version'):label('此书目由其他账户或节点管理','This bibliography belongs to another account or node'));};
+    act(label('加载书目信息','Load bibliography'),load);
+    const submit=async deleting=>{
+      if(!current?.editable)throw Error(label('请先加载可编辑书目','Load an editable bibliography first'));
+      const metadata={...current},localized={...(current.localized_metadata||{})};const selected=Object.keys(localized).find(key=>key.toLowerCase()===tag.value.toLowerCase())||tag.value;
+      for(const key of ['file','updated_at','version_event','origin','editable','metadata_locale','default_title'])delete metadata[key];
+      metadata.expected_event=current.version_event;
+      if(deleting){if(!tag.value)throw Error(label('不能删除默认书目','Default bibliography cannot be removed'));delete localized[selected];}
+      else{const entry={};for(const [name,input] of Object.entries(fields))entry[name]=name==='authors'||name==='translators'?input.value.split('\n').map(value=>value.trim()).filter(Boolean):input.value;
+        if(tag.value)localized[selected]=entry;else Object.assign(metadata,entry);}
+      if(Object.keys(localized).length)metadata.localized_metadata=localized;else delete metadata.localized_metadata;
+      await call('library.publish',{metadata});await load();status(label('书目已保存；重新检索可查看语言版本','Bibliography saved; search again to display its language version'));
+    };
+    const save=act(label('保存书目版本','Save bibliography version'),()=>submit(false)),remove=act(label('删除该语言版本','Remove this language version'),()=>submit(true));save.disabled=true;remove.disabled=true;
+    select.onchange=()=>{tag.value=select.value;fill();};tag.onchange=fill;
+    return {load};
   }
 };
 
@@ -2432,7 +2471,7 @@ function renderLibrary(container){
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }
   async function downloadBook(book){status.textContent='正在下载 '+book.title+'…';const info=await contentTool('content.object.info',{id:book.file_id});if(info.size>16*1024*1024)throw Error('此文件超过浏览器下载预算，请使用流式客户端下载。');const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');const link=contentElement('a','保存 '+book.title);link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);document.body.append(link);link.click();link.remove();status.textContent='文件校验通过并已下载';}
-  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status),contentAction('加密保存离线副本',()=>saveOfflineBook(book,status),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
+  async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0,locale:State.language});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status),contentAction('加密保存离线副本',()=>saveOfflineBook(book,status),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
   }
   searchForm.append(contentAction('搜索',load,status));container.append(searchForm,results,reader);
   const details=contentElement('details'),summary=contentElement('summary','上传与出版');details.append(summary);const form=contentElement('div');details.append(form);container.append(details);
