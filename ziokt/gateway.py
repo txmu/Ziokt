@@ -260,10 +260,10 @@ def handler(gateway):
                     name = path.removeprefix('/gateway-assets/')
                     if name.startswith('gui/'):
                         gui_sub = name.removeprefix('gui/')
-                        if '..' in gui_sub: return self.send(404,{'error':'not found'})
+                        if '..' in gui_sub or Path(gui_sub).is_absolute(): return self.send(404,{'error':'not found'})
                         target_file = (ASSETS / 'gui' / gui_sub).resolve()
                         gui_root = (ASSETS / 'gui').resolve()
-                        if not str(target_file).startswith(str(gui_root)) or not target_file.is_file():
+                        if not target_file.is_relative_to(gui_root) or not target_file.is_file():
                             return self.send(404,{'error':'not found'})
                         if name.endswith('.tar.gz') or name.endswith('.gz'): ctype = 'application/gzip'
                         elif name.endswith('.zip'): ctype = 'application/zip'

@@ -24,6 +24,7 @@ jobs:
       - name: Actual HTTP, SQLite, Merkle Range, signatures, OAuth and scoped component exchange
         run: |
           python -m unittest discover -s tests -p test_gateway_native.py -v
+          python -m unittest discover -s tests -p test_gateway_asset_boundary.py -v
           python -m unittest discover -s tests -p test_gateway_observation.py -v
           python -m unittest discover -s tests -p test_public_address.py -v
           python -m unittest discover -s tests -p test_mcp.py -v

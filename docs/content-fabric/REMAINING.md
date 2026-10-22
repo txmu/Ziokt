@@ -80,4 +80,4 @@
 - 460 工具基线逐项对照完成，现源码与实时注册表均 462 项：原基线无遗漏，新增目录记录为既有 reader manifest/chapter 两工具；语义摘要相同。注册一致不等于每项原生业务验收，未测维度仍 `not_assessed`，详见 `MCP-SOURCE-LIVE-2026-10-22.json`。
 - Gateway/MCP/TG/Content/主 GUI 已固定到部署修订 `6018f4546b9dcc18bc94b95f95db5c32ff65e90a`，其 Gateway/MCP CI39779140155 为 44 项 unittest 加浏览器/可移植包实测通过。后续源码修订必须经过对应验证后推进部署；不将未部署的新源码自动视作线上版本。
 - 内部审查发现 Corium standalone shielded helper 未纳入原协议生成检查，现修复生成覆盖并追加两份实现交叉验签和实际 libsodium ABI 回归。此为已有防护的副本漂移修复，不是新的密码学设计，也不是独立第三方审计完成。
-- OpenCI 的原生治理、确定且成本受限的贡献验证及实际结算；Work Weight v2 的正式原生测试网区块验证/分叉选择/重建/激活；主网匿名所有权的外部独立审计、治理与共识升级，全部继续保留为开放项。主网未切换规则，`all_requested_features_complete` 保持 false。
+- OpenCI 的原生治理、确定且成本受限的贡献验证及实际结算；Work Weight v2 的正式原生测试网区块验证/分叉选择/重建/激活；匿名所有权的源码安全审查、治理与共识升级，全部继续保留为开放项。用户最新要求由 Codex 自行审查，不再等待外部机构；不存在的第三方报告不写为已取得。主网未切换规则，`all_requested_features_complete` 保持 false。
