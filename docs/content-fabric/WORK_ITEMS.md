@@ -146,3 +146,11 @@ GUI 已去除未提供的 chat/ufs/shadow6 独立域名；S6P1 不再内嵌旧�
 上述 helper 是专用助力入口，不替代完整桌面/Android/鸿蒙统一 GUI 的剩余业务验收。
 
 - 多语言书目实现与限制见[MULTILINGUAL-BIBLIOGRAPHY.md](MULTILINGUAL-BIBLIOGRAPHY.md)，不将文档全文/跨节点私有同步/自主副本修复并入该项完成证明。
+
+### Account-private document indexing v1
+
+Implemented real resumable sandbox extraction, encrypted derived pages and keyed
+whole-word search; additive migration 12; revision/lease recovery; scoped start,
+step, status and cancel through shared HTTP/MCP/UI. Original files preserved.
+See FULLTEXT-INDEX.md and test_library_index.py. Production and CI acceptance must
+be recorded against the deployed commit rather than inferred from this entry.

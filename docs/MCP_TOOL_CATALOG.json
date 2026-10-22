@@ -7,8 +7,8 @@
     "2025-06-18",
     "2025-03-26"
   ],
-  "tool_count": 462,
-  "registry_sha256": "bc254dfad1ac63cdb6769a020579b9f2915247c7fd6724fbb6334dcc29c0d482",
+  "tool_count": 466,
+  "registry_sha256": "3efb4be80d1e264514fa96c031c1181264515a0d92d2ad5f036b4657a3b7d8ab",
   "tools": [
     {
       "securitySchemes": [
@@ -21425,6 +21425,204 @@
         "openWorldHint": true
       },
       "scope": "ziokt:admin"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_index_start",
+      "description": "Content application: library.index.start Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_index_step",
+      "description": "Content application: library.index.step Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "job",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:read"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:read"
+            ]
+          }
+        ]
+      },
+      "name": "library_index_status",
+      "description": "Content application: library.index.status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:read"
+    },
+    {
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "library:write"
+          ]
+        }
+      ],
+      "_meta": {
+        "securitySchemes": [
+          {
+            "type": "oauth2",
+            "scopes": [
+              "library:write"
+            ]
+          }
+        ]
+      },
+      "name": "library_index_cancel",
+      "description": "Content application: library.index.cancel Idempotency is automatic; optionally supply idempotency_key to retry across transport requests.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Unique operation key; reuse the same value only when retrying identical arguments."
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "scope": "library:write"
     },
     {
       "securitySchemes": [

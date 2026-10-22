@@ -156,6 +156,8 @@ class Fabric:
         with self.db:
             self.db.execute('CREATE TABLE IF NOT EXISTS news_readstate(owner TEXT NOT NULL,article TEXT NOT NULL,is_read INTEGER NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(owner,article))')
             self.db.execute('INSERT OR IGNORE INTO migrations VALUES(10,unixepoch())')
+        from .library_index import initialize as initialize_document_index
+        initialize_document_index(self)
         os.chmod(path,0o600)
 
     def close(self):
@@ -405,25 +407,30 @@ class Fabric:
                 clauses.append("EXISTS(SELECT 1 FROM json_each(r.body,'$."+field+"') WHERE value=?)")
             else:clauses.append("json_extract(r.body,'$."+key+"')=?")
             values.append(isbn(value) if key=='isbn' else value)
-        join=''
+        join='';search_clause=None;filter_clauses=list(clauses);filter_values=list(values)
         if query.strip():
             tokens=re.findall(r'[^\W_]+',query,flags=re.UNICODE)
             if not tokens:return {'items':[],'offset':offset,'limit':limit}
             expression=' AND '.join('"'+token.replace('"','""')+('"*' if profile['search_prefix'] else '"') for token in tokens[:16])
-            join=' JOIN record_search s ON s.record=r.id'
-            clauses.append('s.text MATCH ?');values.append(expression)
+            search_clause='r.id IN (SELECT record FROM record_search WHERE text MATCH ?)'
+            extra=[]
+            if kind=='book':
+                from .library_index import DocumentIndex
+                with self.lock:predicate,extra=DocumentIndex(self).predicate(owner,query)
+                if predicate:search_clause='('+search_clause+' OR '+predicate+')'
+            clauses.append(search_clause);values.extend([expression,*extra])
         with self.lock:
             rows=self.db.execute('SELECT r.* FROM records r'+join+' WHERE '+' AND '.join(clauses)+' ORDER BY r.id LIMIT ? OFFSET ?',(*values,limit,offset)).fetchall()
             fuzzy=False
             if not rows and query and profile['search_fuzzy']:
                 import difflib
-                base=[clause for clause in clauses if clause!='s.text MATCH ?']
-                candidates=self.db.execute('SELECT r.* FROM records r WHERE '+' AND '.join(base)+' ORDER BY r.id LIMIT 1000',values[:-1]).fetchall()
+                candidates=self.db.execute('SELECT r.* FROM records r WHERE '+' AND '.join(filter_clauses)+' ORDER BY r.id LIMIT 1000',filter_values).fetchall()
                 scored=[(difflib.SequenceMatcher(None,query.casefold(),str(json.loads(row['body']).get('title',json.loads(row['body']).get('subject',''))).casefold()).ratio(),row) for row in candidates]
                 rows=[row for score,row in sorted(scored,key=lambda pair:(-pair[0],pair[1]['id'])) if score>=0.5][offset:offset+limit];fuzzy=True
             items=[{'id':r['id'],'origin':r['origin'],'visibility':r['visibility'],'local':r['origin']==self.public,**json.loads(r['body'])} for r in rows]
             if locale and kind=='book':items=[display(item,locale) for item in items]
             result={'items':items,'offset':offset,'limit':limit,'index':'sqlite-fts5','fuzzy_fallback':fuzzy}
+            if kind=='book':result['document_index']='account-keyed-normalized-terms; completed current-file versions only'
             if kind=='book' and profile['search_group_works']:
                 works={}
                 for item in items:works.setdefault((item['origin'],item.get('work_id',item['id'])),[]).append({'id':item['id'],'edition_id':item.get('edition_id'),'file_id':item.get('file_id')})

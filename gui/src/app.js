@@ -115,6 +115,7 @@ globalThis.ZioktPersonalViews={
     const field=(title,tag='input')=>{const wrap=el('label',title),node=el(tag);node.style.cssText='display:block;min-height:44px;width:100%;max-width:100%;box-sizing:border-box';wrap.append(node);container.append(wrap);return node;};
     container.append(el('h3',label('我的笔记、书签与藏书','My notes, bookmarks and collections')));
     const metadataPanel=el('details');container.append(metadataPanel);ZioktMetadataEditor.mount(metadataPanel,{call,id:book.id,language,status});
+    const indexPanel=el('details');container.append(indexPanel);ZioktDocumentIndex.mount(indexPanel,{call,id:book.id,language,status});
     const editor=field(label('私人笔记','Private note'),'textarea');editor.maxLength=8192;editor.rows=3;
     let editing=null,noteOffset=0,bookmarkOffset=0,collectionOffset=0,selectedCollection=null,collectionRequest=0;
     let pendingNoteId=crypto.randomUUID();
@@ -212,6 +213,37 @@ globalThis.ZioktMetadataEditor={
     const save=act(label('保存书目版本','Save bibliography version'),()=>submit(false)),remove=act(label('删除该语言版本','Remove this language version'),()=>submit(true));save.disabled=true;remove.disabled=true;
     select.onchange=()=>{tag.value=select.value;fill();};tag.onchange=fill;
     return {load};
+  }
+};
+
+/* Explicit, bounded index work. Closing the panel pauses requests; revisions make retries safe. */
+globalThis.ZioktDocumentIndex={
+  mount(container,{call,id,language='en',status=()=>{}}) {
+    const zh=language.startsWith('zh'),label=(a,b)=>zh?a:b;
+    const node=(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n;};
+    container.dataset.documentIndex='';
+    container.append(node('summary',label('私人全文索引','Private full text index')));
+    container.append(node('p',label('仅在本账户建立加密索引。完成后可搜索正文；关闭此面板暂停，重新点击可恢复。','Build an encrypted index for this account. Body search starts after completion. Close this panel to pause; resume with the button.')));
+    const progress=node('p','');progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');
+    const start=node('button',label('建立 / 恢复索引','Build / resume index')),cancel=node('button',label('删除我的索引','Delete my index'));
+    for(const b of [start,cancel]){b.type='button';b.style.minHeight='44px';}
+    cancel.disabled=true;container.append(progress,start,cancel);let job=null,running=false,epoch=0;
+    const show=()=>{if(job)progress.textContent=job.state+' · '+job.characters+' '+label('字符','characters')+' · '+job.chapter+'/'+job.chapters;};
+    container.addEventListener('toggle',()=>{if(!container.open)epoch++;});
+    start.onclick=async()=>{
+      if(running)return;running=true;start.disabled=true;const turn=++epoch;
+      try {
+        job=await call('library.index.start',{id});cancel.disabled=false;show();
+        while(container.isConnected&&container.open&&epoch===turn&&!['complete','failed','cancelled'].includes(job.state)) {
+          job=await call('library.index.step',{job:job.id,revision:job.revision});show();
+          if(job.busy){status(label('其他任务正在处理，请稍后恢复。','Another request is working; resume later.'));break;}
+        }
+      }catch(error){status(error.message);}finally{running=false;start.disabled=false;}
+    };
+    cancel.onclick=async()=>{
+      if(!job)return;epoch++;cancel.disabled=true;
+      try{job=await call('library.index.cancel',{job:job.id});show();}catch(error){status(error.message);}finally{cancel.disabled=false;}
+    };
   }
 };
 

@@ -89,3 +89,14 @@
 - OpenCI Worker签名回执新增任务/源/产物/租约/重试绑定、当前批准公钥复核、密钥轮换拒绝及dCPM来源凭证保存；不等于硬件证明、原生治理或结算。实际OCI签名流程CI待记录，详情见../openci/WORKER-RECEIPTS.md。
 
 - 新增多语言书目结构、按locale显示/检索、语言/作者过滤、expected_event冲突拒绝及共享编辑器；本地5项与真实Chromium通过。全文文档提取索引、跨节点修复、阅读进度E2EE同步和原生引用仍未完成。
+
+## Account-private fulltext indexing implementation
+
+- Added bounded resumable TXT/Markdown/HTML/EPUB/PDF extraction, encrypted pages,
+  keyed terms, final source/permission checks and four scoped MCP operations.
+  See FULLTEXT-INDEX.md for limits and real tests. Shared reader controls build,
+  pause/resume and delete the personal index. Earlier “document extraction not
+  indexed” entries are superseded for these bounded formats only.
+- OCR, global/federated fulltext indexing, autonomous cross-node repair, E2EE
+  reading-progress synchronization and complete native private references remain
+  open. Neither this change nor successful CI activates mainnet consensus/rewards.

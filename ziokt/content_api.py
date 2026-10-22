@@ -8,6 +8,10 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'library.index.start':({'id':str},True),
+ 'library.index.step':({'job':str,'revision':int},True),
+ 'library.index.status':({'job':str},False),
+ 'library.index.cancel':({'job':str},True),
  'library.reader.manifest':({'id':str,'limit':int,'offset':int},False),
  'library.reader.chapter':({'id':str,'chapter':int,'offset':int,'limit':int,'fragment':str},False),
  'library.note.list':({'book':str,'limit':int,'offset':int},False),
@@ -112,6 +116,10 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-optional_fields(operation))-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation.startswith('library.index.'):
+        from .library_index import DocumentIndex
+        index=DocumentIndex(fabric);action=operation.rsplit('.',1)[-1]
+        return index.start(owner,args['id']) if action=='start' else index.step(owner,args['job'],args['revision']) if action=='step' else index.cancel(owner,args['job']) if action=='cancel' else index.status(owner,args['job'])
     if operation.startswith(('library.note.','library.bookmark.','library.collection.')):
         from .library_personal import PersonalLibrary
         personal=PersonalLibrary(fabric)
@@ -269,6 +277,10 @@ def attach(service, config):
             if field['type']=='string':field['maxLength']=100000
             if field['type']=='object':field['maxProperties']=48
             if field['type']=='array':field.update(maxItems=32,items={'type':'string','maxLength':300})
+        if operation.startswith('library.index.'):
+            if 'id' in props:props['id']['maxLength']=300
+            if 'job' in props:props['job'].update(maxLength=64,pattern='^[a-f0-9]{64}$')
+            if 'revision' in props:props['revision'].update(minimum=0,maximum=100000)
         if operation in {'library.get','library.search'}:props['locale'].update(maxLength=63)
         if operation=='content.search':props['sources']={'type':'array','minItems':1,'maxItems':2,'uniqueItems':True,'items':{'type':'string','enum':['library','netnews']}}
         if operation.startswith('netnews.readstate.'):
