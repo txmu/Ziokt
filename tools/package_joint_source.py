@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 def package(repositories_root,output):
+ # A source release cannot bypass the full proof and inventory gate.
+ subprocess.run(['bash',str(Path(repositories_root).resolve()/'Corium/formal/check_all_formal.sh')],check=True)
  base=Path(repositories_root).resolve();output=Path(output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
  excluded={'.git','.venv','.venv-ft','.tools','.runtime','.tmp','__pycache__','node_modules','target','.zig-cache','zig-out','.gradle','build','dist','obj','jniLibs','.android-toolchain','.nim_runtime','.pytest_cache','.mypy_cache'}
  provenance={'schema':'ziokt.joint-source.v1','repositories':{},'contract':'strict UTF-8; every file name ends in .txt; no native build'}
@@ -24,6 +26,8 @@ def package(repositories_root,output):
   (stage/'SOURCE_PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
   spec=importlib.util.spec_from_file_location('prepare_text_zip',base/'Shadow6/Tools/prepare_text_zip.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
   kept,removed=module.prepare(stage)
+  manifest={str(file.relative_to(stage)):hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(stage.rglob('*')) if file.is_file()}
+  (stage/'SOURCE_SHA256.json.txt').write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n');kept+=1
   temporary_zip=Path(temporary)/'source.zip'
   with zipfile.ZipFile(temporary_zip,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
    for file in sorted(stage.rglob('*')):

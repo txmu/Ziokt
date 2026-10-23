@@ -3,6 +3,7 @@ import copy
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 import test_shielded_ownership as fixture
 from ziokt import _runtime as r
 
@@ -22,7 +23,15 @@ class NativeCopyTests(unittest.TestCase):
         self.assertEqual(r.zs_ring_verify(self.network,message,ring,self.output['commitment'],proof),actual)
         forged=copy.deepcopy(proof);forged['responses'][0][0]='ff'*32
         with self.assertRaises(ValueError):s.zs_ring_verify(self.network,message,ring,self.output['commitment'],forged)
-        with self.assertRaises(ValueError):s.zs_testnet('ziokt-main')
+        self.assertFalse(s.ZS_AUDITED)
+        self.assertEqual(s.ZS_MAINNET_ENABLED,r.ZS_MAINNET_ENABLED)
+        for enabled in (False,True):
+            with patch.object(s,'ZS_MAINNET_ENABLED',enabled),patch.object(r,'ZS_MAINNET_ENABLED',enabled):
+                for module in (s,r):
+                    if enabled:module.zs_testnet('ziokt-main')
+                    else:
+                        with self.assertRaises(ValueError):module.zs_testnet('ziokt-main')
+                self.assertEqual(s.zs_query(None,'ziokt-main','privacy.status',{}),r.zs_query(None,'ziokt-main','privacy.status',{}))
     def test_native_standalone_is_exact_canonical_source(self):
         canonical=Path(__file__).resolve().parents[1]/'spec/shielded_runtime.py'
         self.assertEqual(native.read_bytes(),canonical.read_bytes())

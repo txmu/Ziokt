@@ -102,8 +102,8 @@ class ShieldedTests(unittest.TestCase):
         self.db.execute('DELETE FROM blocks WHERE hash=?',(self.anchor,))
         with self.assertRaisesRegex(ValueError,'anchor'):r.zs_validate(self.db,self.network,'zkn_shield_transfer',self.value,self.owner)
 
-    def test_production_and_unknown_versions_fail_closed(self):
-        with self.assertRaisesRegex(ValueError,'testnet-only'):r.zs_validate(self.db,'ziokt-main','zkn_shield_transfer',self.value,self.owner)
+    def test_cross_network_and_unknown_versions_fail_closed(self):
+        with self.assertRaisesRegex(ValueError,'version/network'):r.zs_validate(self.db,'ziokt-main','zkn_shield_transfer',self.value,self.owner)
         value=copy.deepcopy(self.value);value['version']='future'
         with self.assertRaisesRegex(ValueError,'version'):self.apply('zkn_shield_transfer',value)
 

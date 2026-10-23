@@ -107,6 +107,8 @@ class Service:
         self.config=config
         from .build_info import snapshot
         self.build_info=snapshot()
+        from .assurance import snapshot as assurance_snapshot
+        self.assurance_info=assurance_snapshot()
         self.root=Path(config['state']);self.root.mkdir(parents=True,mode=0o700,exist_ok=True);self.root.chmod(0o700)
         self.db=self.root/'mcp.db'
         self.lock=threading.RLock()
@@ -461,7 +463,7 @@ class Service:
                 return {'suffix_authorities':SUFFIXES,'realms':{} if networks is None else {key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False,'dns_confers_authorization':False,'nns_default_publication':False,'ech_tls_termination_verified':False}
             if networks is None:raise ValueError('DNS node configuration unavailable')
             return networks.resolve(args['name'],realm=args.get('realm'),component=args.get('component'),public=kind=='name-resolve')
-        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info,'source_features':{'openci':{'worker_receipt_schema':'openci.worker-receipt.v1','signature_domain':'OpenCI/worker-receipt/v1','result_bindings':['pipeline','task','attempt','source','task_digest','lease_digest','worker','result'],'native_delivery':'signed-dcpm-provenance','controller_running':'not_assessed','remote_workers':'not_assessed','hardware_attestation':False,'native_consensus_settlement':'testnet_implementation_acceptance_pending','native_claim_plan':'openci.native-contribution-plan.v1','native_work_consensus':'testnet_implementation_acceptance_pending','mainnet_consensus_changed':False}}}
+        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info,'assurance':self.assurance_info,'source_features':{'openci':{'worker_receipt_schema':'openci.worker-receipt.v1','signature_domain':'OpenCI/worker-receipt/v1','result_bindings':['pipeline','task','attempt','source','task_digest','lease_digest','worker','result'],'native_delivery':'signed-dcpm-provenance','controller_running':'not_assessed','remote_workers':'not_assessed','hardware_attestation':False,'native_consensus_settlement':'testnet_implementation_acceptance_pending','native_claim_plan':'openci.native-contribution-plan.v1','native_work_consensus':'testnet_implementation_acceptance_pending','mainnet_consensus_changed':False}}}
         if kind=='registry':
             from .registry import Registry
             from .gateway import Gateway
@@ -677,7 +679,7 @@ class Service:
         if method=='server/discover':
             from .build_info import registry_digest
             return {'supportedVersions':list(VERSIONS),'capabilities':{'tools':{},'resources':{}},'instructions':'Scoped native tools. Writes deduplicate automatically; review native plan digests before apply. Administrator-approved tools retain native identity and consensus checks.',
-                    'serverInfo':{'name':'ziokt-native','version':'2.0.0','build':self.build_info},'tool_count':len(self.tools),'registry_sha256':registry_digest(self.tools.values())}
+                    'serverInfo':{'name':'ziokt-native','version':'2.0.0','build':self.build_info,'assurance':self.assurance_info},'tool_count':len(self.tools),'registry_sha256':registry_digest(self.tools.values())}
         if method=='ping':return {}
         if method=='tools/list':
             if principal.get('public'):

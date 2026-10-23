@@ -178,6 +178,9 @@ jobs:
           repository: txmu/Corium
           ref: ${{ steps.pins.outputs.corium }}
           path: Corium
+      - name: Pinned formal release gate dependency
+        working-directory: Ziokt
+        run: bash ci/install-lean.sh
       - name: Build source and portable deliveries without local state
         working-directory: Ziokt
         run: |

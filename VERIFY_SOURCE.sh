@@ -47,7 +47,10 @@ echo "=== [1/6] Running Corium CI Syntax Checks ==="
 
 echo ""
 echo "=== [2/6] Running Unified Consensus Kernel Tests ==="
-python3 "${CORIUM_DIR}/test_consensus_core.py"
+(
+    cd "${CORIUM_DIR}"
+    python3 -m unittest -v test_consensus_core test_history_verifier test_consensus_process_survival test_native_history_replay
+)
 
 echo ""
 echo "=== [3/6] Running Multi-Node Sovereign Disconnection Simulation ==="
@@ -58,7 +61,7 @@ echo "=== [4/6] Running Content Fabric Sovereign Survival & Peer Repair ==="
 PYTHONPATH="${ZIOKT_DIR}" python3 "${ZIOKT_DIR}/tests/test_content_sovereign_survival.py"
 
 echo ""
-echo "=== [5/6] Running Lean 4 Formal Verification (76 Theorems, 0 Sorry) ==="
+echo "=== [5/6] Running Complete Lean 4 Formal Gate and Exact Theorem Inventory ==="
 (
     cd "${CORIUM_DIR}"
     bash formal/check_all_formal.sh

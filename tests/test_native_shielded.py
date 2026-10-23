@@ -33,7 +33,7 @@ class NativeShieldedTests(unittest.TestCase):
         (f.etc / 'identity.key').chmod(0o600)
         return f
 
-    def test_mainnet_native_admission_rejects_shielded_transactions_without_state_change(self):
+    def test_mainnet_native_admission_rejects_malformed_shielded_transactions_without_state_change(self):
         f = self.fixture('ziokt-main')
 
         def state():
@@ -55,7 +55,7 @@ class NativeShieldedTests(unittest.TestCase):
             self.assertEqual(state(), before)
         with closing(sqlite3.connect(':memory:')) as db:
             status = r.zs_query(db, f.network_id, 'privacy.status', {})
-        self.assertFalse(status['production_shielding_enabled'])
+        self.assertTrue(status['production_shielding_enabled'])
         self.assertFalse(status['independently_audited'])
         f.run_core('blockchain_create_transaction zkn_shield_transfer ' +
                    shlex.quote(json.dumps({'network_id': f.network_id})), ok=False)

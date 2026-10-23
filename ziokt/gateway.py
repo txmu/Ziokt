@@ -235,9 +235,10 @@ def handler(gateway):
                     observation = gateway.public_address.observe()
                     return self.send(200 if observation['ok'] else 503, observation)
                 if path == '/api/gateway/status':
+                    from .assurance import snapshot as assurance_snapshot
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
-                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest'),'service_endpoints':gateway.service_endpoints})
+                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest'),'service_endpoints':gateway.service_endpoints,'assurance':assurance_snapshot()})
                 if path == '/api/gateway/registrations':
                     from .registry import Registry
                     return self.send(200,Registry(gateway.config['registry_db'],gateway.config['network']).list())
