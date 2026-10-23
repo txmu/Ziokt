@@ -477,7 +477,7 @@ class CommunityNetworkTests(unittest.TestCase):
         self.assertEqual(len(token), 4096); self.assertNotIn(ONION.encode(), token)
         result = accept_invitation(self.target, token, self.key, self.public)
         self.assertEqual(result['host'], ONION); self.assertFalse(result['membership_granted'])
-        with self.assertRaises(ProtocolError): accept_invitation(self.target, token[:-1]+b'\x00', self.key, self.public)
+        with self.assertRaises(ProtocolError): accept_invitation(self.target, token[:-1]+bytes([token[-1]^1]), self.key, self.public)
 
 
 if __name__ == '__main__': unittest.main()

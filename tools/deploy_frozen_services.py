@@ -51,7 +51,7 @@ def stage(root,revision):
             (gui/'ziokt-build.json').write_text(json.dumps({'schema':'ziokt.gui-build.v1','source_commit':exact,'app_sha256':hashlib.sha256((gui/'app.js').read_bytes()).hexdigest()},sort_keys=True)+'\n')
         (tree/'RELEASE_SHA256.json').write_text(json.dumps(release_hashes(tree),sort_keys=True)+'\n')
         for path in tree.rglob('*'):
-            if path.is_file():path.chmod(0o444)
+            if path.is_file():path.chmod(0o555 if path.stat().st_mode & 0o111 else 0o444)
         for path in sorted((p for p in tree.rglob('*') if p.is_dir()),reverse=True):path.chmod(0o555)
         os.rename(tree,release)
         release.chmod(0o555)

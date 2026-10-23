@@ -63,3 +63,29 @@ Native OpenCI admission now rejects duplicate pending/completed bounty claims,
 while allowing only the original transaction to be rechecked or settled
 idempotently. Five affected native predicate tests pass. The long CI workflow
 queues subsequent revisions instead of cancelling a running chain replay.
+
+## Observed results on 2026-10-23
+
+- OpenCI native acceptance: run 39870919662, job 120145202585, **8 tests
+  passed**. Actual OCI receipts entered native governance, ten-block settlement
+  and independent Phoenix replay. Corium revision 07281d9.
+- Work native acceptance: run 39871283042, job 120148279400, **5 tests passed**.
+  Corium de8fae5 differs from the preceding revision only in the corrected
+  snapshot contract assertion. These are single-node native chain/replay tests,
+  not multi-node partition or mainnet activation evidence.
+- Source 43d4e40 deployed to Gateway, MCP, Telegram, Content, OpenCI Controller
+  and effort service. Production native entrypoint remains
+  sha256:617b76f9b2564ca934fd04ce3e2544e81152e849898c0551326f6167fd09de58.
+- `/api/explorer/upgrades` responds on the effort service. The cor-web native
+  portal update was submitted as a normal NNS transaction; pending consensus
+  confirmation is distinct from a deployed namespace update.
+- Frozen deployment execution permissions were found to be lost. The freezer
+  now preserves executable files as 0555 and data files as 0444; actual executable
+  invocation and SQLite backup preservation pass targeted regression tests.
+
+Separate failures remain: real Tor onion access timed out despite successful
+bootstrap (no direct fallback occurred); integrated ETP Forum anti-entropy did
+not converge. The portable invitation test randomly wrote an unchanged last
+ciphertext byte; deterministic bit-flip now guarantees corruption and its
+negative authentication test passes. None of these failures is converted into
+an acceptance success. Mainnet work/shielded rules remain unchanged.

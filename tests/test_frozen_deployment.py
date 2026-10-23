@@ -14,13 +14,15 @@ class FrozenTests(unittest.TestCase):
             root=Path(directory);source=root/'source';source.mkdir();runtime=root/'runtime'
             def git(*args):return subprocess.check_output(['git',*args],cwd=source,stderr=subprocess.DEVNULL,text=True)
             git('init');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid')
-            (source/'entry.py').write_text('print("fixture")\n');git('add','entry.py');git('commit','-m','fixture')
+            (source/'entry.py').write_text('print("fixture")\n');(source/'native.sh').write_text('#!/bin/sh\nprintf native-ok\n');(source/'native.sh').chmod(0o755);git('add','entry.py','native.sh');git('commit','-m','fixture')
             previous=deploy.ROOT;deploy.ROOT=source
             try:
                 release,commit=deploy.stage(runtime,'HEAD')
                 self.assertEqual(json.loads((release/'DEPLOYED_BUILD.json').read_text())['source_commit'],commit)
                 self.assertEqual(stat.S_IMODE((release/'entry.py').stat().st_mode),0o444)
                 self.assertEqual(stat.S_IMODE(release.stat().st_mode),0o555)
+                self.assertEqual(stat.S_IMODE((release/'native.sh').stat().st_mode),0o555)
+                self.assertEqual(subprocess.check_output([str(release/'native.sh')],text=True),'native-ok')
                 self.assertEqual(deploy.stage(runtime,'HEAD'),(release,commit))
                 (release/'entry.py').chmod(0o644);(release/'entry.py').write_text('tampered')
                 with self.assertRaises(ValueError):deploy.stage(runtime,'HEAD')
