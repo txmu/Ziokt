@@ -35,6 +35,14 @@ with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compressleve
         member.compress_type = zipfile.ZIP_DEFLATED
         member.external_attr = (0o100755 if path.stat().st_mode & 0o111 else 0o100644) << 16
         archive.writestr(member, data)
+    verify_script = root / 'VERIFY_SOURCE.sh'
+    if verify_script.is_file():
+        vdata = verify_script.read_bytes()
+        manifest['files']['VERIFY_SOURCE.sh'] = {'bytes': len(vdata), 'sha256': hashlib.sha256(vdata).hexdigest()}
+        vmember = zipfile.ZipInfo('VERIFY_SOURCE.sh', date_time=(2026, 1, 1, 0, 0, 0))
+        vmember.compress_type = zipfile.ZIP_DEFLATED
+        vmember.external_attr = 0o100755 << 16
+        archive.writestr(vmember, vdata)
     archive.writestr('MANIFEST.json', json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + '\n')
 with zipfile.ZipFile(output) as archive:
     if archive.testzip() is not None:
