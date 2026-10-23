@@ -65,7 +65,6 @@ jobs:
           repository: txmu/Corium
           ref: ${{ steps.native.outputs.corium }}
           path: Corium
-          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:

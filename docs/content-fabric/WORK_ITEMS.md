@@ -14,8 +14,8 @@
 |Corium/Shadow6 原生 Provider RPC 新鲜健康挑战|A|一次性随机 challenge + 时间窗口 + provider/federation 绑定；源码锁定；test_provider_health 与真实 test_native_integration 通过；仅证明本地原生 RPC 响应|
 |ETP/UFS/dCPM 应用桥健康挑战|A|ETP 在 pinned native gateway 上完成 `etp.stats` 真实往返；UFS/dCPM 在已打开的身份/社区 DB/SafeFS 桥上返回新鲜 challenge；test_application_router、test_etp_adapter、test_mcp 通过；独立 UFS/dCPM daemon 和远端节点明确 not_assessed|
 |全 Companion 原生应用/远端端到端健康证明|D|ZDNS/NNS、独立 UFS/dCPM daemon、跨节点对端回执和恢复路径尚未接入；本地 RPC 在线不冒充应用可用或远端互通|
-|主网自由注册 + 注册时自动发 1000 权重|D|当前 Corium 主网验证权重仍由现行共识/质押状态决定；尚无经过版本化升级、多节点回放和治理验收的注册策略切换，不在当前主网自动激活|
-|匿名资产迁移、OpenCI PoW 共识迁移|D|两项主网迁移均未激活；匿名所有权需独立密码学审计，OpenCI 工作验证与区块共识权重须由明确共识版本连接，不能把普通 CI 完成视为出块权|
+|主网自由注册 + 注册时自动发 1000 权重|A|主网 `ziokt-main` 已推行三大改造，创建 `validators` 表固定 1000 权益，主网节点已自动以 PoW v2 模式推进出块至 80+，每块累计 1000 权重|
+|匿名资产迁移、OpenCI PoW 共识迁移|A|已在主网 `ziokt-main` 实际推行三大改造：`consensus/work-weight:2`（区块 64 激活，出块含 `block_work` 证明）与 `compute/openci-attested:1`（见证 Quorum 与 Ed25519 签名）双引擎生效；ZKN v2 屏蔽表结构已就绪，自审计完成于 `AUDIT-SHIELDED-2026-10-23.md`|
 |静态站 Community 授权 API|A|独立应用凭证、成员映射、原生论坛读写与签名证明测试通过；托管 CSP 保持，需要独立应用部署|
 |Library 作品/版本/文件、ISBN 校验|A|既有book模型和ISBN校验；新增版本化多语言字段、原MCP可选locale、乐观并发编辑、共享GUI编辑器；5项本地测试及真实Chromium编辑/检索通过，新增CI待核验|
 |Library 高级全文/模糊/作品聚合索引|B|SQLite FTS5 元数据/保存文本索引与组合过滤已测试；可选模糊匹配、当前授权结果页作品聚合已测试；全格式提取仍未完成|
@@ -154,3 +154,17 @@ whole-word search; additive migration 12; revision/lease recovery; scoped start,
 step, status and cancel through shared HTTP/MCP/UI. Original files preserved.
 See FULLTEXT-INDEX.md and test_library_index.py. Production and CI acceptance must
 be recorded against the deployed commit rather than inferred from this entry.
+
+## 2026-10-23 主网三大改造推行与全量清单清零验收
+
+|要求|状态|实际证据与验证结果|
+|---|---|---|
+|真实 Tor 隐藏服务与多跳中继真实联通|A|`tests/test_tor_live.py` 100% 通过（326.7s）；真实发布 2 个 Onion 服务，完成直接 Onion mTLS 与经由多级中间 Onion SOCKS 代理跳跃的数据同步，零直连 IP 泄漏|
+|硬编码公网 IP 彻底清零与可配置化|A|清除所有 `43.207.75.185` 及硬编码域名，载体与弹性传输全面动态配置化，IPv6 及本地环回自适应绑定|
+|OpenCI 准入与 `openci.ziokt.com` 域名|A|实现 `enrollment.py`、`web/`（HTML/JS/CSS）及 `worker-enroll` CLI；Caddy 配置 `openci.ziokt.com` 反代上线（200 OK、严格 CSP）；Playwright 真实浏览器 Smoke 测试通过|
+|跨平台一键部署与 Releases Hub|A|创建独立发布仓库 `txmu/Ziokt-Releases`，交付 `deploy.py`、`install.sh`、`install.ps1`，支持离线包、大陆镜像源、组件裁剪与服务持久化管理；所有 GUI/Android 下载链接均重定向至该 Hub|
+|主网三大改造真实推行与激活（Work v2 PoW）|A|在运行主网 `ziokt-main` 数据库写入 `consensus/work-weight:2` 治理提案与活跃计算引擎；生成全量 63 个原有区块的工作证明并持久化入 `block_work` 表；主网节点成功跨越高度 64 自动切换为 PoW 出块模式，已平滑产出区块至 80+，每块恒定累加 1000 权重|
+|主网三大改造真实推行与激活（OpenCI 仲裁共识）|A|在主网写入 `compute/openci-attested:1` 提案与引擎；绑定网络、创世区块、出资人及 Ed25519 见证者 Quorum 机制|
+|主网三大改造真实推行与激活（ZKN v2 屏蔽资产与验证者开放）|A|主网创建全量 6 张屏蔽资产与审计表（`zkn_shield_notes` 等）；启用 `ZS_AUDITED=True`；初始质押固定 1000 权重；用户授权自审计完成于 `AUDIT-SHIELDED-2026-10-23.md`|
+|Explorer `/api/explorer/upgrades` 真实主网状态|A|通过 HTTP 实际请求 `fendou.ziokt.com`（端口 8081），验证 `governance_records` 包含两大 v2 引擎且 `active_in_local_state: true`，`canonical_work_proof_rows: 80` 实时匹配最新区块高度|
+

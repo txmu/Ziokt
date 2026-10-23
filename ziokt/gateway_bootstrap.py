@@ -31,6 +31,11 @@ def bootstrap(args):
     config={'schema':'ziokt.gateway.v1','network':network,'state_root':str(state),'corix':str(args.corix.resolve()),
             'objects':str(dht.parent/'objects'),'dht_db':str(dht),'forum_db':str(forum),
             'registry_db':str(config_dir/'registry.db'),'admin_token':str(token),'port':args.port,'peers':args.peer,'corix_digest':'sha256:'+hashlib.sha256(args.corix.read_bytes()).hexdigest()}
+    from .gateway import public_endpoints
+    if getattr(args,'endpoint',None):
+        pairs=[item.split('=',1) for item in args.endpoint]
+        if any(len(pair)!=2 for pair in pairs):raise ValueError('endpoint uses name=URL')
+        config['public_endpoints']=public_endpoints(dict(pairs))
     dest=config_dir/'gateway.json'
     if dest.exists():config={**json.loads(dest.read_text()),**config}
     dest.write_text(json.dumps(config,indent=2)+'\n'); dest.chmod(0o600)
@@ -94,7 +99,7 @@ def register(sub):
     init.add_argument('--root',type=Path,required=True); init.add_argument('--state-root',type=Path,required=True)
     init.add_argument('--corix',type=Path,required=True);init.add_argument('--network',default='default')
     init.add_argument('--port',type=int,default=8185);init.add_argument('--python',default=__import__('sys').executable)
-    init.add_argument('--peer',action='append',default=[]);init.add_argument('--publish',action='store_true');init.add_argument('--install',action='store_true')
+    init.add_argument('--endpoint',action='append',default=[],help='public service name=URL, repeatable');init.add_argument('--peer',action='append',default=[]);init.add_argument('--publish',action='store_true');init.add_argument('--install',action='store_true')
     start=actions.add_parser('serve');start.add_argument('--config',type=Path,required=True)
     upload=actions.add_parser('publish-file');upload.add_argument('--config',type=Path,required=True);upload.add_argument('file',type=Path)
 

@@ -264,7 +264,7 @@ def request_remote(host, port, context, request, signed_grant, *, carrier=None, 
     if type(privacy_padding) is not bool:raise ProtocolError("INVALID_CONFIG","explicit privacy padding flag required")
     if carrier is not None: validate_carrier(carrier, host)
     preferred = carrier_deadline(carrier)
-    maximum = 120 if preferred > 30 else 30
+    maximum = max(600, preferred) if preferred > 30 else 30
     if timeout is None: timeout = preferred
     if type(timeout) not in {int, float} or not 0 < timeout <= maximum:
         raise ProtocolError("INVALID_CONFIG", "bounded remote deadline required")

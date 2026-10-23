@@ -7,7 +7,10 @@ import http.server
 import json
 from pathlib import Path
 import socketserver
+import socket
 import threading
+import time
+from collections import deque
 import tempfile
 import tarfile
 from urllib.parse import parse_qs, urlsplit
@@ -22,7 +25,10 @@ class Controller:
         self.root = Path(root)
         self.config = Path(config)
         self.git_slot=threading.BoundedSemaphore(1)
+        self.enrollment_lock=threading.Lock();self.enrollment_attempts=deque(maxlen=60)
         self.state = Store(root)
+        from .enrollment import setup
+        self.enrollment_secret=setup(self.state)
         self.fabric = Fabric(self.root/'content')
 
     def close(self):
@@ -36,6 +42,9 @@ class Controller:
         for name, principal in settings['principals'].items():
             if hmac.compare_digest(principal['token_sha256'], candidate):
                 return name, principal
+        from .enrollment import authenticate
+        enrolled=authenticate(self.state,candidate)
+        if enrolled:return enrolled
         raise Error('AUTH_REJECTED', 'Invalid or revoked credential', 401)
 
     @staticmethod
@@ -97,6 +106,12 @@ class Controller:
                 raise Error('ARTIFACT_FORMAT','Artifact is not a valid bounded output archive',409) from None
 
     def dispatch(self, method, path, query, body, actor, principal):
+        if method=='GET' and path=='/v1/me':
+            return 200,{'principal':actor,'role':principal['role'],'projects':principal['projects'],'worker':principal.get('worker'),'native_rewards_enabled':False}
+        if method=='POST' and path=='/v1/enrollments/invites':
+            if principal['role']!='admin':raise Error('ADMIN_REQUIRED','Only an operator can approve enrollment',403)
+            from .enrollment import invite
+            return 201,invite(self.state,actor,body)
         if method=='POST' and path=='/v1/contributions/prepare':
             if type(body) is not dict or set(body)!={'pipeline','task','policy','engine','bounty'}:raise Error('CHAIN_FIELDS','Exact contribution plan fields required')
             self.pipeline(principal,body['pipeline'],{'admin','submit'})
@@ -235,10 +250,20 @@ def handler(controller):
         def process(self):
             try:
                 # API credentials are never accepted from URLs, cookies or bodies.
-                if self.headers.get('Origin'):
-                    raise Error('ORIGIN_REJECTED', 'Browser access requires a configured application adapter', 403)
+                origin=self.headers.get('Origin')
+                settings=strict_json(secure_read(controller.config,65536),65536)
+                approved_origin=settings.get('public_origin')
+                if origin and (not approved_origin or origin!=approved_origin):
+                    raise Error('ORIGIN_REJECTED','Explicit same-origin application required',403)
+                if self.headers.get('Sec-Fetch-Site')=='cross-site':raise Error('ORIGIN_REJECTED','Cross-site access rejected',403)
                 url = urlsplit(self.path)
                 body = None
+                if self.command=='GET' and url.path in {'/','/index.html','/app.js','/style.css'} and not url.query:
+                    name='index.html' if url.path in {'/','/index.html'} else url.path[1:]
+                    kind={'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8'}[name]
+                    from importlib.resources import files
+                    raw=files('openci').joinpath('web',name).read_bytes()
+                    self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");self.send_header('Connection','close');self.end_headers();self.wfile.write(raw);self.close_connection=True;return
                 if self.command in {'POST', 'PUT'}:
                     if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                         raise Error('CONTENT_LENGTH_REQUIRED', 'One explicit body size required', 411)
@@ -253,6 +278,14 @@ def handler(controller):
                     from .git_source import webhook
                     result=webhook(controller,url.path.split('/')[-1],raw,self.headers)
                     self.send(202,result);return
+                if self.command=='POST' and url.path=='/v1/enrollments/redeem':
+                    with controller.enrollment_lock:
+                        now=time.monotonic()
+                        while controller.enrollment_attempts and now-controller.enrollment_attempts[0]>=60:controller.enrollment_attempts.popleft()
+                        if len(controller.enrollment_attempts)>=60:raise Error('ENROLLMENT_RATE','Enrollment retry budget exceeded',429)
+                        controller.enrollment_attempts.append(now)
+                    from .enrollment import redeem
+                    self.send(200,redeem(controller.state,controller.enrollment_secret,body));return
                 actor, principal = controller.authenticate(self.headers.get('Authorization'))
                 status, result = controller.dispatch(self.command, url.path, parse_qs(url.query, max_num_fields=16), body, actor, principal)
                 self.send(status, result)
@@ -276,6 +309,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     request_queue_size = 16
 
     def __init__(self, *args, **kwargs):
+        if args and ':' in args[0][0]:self.address_family=socket.AF_INET6
         self.slots = threading.BoundedSemaphore(16)
         super().__init__(*args, **kwargs)
 

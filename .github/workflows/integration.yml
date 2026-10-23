@@ -50,7 +50,7 @@ jobs:
           if-no-files-found: error
   anonymous-carrier:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: Ziokt
@@ -66,6 +66,7 @@ jobs:
       - name: Actual onion services, nested SOCKS hop and mTLS community exchange
         env:
           ZIOKT_TOR_LIVE: '1'
+          ZIOKT_TOR_BOOTSTRAP_TIMEOUT: '900'
         run: python -m unittest discover -s tests -p test_tor_live.py -v
   nested-nat:
     runs-on: ubuntu-24.04
@@ -120,7 +121,6 @@ jobs:
           repository: txmu/Corium
           ref: ${{ steps.native.outputs.corium }}
           path: Corium
-          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           persist-credentials: false
       - uses: actions/setup-go@v7.0.0
         if: github.event_name == 'workflow_dispatch' && inputs.rebuild_native

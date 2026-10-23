@@ -3,6 +3,7 @@
 // ==============================================================================
 import {
   State,
+  configuredEndpoint,
   t,
   showToast,
   showJsonModal,
@@ -24,22 +25,11 @@ export function getActiveEndpointHost() {
   if (typeof location !== 'undefined' && location.hostname) {
     return location.hostname;
   }
-  return 'cor-web.ziokt.com';
+  return new URL(State.localGatewayUrl).hostname;
 }
 
 export function getShadow6WebUrl() {
-  if (State.runtimeMode === 'local') return 'http://127.0.0.1:9467/';
-  if (typeof location !== 'undefined' && location.hostname && location.hostname.endsWith('ziokt.com')) {
-    return 'https://cor-web.ziokt.com/shadow6/';
-  }
-  const activeRemote = getActiveRemoteNode();
-  if (activeRemote && activeRemote.url) {
-    try {
-      const u = new URL(activeRemote.url);
-      return `${u.origin}/shadow6/`;
-    } catch (_) {}
-  }
-  return 'https://cor-web.ziokt.com/shadow6/';
+  return configuredEndpoint('shadow6','/shadow6/');
 }
 
 const shadow6Profiles = [

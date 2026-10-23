@@ -101,6 +101,7 @@ function buildStandaloneAppBundle() {
   }
 
   async function initApp() {
+    await discoverServiceEndpoints();
     await initI18n();
     setTheme(State.theme);
     setupNavigation();

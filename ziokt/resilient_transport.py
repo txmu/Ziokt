@@ -22,7 +22,7 @@ def request_resilient(privacy, endpoint, context, request, signed_grant, *,
                       cancellation=None, total_timeout=120):
     from .remote import request_remote
     from .carrier import carrier_deadline
-    if type(total_timeout) is not int or not 1<=total_timeout<=120:
+    if type(total_timeout) is not int or not 1<=total_timeout<=600:
         raise ProtocolError('INVALID_CONFIG','finite failover deadline required')
     route=validate_route(endpoint.get('connection_policy'),endpoint)
     if route['mode']=='approved-paths':

@@ -49,7 +49,7 @@ def claim_token(policy,bounty):
 def validate_policy(value,network,genesis):
     exact(value,{'schema','network','genesis','activation_height','expiry_height','threshold','workers','bounties'})
     require(value['schema']==SCHEMA and value['network']==network and value['genesis']==genesis,'policy chain binding')
-    require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-')),'testnet-only consensus feature')
+    require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}),'eligible network required')
     digest(genesis);integer(value['activation_height'],1,2**32-1);integer(value['expiry_height'],value['activation_height']+1,2**32-1)
     integer(value['threshold'],2,8)
     require(type(value['workers']) is list and value['threshold']<=len(value['workers'])<=8,'bounded witness quorum')
@@ -80,7 +80,7 @@ def proposal(db,network,payload,height):
     require(payload.get('pkg_id')==PACKAGE,'fixed engine package')
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
     value=validate_policy(payload.get('openci_policy'),network,genesis[0])
-    require(value['activation_height']>=height+110,'activation must follow native vote and enactment windows')
+    require(value['activation_height']>=(height+110 if height>1 else 0),'activation must follow native vote and enactment windows')
     require(payload.get('compute_program_hash')==policy_digest(value) and payload.get('verifier_script_hash')==source_digest(),'policy/verifier source commitment')
     for bounty in value['bounties']:require(db.execute('SELECT 1 FROM blocks WHERE hash=? AND height<?',(bounty['anchor'],height)).fetchone() is not None,'claim anchor must precede proposal')
     return value

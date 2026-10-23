@@ -1,5 +1,5 @@
 /* Native forum readers and publishers. No seeded posts or fabricated proofs. */
-import {State,callTool,showConfirm} from '../core.js';
+import {State,callTool,showConfirm,configuredEndpoint} from '../core.js';
 
 export function renderForum(container){
  const en=State.language==='en',tr=(zh,english)=>en?english:zh;
@@ -44,5 +44,5 @@ export function renderForum(container){
  },'native-forum-publish');
  function switchSource(){parent=null;reply.textContent='';list.replaceChildren();lookup.hidden=source.value!=='etp';topic.parentElement.hidden=source.value!=='etp';identity.parentElement.hidden=source.value!=='etp';publishing.hidden=source.value==='corium';status.textContent=tr('点击读取以请求原生数据；需要节点授权。','Choose Load to request native data; node authorization is required.');}
  source.onchange=switchSource;switchSource();
- const native=make('a',tr('打开 Corium 原生社区门户','Open Corium native community portal'));native.href='https://cor-web.ziokt.com/';native.target='_blank';native.rel='noopener noreferrer';native.className='btn btn-secondary';container.append(native);
+ const native=make('a',tr('打开 Corium 原生社区门户','Open Corium native community portal'));native.href=configuredEndpoint('corium','/');native.target='_blank';native.rel='noopener noreferrer';native.className='btn btn-secondary';container.append(native);
 }

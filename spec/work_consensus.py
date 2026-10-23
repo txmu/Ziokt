@@ -38,7 +38,7 @@ def loads(raw):
     return json.loads(raw,object_pairs_hook=unique,parse_constant=lambda value:(_ for _ in ()).throw(ValueError('nonfinite consensus number')))
 
 
-def eligible_network(network):require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-')),'testnet-only work consensus')
+def eligible_network(network):require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}),'eligible network required')
 
 def check_policy(value,network,genesis):
     eligible_network(network)
@@ -54,7 +54,7 @@ def proposal(db,network,payload,height):
     require(payload.get('pkg_id')==PACKAGE,'native consensus package')
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
     value=check_policy(payload.get('work_consensus'),network,genesis[0])
-    require(value['work_policy']['activation_height']>=height+110,'full governance window and enactment delay required')
+    require(value['work_policy']['activation_height']>=(height+110 if height>1 else 0),'full governance window and enactment delay required')
     require(payload.get('compute_program_hash')==policy_hash(value) and payload.get('verifier_script_hash')==source_digest(),'native consensus source/policy commitments')
     checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=? AND height<?',(checkpoint['height'],height)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'checkpoint must precede governance proposal')
     pending=db.execute("SELECT 1 FROM transactions t LEFT JOIN compute_engines e ON e.engine_id=t.hash WHERE t.type='propose_new_compute_engine' AND json_extract(t.data,'$.pkg_id')=? AND t.block_height<? AND (t.block_height+110>=? OR (e.is_active=1 AND json_extract(t.data,'$.work_consensus.work_policy.activation_height')>?)) LIMIT 1",(PACKAGE,height,height,height)).fetchone();require(pending is None,'prior work transition must resolve before another proposal')
@@ -64,15 +64,16 @@ def proposal(db,network,payload,height):
 
 
 def active(db,network,height,validate_previous=True):
-    if not (network.startswith('test-') or network.startswith('ziokt-test-')):return None
+    if not (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}):return None
     rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
     accepted=[];previous=LEGACY
     for row in rows:
-        payload=json.loads(row['data']);value=check_policy(payload.get('work_consensus'),network,genesis[0])
+        try:payload=json.loads(row['data']);value=check_policy(payload.get('work_consensus'),network,genesis[0])
+        except (ValueError, KeyError, TypeError):continue
         activation=value['work_policy']['activation_height']
         if activation>height:continue
-        require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash']==source_digest() and activation>=row['block_height']+110,'active native governance commitment')
+        require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash']==source_digest() and activation>=(row['block_height']+110 if row['block_height']>1 else 0),'active native governance commitment')
         if validate_previous:require(value['previous_policy']==previous and (not accepted or activation>accepted[-1]['work_policy']['activation_height']),'native activation sequence')
         checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(checkpoint['height'],)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'governed checkpoint differs from native prefix')
         accepted.append(value);previous=policy_hash(value)
@@ -154,7 +155,7 @@ def main(args):
         db.row_factory=sqlite3.Row
         if action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
         elif action=='preactivate':
-            enabled=network.startswith('test-') or network.startswith('ziokt-test-')
+            enabled=network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}
             due=db.execute("SELECT 1 FROM scheduled_state_changes WHERE enactment_height=? AND type='propose_new_compute_engine' AND json_extract(data,'$.pkg_id')=? LIMIT 1",(int(args[3]),PACKAGE)).fetchone() if enabled else None
             result={'required':bool(due)}
         elif action=='mode':

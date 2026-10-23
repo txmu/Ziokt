@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import secrets
 import sqlite3
+import socket
 import stat
 import subprocess
 import threading
@@ -59,11 +60,25 @@ def verify_client(payload, network, now=None):
     return hashlib.sha256(bytes.fromhex(payload['public_key'])).hexdigest()
 
 
+def public_endpoints(value):
+    allowed={'gateway','mcp','content','corium','shadow6','openci','effort','downloads','nntp'}
+    if type(value) is not dict or set(value)-allowed:raise ValueError('unknown public service endpoint')
+    for name,url in value.items():
+        if type(url) is not str or not 1<=len(url)<=2048:raise ValueError('bounded public endpoint URL required')
+        parsed=urlsplit(url)
+        if parsed.scheme not in {'http','https','nntps'} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:raise ValueError('public endpoint must not contain credentials or query secrets')
+        parsed.port
+    return dict(value)
+
+
 class Gateway:
     def __init__(self, config, transports=False):
         from .build_info import snapshot
         self.build_info=snapshot()
         self.config = config
+        self.service_endpoints=public_endpoints(config.get('public_endpoints',{}))
+        from .public_address import PublicAddress
+        self.public_address=PublicAddress(sources=config.get('public_address_sources'))
         self.transports=[]
         self.transport_stop=threading.Event()
         self.transport_threads=[]
@@ -217,13 +232,12 @@ def handler(gateway):
                     from .gui_api import dispatch
                     return self.send(200, dispatch(gateway, self.headers.get('Authorization')))
                 if path == '/api/gateway/public-address':
-                    from .public_address import PUBLIC_ADDRESS
-                    observation = PUBLIC_ADDRESS.observe()
+                    observation = gateway.public_address.observe()
                     return self.send(200 if observation['ok'] else 503, observation)
                 if path == '/api/gateway/status':
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
-                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest')})
+                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest'),'service_endpoints':gateway.service_endpoints})
                 if path == '/api/gateway/registrations':
                     from .registry import Registry
                     return self.send(200,Registry(gateway.config['registry_db'],gateway.config['network']).list())
@@ -348,6 +362,7 @@ class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 32
     def __init__(self,*args,**kwargs):
+        if args and ':' in args[0][0]:self.address_family=socket.AF_INET6
         self.slots = threading.BoundedSemaphore(16)
         super().__init__(*args,**kwargs)
     def process_request(self,request,address):
@@ -375,7 +390,8 @@ def serve(config):
             dns_servers=open_dns(networks,host=dns_config['listen'],port=dns_config.get('port',5353),doh_port=dns_config.get('doh_port',8188),dot_port=dns_config.get('dot_port'),doq_port=dns_config.get('doq_port'),doh3_port=dns_config.get('doh3_port'),tls_cert=dns_config.get('tls_cert'),tls_key=dns_config.get('tls_key'))
             for listener in dns_servers:
                 thread=threading.Thread(target=listener.serve_forever,daemon=True);thread.start();dns_threads.append(thread)
-        server=Server(('127.0.0.1',config.get('port',8185)),handler(gateway))
+        from .endpoint_config import local_listener
+        server=Server((local_listener(config.get('listen','127.0.0.1')),config.get('port',8185)),handler(gateway))
         server.serve_forever()
     finally:
         stop.set()

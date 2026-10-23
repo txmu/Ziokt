@@ -37,7 +37,8 @@ def main():
     p=sub.add_parser('git-configure');p.add_argument('--project',required=True);p.add_argument('--repository',type=Path,required=True);p.add_argument('--ref',default='refs/heads/main');p.add_argument('--template',type=Path,required=True);p.add_argument('--interval',type=int);p.add_argument('--remote-url')
     p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True)
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
-    p=sub.add_parser('serve');p.add_argument('--port',type=int,default=8768)
+    p=sub.add_parser('worker-enroll');p.add_argument('--server',required=True);p.add_argument('--invite-file',type=Path,required=True);p.add_argument('--worker',required=True);p.add_argument('--signing-key-file',type=Path,required=True);p.add_argument('--credential-file',type=Path,required=True)
+    p=sub.add_parser('serve');p.add_argument('--listen',default='127.0.0.1');p.add_argument('--port',type=int,default=8768)
     p=sub.add_parser('principal-add');p.add_argument('name');p.add_argument('--role',choices=['submit','worker'],required=True);p.add_argument('--project',action='append',required=True);p.add_argument('--worker')
     for name in ['upload','submit','inspect','cancel','retry','worker-approve','worker-disable','worker-signing-key','worker-build-profile','rebuild','runner','git-trigger','release-publish','contribution-prepare']:
         p=sub.add_parser(name);p.add_argument('--server',default='http://127.0.0.1:8768');p.add_argument('--token-file',type=Path)
@@ -110,7 +111,8 @@ def main():
         print(json.dumps({'state':'principal_created','token_file':str(destination)}));return
     if args.action=='serve':
         if not 1<=args.port<=65535:parser.error('invalid port')
-        controller=Controller(root,root/'controller.json');server=Server(('127.0.0.1',args.port),handler(controller))
+        from ziokt.endpoint_config import local_listener
+        controller=Controller(root,root/'controller.json');server=Server((local_listener(args.listen),args.port),handler(controller))
         stop=threading.Event()
         def schedules():
             from .git_source import tick
@@ -124,6 +126,30 @@ def main():
         except KeyboardInterrupt:pass
         finally:stop.set();scheduler.join(timeout=45);server.server_close();controller.close()
         return
+    if args.action=='worker-enroll':
+        from .enrollment import DOMAIN
+        from ziokt.security import sign
+        identifier(args.worker);value=strict_json(secure_read(args.invite_file,16384),16384)
+        if value.get('schema')!='openci.worker-invite.v1' or value.get('controller_origin')!=args.server.rstrip('/'):
+            raise Error('INVITE_CONTROLLER','Invitation controller origin must match the explicitly selected server')
+        if not args.signing_key_file.exists():private_write(args.signing_key_file,secrets.token_bytes(32))
+        key=secure_read(args.signing_key_file,32)
+        digest=hashlib.sha256(value['invite'].encode()).hexdigest();root.mkdir(mode=0o700,parents=True,exist_ok=True)
+        journal=root/('enrollment-'+digest+'.json')
+        if journal.exists():
+            saved=strict_json(secure_read(journal,16384),16384)
+            if saved['server']!=args.server or saved['request']['proof']['payload']['worker']!=args.worker or saved['request']['proof']['public_key']!=sign({},key,'key')['public_key']:
+                raise Error('ENROLLMENT_JOURNAL','Pending enrollment context differs')
+            request=saved['request']
+        else:
+            request={'invite':value['invite'],'proof':sign({'invite_sha256':digest,'worker':args.worker,'nonce':secrets.token_hex(16)},key,DOMAIN)}
+            private_write(journal,{'server':args.server,'request':request})
+        credential=Client(args.server,'').request('POST','/v1/enrollments/redeem',request)
+        raw=(credential['access_token']+'\n').encode()
+        if args.credential_file.exists():
+            if secure_read(args.credential_file,4096)!=raw:raise Error('CREDENTIAL_EXISTS','Existing credential differs; refusing overwrite')
+        else:private_write(args.credential_file,raw)
+        print(json.dumps({'state':'enrolled','worker':args.worker,'role':'worker','credential_file':str(args.credential_file),'receipt_public_key':credential['receipt_public_key'],'build_profile_approval_required':True,'native_reward_authority':False}));return
     token=secure_read(args.token_file or root/'owner.token',4096).decode().strip()
     client=Client(args.server,token)
     if args.action=='contribution-prepare':

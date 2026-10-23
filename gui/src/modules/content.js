@@ -1,5 +1,5 @@
 // Content applications use the same scoped MCP dispatcher as the existing GUI.
-import { callTool, sha256, State } from '../core.js';
+import { callTool, sha256, State, configuredEndpoint } from '../core.js';
 import '../../../ziokt/web/application-client.js';
 import {privateOfflineVault,privateOfflineSource} from '../private-offline.js';
 
@@ -30,8 +30,8 @@ export function renderLibrary(container){
   const headerBar = contentElement('div');
   headerBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px';
   const status=contentElement('p','支持只读检索与阅读，或使用节点授权的 Library 账户管理与上传藏书。');status.setAttribute('role','status');
-  const extLink = contentElement('a','📖 打开独立阅读器 (read.ziokt.com) →');
-  extLink.href = 'https://read.ziokt.com/';
+  const extLink = contentElement('a','📖 打开节点独立阅读器 →');
+  extLink.href = configuredEndpoint('content','/content/');
   extLink.target = '_blank';
   extLink.className = 'btn btn-secondary';
   extLink.style.cssText = 'padding:6px 12px;font-size:0.9rem;text-decoration:none';
@@ -76,7 +76,7 @@ export function renderNetnews(container){
   headerBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px';
   const status=contentElement('p','支持只读浏览公开新闻组与文章，发布需经由授权 MCP 账户。');status.setAttribute('role','status');
   const extLink = contentElement('a','📰 打开独立新闻组与订阅 (read.ziokt.com) →');
-  extLink.href = 'https://read.ziokt.com/';
+  extLink.href = configuredEndpoint('content','/content/');
   extLink.target = '_blank';
   extLink.className = 'btn btn-secondary';
   extLink.style.cssText = 'padding:6px 12px;font-size:0.9rem;text-decoration:none';

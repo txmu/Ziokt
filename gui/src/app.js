@@ -277,11 +277,23 @@ function getInitialLang() {
 
 const nodeSecrets = new Map();
 try { localStorage.removeItem('ziokt_auth_token'); const old = JSON.parse(localStorage.getItem('ziokt_remote_nodes') || '[]'); localStorage.setItem('ziokt_remote_nodes', JSON.stringify(old.map(({authToken, ...n}) => n))); } catch (_) {}
+function configuredEndpoint(name, path = '/') {
+  const explicit = getStorage('ziokt_endpoint_' + name) || (State.serviceEndpoints || {})[name] || (typeof document !== 'undefined' ? document.querySelector('meta[name="ziokt-' + name + '"]')?.content : '');
+  const base = State.runtimeMode === 'local' ? State.localGatewayUrl : (getActiveRemoteNode()?.url || State.gatewayUrl);
+  const url = new URL(explicit || path, base);
+  if (!['https:', 'http:', 'nntps:'].includes(url.protocol) || url.username || url.password) throw Error('Invalid configured service endpoint');
+  return url.href;
+}
+function initialGateway() {
+  const explicit=getStorage('ziokt_default_gateway') || (typeof document !== 'undefined' ? document.querySelector('meta[name="ziokt-gateway"]')?.content : '');
+  if(explicit)return explicit;
+  return typeof location!=='undefined' && ['https:','http:'].includes(location.protocol) && !['tauri.localhost','appassets.androidplatform.net'].includes(location.hostname) ? location.origin : getStorage('ziokt_local_gateway','http://127.0.0.1:8185');
+}
 const DEFAULT_REMOTE_NODES = [
   {
     id: 'node-official-tokyo',
-    name: 'Ziokt Mainnet Gateway (Tokyo)',
-    url: (typeof location !== 'undefined' && ['app.ziokt.com','cor-web.ziokt.com'].includes(location.hostname)) ? location.origin : 'https://app.ziokt.com',
+    name: 'Configured Gateway',
+    url: initialGateway(),
     authToken: '',
     isDefault: true,
     status: 'unverified',
@@ -316,12 +328,14 @@ function setActiveRemoteNode(id) {
   if (target) {
     State.activeRemoteNodeId = target.id;
     State.gatewayUrl = target.url;
+    State.serviceEndpoints = {};
     setStorage('ziokt_active_node_id', target.id);
     setStorage('ziokt_gateway', target.url);
     if (target.authToken) {
       setStorage('ziokt_auth_token', target.authToken);
     }
     Events.emit('active_node_changed', target);
+    discoverServiceEndpoints();
     updateAppNodeBadge();
     return true;
   }
@@ -364,9 +378,10 @@ const State = {
   currentTab: 'home',
   language: getInitialLang(),
   theme: getStorage('ziokt_theme', 'dark'),
-  runtimeMode: getStorage('ziokt_mode', typeof location !== 'undefined' && location.protocol === 'https:' ? 'remote' : 'local'), // 'local' | 'remote' | 'hybrid'
-  gatewayUrl: getStorage('ziokt_gateway', 'https://cor-web.ziokt.com'),
-  localGatewayUrl: 'http://127.0.0.1:8185',
+  runtimeMode: getStorage('ziokt_mode', typeof location !== 'undefined' && ['http:','https:'].includes(location.protocol) && !['tauri.localhost','appassets.androidplatform.net'].includes(location.hostname) ? 'remote' : 'local'), // 'local' | 'remote' | 'hybrid'
+  gatewayUrl: getStorage('ziokt_gateway', initialGateway()),
+  localGatewayUrl: getStorage('ziokt_local_gateway','http://127.0.0.1:8185'),
+  serviceEndpoints: {},
   localNodeStatus: 'checking', // 'checking' | 'online' | 'offline'
   localNodeDetails: null,
   remoteNodes: getRemoteNodes(),
@@ -494,7 +509,7 @@ function showJsonModal(title, data) {
   
   titleEl.textContent = title;
   const jsonStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-  bodyEl.innerHTML = `<pre style="background:var(--bg-input);padding:14px;border-radius:6px;font-family:var(--font-mono);font-size:0.8rem;color:var(--accent-cyan);overflow:auto;max-height:55vh;white-space:pre-wrap;">${jsonStr}</pre>`;
+  const pre=document.createElement('pre');pre.style.cssText='background:var(--bg-input);padding:14px;border-radius:6px;font-family:var(--font-mono);font-size:0.8rem;color:var(--accent-cyan);overflow:auto;max-height:55vh;white-space:pre-wrap';pre.textContent=jsonStr;bodyEl.replaceChildren(pre);
   footerEl.innerHTML = `
     <button class="btn btn-secondary" id="modal-copy">${t('common.copy')}</button>
     <button class="btn btn-primary" id="modal-close">${t('common.close')}</button>
@@ -527,6 +542,7 @@ async function checkLocalNodeHealth() {
 
     if (res.ok) {
       const data = await res.json();
+      if(data.schema==='ziokt.gateway.v1')State.serviceEndpoints=data.service_endpoints||{};
       State.localNodeStatus = 'online';
       State.localNodeDetails = data;
       Events.emit('local_node_status_changed', { status: 'unverified', data });
@@ -786,7 +802,7 @@ async function uploadObject(file, app, progress = () => {}) {
   }
 }
 async function renderToolPanel(container, title, filter, fileOperations = false) {
-  container.innerHTML = `<div class="card"><a href="https://app.ziokt.com/downloads/" target="_blank" rel="noopener">各平台软件下载 / Downloads</a><h2></h2><p>操作使用已鉴权的真实后端。工具结果仅代表其声明的阶段；验签、暂存、安装、激活分别显示。</p>
+  container.innerHTML = `<div class="card"><a href="https://github.com/txmu/Ziokt-Releases/releases" target="_blank" rel="noopener">各平台软件下载 / Downloads</a><h2></h2><p>操作使用已鉴权的真实后端。工具结果仅代表其声明的阶段；验签、暂存、安装、激活分别显示。</p>
     <label>Node administrator token（只保存在当前页面内存）<input type="password" class="input-text" id="operation-token" autocomplete="off"></label>
     <button class="btn btn-primary" id="load-real-tools">连接并刷新工具</button><p id="tool-count"></p>
     <select class="input-text" id="real-tool"></select><pre id="real-schema" style="white-space:pre-wrap"></pre>
@@ -863,6 +879,13 @@ async function renderToolPanel(container, title, filter, fileOperations = false)
     }catch(e){fail(e);}finally{btn.disabled=false;}
   };
 
+}
+
+// Public discovery never forwards application credentials to advertised services.
+async function discoverServiceEndpoints() {
+  const base=State.runtimeMode==='local'?State.localGatewayUrl:getActiveRemoteNode().url;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+  try { const response=await fetch(new URL('/api/gateway/status',base),{credentials:'omit',cache:'no-store',signal:controller.signal});if(!response.ok)return;const data=await response.json();if(data.schema!=='ziokt.gateway.v1')return;const endpoints={};for(const [name,value] of Object.entries(data.service_endpoints||{})){if(!/^[a-z]{1,16}$/.test(name)||typeof value!=='string')continue;const url=new URL(value);if(['https:','http:','nntps:'].includes(url.protocol)&&!url.username&&!url.password)endpoints[name]=url.href;}if(base===(State.runtimeMode==='local'?State.localGatewayUrl:getActiveRemoteNode().url))State.serviceEndpoints=endpoints;}catch(_){}finally{clearTimeout(timer)}
 }
 
 
@@ -1747,7 +1770,7 @@ function renderForum(container){
  },'native-forum-publish');
  function switchSource(){parent=null;reply.textContent='';list.replaceChildren();lookup.hidden=source.value!=='etp';topic.parentElement.hidden=source.value!=='etp';identity.parentElement.hidden=source.value!=='etp';publishing.hidden=source.value==='corium';status.textContent=tr('点击读取以请求原生数据；需要节点授权。','Choose Load to request native data; node authorization is required.');}
  source.onchange=switchSource;switchSource();
- const native=make('a',tr('打开 Corium 原生社区门户','Open Corium native community portal'));native.href='https://cor-web.ziokt.com/';native.target='_blank';native.rel='noopener noreferrer';native.className='btn btn-secondary';container.append(native);
+ const native=make('a',tr('打开 Corium 原生社区门户','Open Corium native community portal'));native.href=configuredEndpoint('corium','/');native.target='_blank';native.rel='noopener noreferrer';native.className='btn btn-secondary';container.append(native);
 }
 
 
@@ -2474,8 +2497,8 @@ function renderLibrary(container){
   const headerBar = contentElement('div');
   headerBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px';
   const status=contentElement('p','支持只读检索与阅读，或使用节点授权的 Library 账户管理与上传藏书。');status.setAttribute('role','status');
-  const extLink = contentElement('a','📖 打开独立阅读器 (read.ziokt.com) →');
-  extLink.href = 'https://read.ziokt.com/';
+  const extLink = contentElement('a','📖 打开节点独立阅读器 →');
+  extLink.href = configuredEndpoint('content','/content/');
   extLink.target = '_blank';
   extLink.className = 'btn btn-secondary';
   extLink.style.cssText = 'padding:6px 12px;font-size:0.9rem;text-decoration:none';
@@ -2519,7 +2542,7 @@ function renderNetnews(container){
   headerBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px';
   const status=contentElement('p','支持只读浏览公开新闻组与文章，发布需经由授权 MCP 账户。');status.setAttribute('role','status');
   const extLink = contentElement('a','📰 打开独立新闻组与订阅 (read.ziokt.com) →');
-  extLink.href = 'https://read.ziokt.com/';
+  extLink.href = configuredEndpoint('content','/content/');
   extLink.target = '_blank';
   extLink.className = 'btn btn-secondary';
   extLink.style.cssText = 'padding:6px 12px;font-size:0.9rem;text-decoration:none';
@@ -2554,9 +2577,9 @@ function renderEcosystem(container){
  const queryLabel=node('label',label('查找应用','Find applications')),query=node('input');query.type='search';query.id='ecosystem-filter';queryLabel.append(query);container.append(queryLabel);
  const grid=node('div');grid.className='ecosystem-grid';container.append(grid);
  const services=[
-  ['Corium',label('论坛、群组、Wiki、Mail、MailList、Broadcast、Site、NNS、CBB 与治理；具体入口依原生部署。','Forum, Groups, Wiki, Mail, MailList, Broadcast, Site, NNS, CBB and governance; entrypoints depend on the native deployment.'),'https://cor-web.ziokt.com/','corium_'],
+  ['Corium',label('论坛、群组、Wiki、Mail、MailList、Broadcast、Site、NNS、CBB 与治理；具体入口依原生部署。','Forum, Groups, Wiki, Mail, MailList, Broadcast, Site, NNS, CBB and governance; entrypoints depend on the native deployment.'),configuredEndpoint('corium','/'),'corium_'],
   ['ETP',label('Forum、Chat、Mailbox、Universal Messenger、FileShare、SignalDrop；状态接口不能代替尚未接通的业务。','Forum, Chat, Mailbox, Universal Messenger, FileShare, SignalDrop; status endpoints do not implement missing business operations.'),null,'etp_'],
-  ['Library / Netnews',label('图书阅读、新闻组、授权投稿与附件。','Books, newsgroups, authorized posting and attachments.'),'https://read.ziokt.com/','library_'],
+  ['Library / Netnews',label('图书阅读、新闻组、授权投稿与附件。','Books, newsgroups, authorized posting and attachments.'),configuredEndpoint('content','/content/'),'library_'],
   ['WATChat',label('原生聊天；连接后仍需原生身份授权。','Native chat with its own identity authorization.'),null,'watchat_'],
   ['UFS / dCPM',label('原生文件与签名软件包。','Native files and signed software packages.'),null,'ufs_'],
   ['SafeFS',label('私有保险库，仅授权账户可访问。','Private vault, authorized accounts only.'),null,'safefs_'],
@@ -2573,7 +2596,7 @@ function renderEcosystem(container){
  const inspect=node('button',label('查询本节点授权接口','Query this node’s authorized tools'));inspect.className='btn btn-primary';inspect.id='ecosystem-inspect';
  inspect.onclick=async()=>{inspect.disabled=true;status.textContent=label('正在查询…','Querying…');try{const data=await apiRequest('/api/gateway/tools',{requireAuth:true});for(const line of grid.querySelectorAll('[data-prefix]')){const count=data.tools.filter(tool=>tool.name.startsWith(line.dataset.prefix)).length;line.textContent=label('本账户已注册接口：','Registered for this account: ')+count;}status.textContent=label('目录查询成功；原生操作需逐项执行验证。','Catalog received; native operations require separate runtime verification.');}catch(error){status.textContent=error.message;}finally{inspect.disabled=false;}};container.append(inspect);
  const feeds=node('section');feeds.className='card';feeds.append(node('h3',label('普通客户端与资讯订阅','Standard clients and feeds')));
- for(const [name,url] of [['NNTP TLS · nntp.ziokt.com:563','https://nntp.ziokt.com/'],['RSS','https://read.ziokt.com/feeds/all.rss'],['Atom','https://read.ziokt.com/feeds/all.atom'],['JSON Feed','https://read.ziokt.com/feeds/all.json'],['OPML','https://read.ziokt.com/feeds/subscriptions.opml']]){const link=node('a',name);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.className='btn btn-secondary';feeds.append(link);}
+ for(const [name,url] of [['NNTP TLS',configuredEndpoint('nntp','/nntp/')],['RSS',new URL('feeds/all.rss',configuredEndpoint('content','/content/')).href],['Atom',new URL('feeds/all.atom',configuredEndpoint('content','/content/')).href],['JSON Feed',new URL('feeds/all.json',configuredEndpoint('content','/content/')).href],['OPML',new URL('feeds/subscriptions.opml',configuredEndpoint('content','/content/')).href]]){const link=node('a',name);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.className='btn btn-secondary';feeds.append(link);}
  container.append(feeds);
 }
 
@@ -2594,21 +2617,10 @@ function getActiveEndpointHost() {
   if (typeof location !== 'undefined' && location.hostname) {
     return location.hostname;
   }
-  return 'cor-web.ziokt.com';
+  return new URL(State.localGatewayUrl).hostname;
 }
 function getShadow6WebUrl() {
-  if (State.runtimeMode === 'local') return 'http://127.0.0.1:9467/';
-  if (typeof location !== 'undefined' && location.hostname && location.hostname.endsWith('ziokt.com')) {
-    return 'https://cor-web.ziokt.com/shadow6/';
-  }
-  const activeRemote = getActiveRemoteNode();
-  if (activeRemote && activeRemote.url) {
-    try {
-      const u = new URL(activeRemote.url);
-      return `${u.origin}/shadow6/`;
-    } catch (_) {}
-  }
-  return 'https://cor-web.ziokt.com/shadow6/';
+  return configuredEndpoint('shadow6','/shadow6/');
 }
 
 const shadow6Profiles = [
@@ -4011,6 +4023,7 @@ function renderSettings(container) {
   }
 
   async function initApp() {
+    await discoverServiceEndpoints();
     await initI18n();
     setTheme(State.theme);
     setupNavigation();

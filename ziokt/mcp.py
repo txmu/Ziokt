@@ -740,7 +740,8 @@ def http_handler(service):
             origin=self.headers.get('Origin')
             if origin is not None and origin not in service.config.get('origins',[]):raise McpError(-32001,'origin rejected',403)
             host=self.headers.get('Host','')
-            allowed=service.config.get('hosts',[urlsplit(service.config['issuer']).netloc,'127.0.0.1:'+str(self.server.server_port)])
+            bind_host=self.server.server_address[0];bind_host='['+bind_host+']' if ':' in bind_host else bind_host
+            allowed=service.config.get('hosts',[urlsplit(service.config['issuer']).netloc,bind_host+':'+str(self.server.server_port)])
             if host not in allowed:raise McpError(-32001,'host rejected',403)
         def body(self):
             lengths=self.headers.get_all('Content-Length',[])
@@ -878,7 +879,8 @@ def register(sub):
 def execute(args):
     config=strict_json(secure_read(args.config));config['config_path']=str(args.config.resolve())
     if config.get('schema')!='ziokt.mcp.v1':raise ValueError('invalid MCP configuration')
-    if not re.fullmatch(r'https://[a-z0-9.-]+(?::[0-9]+)?',config['issuer']):raise ValueError('public HTTPS issuer required')
+    from .endpoint_config import https_origin,local_listener
+    https_origin(config['issuer'])
     if args.mcp_action=='telegram-worker':
         from .telegram_worker import TelegramWorker
         TelegramWorker(args.config).run();return {}
@@ -889,7 +891,7 @@ def execute(args):
         # Local owner-only administration command; credentials must go into a 0600 file.
         return service.issue(args.client,set(client['scopes']))
     if args.mcp_action=='serve':
-        server=Server(('127.0.0.1',config.get('port',8186)),http_handler(service))
+        server=Server((local_listener(config.get('listen','127.0.0.1')),config.get('port',8186)),http_handler(service))
         try:server.serve_forever()
         finally:server.server_close();service.close()
         return {}

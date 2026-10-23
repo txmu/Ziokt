@@ -25,7 +25,6 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           repository: txmu/Corium
-          ssh-key: ${{ secrets.CORIUM_READ_KEY }}
           ref: ${{ steps.refs.outputs.corium }}
           path: Corium
       - uses: actions/checkout@v7.0.1

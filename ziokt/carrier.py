@@ -6,6 +6,7 @@ changes routing, or treats a SOCKS handshake as proof against traffic analysis.
 import base64
 import hashlib
 import ipaddress
+import os
 import secrets
 import socket
 import struct
@@ -38,7 +39,7 @@ def validate_carrier(value, host):
         from .peer_proxy import validate_peer_carrier
         return validate_peer_carrier(value, host)
     required = {'kind', 'proxy_host', 'proxy_port'}
-    if (not isinstance(value, dict) or not required <= set(value) or set(value)-required-{'hops'} or value['kind'] != 'tor-socks5' or
+    if (not isinstance(value, dict) or not required <= set(value) or set(value)-required-{'hops', 'isolation_key'} or value['kind'] != 'tor-socks5' or
             type(value['proxy_port']) is not int or not 1 <= value['proxy_port'] <= 65535):
         raise ProtocolError('INVALID_CARRIER', 'fixed local Tor SOCKS5 proxy required')
     try:
@@ -47,6 +48,9 @@ def validate_carrier(value, host):
     except (ValueError, TypeError):
         raise ProtocolError('INVALID_CARRIER', 'proxy must be a literal loopback IP')
     onion_address(host)
+    isolation = value.get('isolation_key')
+    if isolation is not None and (type(isolation) not in {str, bytes} or not 1 <= len(isolation) <= 64):
+        raise ProtocolError('INVALID_CARRIER', 'bounded isolation key required')
     hops = value.get('hops', [])
     if not isinstance(hops, list) or len(hops) > 3:
         raise ProtocolError('INVALID_CARRIER', 'at most three explicit onion SOCKS5 intermediate hops required')
@@ -69,7 +73,8 @@ def carrier_deadline(value):
         hops = value.get('hops', [])
         if type(hops) is not list or len(hops) > 3:
             raise ProtocolError('INVALID_CARRIER', 'bounded onion path required')
-        return 30 * (1 + len(hops))
+        hop_seconds = int(os.environ.get('ZIOKT_CARRIER_HOP_TIMEOUT', '30'))
+        return hop_seconds * (1 + len(hops))
     entry = value.get('entry_carrier') or {}
     budget = value.get('deadline_seconds', 90 if value.get('kind') == 'i2p-sam' or entry.get('kind') == 'i2p-sam' else 30)
     if type(budget) is not int or not 1 <= budget <= 120:
@@ -151,7 +156,12 @@ def connect_onion(host, port, carrier, timeout=None, cancellation=None):
         send(b'\x05\x01\x02')
         if read(2) != b'\x05\x02': raise OSError('carrier authentication method')
         diagnostic['phase']=label+'-isolation-auth'
-        username = b'<torS0X>0'; password = secrets.token_hex(16).encode()
+        raw_isolation = carrier.get('isolation_key')
+        if raw_isolation:
+            password = raw_isolation.encode('ascii') if isinstance(raw_isolation, str) else raw_isolation
+        else:
+            password = secrets.token_hex(16).encode()
+        username = b'<torS0X>0'
         send(b'\x01'+bytes([len(username)])+username+bytes([len(password)])+password)
         if read(2) != b'\x01\x00': raise OSError('carrier isolation rejected')
         diagnostic['phase']=label+'-socks-connect'

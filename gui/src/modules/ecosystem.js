@@ -1,5 +1,5 @@
 /* Native application entrypoints and a local workspace with no network calls. */
-import {State,apiRequest} from '../core.js';
+import {State,apiRequest,configuredEndpoint} from '../core.js';
 import {mountPrivateOffline} from '../private-offline.js';
 
 export function renderEcosystem(container){
@@ -17,9 +17,9 @@ export function renderEcosystem(container){
  const queryLabel=node('label',label('查找应用','Find applications')),query=node('input');query.type='search';query.id='ecosystem-filter';queryLabel.append(query);container.append(queryLabel);
  const grid=node('div');grid.className='ecosystem-grid';container.append(grid);
  const services=[
-  ['Corium',label('论坛、群组、Wiki、Mail、MailList、Broadcast、Site、NNS、CBB 与治理；具体入口依原生部署。','Forum, Groups, Wiki, Mail, MailList, Broadcast, Site, NNS, CBB and governance; entrypoints depend on the native deployment.'),'https://cor-web.ziokt.com/','corium_'],
+  ['Corium',label('论坛、群组、Wiki、Mail、MailList、Broadcast、Site、NNS、CBB 与治理；具体入口依原生部署。','Forum, Groups, Wiki, Mail, MailList, Broadcast, Site, NNS, CBB and governance; entrypoints depend on the native deployment.'),configuredEndpoint('corium','/'),'corium_'],
   ['ETP',label('Forum、Chat、Mailbox、Universal Messenger、FileShare、SignalDrop；状态接口不能代替尚未接通的业务。','Forum, Chat, Mailbox, Universal Messenger, FileShare, SignalDrop; status endpoints do not implement missing business operations.'),null,'etp_'],
-  ['Library / Netnews',label('图书阅读、新闻组、授权投稿与附件。','Books, newsgroups, authorized posting and attachments.'),'https://read.ziokt.com/','library_'],
+  ['Library / Netnews',label('图书阅读、新闻组、授权投稿与附件。','Books, newsgroups, authorized posting and attachments.'),configuredEndpoint('content','/content/'),'library_'],
   ['WATChat',label('原生聊天；连接后仍需原生身份授权。','Native chat with its own identity authorization.'),null,'watchat_'],
   ['UFS / dCPM',label('原生文件与签名软件包。','Native files and signed software packages.'),null,'ufs_'],
   ['SafeFS',label('私有保险库，仅授权账户可访问。','Private vault, authorized accounts only.'),null,'safefs_'],
@@ -36,6 +36,6 @@ export function renderEcosystem(container){
  const inspect=node('button',label('查询本节点授权接口','Query this node’s authorized tools'));inspect.className='btn btn-primary';inspect.id='ecosystem-inspect';
  inspect.onclick=async()=>{inspect.disabled=true;status.textContent=label('正在查询…','Querying…');try{const data=await apiRequest('/api/gateway/tools',{requireAuth:true});for(const line of grid.querySelectorAll('[data-prefix]')){const count=data.tools.filter(tool=>tool.name.startsWith(line.dataset.prefix)).length;line.textContent=label('本账户已注册接口：','Registered for this account: ')+count;}status.textContent=label('目录查询成功；原生操作需逐项执行验证。','Catalog received; native operations require separate runtime verification.');}catch(error){status.textContent=error.message;}finally{inspect.disabled=false;}};container.append(inspect);
  const feeds=node('section');feeds.className='card';feeds.append(node('h3',label('普通客户端与资讯订阅','Standard clients and feeds')));
- for(const [name,url] of [['NNTP TLS · nntp.ziokt.com:563','https://nntp.ziokt.com/'],['RSS','https://read.ziokt.com/feeds/all.rss'],['Atom','https://read.ziokt.com/feeds/all.atom'],['JSON Feed','https://read.ziokt.com/feeds/all.json'],['OPML','https://read.ziokt.com/feeds/subscriptions.opml']]){const link=node('a',name);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.className='btn btn-secondary';feeds.append(link);}
+ for(const [name,url] of [['NNTP TLS',configuredEndpoint('nntp','/nntp/')],['RSS',new URL('feeds/all.rss',configuredEndpoint('content','/content/')).href],['Atom',new URL('feeds/all.atom',configuredEndpoint('content','/content/')).href],['JSON Feed',new URL('feeds/all.json',configuredEndpoint('content','/content/')).href],['OPML',new URL('feeds/subscriptions.opml',configuredEndpoint('content','/content/')).href]]){const link=node('a',name);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.className='btn btn-secondary';feeds.append(link);}
  container.append(feeds);
 }
