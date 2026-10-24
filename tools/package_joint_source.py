@@ -26,8 +26,11 @@ def package(repositories_root,output,evidence=None):
   (stage/'SOURCE_PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
   if evidence is not None:
    # Explicit, operator-prepared public evidence only; never collect private config.
-   observed=json.loads(Path(evidence).read_text())
+   evidence_path=Path(evidence)
+   observed=json.loads(evidence_path.read_text())
    (stage/'RELEASE_EVIDENCE.json').write_text(json.dumps(observed,sort_keys=True,indent=2)+'\n')
+   if evidence_path.name!='RELEASE_EVIDENCE.json':
+    (stage/evidence_path.name).write_text(json.dumps(observed,sort_keys=True,indent=2)+'\n')
   spec=importlib.util.spec_from_file_location('prepare_text_zip',base/'Shadow6/Tools/prepare_text_zip.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
   kept,removed=module.prepare(stage)
   manifest={str(file.relative_to(stage)):hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(stage.rglob('*')) if file.is_file()}
