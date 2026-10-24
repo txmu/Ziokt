@@ -1,0 +1,186 @@
+"""Tests for DNA duplex, RNA frames, OpenCI commitments, governance archive, and companion tunnels in MCP."""
+import json
+from pathlib import Path
+import tempfile
+import time
+import unittest
+
+from ziokt.mcp import Service
+from ziokt.dna_protocol import (
+    CANONICAL_CHAIN_ID,
+    CANONICAL_POLICY_ID,
+    ARCHIVE_CHAIN_ID,
+    ARCHIVE_POLICY_ID,
+    dna_protect_payload,
+    dna_verify_payload,
+    zdns_rna_announce,
+    zdns_rna_verify,
+    openci_commit_evidence,
+    openci_verify_evidence,
+    query_governance_archive,
+    shadow6_companion_tunnel_status,
+)
+
+
+class TestDnaProtocolMcp(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory(prefix="ziokt-test-dna-mcp-")
+        self.root = Path(self.tempdir.name)
+        self.config = {
+            "state": str(self.root / "state"),
+            "bridges": {},
+            "clients": {
+                "test-operator": {
+                    "redirect_uris": ["http://localhost/cb"],
+                    "scopes": [
+                        "ziokt:read",
+                        "ziokt:names:read",
+                        "corium:read",
+                        "shadow6:read",
+                    ]
+                }
+            }
+        }
+        self.service = Service(self.config)
+        self.principal = {
+            "client": "test-operator",
+            "scopes": {"ziokt:read", "ziokt:names:read", "corium:read", "shadow6:read"},
+            "expires": 2**63,
+            "token_id": "test-token"
+        }
+
+    def tearDown(self):
+        self.service.close()
+        self.tempdir.cleanup()
+
+    def test_dna_duplex_tool_execution(self):
+        # 1. Protect payload via MCP tool call
+        text = "Ziokt Library preserved document: charter v1."
+        call1 = self.service.call(
+            self.principal,
+            "ziokt_dna_duplex_protect",
+            {"payload_text": text, "domain": "library", "metadata": {"author": "admin"}}
+        )
+        self.assertFalse(call1.get("isError"))
+        gene = call1["structuredContent"]
+        self.assertEqual(gene["schema"], "corium.dna.duplex.v1")
+        self.assertEqual(gene["domain"], "library")
+        self.assertIn("root", gene)
+        self.assertIn("sense", gene)
+        self.assertIn("antisense", gene)
+
+        # 2. Verify payload via MCP tool call
+        call2 = self.service.call(
+            self.principal,
+            "ziokt_dna_duplex_verify",
+            {"gene": gene, "authenticated_root": gene["root"]}
+        )
+        self.assertFalse(call2.get("isError"))
+        res = call2["structuredContent"]
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["payload_text"], text)
+
+        # 3. Test single-strand damage repair
+        corrupted = dict(gene)
+        corrupted["antisense"] = "A" * len(gene["antisense"])
+        call3 = self.service.call(
+            self.principal,
+            "ziokt_dna_duplex_verify",
+            {"gene": corrupted, "authenticated_root": gene["root"], "repair": True}
+        )
+        self.assertFalse(call3.get("isError"))
+        res3 = call3["structuredContent"]
+        self.assertTrue(res3["valid"])
+        self.assertTrue(res3["repaired"])
+        self.assertEqual(res3["payload_text"], text)
+
+    def test_zdns_rna_announce_and_verify_tools(self):
+        # 1. Announce via MCP tool
+        domain = "archive.library.ziokt"
+        target = "https://cor-web.ziokt.com/library"
+        call1 = self.service.call(
+            self.principal,
+            "ziokt_zdns_rna_announce",
+            {"domain": domain, "target": target}
+        )
+        self.assertFalse(call1.get("isError"))
+        announced = call1["structuredContent"]
+        self.assertIn("frame", announced)
+        self.assertIn("pem", announced)
+        self.assertEqual(announced["chain_id"], CANONICAL_CHAIN_ID)
+
+        # 2. Verify via MCP tool
+        call2 = self.service.call(
+            self.principal,
+            "ziokt_zdns_rna_verify",
+            {
+                "frame": announced["frame"],
+                "pem": announced["pem"],
+                "chain_id": announced["chain_id"],
+                "policy_id": announced["policy_id"],
+                "sender": announced["sender"],
+            }
+        )
+        self.assertFalse(call2.get("isError"))
+        verified = call2["structuredContent"]
+        self.assertTrue(verified["valid"])
+        self.assertEqual(verified["record"]["domain"], domain)
+        self.assertEqual(verified["record"]["target"], target)
+
+    def test_openci_evidence_commit_and_verify_tools(self):
+        call1 = self.service.call(
+            self.principal,
+            "ziokt_openci_evidence_commit",
+            {
+                "pipeline": "build-ziokt-2.0",
+                "task": "formal-verification",
+                "worker": "worker-hk-01",
+                "artifact_digest": "e" * 64,
+                "result": {"passed": True, "tests_run": 42}
+            }
+        )
+        self.assertFalse(call1.get("isError"))
+        committed = call1["structuredContent"]
+        self.assertIn("commitment_hash", committed)
+        self.assertEqual(committed["commitment"]["schema"], "openci.evidence-commitment.v1")
+
+        call2 = self.service.call(
+            self.principal,
+            "ziokt_openci_evidence_verify",
+            {
+                "commitment": committed["commitment"],
+                "expected_hash": committed["commitment_hash"]
+            }
+        )
+        self.assertFalse(call2.get("isError"))
+        self.assertTrue(call2["structuredContent"]["valid"])
+
+    def test_governance_archive_query_tool(self):
+        call = self.service.call(
+            self.principal,
+            "corium_governance_archive_query",
+            {"limit": 5}
+        )
+        self.assertFalse(call.get("isError"))
+        res = call["structuredContent"]
+        self.assertTrue(res["found"])
+        self.assertEqual(res["archive_scope"], "H0-H784")
+        self.assertEqual(res["latest_archive_height"], 784)
+        self.assertGreaterEqual(res["count"], 1)
+
+    def test_companion_tunnel_status_tool(self):
+        call = self.service.call(
+            self.principal,
+            "shadow6_companion_tunnel_status",
+            {}
+        )
+        self.assertFalse(call.get("isError"))
+        res = call["structuredContent"]
+        self.assertEqual(res["schema"], "ziokt.companion-tunnel-status.v1")
+        self.assertEqual(res["status"], "operational")
+        self.assertTrue(res["companion_mesh"]["multi_hop_capable"])
+        self.assertTrue(res["companion_mesh"]["disaster_recovery_forwarding"])
+
+
+if __name__ == "__main__":
+    unittest.main()
