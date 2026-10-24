@@ -15,6 +15,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from .gateway_store import database, Store, encoded, digest_ok, byte_range
+from .protocol import ProtocolError
 
 ASSETS = Path(__file__).resolve().parents[1] / 'gateway'
 # zipapp deliveries contain the same versioned assets. Extract only that fixed
@@ -83,6 +84,8 @@ class Gateway:
         self.transport_stop=threading.Event()
         self.transport_threads=[]
         self.store = Store(config['objects'], config.get('dht_db'), config.get('peers', []))
+        from .site_gateway import Sites
+        self.sites=Sites(self)
         if transports and config.get('etp_bulk'):
             from .etp import EtpGateway,EtpRecordSocket
             from .etp_bulk import BulkPeer,serve_objects
@@ -233,6 +236,20 @@ def handler(gateway):
         def do_GET(self):
             path = urlsplit(self.path).path
             try:
+                if path == '/api/gateway/sites':return self.send(200,gateway.sites.catalog())
+                if gateway.sites.parse(path) is not None:
+                    if len(path.removeprefix('/gateway').split('/'))==3:
+                        self.send_response(308);self.send_header('Location',path+'/');self.send_header('Content-Length','0');self.end_headers();return
+                    try:result=gateway.sites.resolve(path)
+                    except ProtocolError as exc:
+                        return self.send(403 if exc.code=='SITE_PRIVATE' else 404 if exc.code in {'NAME_NOT_FOUND','SITE_RESOLVER_UNAVAILABLE'} else 422,{'error':exc.code})
+                    except FileNotFoundError:return self.send(404,{'error':'site file unavailable'})
+                    status,headers,body=result
+                    self.send_response(status)
+                    for key,value in headers.items():self.send_header(key,value)
+                    self.send_header('Content-Length',str(len(body)));self.end_headers()
+                    if self.command!='HEAD':self.wfile.write(body)
+                    return
                 if path == '/api/gateway/tools':
                     self.check_gui_origin()
                     from .gui_api import dispatch
@@ -299,6 +316,8 @@ def handler(gateway):
                     if name not in ('gateway.js','i18n.json','media.js','mcp-console.js','oauth-callback.html','oauth-callback.js','registry.html','registry.js'): return self.send(404,{'error':'not found'})
                     return self.send(200,(ASSETS/name).read_bytes(),'application/json' if name.endswith('.json') else 'text/html; charset=utf-8' if name.endswith('.html') else 'text/javascript; charset=utf-8')
                 return self.send(404,{'error':'not found'})
+            except ProtocolError as exc:self.send(422,{'error':exc.code})
+            except sqlite3.Error:self.send(503,{'error':'node registry unavailable'})
             except (ValueError, FileNotFoundError) as exc:
                 from .gui_api import GuiError
                 self.send(exc.status if isinstance(exc,GuiError) else 404,{'error':str(exc) if isinstance(exc,GuiError) else 'object unavailable'})

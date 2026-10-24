@@ -30,3 +30,14 @@ class ExtensionTests(unittest.TestCase):
     self.assertEqual(hashlib.sha256((output/name).read_bytes()).hexdigest(),digest)
 
 if __name__=='__main__':unittest.main()
+
+class SiteNavigationTests(unittest.TestCase):
+ def test_shared_url_builder_rejects_ambient_authority_and_traversal(self):
+  import subprocess
+  script="""const assert=require('node:assert/strict'),url=require('./gateway/gui/site-url.js');
+assert.equal(url('https://node.example','blog.team.example.corix','posts/a b/'),'https://node.example/gateway/corix/blog.team.example/posts/a%20b/');
+for(const args of [['https://user:secret@node.example','example.corix',''],['http://remote.example','example.corix',''],['https://node.example','example.com',''],['https://node.example','example.corix','../key'],['https://node.example','example.corix','%2fadmin'],['https://node.example','a..example.corix','']])assert.throws(()=>url(...args));"""
+  subprocess.run(['node','-e',script],cwd=ROOT,check=True,capture_output=True)
+  with tempfile.TemporaryDirectory() as temp:
+   for item in package(Path(temp)):
+    with zipfile.ZipFile(item['path']) as archive:self.assertEqual(archive.read('site-url.js'),(ROOT/'gateway/gui/site-url.js').read_bytes())

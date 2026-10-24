@@ -34,3 +34,5 @@ $('publish-book').onsubmit=run(async()=>{if(!endpoint||!token)throw Error(t('con
 
 async function uploadPostAttachments(form){const files=[...form.elements.attachments.files];if(files.length>8)throw Error(t('attachment_limit'));const refs=[];for(const file of files){const obj=await applicationClient().upload(file,{progress:(done,total)=>status(t('transfer')+' '+Math.round(done/Math.max(1,total)*100)+'%')});refs.push({id:obj.id,name:file.name});}return refs;}
 function attachmentButtons(article){return (article.attachments||[]).map(item=>button(t('download')+' '+item.name+' ('+item.size+')',async()=>{const result=await applicationClient().download(item.id);const link=element('a',item.name),url=URL.createObjectURL(result.blob);link.href=url;link.download=item.name;$('article').append(link);link.click();setTimeout(()=>{URL.revokeObjectURL(url);link.remove();},60000);}));}
+
+$('site-open').onsubmit=run(async()=>{const data=new FormData($('site-open'));await ext.tabs.create({url:ZioktSiteUrl(data.get('gateway'),data.get('name'),data.get('path'))});});

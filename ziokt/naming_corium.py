@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import time
 from . import _runtime
 from .protocol import ProtocolError,strict_json
 from .gateway_store import Store,digest_ok
@@ -25,7 +26,7 @@ class CoriumNames:
         self.namespace=network_id if namespace is None else namespace
         self.store=Store(objects,dht_db,peers=peers)
 
-    def __call__(self,root):
+    def __call__(self,root,*,site=False):
         from .naming import LABEL
         if not isinstance(root,str) or not LABEL.fullmatch(root):
             raise ProtocolError('NAME_REJECTED','suffix-free NNS key required')
@@ -55,6 +56,8 @@ class CoriumNames:
             if matched is None:
                 raise ProtocolError('NAME_REJECTED','NNS target is not bound by current native owner in canonical block; rebind after transfer')
         manifest=strict_json(cs_content(target,self.store.get))
+        if site and (type(expiry) is not int or expiry!=0 and expiry<=int(time.time())):raise ProtocolError('NAME_REJECTED','native website registration expired')
+        if site:return {'manifest':manifest,'target':target,'owner':owner,'height':height,'block_hash':block[0],'transaction':matched}
         naming=manifest.get('ziokt_naming') if isinstance(manifest,dict) else None
         if not isinstance(naming,dict) or set(naming)-{'identity_registration'}!={'network_id','owner','revision','expires_at','delegations','published_suffixes'}:
             raise ProtocolError('NAME_NOT_FOUND','NNS target has no explicit Ziokt naming publication')

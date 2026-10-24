@@ -51,7 +51,7 @@ jobs:
           test_static_blogs test_community_peer_proxy test_community_discovery test_community_discovery_native
           test_community_network test_mcp test_assurance test_gateway_native test_native_shielded test_native_deployment
           test_provider_health test_native_integration test_application_router test_etp_adapter test_effort_web test_effort_direct
-          test_collectible_outbox_concurrency test_protocol_publisher test_protocol_state test_dna_protocol_mcp test_relay_rewards
+          test_collectible_outbox_concurrency test_gateway_sites test_protocol_publisher test_protocol_state test_dna_protocol_mcp test_relay_rewards
       - name: Actual Corium mine, stake vote and derived-state rebuild
         working-directory: Corium
         run: python -m unittest -v test_core test_privacy_consensus test_privacy_primitives test_naming_ibc test_engine_governance_cli test_engine_proof_boundary test_work_weight_policy test_work_weight_native

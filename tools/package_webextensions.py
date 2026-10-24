@@ -17,6 +17,7 @@ def package(output):
   (directory/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
   for name in ('popup.html','popup.js','popup.css','background.js'):shutil.copyfile(source/name,directory/name)
   shutil.copytree(source/'_locales',directory/'_locales')
+  shutil.copyfile(ROOT/'gateway/gui/site-url.js',directory/'site-url.js')
   # Same verified application client used by the standalone application.
   shutil.copyfile(ROOT/'ziokt'/'web'/'application-client.js',directory/'application-client.js')
   suffix='zip' if target=='chromium' else 'xpi';path=output/f'ziokt-companion-{target}.{suffix}'
@@ -27,7 +28,7 @@ def package(output):
   digest=hashlib.sha256(path.read_bytes()).hexdigest();path.with_suffix(path.suffix+'.sha256').write_text(digest+'  '+path.name+'\n');reports.append({'target':target,'path':str(path),'sha256':digest,'store_signed':False})
  # Keep provenance outside the archives so identical sources retain identical bytes.
  revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
- dirty=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=normal','--','extensions/ziokt','ziokt/web/application-client.js','tools/package_webextensions.py'],cwd=ROOT,text=True).strip())
+ dirty=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=normal','--','extensions/ziokt','ziokt/web/application-client.js','gateway/gui/site-url.js','tools/package_webextensions.py'],cwd=ROOT,text=True).strip())
  versions={target:json.loads((source/f'manifest.{target}.json').read_text())['version'] for target in ('chromium','firefox','thunderbird')}
  provenance={'schema':'ziokt.webextensions.build.v1','source_commit':revision,'source_dirty':dirty,'store_signed':False,'versions':versions,'packages':[{k:v for k,v in record.items() if k!='path'}|{'file':Path(record['path']).name} for record in reports]}
  provenance_path=output/'build-source.json'
