@@ -24,6 +24,9 @@ def package(repositories_root,output,evidence=None):
     dest=stage/name/path;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,dest);included+=1
    provenance['repositories'][name]={'revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(),'working_tree_changes':subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True).splitlines(),'staged_source_files':included}
   (stage/'SOURCE_PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
+  build_script=base/'package_source.sh'
+  if build_script.is_file():
+   (stage/'package_source.sh').write_text(build_script.read_text())
   if evidence is not None:
    # Explicit, operator-prepared public evidence only; never collect private config.
    evidence_path=Path(evidence)
