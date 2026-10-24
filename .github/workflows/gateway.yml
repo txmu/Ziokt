@@ -38,6 +38,7 @@ jobs:
           npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
           node tools/gateway_browser_smoke.cjs
+          node tools/gateway_locale_smoke.cjs
           node tools/assurance_browser_smoke.cjs
       - name: Verify gateway assets in portable delivery
         run: python ci/build.py

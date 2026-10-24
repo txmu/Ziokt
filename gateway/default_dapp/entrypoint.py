@@ -1515,8 +1515,8 @@ elif subpath == "mcp":
 # SUBPATH: SHADOW6
 # ==============================================================================
 elif subpath == "shadow6":
-    # Examples are generated from the same profile catalog as the UI after
-    # server-side address observation; no embedded address or node identity.
+    # The external gateway script builds fictional documentation-only endpoints
+    # from this profile catalog. Imported envelopes retain their own values.
     canonical_sample_s6p1 = ""
 
     
@@ -1672,6 +1672,7 @@ elif subpath == "shadow6":
                     <strong style="color:var(--accent-blue);font-size:0.9rem;">🧩 {tr('S6P1 协议信封解构报告 (Protocol Envelope Breakdown)', 'S6P1 Protocol Envelope Breakdown')}</strong>
                     <span id="s6p1-schema-tag" style="font-family:monospace;font-size:0.75rem;color:var(--accent-green);">SCHEMA: shadow6.protocol-envelope.v1</span>
                 </div>
+                <p id="s6p1-example-notice" data-i18n="shadow6.example_notice" style="margin:0 0 1rem;color:var(--text-secondary);font-size:0.85rem;">{t('shadow6.example_notice')}</p>
                 <div id="s6p1-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;margin-bottom:1rem;">
                     <div style="background:#111827;padding:0.6rem 0.8rem;border-radius:4px;border:1px solid #1f2937;">
                         <div style="font-size:0.75rem;color:var(--text-secondary);">{tr('节点身份 (Node ID)', 'Node Identity (Node ID)')}</div>
@@ -1754,23 +1755,8 @@ elif subpath == "shadow6":
     function envelopeText(value) {{
         return String(value).replace(/[&<>"']/g, function(c) {{ return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]; }});
     }}
-    async function discoverS6Example() {{
-        var status = document.getElementById('s6p1-schema-tag');
-        status.textContent = 'Discovering server public address…';
-        try {{
-            var response = await fetch('/api/gateway/public-address', {{cache:'no-store'}});
-            var observed = await response.json();
-            if (!response.ok || !observed.ok) throw Error(observed.error && observed.error.message || 'Public address unavailable');
-            var example = {{schema:'shadow6.protocol-envelope.v1',version:1,role:'client',purpose:'example:unverified',
-                identity:{{alias:'Unverified example'}},components:{{}},credentials:{{}},
-                core:Array.from(new Set(S6_PROFILES.map(function(p){{return p.core;}}))),
-                routes:S6_PROFILES.map(function(p){{return Object.assign({{host:observed.address}},p);}})}};
-            CANONICAL_SAMPLE_S6P1 = 'S6P1.' + btoa(JSON.stringify(example)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
-            if (!document.getElementById('s6p1-textarea').value.trim()) handleLoadSampleS6P1();
-            else handleParseS6P1();
-        }} catch(error) {{
-            status.textContent = 'Address discovery unavailable: ' + error.message;
-        }}
+    function discoverS6Example() {{
+        if (window.loadFictionalS6Example) window.loadFictionalS6Example();
     }}
 
     function parseS6P1Envelope(raw) {{
@@ -2531,4 +2517,4 @@ response = f"""<!DOCTYPE html>
 
 response=response.replace('<body>', '<body><p id="runtime-evidence-note" role="status">'+t('runtime.evidence_note')+'</p>',1)
 
-response=response.replace('<body>', '<body><nav aria-label="Unified client" style="padding:12px;display:flex;gap:16px;flex-wrap:wrap"><a href="https://app.ziokt.com/">Ziokt Web 应用</a><a href="https://app.ziokt.com/downloads/">各平台软件下载</a></nav>',1)
+response=response.replace('<body>', '<body><nav aria-label="Unified client" style="padding:12px;display:flex;gap:16px;flex-wrap:wrap"><a href="https://app.ziokt.com/" data-i18n="links.web_app">'+t('links.web_app')+'</a><a href="https://app.ziokt.com/downloads/" data-i18n="links.downloads">'+t('links.downloads')+'</a></nav>',1)

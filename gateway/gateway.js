@@ -37,7 +37,15 @@
     const label = code.startsWith('zh') ? '简体中文' : (dictionaries[code]['language.name'] || 'English');
     select.add(new Option(label, code));
   }
-  select.value = locale; langBox.append(langLabel, select);
+  function syncLocaleSelection() {
+    // URL/rendered locale wins over stale browser-restored form values.
+    for (const option of select.options) {
+      option.defaultSelected = option.value === locale;
+      option.selected = option.value === locale;
+    }
+    select.value = locale;
+  }
+  syncLocaleSelection(); langBox.append(langLabel, select);
 
   const uiCookie = document.cookie.split('; ').find(s => s.startsWith('ziokt_ui='))?.split('=')[1];
   let uiMode = new URL(location.href).searchParams.get('ui') || uiCookie || localStorage.getItem('ziokt_ui') || 'panoramic';
@@ -62,6 +70,47 @@
   modeBox.append(modeSpan, btnPanoramic, btnSimple);
   toolbar.append(langBox, modeBox);
   document.body.prepend(toolbar);
+  syncLocaleSelection();
+  window.addEventListener('pageshow', syncLocaleSelection);
+
+  // Older immutable DApp templates contain literal link labels. Keep those
+  // published templates readable without changing their content-addressed bytes.
+  const unifiedLinks = document.querySelector('nav[aria-label="Unified client"]');
+  unifiedLinks?.querySelectorAll('a').forEach(link => {
+    const url = new URL(link.href);
+    if (url.origin !== 'https://app.ziokt.com') return;
+    if (url.pathname === '/') link.dataset.i18n = 'links.web_app';
+    if (url.pathname === '/downloads/') link.dataset.i18n = 'links.downloads';
+  });
+  const inspection = document.getElementById('s6p1-inspection-box');
+  if (inspection && !document.getElementById('s6p1-example-notice')) {
+    const notice = document.createElement('p');
+    notice.id = 's6p1-example-notice';
+    notice.dataset.i18n = 'shadow6.example_notice';
+    notice.style.cssText = 'margin:0 0 1rem;color:var(--text-secondary);font-size:0.85rem';
+    inspection.querySelector('#s6p1-summary-grid')?.before(notice);
+  }
+  if (inspection && Array.isArray(window.S6_PROFILES)) {
+    const example = {schema:'shadow6.protocol-envelope.v1',version:1,role:'client',
+      purpose:'example:fictional',identity:{alias:'Fictional example'},components:{},credentials:{},
+      core:[...new Set(window.S6_PROFILES.map(profile => profile.core))],
+      routes:window.S6_PROFILES.map((profile,index) => ({core:profile.core,
+        transport:profile.transport,host:'192.0.2.1',port:24000+index}))};
+    const sample = 'S6P1.' + btoa(JSON.stringify(example)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const input = document.getElementById('s6p1-textarea');
+    const previousSample = window.CANONICAL_SAMPLE_S6P1;
+    const loadSample = () => {
+      window.CANONICAL_SAMPLE_S6P1 = sample;
+      input.value = sample;
+      window.handleParseS6P1();
+    };
+    // Also replaces the sample button on already-published templates. A pending
+    // legacy address lookup cannot replace this nonempty sample or imported text.
+    window.loadFictionalS6Example = loadSample;
+    window.discoverS6Example = loadSample;
+    window.handleLoadSampleS6P1 = loadSample;
+    if (!input.value.trim() || input.value === previousSample) loadSample();
+  }
 
   function applyUiMode(mode) {
     uiMode = mode;

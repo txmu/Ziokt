@@ -59,7 +59,9 @@ class ObservationTests(unittest.TestCase):
                               'https://shadow6.ziokt.com', 'sslip.io', '43.207.75.185', 'IjQzLjIwNy43NS4xODUi'):
                 self.assertNotIn(forbidden, page)
         page = self.render('shadow6')
-        self.assertIn('/api/gateway/public-address', page)
+        self.assertNotIn('/api/gateway/public-address', page)
+        self.assertIn('IP addresses and ports in the built-in sample are fictional', page)
+        self.assertIn('loadFictionalS6Example', page)
         self.assertIn('not signature or connectivity verification', page)
         self.assertIn('envelopeText(r.host', page)
 

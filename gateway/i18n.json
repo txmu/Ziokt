@@ -1,5 +1,8 @@
 {
   "en-US": {
+    "links.web_app": "Ziokt Web App",
+    "links.downloads": "Platform Downloads",
+    "shadow6.example_notice": "The IP addresses and ports in the built-in sample are fictional and are provided for illustration only. An imported envelope displays the values supplied by its author; they do not establish live connectivity.",
     "language.name": "English",
     "portal.badge": "COR-WEB DECENTRALIZED STATIC SITE • NNS: status / corium",
     "portal.title": "Cor-Web Decentralized Panoramic Gateway",
@@ -180,6 +183,9 @@
     "forum.readOnly": "Read-only: select your own signing identity before posting."
   },
   "zh-CN": {
+    "links.web_app": "Ziokt Web 应用",
+    "links.downloads": "各平台软件下载",
+    "shadow6.example_notice": "内置示例中的 IP 地址与端口均为虚构，仅用于演示。导入自定义信封时显示其作者提供的值，不代表已验证真实连通性。",
     "language.name": "简体中文",
     "portal.badge": "COR-WEB 原生去中心化静态门户 • NNS: status / corium",
     "portal.title": "Cor-Web 原生去中心化全景门户",
