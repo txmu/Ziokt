@@ -34,6 +34,11 @@ def snapshot(config):
                   'source_protocols':{'recovery_main':'ziokt-main-recovery-20261024',
                                       'dna_side':'ziokt-dna-side-20261024'},
                   'source_protocol_activation_proved':False}
+        if config.get('chain_observation'):
+            from .chain_observation import verify
+            observation=loads(secure_read(config['chain_observation'],65536,private=False).decode())
+            result['deployed_recovery_observation']=observation
+            result['deployed_recovery_verification']=verify(observation,db,network)
         declaration = root/'etc/corix/networks'/network/'recovery.json'
         if declaration.is_file():
             value=loads(secure_read(declaration,65536,private=False).decode())

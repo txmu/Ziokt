@@ -11,7 +11,19 @@ compiler=Path('dist/light-compiler').resolve();raw=(compiler/'manifest.json').re
 principals={'owner':{'role':'admin','projects':[],'token_sha256':hashlib.sha256(b'ci-owner').hexdigest()}}
 for name in ('nodeA','nodeB'):principals[name]={'role':'worker','worker':name,'projects':['demo'],'token_sha256':hashlib.sha256(('ci-'+name).encode()).hexdigest()}
 config=root/'controller.json';config.write_text(json.dumps({'principals':principals,'light_compile':{'compiler_root':str(compiler),'manifest_sha256':hashlib.sha256(raw).hexdigest(),'cross_compile':False}}));config.chmod(0o600)
-controller=Controller(root/'state',config);server=Server(('127.0.0.1',0),handler(controller));origin='http://127.0.0.1:'+str(server.server_port)
+controller=Controller(root/'state',config);mount=os.environ.get('OPENCI_BROWSER_PREFIX','')
+if mount not in {'','/openci'}:raise ValueError('fixed test mount required')
+backend=None
+server=Server(('127.0.0.1',0),handler(controller));origin='http://127.0.0.1:'+str(server.server_port)
+if mount:
+    import socket
+    from types import SimpleNamespace
+    from ziokt.effort_web import effort_server
+    backend=server;threading.Thread(target=backend.serve_forever,daemon=True).start()
+    with socket.socket() as free:
+        free.bind(('127.0.0.1',0));proxy_port=free.getsockname()[1]
+    upstream=origin;origin='http://127.0.0.1:'+str(proxy_port)
+    server=effort_server(SimpleNamespace(expected_network='browser-fixture'),origin,port=proxy_port,openci_endpoint=upstream)
 settings=json.loads(config.read_text());settings['public_origin']=origin;config.write_text(json.dumps(settings))
 image=manifest['targets']['x86_64']['image'];seeds={}
 for index,name in enumerate(('nodeA','nodeB')):
@@ -24,6 +36,9 @@ source=json.dumps({'schema':'openci.light-source.v1','name':'unit.i','source':'i
 upload=controller.fabric.begin('openci-demo','input',len(source),'sha256:'+hashlib.sha256(source).hexdigest(),'application/json');controller.fabric.put('openci-demo','input',0,source);obj=controller.fabric.finish('openci-demo','input');ref={'object':obj['id'],'digest':obj['digest']}
 tasks=[{'id':'build'+str(i),'needs':[],'executor':'light-c','image':image,'argv':['light-c','x86_64','unit.i','unit.o'],'arch':'x86_64','pool':'community' if i==0 else 'trusted','cpu':1,'memory_mb':64,'timeout':20,'attempts':2,'outputs':['unit.o'],'worker':name} for i,name in enumerate(('nodeA','nodeB'))]
 pid=controller.state.submit('owner',{'schema':'openci.pipeline.v1','project':'demo','nonce':'browser-test','source':ref,'tasks':tasks})['pipeline']
-(root/'ready.json').write_text(json.dumps({'origin':origin,'pipeline':pid}));(root/'ready.json').chmod(0o600)
+(root/'ready.json').write_text(json.dumps({'origin':origin+mount,'pipeline':pid}));(root/'ready.json').chmod(0o600)
 try:server.serve_forever()
-finally:server.server_close();controller.close()
+finally:
+    server.server_close()
+    if backend:backend.shutdown();backend.server_close()
+    controller.close()

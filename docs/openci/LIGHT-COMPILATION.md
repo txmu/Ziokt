@@ -19,3 +19,7 @@ Controller 配置示例（路径与摘要须由运营者显式提供）：
 ```
 
 奋斗服务与 Controller 分开运行；Controller 以 public_origin/public_origins 明确审批自身与奋斗页的 Origin；同源反向代理将 `/openci/*` 去前缀后转发至指定 Controller。不向浏览器提供 owner token。运行中的编译器必须来自全部通过的 `openci-light.yml` CI artifact，不在生产节点编译。轻量 C 对象核验与 ALFS 镜像验收是两条实测路径，不能互相替代。
+
+每个节点的奋斗服务可通过明确的 loopback `openci_endpoint` 挂载自己的 `/openci/` 工作区和 API，不依赖固定生产域名。代理只连接运营者固定的本机 Controller，限制方法与消息/响应长度、不接受调用者指定上游、不注入管理凭证或 Cookie、不跟随重定向。Worker 的凭证和签名由 Controller 原样验权。CI 浏览器同时经过 Controller 根路径和该实际本机挂载完成 C→ELF、加密对象上传、签名完成回执与独立故障域结果核验。
+
+Android 的第三模式要求设备上的 System WebView 支持 WebAssembly、Web Worker、BigInt 和 Ed25519 WebCrypto；OS 版本满足安装门槛并不单独保证其 WebView 具备这些能力。缺少能力时明确拒绝编译，不降级为不签名回执。前两种 Java 模式不依赖 WebView；物理 ARM 设备和各种厂商后台策略应分别记录实际验收结果。

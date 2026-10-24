@@ -268,3 +268,13 @@ for independent worker observations. Publication status distinguishes queued,
 peer acknowledged, submitted and actually included in a canonical block. Retries
 reuse the same native operation ID. The record's public discovery, local ownership
 admission and native content inclusion remain separate facts.
+
+`tools/observe_deployed_chain.py` creates a portable, node-signed observation of
+actual canonical checkpoint headers and public recovery authorization fields. It
+excludes local database/backup/key paths. Configure `chain_observation` in the
+Gateway to display the document alongside live chain identity and work proof;
+Gateway verifies its signature and compares every checkpoint header with its own
+canonical database. An observation is distinct from an independently replayed
+history or activation of the source-defined recovery/DNA networks. Every node can
+produce its own observation with its own identity; observing does not grant a
+validator role or privileged network authority.

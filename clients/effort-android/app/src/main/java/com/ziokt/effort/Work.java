@@ -13,6 +13,7 @@ import org.json.*;
 final class Work {
     static final String ORIGIN="https://fendou.ziokt.com";
     private final String origin;
+    private String expectedNetwork;private boolean networkConfigLoaded;
     private final Consumer<JSONObject> receiptSink;
     static boolean validOrigin(String value){try{java.net.URI uri=new java.net.URI(value);return "https".equals(uri.getScheme())&&uri.getHost()!=null&&uri.getUserInfo()==null&&(uri.getRawPath()==null||uri.getRawPath().isEmpty()||uri.getRawPath().equals("/"))&&uri.getRawQuery()==null&&uri.getRawFragment()==null;}catch(Exception error){return false;}}
     volatile boolean cancelled;
@@ -25,14 +26,14 @@ final class Work {
     void check() { if(cancelled||Thread.currentThread().isInterrupted())throw new CancellationException(); }
     void pause(long ms) throws InterruptedException { check();Thread.sleep(ms);check(); }
     JSONObject post(String path,JSONObject value,String token) throws Exception {
-        check();if(!path.matches("/api/(job|proof|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
+        check();if(!path.matches("/api/(job|proof|people/config|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
         byte[] body=value.toString().getBytes(StandardCharsets.UTF_8);if(body.length>8192)throw new IOException("REQUEST_LIMIT");
         HttpsURLConnection c=(HttpsURLConnection)new URL(origin+path).openConnection();request=c;
-        c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setUseCaches(false);c.setRequestMethod("POST");c.setDoOutput(true);c.setFixedLengthStreamingMode(body.length);
+        c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setUseCaches(false);boolean config=path.equals("/api/people/config");c.setRequestMethod(config?"GET":"POST");if(!config){c.setDoOutput(true);c.setFixedLengthStreamingMode(body.length);}
         c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Origin",origin);
         if(token!=null)c.setRequestProperty("Authorization","Bearer "+token);
         try {
-            check();try(OutputStream out=c.getOutputStream()){out.write(body);}
+            check();if(!config){try(OutputStream out=c.getOutputStream()){out.write(body);}}
             int code=c.getResponseCode();InputStream input=code==200?c.getInputStream():c.getErrorStream();
             if(input==null)throw new IOException("HTTP_"+code);
             ByteArrayOutputStream bytes=new ByteArrayOutputStream(8192);byte[] buffer=new byte[2048];int count;
@@ -49,12 +50,19 @@ final class Work {
         byte[] bytes=MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));StringBuilder s=new StringBuilder(64);
         for(byte b:bytes)s.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return s.toString();
     }
+    String networkId(String observed) throws Exception {
+        if(!networkConfigLoaded){JSONObject config=post("/api/people/config",object(),null);if(!"ziokt.people-help.v1".equals(config.getString("schema")))throw new IOException("INVALID_NETWORK_CONFIG");if(config.has("network_id")&&!config.isNull("network_id"))expectedNetwork=config.getString("network_id");networkConfigLoaded=true;}
+        if(expectedNetwork==null)expectedNetwork=observed;
+        if(expectedNetwork!=null&&!expectedNetwork.matches("[A-Za-z0-9_-]{1,64}"))throw new IOException("INVALID_NETWORK_CONFIG");
+        return expectedNetwork;
+    }
     void compute(int level) throws Exception {
         JSONObject job=post("/api/job",object(),null);
         if(!job.getBoolean("available")){status.accept("等待真实计算任务，不进行无效计算");pause(5000);return;}
         String network=job.getString("network_id"),submitter=job.getString("submitter_id"),problem=job.getString("problem_id"),token=job.getString("token"),start=job.getString("start");
+        String expected=networkId(network);
         long expires=job.getLong("expires"),limit=job.getLong("limit");
-        if(!network.equals("ziokt-main")||!job.getString("engine_id").equals("corium/internal-engine-zero-v1")||job.getInt("difficulty")!=3||!submitter.matches("[a-f0-9]{64}")||!problem.matches("[a-f0-9]{64}")||!token.matches("[a-f0-9]{48}")||!start.matches("[0-9]{1,18}")||limit<1||limit>1000000||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_JOB");
+        if(!network.equals(expected)||!job.getString("engine_id").equals("corium/internal-engine-zero-v1")||job.getInt("difficulty")!=3||!submitter.matches("[a-f0-9]{64}")||!problem.matches("[a-f0-9]{64}")||!token.matches("[a-f0-9]{48}")||!start.matches("[0-9]{1,18}")||limit<1||limit>1000000||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_JOB");
         long base=Long.parseLong(start);if(base>Long.MAX_VALUE-limit)throw new IOException("NONCE_LIMIT");
         MessageDigest digest=MessageDigest.getInstance("SHA-256");int[] batches={8,16,32,64,128};int[] delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
         status.accept("计算协作运行中 · 单线程 · 档位 "+(selected+1));
@@ -71,9 +79,9 @@ final class Work {
     }
     void network() throws Exception {
         JSONObject opened=post("/api/people/direct/open",object(),null);
-        if(opened.getString("state").equals("waiting")){status.accept("主网直连已启用 · 等待真实转发任务（非匿名）");pause(5000);return;}
+        if(opened.getString("state").equals("waiting")){status.accept("节点直连已启用 · 等待真实转发任务（非匿名）");pause(5000);return;}
         String token=opened.getString("session");
-        if(!opened.getString("state").equals("open")||!opened.getString("network_id").equals("ziokt-main")||!token.matches("[A-Za-z0-9_-]{40,64}"))throw new IOException("INVALID_SESSION");
+        if(!opened.getString("state").equals("open")||!opened.getString("network_id").equals(networkId(opened.getString("network_id")))||!token.matches("[A-Za-z0-9_-]{40,64}"))throw new IOException("INVALID_SESSION");
         boolean[] fin={false,false};long total=0;long began=android.os.SystemClock.elapsedRealtime();String[] sides={"a","b"};
         while(!(fin[0]&&fin[1])) {
             check();if(total>8*1024*1024L||android.os.SystemClock.elapsedRealtime()-began>300000)throw new IOException("LOCAL_RELAY_BUDGET");boolean moved=false;

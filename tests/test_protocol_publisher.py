@@ -73,3 +73,20 @@ class PublicationTests(unittest.TestCase):
         result=json.loads(gateway.native_text('zkt-governance','propose',json.dumps(envelope)))
         self.assertEqual(result['state'],'open')
         with sqlite3.connect(self.fixture.chain) as db:self.assertEqual(db.execute('SELECT count(*),max(height) FROM blocks').fetchone(),before)
+
+    def test_portable_observation_matches_actual_chain_and_excludes_private_paths(self):
+        from ziokt.chain_observation import create,verify
+        from ziokt.chain_provenance import snapshot
+        from cryptography.exceptions import InvalidSignature
+        config=json.loads(Path(self.settings['gateway']).read_text());document=create(config,self.fixture.etc/'identity.key')
+        self.assertNotIn(str(self.fixture.root),json.dumps(document))
+        with sqlite3.connect(self.fixture.chain) as db:
+            self.assertTrue(verify(document,db,'default')['canonical_checkpoint_headers_matched'])
+            changed=json.loads(json.dumps(document));changed['payload']['observed_at']+=1
+            with self.assertRaises(InvalidSignature):verify(changed,db,'default')
+            db.execute('UPDATE blocks SET total_weight=total_weight+1 WHERE height=0')
+            with self.assertRaises(ValueError):verify(document,db,'default')
+            db.rollback()
+        public=self.fixture.root/'observation.json';public.write_text(json.dumps(document));public.chmod(0o644)
+        report=snapshot(config|{'chain_observation':str(public)})
+        self.assertTrue(report['deployed_recovery_verification']['signature_verified']);self.assertFalse(report['source_protocol_activation_proved'])

@@ -5,7 +5,7 @@
   var input = document.getElementById('help-invitation'), status = document.getElementById('status');
   var background = document.getElementById('background'), active = false, epoch = 0;
   var wakeLock = null, resumeAfterNetwork = false;
-  var peers = [], timers = [], requests = [], bytes = 0, completed = 0, origins = null, directEnabled = false;
+  var peers = [], timers = [], requests = [], bytes = 0, completed = 0, origins = null, directEnabled = false, networkId = null;
   function modern() { return window.isSecureContext === true && window.crypto && window.crypto.subtle && typeof Worker === 'function' && typeof fetch === 'function' && typeof BigInt === 'function' && typeof AbortController === 'function' && typeof TextEncoder === 'function'; }
   function networkMode() { return mode.value === 'network' || mode.value === 'auto' && !modern(); }
   function later(fn, ms) { var timer = setTimeout(function () { var i = timers.indexOf(timer); if (i >= 0) timers.splice(i, 1); fn(); }, ms); timers.push(timer); }
@@ -89,7 +89,7 @@
     request({origin: '', prefix: '/api/people/direct/'}, 'open', {}, function (error, value) {
       if (error) return failed(error);
       if (value.state === 'waiting') { status.textContent = '主网直连转发已启用 · 等待真实任务（非匿名，不进行探测）'; return later(function () { directOpen(generation); }, 5000); }
-      if (value.state !== 'open' || value.network_id !== 'ziokt-main' || typeof value.session !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(value.session)) return failed('INVALID_DIRECT_SESSION');
+      if (value.state !== 'open' || value.network_id !== networkId || typeof value.session !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(value.session)) return failed('INVALID_DIRECT_SESSION');
       peers = [{origin: '', prefix: '/api/people/direct/a/', token: value.session, session: 'a'}, {origin: '', prefix: '/api/people/direct/b/', token: value.session, session: 'b'}];
       bytes = 0; completed = 0; status.textContent = '主网直连转发运行中 · 原生端点加密（非匿名）';
       pump(peers[0], peers[1], generation); pump(peers[1], peers[0], generation);
@@ -137,7 +137,7 @@
   background.addEventListener('change', visibility);
   window.addEventListener('pagehide', function () { if (active) stop('页面已离开；网络协作已停止'); });
   var config = new XMLHttpRequest(); config.open('GET', '/api/people/config', true); config.timeout = 5000;
-  config.onload = function () { try { var value = JSON.parse(config.responseText); if (config.status === 200 && value.schema === 'ziokt.people-help.v1' && Object.prototype.toString.call(value.relay_origins) === '[object Array]') { origins = value.relay_origins; directEnabled = !!(value.direct_relay && value.direct_relay.enabled === true && value.direct_relay.network_id === 'ziokt-main' && value.direct_relay.transport === 'direct'); } } catch (_) {} };
+  config.onload = function () { try { var value = JSON.parse(config.responseText); if (config.status === 200 && value.schema === 'ziokt.people-help.v1' && Object.prototype.toString.call(value.relay_origins) === '[object Array]') { networkId = typeof value.network_id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.network_id) ? value.network_id : null; for (var product in (value.downloads || {})) { if (product !== 'android' && product !== 'windows') continue; var href = value.downloads[product]; if (typeof href === 'string' && /^https:\/\//.test(href)) document.getElementById(product+'-download').href=href; } origins = value.relay_origins; directEnabled = !!(value.direct_relay && value.direct_relay.enabled === true && value.direct_relay.network_id === networkId && networkId !== null && value.direct_relay.transport === 'direct'); } } catch (_) {} };
   config.send();
   window.ZioktPeopleRelay = {stop: stop, desired: function () { return active || resumeAfterNetwork; }, supported: function () { return !!(window.XMLHttpRequest && window.JSON); }};
   var receiptButton = document.getElementById('relay-receipt-export');

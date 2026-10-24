@@ -33,6 +33,7 @@ jobs:
           npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
           node ci/openci/light/browser_e2e.cjs
+          OPENCI_BROWSER_PREFIX=/openci node ci/openci/light/browser_e2e.cjs
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

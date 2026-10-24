@@ -107,7 +107,7 @@ class EffortPool:
             return {**receipt,'duplicate':False}
 
 
-def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None):
+def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None,downloads=None,openci_endpoint=None):
     require_network()
     origins = [origin] if isinstance(origin, str) else list(origin)
     for o in origins:
@@ -121,6 +121,13 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         from .relay_web import approved_origin
         try:approved_origin(item)
         except ValueError:raise ProtocolError('INVALID_CONFIG','exact HTTPS or loopback collaboration origin required') from None
+    from .local_openci_proxy import LocalOpenCI
+    openci=LocalOpenCI(openci_endpoint) if openci_endpoint else None
+    downloads=downloads or {}
+    if type(downloads) is not dict or set(downloads)-{'android','windows'}:raise ProtocolError('INVALID_CONFIG','explicit download products required')
+    for value in downloads.values():
+        parsed=urlsplit(value)
+        if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:raise ProtocolError('INVALID_CONFIG','HTTPS download links required')
     connect_sources=' '.join(["'self'"]+list(relay_origins))
     from .build_info import snapshot
     build=snapshot()
@@ -158,9 +165,10 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def do_GET(self):
             try:
                 self.valid_origin()
+                if self.path.startswith('/openci/') and openci is not None:return openci.forward(self)
                 if self.path in {'/light.js','/light-worker.js'}:
                     return self.send_value(200,files_resource('openci').joinpath('web',self.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
-                if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','build':build,'reputation':{'kind':'native-zkt-local-reputation','enabled':direct_relay is not None and direct_relay.rewards is not None,'peer_quorum_required':True,'main_chain_settlement':False},'relay_origins':list(relay_origins),'direct_relay':{'enabled':direct_relay is not None,'network_id':direct_relay.network if direct_relay else None,'transport':'direct','anonymous':False}})
+                if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','network_id':getattr(pool,'expected_network',None) or (direct_relay.network if direct_relay else None),'downloads':downloads,'build':build,'reputation':{'kind':'native-zkt-local-reputation','enabled':direct_relay is not None and direct_relay.rewards is not None,'peer_quorum_required':True,'main_chain_settlement':False},'relay_origins':list(relay_origins),'direct_relay':{'enabled':direct_relay is not None,'network_id':direct_relay.network if direct_relay else None,'transport':'direct','anonymous':False}})
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)
                     return self.send_value(200,explorer.query(self.path))
@@ -175,6 +183,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def do_POST(self):
             try:
                 self.valid_origin(True)
+                if self.path.startswith('/openci/') and openci is not None:return openci.forward(self)
                 if self.headers.get('Transfer-Encoding') is not None or self.headers.get('Content-Type')!='application/json':raise ProtocolError('INVALID_REQUEST','bounded JSON required')
                 length=self.headers.get('Content-Length','')
                 limit=65536 if self.path=='/api/people/rewards/settle' else 8192 if self.path.startswith('/api/people/direct/') else 2048
@@ -201,6 +210,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 self.send_value(200,result)
             except ProtocolError as exc:self.send_value(429 if exc.code=='BACKPRESSURE' else 409,{'error':exc.code})
             except (OSError,ValueError,KeyError,TypeError):self.send_value(503,{'error':'NATIVE_UNAVAILABLE'})
+        do_PUT=do_POST
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads=True
         def process_request(self,request,address):
@@ -219,7 +229,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
     required={'schema','origin','listen','port','federation_config','provider','network_id','submitter','state_root'}
-    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins','direct_relay','relay_rewards'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins','direct_relay','relay_rewards','downloads','openci_endpoint'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
     if not isinstance(config['network_id'],str) or not config['network_id'] or len(config['network_id'])>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in config['network_id']):raise ProtocolError('INVALID_CONFIG','explicit Corium mainnet identifier required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
@@ -240,7 +250,7 @@ def main(argv=None):
         if 'relay_rewards' in config and 'direct_relay' not in config:raise ProtocolError('INVALID_CONFIG','native direct relay required for reward observations')
         rewards=RelayRewards(config['relay_rewards'],config['network_id']) if 'relay_rewards' in config else None
         direct_relay=DirectRelay(config['direct_relay'],config['network_id'],rewards=rewards) if 'direct_relay' in config else None
-        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay)
+        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'))
         try:
             if tls:
                 if not {'certificate','private_key'}<=set(config) or urlsplit(config['origin']).scheme!='https':raise ProtocolError('INVALID_CONFIG','complete HTTPS credentials required')

@@ -130,7 +130,9 @@ def main():
         from .enrollment import DOMAIN
         from ziokt.security import sign
         identifier(args.worker);value=strict_json(secure_read(args.invite_file,16384),16384)
-        if value.get('schema')!='openci.worker-invite.v1' or value.get('controller_origin')!=args.server.rstrip('/'):
+        from urllib.parse import urlsplit
+        endpoint=urlsplit(args.server);selected_origin=endpoint.scheme+'://'+endpoint.netloc
+        if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or value.get('schema')!='openci.worker-invite.v1' or value.get('controller_origin')!=selected_origin:
             raise Error('INVITE_CONTROLLER','Invitation controller origin must match the explicitly selected server')
         if not args.signing_key_file.exists():private_write(args.signing_key_file,secrets.token_bytes(32))
         key=secure_read(args.signing_key_file,32)
