@@ -71,7 +71,11 @@
   toolbar.append(langBox, modeBox);
   document.body.prepend(toolbar);
   syncLocaleSelection();
-  window.addEventListener('pageshow', syncLocaleSelection);
+  window.addEventListener('pageshow', () => {
+    syncLocaleSelection();
+    // Some browsers restore persisted form state after dispatching pageshow.
+    requestAnimationFrame(syncLocaleSelection);
+  });
 
   // Older immutable DApp templates contain literal link labels. Keep those
   // published templates readable without changing their content-addressed bytes.

@@ -32,6 +32,9 @@ const {chromium}=require('../ci/browser/node_modules/playwright');
   // Model a browser restoring a stale form value as a cached page is shown.
   await select.evaluate(el=>{el.value='zh-CN';window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));});
   await check('en-US');
+  await select.evaluate(el=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));el.value='zh-CN';});
+  await page.waitForFunction(()=>document.querySelector('#ziokt-top-bar select').value==='en-US');
+  await check('en-US');
   await page.reload();await check('en-US');
   for(const mode of ['panoramic','simple']){
    await page.goto(origin+'/app/overview?lang=en-US&ui='+mode);await check('en-US');
