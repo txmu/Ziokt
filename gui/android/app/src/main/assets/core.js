@@ -553,7 +553,7 @@ export async function uploadObject(file, app, progress = () => {}) {
 }
 
 export async function renderToolPanel(container, title, filter, fileOperations = false) {
-  container.innerHTML = `<div class="card"><a href="https://app.ziokt.com/downloads/" target="_blank" rel="noopener">各平台软件下载 / Downloads</a><h2></h2><p>操作使用已鉴权的真实后端。工具结果仅代表其声明的阶段；验签、暂存、安装、激活分别显示。</p>
+  container.innerHTML = `<div class="card"><a href="https://github.com/txmu/Ziokt-Releases/releases" target="_blank" rel="noopener">各平台软件下载 / Downloads</a><h2></h2><p>操作使用已鉴权的真实后端。工具结果仅代表其声明的阶段；验签、暂存、安装、激活分别显示。</p>
     <label>Node administrator token（只保存在当前页面内存）<input type="password" class="input-text" id="operation-token" autocomplete="off"></label>
     <button class="btn btn-primary" id="load-real-tools">连接并刷新工具</button><p id="tool-count"></p>
     <select class="input-text" id="real-tool"></select><pre id="real-schema" style="white-space:pre-wrap"></pre>

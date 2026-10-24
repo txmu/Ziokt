@@ -290,9 +290,21 @@ PY_CORIUM_OPENCI_CONSENSUS
         updated=updated.replace(anchor,openci_block+'\n'+anchor,1)
     work_policy=(ROOT/'spec/work_weight_policy.py').read_text()
     work_runtime=(ROOT/'spec/work_consensus.py').read_text()
+    dna_runtime=(ROOT/'spec/dna_protocol.py').read_text()
+    cooperative_runtime=(ROOT/'spec/cooperative_protocol.py').read_text()
+    recovery_runtime=(ROOT/'spec/recovery_consensus.py').read_text()
+    extra_work_sources={'dna_protocol.py':dna_runtime,'cooperative_protocol.py':cooperative_runtime,'recovery_consensus.py':recovery_runtime}
+    def namespace(name,source):
+        source=source.replace('import dna_protocol as DNA','DNA=_native_dna')
+        source=source.replace('from dna_protocol import encoded, require, integer, public_key','encoded,require,integer,public_key=_native_dna.encoded,_native_dna.require,_native_dna.integer,_native_dna.public_key')
+        return 'def _load_'+name+'():\n'+textwrap.indent(source,'    ')+'\n    return locals()\n'+name+'=__import__("types").SimpleNamespace(**_load_'+name+'())\n'
+    recovery_embedded=namespace('_native_dna',dna_runtime)+namespace('_native_cooperative',cooperative_runtime)+namespace('_native_recovery',recovery_runtime)
+    recovery_embedded+='DNA,Cooperative,Recovery=_native_dna,_native_cooperative,_native_recovery\n'
     work_target=args.corium/'work_consensus.py';work_policy_target=args.corium/'work_weight_policy.py'
-    work_digest=hashlib.sha256(b'Corium/NativeWorkVerifier/v2\0'+work_runtime.encode()+b'\0'+work_policy.encode()).hexdigest()
+    work_digest=hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(value.encode()for value in (work_runtime,work_policy,dna_runtime,recovery_runtime,cooperative_runtime))).hexdigest()
     work_embedded=work_runtime.replace('EMBEDDED_SOURCE_DIGEST = None','EMBEDDED_SOURCE_DIGEST = '+repr(work_digest),1)
+    for line in ('import dna_protocol as DNA','import recovery_consensus as Recovery','import cooperative_protocol as Cooperative'):
+        work_embedded=work_embedded.replace(line,'')
     work_embedded=work_embedded.replace('from work_weight_policy import validate,commitment,verify_work,work_digest,integer,encoded,MAX_WEIGHT','')
     work_embedded=work_embedded.replace("if __name__=='__main__':main(__import__('sys').argv[1:])",'')
     work_start='# BEGIN CORIUM NATIVE WORK CONSENSUS V2\n';work_end='# END CORIUM NATIVE WORK CONSENSUS V2\n'
@@ -300,7 +312,7 @@ PY_CORIUM_OPENCI_CONSENSUS
     work_block=work_start+'''_corium_work_consensus() (
     ulimit -t 15 -v 262144 || exit 2
     "${PYTHON_CMD:-python3}" - "$@" <<'PY_CORIUM_WORK_CONSENSUS'
-'''+work_primitives+'\n'+work_embedded+'''
+'''+work_primitives+'\n'+recovery_embedded+'\n'+work_embedded+'''
 import sys
 try:
     main(sys.argv[1:])
@@ -318,6 +330,9 @@ PY_CORIUM_WORK_CONSENSUS
         updated=updated.replace(anchor,work_block+'\n'+anchor,1)
     if args.check:
         mismatches = []
+        for name,expected in extra_work_sources.items():
+            path=args.corium/name
+            if not path.is_file()or path.read_text()!=expected:mismatches.append(str(path))
         for path, expected in ((target, runtime), (script, updated), (shielded_target, shielded_runtime), (openci_target,openci_runtime), (openci_coordinator,openci_runtime), (work_target,work_runtime), (work_policy_target,work_policy),
                                (coordinator_target, runtime), (currency_target, currency), (static_target,static_runtime)):
             if not path.is_file() or path.read_text() != expected:
@@ -331,6 +346,7 @@ PY_CORIUM_WORK_CONSENSUS
         target.write_text(runtime)
         shielded_target.write_text(shielded_runtime)
         work_target.write_text(work_runtime)
+        for name,value in extra_work_sources.items():(args.corium/name).write_text(value)
         work_policy_target.write_text(work_policy)
         openci_target.write_text(openci_runtime)
         openci_coordinator.write_text(openci_runtime)

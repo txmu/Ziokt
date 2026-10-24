@@ -116,7 +116,7 @@ python3 tools/configure_telegram_bot.py \
 
 ## 2026-10-18 新增对象、包与 Web 入口
 
-Web 应用：https://app.ziokt.com/ 。各平台安装包：https://app.ziokt.com/downloads/ 。详细的文件上传、下载、v2 双签名包暂存与原生准入操作见 [GUI 中文说明](GUI_USER_MANUAL.md)。源码目录、线上 MCP 和 GUI 目录已同步为 340 项工具；节点配置可能改变数量，应以实时 `tools/list` 为准。
+Web 应用：https://app.ziokt.com/ 。各平台安装包：https://github.com/txmu/Ziokt-Releases/releases 。详细的文件上传、下载、v2 双签名包暂存与原生准入操作见 [GUI 中文说明](GUI_USER_MANUAL.md)。源码目录、线上 MCP 和 GUI 目录已同步为 340 项工具；节点配置可能改变数量，应以实时 `tools/list` 为准。
 
 ChatGPT 中可说“列出可用的 object.begin、object.chunk.put、object.finish 与 v2 引用包工具及参数”。Telegram 使用 `/objects`、`/packages` 发现准确工具名，再用 `/help 工具名` 查看 schema；调用格式为 `/mcp 工具名 {JSON参数}`。分块写入、签名发布、准入、安装、激活是独立阶段，不能将 finish 或暂存回执当作安装成功。
 

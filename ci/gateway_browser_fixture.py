@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='ziokt-browser-') as directory:
      response=re.sub(r'    var S6_PROFILES = .*;\n','',response)
      response=re.sub(r'\s*<p id="s6p1-example-notice".*?</p>','',response)
      response=re.sub(r'(<a href="https://app.ziokt.com/"[^>]*>).*?</a>',r'\1Ziokt Web 应用</a>',response)
-     response=re.sub(r'(<a href="https://app.ziokt.com/downloads/"[^>]*>).*?</a>',r'\1各平台软件下载</a>',response)
+     response=re.sub(r'(<a href="https://(?:app\.ziokt\.com/downloads/|github\.com/txmu/Ziokt-Releases/releases)"[^>]*>).*?</a>',r'\1各平台软件下载</a>',response)
      response=response.replace(' data-i18n="links.web_app"','').replace(' data-i18n="links.downloads"','')
     return self.send(200,response.encode(),'text/html; charset=utf-8')
    if self.path.startswith(('/mcp','/oauth/','/.well-known/')):return MCP.do_GET(self)

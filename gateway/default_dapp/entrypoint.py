@@ -1890,7 +1890,7 @@ elif subpath == "gui":
       <div class="card"><h2>{tr('Ziokt 统一客户端', 'Ziokt unified client')}</h2>
       <p>{tr('使用真实鉴权后端；下载清单仅列出通过 CI 的平台安装包。', 'Uses the real authenticated backend; downloads list only actual CI-verified platform installers.')}</p>
       <p><a class="btn" href="https://app.ziokt.com/">{tr('打开 Web 应用', 'Open web application')}</a></p>
-      <p><a class="btn" href="https://app.ziokt.com/downloads/">{tr('各平台软件下载与 SHA-256', 'Platform installers and SHA-256')}</a></p>
+      <p><a class="btn" href="https://github.com/txmu/Ziokt-Releases/releases">{tr('各平台软件下载与 SHA-256', 'Platform installers and SHA-256')}</a></p>
       <p>{tr('HarmonyOS 源码包装不等同于已签名安装包；macOS ad-hoc 签名不等同于 Apple 公证。', 'HarmonyOS source wrappers are not signed installers; ad-hoc macOS signatures are not Apple notarization.')}</p></div>
     """
 
@@ -2517,4 +2517,4 @@ response = f"""<!DOCTYPE html>
 
 response=response.replace('<body>', '<body><p id="runtime-evidence-note" role="status">'+t('runtime.evidence_note')+'</p>',1)
 
-response=response.replace('<body>', '<body><nav aria-label="Unified client" style="padding:12px;display:flex;gap:16px;flex-wrap:wrap"><a href="https://app.ziokt.com/" data-i18n="links.web_app">'+t('links.web_app')+'</a><a href="https://app.ziokt.com/downloads/" data-i18n="links.downloads">'+t('links.downloads')+'</a></nav>',1)
+response=response.replace('<body>', '<body><nav aria-label="Unified client" style="padding:12px;display:flex;gap:16px;flex-wrap:wrap"><a href="https://app.ziokt.com/" data-i18n="links.web_app">'+t('links.web_app')+'</a><a href="https://github.com/txmu/Ziokt-Releases/releases" data-i18n="links.downloads">'+t('links.downloads')+'</a></nav>',1)

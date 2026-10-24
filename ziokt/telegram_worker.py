@@ -147,7 +147,7 @@ class TelegramWorker:
         if command=='reviews':return ', '.join(n for n in sorted(self.service.tools) if 'privacy_review_' in n or 'privacy_submit_' in n)
         if command=='dns':return self.render(self.service.call(self.principal,'ziokt_naming_status',{}))
         if command=='privacy':return self.render(self.service.call(self.principal,'ziokt_privacy_status',{}))
-        if command=='gui':return 'Web 应用：https://app.ziokt.com/\n平台下载：https://app.ziokt.com/downloads/'
+        if command=='gui':return 'Web 应用：https://app.ziokt.com/\n平台下载：https://github.com/txmu/Ziokt-Releases/releases'
         if command=='confirm':return self.confirm(chat_id,user_id,rest)
         if command=='cancel':return self.cancel(chat_id,user_id,rest)
         if command=='mcp':

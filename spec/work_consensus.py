@@ -9,6 +9,9 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import dna_protocol as DNA
+import recovery_consensus as Recovery
+import cooperative_protocol as Cooperative
 from cryptography.hazmat.primitives import hashes,serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
@@ -25,7 +28,8 @@ def require(test,message):
     if not test:raise ValueError(message)
 
 
-def source_digest():return EMBEDDED_SOURCE_DIGEST or hashlib.sha256(b'Corium/NativeWorkVerifier/v2\0'+Path(__file__).read_bytes()+b'\0'+Path(__file__).with_name('work_weight_policy.py').read_bytes()).hexdigest()
+def source_digest():
+    return EMBEDDED_SOURCE_DIGEST or hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(Path(__file__).with_name(name).read_bytes() for name in ('work_consensus.py','work_weight_policy.py','dna_protocol.py','recovery_consensus.py','cooperative_protocol.py'))).hexdigest()
 def policy_hash(value):return hashlib.sha256(b'Corium/NativeConsensusPolicy/v2\0'+encoded(value)).hexdigest()
 
 def loads(raw):
@@ -38,7 +42,7 @@ def loads(raw):
     return json.loads(raw,object_pairs_hook=unique,parse_constant=lambda value:(_ for _ in ()).throw(ValueError('nonfinite consensus number')))
 
 
-def eligible_network(network):require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}),'eligible network required')
+def eligible_network(network):require(type(network) is str and (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'} or network in Recovery.NETWORKS),'eligible network required')
 
 def check_policy(value,network,genesis):
     eligible_network(network)
@@ -64,11 +68,14 @@ def proposal(db,network,payload,height):
 
 
 def active(db,network,height,validate_previous=True):
-    if not (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}):return None
+    if not (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'} or network in Recovery.NETWORKS):return None
+    baseline=Recovery.active(db,network,height,source_digest(),check_policy,LEGACY)
+    recovery=Recovery.declaration(network)
     rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height,t.hash,b.transactions FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id LEFT JOIN blocks b ON b.height=t.block_height WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
-    accepted=[];previous=LEGACY
+    accepted=[];previous=policy_hash(baseline) if baseline else LEGACY
     for row in rows:
+        if recovery is not None and row['block_height']<=recovery['checkpoint']['height']:continue
         try:payload=json.loads(row['data']);value=check_policy(payload.get('work_consensus'),network,genesis[0])
         except (ValueError, KeyError, TypeError):continue
         activation=value['work_policy']['activation_height']
@@ -84,7 +91,7 @@ def active(db,network,height,validate_previous=True):
         if validate_previous:require(value['previous_policy']==previous and (not accepted or activation>accepted[-1]['work_policy']['activation_height']),'native activation sequence')
         checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(checkpoint['height'],)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'governed checkpoint differs from native prefix')
         accepted.append(value);previous=policy_hash(value)
-    return accepted[-1] if accepted else None
+    return accepted[-1] if accepted else baseline
 
 
 def parent(db,hash_value):
@@ -101,7 +108,9 @@ def miner_key(value):
 
 
 def signing_bytes(block):
-    return b'Corium/NativeWorkBlock/v2\0'+encoded({k:v for k,v in block.items() if k!='signature'})
+    schema=block.get('work',{}).get('schema')
+    domain=b'Corium/DNA/block/v1\0' if schema==Recovery.SIDE else b'Corium/Recovery/block/v3\0' if schema==Recovery.MAIN else b'Corium/NativeWorkBlock/v2\0'
+    return domain+encoded({k:v for k,v in block.items() if k!='signature'})
 
 
 def context(block):
@@ -114,7 +123,17 @@ def verify(db,network,block,expected):
     require(type(block) is dict and set(block)=={'height','previous_hash','timestamp','validator','signature','transactions','work'},'exact native work block')
     p=parent(db,block['previous_hash']);require(type(block['height']) is int and block['height']==p['height']+1,'native parent/height')
     value=active(db,network,block['height']);require(value is not None,'work consensus is not active')
-    proof=block['work'];require(type(proof) is dict and set(proof)=={'schema','activation','policy','miner_public_key','nonce'} and proof['schema']==PROOF,'versioned native work proof')
+    proof=block['work'];recovery=Recovery.declaration(network)
+    fields={'schema','activation','policy','miner_public_key','nonce'}
+    if recovery is not None:
+        fields.add('recovery')
+        if recovery['protocol']==Recovery.SIDE:fields.add('dna')
+    require(type(proof)is dict and set(proof)==fields and proof['schema']==(recovery['protocol'] if recovery else PROOF),'versioned native work proof')
+    if recovery:
+        require(proof['recovery']==Recovery.identity(recovery),'exact recovery chain binding')
+        if recovery['protocol']==Recovery.SIDE:
+            raw=Recovery.body(block,recovery)
+            require(DNA.restore(proof['dna'],DNA.digest(raw))==raw,'DNA duplex binds actual block and rules')
     require(proof['activation']==policy_hash(value) and proof['policy']==commitment(value['work_policy']),'exact governed activation')
     key=miner_key(proof['miner_public_key']);require(block['validator']==hashlib.sha256(proof['miner_public_key'].encode()).hexdigest(),'native miner identity')
     integer(block['timestamp'],p['timestamp'],2**63-1)
@@ -133,6 +152,10 @@ def mine(db,network,key_file,previous,timestamp,transactions,attempts=100000,sta
     require(isinstance(key,ec.EllipticCurvePrivateKey) and isinstance(key.curve,ec.SECP256K1),'native private key required')
     public=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
     block={'height':p['height']+1,'previous_hash':previous,'timestamp':timestamp,'validator':hashlib.sha256(public.encode()).hexdigest(),'signature':'','transactions':transactions,'work':{'schema':PROOF,'activation':policy_hash(value),'policy':commitment(value['work_policy']),'miner_public_key':public,'nonce':0}}
+    recovery=Recovery.declaration(network)
+    if recovery:
+        block['work']['schema']=recovery['protocol'];block['work']['recovery']=Recovery.identity(recovery)
+        if recovery['protocol']==Recovery.SIDE:block['work']['dna']=DNA.duplex(Recovery.body(block,recovery))
     ctx=context(block)
     for nonce in range(start_nonce,start_nonce+attempts):
         if int(work_digest(value['work_policy'],ctx,nonce),16)>=2**(256-value['work_policy']['difficulty_bits']):continue
@@ -160,9 +183,24 @@ def main(args):
     action,path,network=args[:3]
     with sqlite3.connect(path) as db:
         db.row_factory=sqlite3.Row
-        if action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
+        if action=='transaction-bytes':
+            value=Recovery.declaration(network)
+            print(Recovery.transaction_bytes(value,network,args[3],args[4],int(args[5]),args[6],int(args[7])))
+            return
+        elif action=='cooperative-validate' or action=='cooperative-apply':
+            value=Recovery.declaration(network);require(value is not None and int(args[3])>value['checkpoint']['height'],'cooperative protocol not active')
+            payload=DNA.loads(args[4]);require(type(payload)is dict and set(payload)=={'command','endorsements'},'cooperative envelope')
+            exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_registry'").fetchone()
+            row=db.execute('SELECT state FROM cooperative_registry WHERE id=1').fetchone()if exists else None
+            state=DNA.loads(row[0])if row else Cooperative.empty(Recovery.identity(value))
+            changed=Cooperative.apply(state,payload['command'],payload['endorsements'])
+            if action=='cooperative-apply':
+                db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL)')
+                db.execute('INSERT OR REPLACE INTO cooperative_registry VALUES(1,?)',(DNA.encoded(changed).decode(),))
+            result={'state_root':Cooperative.state_root(changed),'native_application':True}
+        elif action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
         elif action=='preactivate':
-            enabled=network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}
+            enabled=network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'} or network in Recovery.NETWORKS
             due=db.execute("SELECT 1 FROM scheduled_state_changes WHERE enactment_height=? AND type='propose_new_compute_engine' AND json_extract(data,'$.pkg_id')=? LIMIT 1",(int(args[3]),PACKAGE)).fetchone() if enabled else None
             result={'required':bool(due)}
         elif action=='mode':
