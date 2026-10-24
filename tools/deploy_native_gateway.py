@@ -19,6 +19,10 @@ def deploy(root,corix):
  hold_path=root/'config/consensus-safety-hold.json'
  hold=public_hold({'consensus_safety_hold':str(hold_path)}) if hold_path.exists() else None
  held=bool(hold and hold['active'])
+ guard_source=corix.with_name('consensus_hold.py')
+ guard_override=Path('/etc/systemd/system/ziokt-corium-consensus.service.d/80-provenance-hold.conf')
+ if guard_override.exists() and not guard_override.read_text().startswith('# Managed Ziokt provenance hold\n'):
+  raise ValueError('Existing consensus hold override needs explicit reconciliation')
  if Path(config['corix']).resolve() != (root/'bin/corix_v108.sh').resolve():
   raise ValueError('gateway source path differs from the deployment target')
  services=['ziokt-corium-p2p','ziokt-corium-consensus','ziokt-corium-relayer','ziokt-gateway']
@@ -35,11 +39,23 @@ def deploy(root,corix):
   source=root/rel
   if source.exists():
    shutil.copy2(source,backup/source.name);(backup/source.name).chmod(0o600)
+ if guard_override.exists():shutil.copy2(guard_override,backup/'consensus-hold.override')
  chain=Path(config['state_root'])/'var/lib/corix/networks'/config['network']/'blockchain/chain.db'
  for name,path in [('forum',config['forum_db']),('dht',config['dht_db']),('chain',chain)]:
   if not Path(path).is_file():raise ValueError('existing native database required for backup')
   with database(path) as source, database(backup/(name+'.db')) as destination:source.backup(destination)
  target=root/'bin/corix_v108.sh';temporary=target.with_suffix('.new');shutil.copyfile(corix,temporary);temporary.chmod(0o755);temporary.replace(target)
+ # A service restart or reboot must also respect the hold, independently of
+ # the deployment process that originally paused consensus.
+ if guard_source.is_file():
+  guard_target=root/'bin/consensus_hold.py';temporary=guard_target.with_suffix('.new');shutil.copyfile(guard_source,temporary);temporary.chmod(0o755);temporary.replace(guard_target)
+  def unit_arg(path):return '"'+str(path).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
+  override=backup/'consensus-hold.new'
+  override.write_text('# Managed Ziokt provenance hold\n[Service]\nExecCondition=/usr/bin/python3 '+unit_arg(guard_target)+' '+unit_arg(hold_path)+'\n')
+  install=[] if os.geteuid()==0 else ['sudo','-n']
+  subprocess.run([*install,'install','-d',str(guard_override.parent)],check=True)
+  subprocess.run([*install,'install','-m','0644',str(override),str(guard_override)],check=True)
+  subprocess.run([*control,'daemon-reload'],check=True)
  digest=hashlib.sha256(target.read_bytes()).hexdigest()
  federation=root/'config/federation.json';value=json.loads(federation.read_text())
  for provider in value['providers']:
@@ -56,7 +72,9 @@ def deploy(root,corix):
  # In particular, never manufacture optimistic NNS rows during an upgrade.
  # A release must not restart mining after a history/provenance safety hold.
  restart_services=[name for name in services if not (held and name=='ziokt-corium-consensus')]
- if held:subprocess.run([*control,'stop','ziokt-corium-consensus'],check=True)
+ if held:
+  subprocess.run([*control,'stop','ziokt-corium-consensus'],check=True)
+  subprocess.run([*control,'reset-failed','ziokt-corium-consensus'],check=True)
  subprocess.run([*control,'restart',*restart_services],check=True)
  deadline=time.monotonic()+30
  while True:
