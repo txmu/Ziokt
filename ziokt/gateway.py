@@ -111,6 +111,12 @@ class Gateway:
             for name,definition in {'attempts':'INTEGER NOT NULL DEFAULT 0','retry_at':'INTEGER NOT NULL DEFAULT 0','last_error':'TEXT'}.items():
                 if name not in columns:db.execute('ALTER TABLE gateway_outbox ADD COLUMN '+name+' '+definition)
 
+    def chain_provenance(self):
+        from .chain_provenance import snapshot
+        try:return snapshot(self.config)
+        except (OSError, ValueError, KeyError, __import__('sqlite3').Error):
+            return {'schema':'ziokt.chain-provenance.v1','available':False,'source_protocol_activation_proved':False}
+
     def close(self):
         self.transport_stop.set()
         for thread in self.transport_threads:thread.join(timeout=12)
@@ -238,7 +244,7 @@ def handler(gateway):
                     from .assurance import snapshot as assurance_snapshot, public_hold
                     with database(gateway.config['forum_db']) as db:
                         pending = db.execute('SELECT count(*) FROM gateway_outbox WHERE sent=0').fetchone()[0]
-                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest'),'service_endpoints':gateway.service_endpoints,'assurance':assurance_snapshot(public_hold(gateway.config))})
+                    return self.send(200, {'schema':'ziokt.gateway.v1','network':gateway.config['network'],'write':'client-ed25519-or-admin','pending_announcements':pending,'build':gateway.build_info,'native_entrypoint_digest':gateway.config.get('corix_digest'),'service_endpoints':gateway.service_endpoints,'assurance':assurance_snapshot(public_hold(gateway.config)), 'chain_provenance':gateway.chain_provenance()})
                 if path == '/api/gateway/registrations':
                     from .registry import Registry
                     return self.send(200,Registry(gateway.config['registry_db'],gateway.config['network']).list())

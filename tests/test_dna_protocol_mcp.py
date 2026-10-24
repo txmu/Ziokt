@@ -4,6 +4,10 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import hashlib
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from ziokt.dna_protocol import public_key_pem
 
 from ziokt.mcp import Service
 from ziokt.dna_protocol import (
@@ -26,7 +30,13 @@ class TestDnaProtocolMcp(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory(prefix="ziokt-test-dna-mcp-")
         self.root = Path(self.tempdir.name)
+        key=ec.generate_private_key(ec.SECP256K1())
+        key_path=self.root/'owner.pem'
+        key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+        key_path.chmod(0o600)
         self.config = {
+            "writes_enabled": True,
+            "protocol_state": {"signing_key":str(key_path),"owners":{"archive.library.ziokt":hashlib.sha256(public_key_pem(key).encode()).hexdigest()}},
             "state": str(self.root / "state"),
             "bridges": {},
             "clients": {
@@ -34,7 +44,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
                     "redirect_uris": ["http://localhost/cb"],
                     "scopes": [
                         "ziokt:read",
-                        "ziokt:names:read",
+                        "ziokt:names:read", "ziokt:names:write", "ziokt:evidence:write",
                         "corium:read",
                         "shadow6:read",
                     ]
@@ -44,7 +54,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
         self.service = Service(self.config)
         self.principal = {
             "client": "test-operator",
-            "scopes": {"ziokt:read", "ziokt:names:read", "corium:read", "shadow6:read"},
+            "scopes": {"ziokt:read", "ziokt:names:read", "ziokt:names:write", "ziokt:evidence:write", "corium:read", "shadow6:read"},
             "expires": 2**63,
             "token_id": "test-token"
         }
@@ -101,7 +111,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
         call1 = self.service.call(
             self.principal,
             "ziokt_zdns_rna_announce",
-            {"domain": domain, "target": target}
+            {"domain": domain, "target": target, "idempotency_key":"announce_test_0001"}
         )
         self.assertFalse(call1.get("isError"))
         announced = call1["structuredContent"]
@@ -114,6 +124,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
             self.principal,
             "ziokt_zdns_rna_verify",
             {
+                "idempotency_key":"verify_test_000001",
                 "frame": announced["frame"],
                 "pem": announced["pem"],
                 "chain_id": announced["chain_id"],
@@ -132,6 +143,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
             self.principal,
             "ziokt_openci_evidence_commit",
             {
+                "idempotency_key":"evidence_test_0001",
                 "pipeline": "build-ziokt-2.0",
                 "task": "formal-verification",
                 "worker": "worker-hk-01",

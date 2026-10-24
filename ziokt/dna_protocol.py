@@ -201,8 +201,7 @@ def zdns_rna_announce(domain, target, key=None, chain_id=None, policy_id=None, s
     policy = policy_id or CANONICAL_POLICY_ID
     timestamp = int(now if now is not None else time.time())
     
-    if key is None:
-        key = ec.generate_private_key(ec.SECP256K1())
+    require(key is not None, 'persistent owner signing key required')
     pem = public_key_pem(key)
     sender = hashlib.sha256(pem.encode()).hexdigest()
     
@@ -220,7 +219,9 @@ def zdns_rna_announce(domain, target, key=None, chain_id=None, policy_id=None, s
         'sender': sender,
         'chain_id': chain,
         'policy_id': policy,
-        'record': record
+        'record': record,
+        'ownership_verified': False,
+        'broadcast': 'not_requested'
     }
 
 
@@ -240,7 +241,9 @@ def zdns_rna_verify(frame, pem, chain_id=None, policy_id=None, sender=None, prev
         'sequence': frame['header']['sequence'],
         'expires_at': frame['header']['expires_at'],
         'root': frame['header']['root'],
-        'record': record
+        'record': record,
+        'ownership_verified': False,
+        'broadcast': 'not_requested'
     }
 
 

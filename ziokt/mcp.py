@@ -121,11 +121,13 @@ class Service:
         self.tools={}
         self.dispatch={}
         self.add('ziokt_privacy_status','Report actual ownership and transport privacy boundaries; never claim shielded ledger ownership without native consensus support.',schema(),False,'ziokt:read',('privacy-status',))
+        self.add('ziokt_chain_provenance','Inspect configured chain identity, current block proof, recovery declaration and source/deployment activation boundaries.',schema(),False,'corium:read',('chain-provenance',))
         self.add('ziokt_dna_duplex_protect','Encode payload text or base64 into a dual-strand DNA duplex (corium.dna.duplex.v1) with sense/antisense Watson-Crick complementarity and authenticated root for long-term Library/Netnews preservation.',schema({'payload_text':{'type':'string','maxLength':4096},'payload_base64':{'type':'string','maxLength':8192},'domain':{'type':'string','maxLength':64},'metadata':PARAMS}),False,'ziokt:read',('dna-duplex','protect'))
         self.add('ziokt_dna_duplex_verify','Verify a DNA duplex against an externally authenticated root hash; optionally repairs single-strand corruption when repair=true.',schema({'gene':PARAMS,'authenticated_root':{'type':'string','pattern':'^[a-f0-9]{64}$'},'repair':{'type':'boolean'}},('gene','authenticated_root')),False,'ziokt:read',('dna-duplex','verify'))
-        self.add('ziokt_zdns_rna_announce','Generate a signed, time-bounded (120s) RNA frame (corium.rna.v1) binding canonical chain identity (b9856ae07942...), policy ID, and domain/identity state without direct database trust.',schema({'domain':{'type':'string','maxLength':255},'target':{'type':'string','maxLength':255},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sequence':{'type':'integer','minimum':1}},('domain','target')),False,'ziokt:names:read',('zdns-rna','announce'))
-        self.add('ziokt_zdns_rna_verify','Verify a signed RNA frame against chain identity, sender PEM, policy ID, validity window (120s), and anti-replay sequence.',schema({'frame':PARAMS,'pem':{'type':'string','maxLength':1024},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sender':{'type':'string','pattern':'^[a-f0-9]{64}$'},'previous_sequence':{'type':'integer','minimum':0}},('frame','pem')),False,'ziokt:names:read',('zdns-rna','verify'))
-        self.add('ziokt_openci_evidence_commit','Commit build artifacts, build summaries, and verification receipts into an immutable content commitment (openci.evidence-commitment.v1) for permanent auditability across worker lifecycles.',schema({'pipeline':{'type':'string','maxLength':128},'task':{'type':'string','maxLength':128},'worker':{'type':'string','maxLength':128},'artifact_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'result':PARAMS},('pipeline','task','worker','artifact_digest','result')),False,'ziokt:read',('openci-evidence','commit'))
+        self.add('ziokt_zdns_rna_announce','Persist an owner-authorized RNA frame using the configured key and atomic outgoing sequence. Reports network publication separately.',schema({'domain':{'type':'string','maxLength':255},'target':{'type':'string','maxLength':255},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sequence':{'type':'integer','minimum':1}},('domain','target')),True,'ziokt:names:write',('zdns-rna','announce'))
+        self.add('ziokt_zdns_rna_verify','Verify a signed RNA frame against chain identity, sender PEM, policy ID, validity window (120s), and anti-replay sequence.',schema({'frame':PARAMS,'pem':{'type':'string','maxLength':1024},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sender':{'type':'string','pattern':'^[a-f0-9]{64}$'},'previous_sequence':{'type':'integer','minimum':0}},('frame','pem')),True,'ziokt:names:write',('zdns-rna','verify'))
+        self.add('ziokt_openci_evidence_commit','Persist an evidence commitment with a configured local witness signature; worker authentication and chain inclusion are reported separately.',schema({'pipeline':{'type':'string','maxLength':128},'task':{'type':'string','maxLength':128},'worker':{'type':'string','maxLength':128},'artifact_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'result':PARAMS},('pipeline','task','worker','artifact_digest','result')),True,'ziokt:evidence:write',('openci-evidence','commit'))
+        self.add('ziokt_openci_evidence_get','Retrieve persisted local evidence and its signed witness; does not imply chain inclusion.',schema({'commitment_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('commitment_hash',)),False,'ziokt:read',('protocol-evidence','get'))
         self.add('ziokt_openci_evidence_verify','Verify an OpenCI evidence commitment and check artifact digest consistency.',schema({'commitment':PARAMS,'expected_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('commitment',)),False,'ziokt:read',('openci-evidence','verify'))
         self.add('corium_governance_archive_query','Read-only query of historical proposals, old authorizations, and rule changes from the separated legacy history chain (H0-H784) without altering active mainnet consensus state.',schema({'proposal_type':{'type':'string','maxLength':64},'limit':{'type':'integer','minimum':1,'maximum':100},'archive_path':{'type':'string','maxLength':256}}),False,'corium:read',('governance-archive',))
         self.add('shadow6_companion_tunnel_status','Inspect Shadow6 and companion connection topology, multi-hop relay forwarding channels, and disaster recovery tunnel readiness across isolated runtime environments.',schema(),False,'shadow6:read',('companion-tunnel-status',))
@@ -446,21 +448,24 @@ class Service:
             fabric.native_etp=native_etp
             try:return invoke(fabric,owner,route[1],args)
             finally:fabric.close()
+        if kind=='chain-provenance':
+            from .chain_provenance import snapshot
+            return snapshot(strict_json(secure_read(self.config['gateway'])))
         if kind=='dna-duplex':
             from .dna_protocol import dna_protect_payload, dna_verify_payload
             if route[1]=='protect':
                 return dna_protect_payload(args.get('payload_text'), args.get('payload_base64'), args.get('domain', 'library'), args.get('metadata'))
             return dna_verify_payload(args['gene'], args['authenticated_root'], repair=args.get('repair', False))
-        if kind=='zdns-rna':
-            from .dna_protocol import zdns_rna_announce, zdns_rna_verify
-            if route[1]=='announce':
-                return zdns_rna_announce(args['domain'], args['target'], chain_id=args.get('chain_id'), policy_id=args.get('policy_id'), sequence=args.get('sequence', 1))
-            return zdns_rna_verify(args['frame'], args['pem'], chain_id=args.get('chain_id'), policy_id=args.get('policy_id'), sender=args.get('sender'), previous_sequence=args.get('previous_sequence', 0))
-        if kind=='openci-evidence':
-            from .dna_protocol import openci_commit_evidence, openci_verify_evidence
+        if kind in {'zdns-rna','openci-evidence','protocol-evidence'}:
+            from .protocol_state import ProtocolState
+            from .dna_protocol import openci_verify_evidence
+            state=ProtocolState(self.root/'protocol',self.current().get('protocol_state'))
+            if kind=='protocol-evidence':return state.evidence(principal['client'],args['commitment_hash'])
+            if kind=='zdns-rna':
+                return state.announce(**args) if route[1]=='announce' else state.verify(**args)
             if route[1]=='commit':
-                return openci_commit_evidence(args['pipeline'], args['task'], args['worker'], args['artifact_digest'], args['result'])
-            return openci_verify_evidence(args['commitment'], args.get('expected_hash'))
+                return state.commit(principal['client'],args['pipeline'],args['task'],args['worker'],args['artifact_digest'],args['result'])
+            return openci_verify_evidence(args['commitment'],args.get('expected_hash'))
         if kind=='governance-archive':
             from .dna_protocol import query_governance_archive
             return query_governance_archive(args.get('archive_path'), args.get('proposal_type'), args.get('limit', 20))

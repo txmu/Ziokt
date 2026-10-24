@@ -20,7 +20,20 @@ import time
 import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
-SERVICES=('ziokt-gateway','ziokt-mcp','ziokt-telegram-bot','ziokt-content')
+def deployment_settings(value):
+    import re
+    from urllib.parse import urlsplit
+    required={'services','https_service','gateway_status_url','gui_build_url','previous_gui_root'}
+    if not isinstance(value,dict) or set(value)!=required:raise ValueError('exact explicit deployment settings required')
+    if set(value['services'])!={'gateway','mcp','telegram','content'}:raise ValueError('all four service roles required')
+    names=[*value['services'].values(),value['https_service']]
+    if len(set(names))!=5 or any(not isinstance(name,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',name) for name in names):raise ValueError('distinct safe service names required')
+    for key in ('gateway_status_url','gui_build_url'):
+        url=urlsplit(value[key])
+        if url.scheme not in {'http','https'} or not url.hostname or url.username or url.password or url.fragment:raise ValueError('explicit health URL required')
+    path=Path(value['previous_gui_root'])
+    if not path.is_absolute() or any(c in str(path) for c in '\n\r\x00"{}'):raise ValueError('safe absolute previous GUI directory required')
+    return value
 
 
 def run(*args,**kwargs):return subprocess.run(list(args),check=True,**kwargs)
@@ -68,7 +81,7 @@ def backup_database(source,destination):
     destination.chmod(0o600)
 
 
-def reload_caddy(root,caddy):
+def reload_caddy(root,caddy,https_service):
     # Caddy >=2.11 supports a graceful file reload signal even with the admin API disabled.
     import re
     text=caddy.read_text()
@@ -76,13 +89,16 @@ def reload_caddy(root,caddy):
         version=subprocess.check_output([str(root/'bin/caddy'),'version'],text=True)
         match=re.match(r'v?(\d+)\.(\d+)\.',version)
         if not match or tuple(map(int,match.groups()))<(2,11):raise ValueError('admin-off graceful reload requires Caddy >=2.11')
-        command=subprocess.check_output(['systemctl','show','ziokt-https','--property=ExecStart','--value'],text=True)
+        command=subprocess.check_output(['systemctl','show',https_service,'--property=ExecStart','--value'],text=True)
         if '--resume' in command or str(caddy) not in command:raise ValueError('reviewed file-based Caddy run required')
-        run('sudo','-n','systemctl','kill','--kill-whom=main','--signal=USR1','ziokt-https')
+        run('sudo','-n','systemctl','kill','--kill-whom=main','--signal=USR1',https_service)
     else:run(str(root/'bin/caddy'),'reload','--config',str(caddy),'--adapter','caddyfile',capture_output=True)
 
 
-def activate(root,release,revision):
+def activate(root,release,revision,settings):
+    settings=deployment_settings(settings)
+    services=tuple(settings['services'].values())
+    if any(c in str(root)+str(release) for c in '\n\r\x00"{}%'):raise ValueError('safe deployment paths required')
     timestamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     backup=root/'private-bootstrap-backup'/('frozen-'+revision[:12]+'-'+timestamp);backup.mkdir(mode=0o700,parents=True)
     mcp=json.loads((root/'mcp/mcp.json').read_text())
@@ -97,7 +113,7 @@ def activate(root,release,revision):
     for name,path in [('mcp-config.json',root/'mcp/mcp.json'),('gateway-config.json',root/'config/gateway.json')]:
         shutil.copyfile(path,backup/name);(backup/name).chmod(0o600)
     caddy=root/'config/Caddyfile';old_caddy=caddy.read_bytes();(backup/'Caddyfile').write_bytes(old_caddy)
-    old_root='root * /home/admin/Ziokt/gateway/gui'
+    old_root='root * '+settings['previous_gui_root']
     text=old_caddy.decode()
     if old_root in text:
         if text.count(old_root)!=1:raise ValueError('reviewed GUI root must appear exactly once')
@@ -109,7 +125,7 @@ def activate(root,release,revision):
     candidate=backup/'Caddyfile.candidate';candidate.write_text(text)
     run(str(root/'bin/caddy'),'validate','--config',str(candidate),'--adapter','caddyfile',capture_output=True)
     units={}
-    for service in SERVICES:
+    for service in services:
         path=Path('/etc/systemd/system')/(service+'.service.d')/'70-ziokt-release.conf'
         units[service]=(path,path.read_bytes() if path.exists() else None)
         if units[service][1] is not None:(backup/(service+'.override')).write_bytes(units[service][1])
@@ -117,26 +133,26 @@ def activate(root,release,revision):
         for service,(path,_) in units.items():
             dropin=backup/(service+'.new')
             content='[Service]\nWorkingDirectory='+str(release)+'\nEnvironment=PYTHONDONTWRITEBYTECODE=1\n'
-            if service=='ziokt-content':content+='MemoryHigh=384M\nMemoryMax=512M\nCPUQuota=100%\n'
+            if service==settings['services']['content']:content+='MemoryHigh=384M\nMemoryMax=512M\nCPUQuota=100%\n'
             dropin.write_text(content)
             run('sudo','-n','install','-d',str(path.parent))
             run('sudo','-n','install','-m','0644',str(dropin),str(path))
         caddy.write_text(text);caddy.chmod(0o600)
         run('sudo','-n','systemctl','daemon-reload')
-        run('sudo','-n','systemctl','restart',*SERVICES)
-        reload_caddy(root,caddy)
+        run('sudo','-n','systemctl','restart',*services)
+        reload_caddy(root,caddy,settings['https_service'])
         deadline=time.monotonic()+30
         while True:
             try:
-                with urllib.request.urlopen('http://127.0.0.1:8185/api/gateway/status',timeout=3) as response:status=json.load(response)
+                with urllib.request.urlopen(settings['gateway_status_url'],timeout=3) as response:status=json.load(response)
                 if status.get('build',{}).get('source_commit')!=revision:raise ValueError('Gateway release mismatch')
-                with urllib.request.urlopen('https://app.ziokt.com/ziokt-build.json',timeout=3) as response:gui_status=json.load(response)
+                with urllib.request.urlopen(settings['gui_build_url'],timeout=3) as response:gui_status=json.load(response)
                 if gui_status.get('source_commit')!=revision:raise ValueError('public GUI release mismatch')
                 break
             except (OSError,ValueError):
                 if time.monotonic()>deadline:raise
                 time.sleep(.5)
-        run('sudo','-n','systemctl','is-active','--quiet',*SERVICES)
+        run('sudo','-n','systemctl','is-active','--quiet',*services)
     except BaseException:
         caddy.write_bytes(old_caddy);caddy.chmod(0o600)
         for service,(path,previous) in units.items():
@@ -146,10 +162,10 @@ def activate(root,release,revision):
                 restore=backup/(service+'.restore');restore.write_bytes(previous)
                 run('sudo','-n','install','-m','0644',str(restore),str(path))
         run('sudo','-n','systemctl','daemon-reload')
-        run('sudo','-n','systemctl','restart',*SERVICES)
-        reload_caddy(root,caddy)
+        run('sudo','-n','systemctl','restart',*services)
+        reload_caddy(root,caddy,settings['https_service'])
         raise
-    receipt={'schema':'ziokt.frozen-deployment.v1','source_commit':revision,'at':timestamp,'services':list(SERVICES),
+    receipt={'schema':'ziokt.frozen-deployment.v1','source_commit':revision,'at':timestamp,'services':list(services),
              'release':str(release),'backup':str(backup),'gateway_build':status['build'],
              'native_entrypoint_digest':status.get('native_entrypoint_digest'),
              'gui_app_sha256':hashlib.sha256((release/'gateway/gui/app.js').read_bytes()).hexdigest(),
@@ -160,6 +176,6 @@ def activate(root,release,revision):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--root',type=Path,required=True)
-    parser.add_argument('--revision',default='HEAD');parser.add_argument('--activate',action='store_true')
+    parser.add_argument('--settings',type=Path,required=True);parser.add_argument('--revision',default='HEAD');parser.add_argument('--activate',action='store_true')
     args=parser.parse_args();release,revision=stage(args.root.resolve(),args.revision)
-    print(json.dumps(activate(args.root.resolve(),release,revision) if args.activate else {'release':str(release),'source_commit':revision,'activated':False}))
+    print(json.dumps(activate(args.root.resolve(),release,revision,json.loads(args.settings.read_text())) if args.activate else {'release':str(release),'source_commit':revision,'activated':False}))

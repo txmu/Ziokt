@@ -1,0 +1,45 @@
+name: OpenCI official ALFS full build and QEMU boot
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openci-alfs-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  official-alfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Provision disposable ALFS build host
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential bison gawk texinfo python3 libncurses-dev libelf-dev libssl-dev libxml2-utils xsltproc docbook-xml docbook-xsl wget curl git rsync xz-utils bzip2 gzip patch perl make diffutils findutils grep sed coreutils util-linux e2fsprogs qemu-system-x86 python3-pexpect
+          sudo ln -sf bash /bin/sh
+          df -h
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/openci-alfs/downloads
+          key: alfs-downloads-${{ hashFiles('ci/openci/alfs/source.lock.json') }}
+      - name: Complete pinned official book, critical toolchain suites, kernel and real serial boot
+        run: ci/openci/alfs/build.sh
+      - name: Compress tested root filesystem without altering it
+        if: success()
+        run: zstd -T2 -3 --rm "$RUNNER_TEMP/openci-alfs/images/rootfs.ext4"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: openci-alfs-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/openci-alfs/evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v7.0.2
+        if: success()
+        with:
+          name: openci-alfs-x86_64-${{ github.run_id }}
+          path: ${{ runner.temp }}/openci-alfs/images/
+          if-no-files-found: error
+          retention-days: 7
