@@ -44,6 +44,7 @@ corix_zkt() {
         account) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine account "$BLOCKCHAIN_DB" "$1" ;;
         record) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine record "$BLOCKCHAIN_DB" "$1" ;;
         policy) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine policy "$BLOCKCHAIN_DB" "$1" ;;
+        propose|vote|enact|proposals) [ $# -eq 1 ] || return 2; _ziokt_zkt_engine "$action" "$BLOCKCHAIN_DB" "$1" ;;
         *) printf '%s\\n' 'corix_zkt status | account ADDRESS | record CLAIM_JSON | policy POLICY_JSON' >&2; return 2 ;;
     esac
 }

@@ -215,3 +215,85 @@ class ZKTReputationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZKTGovernanceTests(unittest.TestCase):
+    def setUp(self):
+        import copy
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives import serialization
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.path=Path(self.temp.name)/'ledger.db';self.keys=[Ed25519PrivateKey.generate() for _ in range(3)]
+        self.public=[k.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw).hex() for k in self.keys]
+        self.policy=copy.deepcopy(DEFAULT_REPUTATION_POLICY)
+        self.policy.update(network_id='test',governance={'authorities':dict(zip(self.public,['a','b','c'])),'threshold':2,'minimum_domains':2,'veto_threshold':2,'timelock_seconds':60,'voting_period_seconds':3600},anti_abuse={'max_claims_per_day':2,'max_points_per_day':500,'global_points_per_day':600,'max_epoch_age_days':1},service_limits={'Core-Rust':10},tiers=[{'name':'New','minimum':0},{'name':'Member','minimum':100}])
+        zkt_set_policy(self.path,self.policy)
+
+    def signed(self,payload,index=0):
+        from ziokt.security import sign
+        from cryptography.hazmat.primitives import serialization
+        return sign(payload,self.keys[index].private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()),'Ziokt/zkt-governance/v1')
+
+    def proposal(self):
+        import copy
+        from ziokt._zkt_runtime import _zkt_digest
+        nxt=copy.deepcopy(self.policy);nxt['version']+=1;nxt['application_services']['network_relay']=7
+        return {'operation':'propose','network_id':'test','base_policy':_zkt_digest(self.policy),'policy':nxt,'nonce':'1'*64,'created_at':100000,'activate_at':100060,'expires_at':101000}
+
+    def test_signed_quorum_timelock_persistence_and_no_direct_bypass(self):
+        from unittest.mock import patch
+        from ziokt._zkt_runtime import zkt_governance
+        with patch('ziokt._zkt_runtime.time.time',return_value=100000):
+            pid=zkt_governance(self.path,'propose',self.signed(self.proposal()))['proposal']
+            with self.assertRaises(ProtocolError):zkt_set_policy(self.path,self.proposal()['policy'])
+            forged=self.signed(self.proposal());forged['payload']['nonce']='2'*64
+            with self.assertRaises(ProtocolError):zkt_governance(self.path,'propose',forged)
+            for i in range(2):
+                ballot=self.signed({'operation':'vote','network_id':'test','proposal':pid,'approve':True},i)
+                zkt_governance(self.path,'vote',ballot)
+                with self.assertRaises(ProtocolError):zkt_governance(self.path,'vote',ballot)
+            with self.assertRaises(ProtocolError):zkt_governance(self.path,'enact',{'proposal':pid})
+        with patch('ziokt._zkt_runtime.time.time',return_value=100061):
+            result=zkt_governance(self.path,'enact',{'proposal':pid});self.assertEqual(result['state'],'enacted')
+            self.assertEqual(zkt_status(self.path)['policy']['application_services']['network_relay'],7)
+            with self.assertRaises(ProtocolError):zkt_governance(self.path,'enact',{'proposal':pid})
+
+    def test_cross_identity_evidence_budget_and_concurrent_claims(self):
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        claim={'schema':'ziokt.zkt-service-claim.v1','operator':'a'*64,'provider':'shadow6','service_kind':'core','service_name':'Core-Rust','units_delivered':5,'evidence_digest':'sha256:'+'1'*64,'epoch':int(time.time())//86400,'nonce':'1'}
+        def submit(value):
+            try:return zkt_record_claim(self.path,value)['points_awarded']
+            except ProtocolError as e:return e.code
+        with ThreadPoolExecutor(4) as pool:results=list(pool.map(submit,[claim]*4))
+        self.assertEqual(results.count(150),1);self.assertEqual(results.count('ZKT_DUPLICATE_CLAIM'),3)
+        self.assertEqual(submit(claim|{'operator':'b'*64,'nonce':'2'}),'ZKT_DUPLICATE_CLAIM')
+        self.assertEqual(submit(claim|{'evidence_digest':'sha256:'+'2'*64,'nonce':'2'}),150)
+        self.assertEqual(submit(claim|{'evidence_digest':'sha256:'+'3'*64,'nonce':'3'}),'ZKT_RATE_LIMIT')
+        self.assertEqual(zkt_account(self.path,'a'*64)['tier'],'Member')
+        with self.assertRaises(ProtocolError):zkt_record_claim(self.path,claim,DEFAULT_REPUTATION_POLICY)
+
+    def test_veto_and_expired_proposals_fail_closed(self):
+        from unittest.mock import patch
+        from ziokt._zkt_runtime import zkt_governance
+        with patch('ziokt._zkt_runtime.time.time',return_value=100000):
+            pid=zkt_governance(self.path,'propose',self.signed(self.proposal()))['proposal']
+            for i in range(2):result=zkt_governance(self.path,'vote',self.signed({'operation':'vote','network_id':'test','proposal':pid,'approve':False},i))
+            self.assertEqual(result['state'],'vetoed')
+        with patch('ziokt._zkt_runtime.time.time',return_value=101001):
+            with self.assertRaises(ProtocolError):zkt_governance(self.path,'enact',{'proposal':pid})
+
+    def test_service_observation_signatures_bind_policy_and_claim(self):
+        import copy,time
+        from ziokt._zkt_runtime import _zkt_digest
+        from ziokt.security import sign
+        from cryptography.hazmat.primitives import serialization
+        policy=copy.deepcopy(self.policy);policy.pop('governance')
+        policy['claim_attestors']={'authorities':self.policy['governance']['authorities'],'threshold':2,'minimum_domains':2}
+        claim={'schema':'ziokt.zkt-service-claim.v1','operator':'a'*64,'provider':'corium','service_kind':'application','service_name':'wiki','units_delivered':1,'evidence_digest':'sha256:'+'9'*64,'epoch':int(time.time())//86400,'nonce':'9'}
+        other=Path(self.temp.name)/'observed.db';zkt_set_policy(other,policy)
+        with self.assertRaises(ProtocolError):zkt_record_claim(other,claim)
+        payload={'operation':'claim','network_id':'test','policy_digest':_zkt_digest(policy),'claim':claim.copy()}
+        witnesses=[sign(payload,k.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()),'Ziokt/zkt-service-observation/v1') for k in self.keys[:2]]
+        with self.assertRaises(ProtocolError):zkt_record_claim(other,claim|{'units_delivered':2,'witnesses':witnesses})
+        self.assertEqual(zkt_record_claim(other,claim|{'witnesses':witnesses})['points_awarded'],15)

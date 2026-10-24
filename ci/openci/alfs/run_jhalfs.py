@@ -1,12 +1,13 @@
 """Give unmodified jhalfs the terminal geometry its Makefile requires."""
 import os
+from pathlib import Path
 import sys
 
 
 def main(directory):
     if os.environ.get('GITHUB_ACTIONS')!='true':raise RuntimeError('ALFS runs in CI only')
     import pexpect
-    child=pexpect.spawn('./jhalfs',['run'],cwd=directory,encoding='utf-8',dimensions=(40,120),timeout=1800)
+    child=pexpect.spawn(str(Path(directory).resolve()/'jhalfs'),['run'],cwd=directory,encoding='utf-8',dimensions=(40,120),timeout=1800)
     child.logfile_read=sys.stdout
     try:
         confirmations=0
