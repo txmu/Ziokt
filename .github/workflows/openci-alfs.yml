@@ -1,5 +1,7 @@
 name: OpenCI official ALFS full build and QEMU boot
 on:
+  push:
+    paths: ["ci/openci/alfs/**", ".github/workflows/openci-alfs.yml"]
   workflow_dispatch:
 permissions:
   contents: read
