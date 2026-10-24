@@ -14,7 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ziokt.telegram import TelegramBot
 
 
-def configure(config_path, chat_ids, user_ids=(), restart=True):
+def configure(config_path, chat_ids, user_ids=(), restart=True, *, service_user=None, source_root=None, python_executable=None, mcp_unit=None, telegram_unit=None):
+    if restart:
+        if not service_user or not re.fullmatch('[A-Za-z_][A-Za-z0-9_-]{0,31}',service_user):raise ValueError('explicit service user required')
+        if any(not isinstance(unit,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',unit) for unit in (mcp_unit,telegram_unit)) or mcp_unit==telegram_unit:raise ValueError('explicit distinct MCP and Telegram service names required')
+        for path in (config_path,source_root,python_executable):
+            if path is None or not Path(path).is_absolute() or any(c in str(path) for c in '\n\r\x00'):raise ValueError('safe absolute service paths required')
+
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text())
     root = config_path.parent / 'telegram'
@@ -62,21 +68,27 @@ def configure(config_path, chat_ids, user_ids=(), restart=True):
         if os.path.exists(temp_name):os.unlink(temp_name)
     if restart:
         unit=Path(__file__).resolve().parents[1]/'gateway/systemd/ziokt-telegram-bot.service.template'
-        subprocess.run(['sudo','-n','install','-m','0644',str(unit),'/etc/systemd/system/ziokt-telegram-bot.service'],check=True)
+        def argument(value):return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
+        text=unit.read_text()
+        for name,value in {'SERVICE_USER':service_user,'SOURCE_ROOT':argument(source_root),'PYTHON':argument(python_executable),'MCP_CONFIG':argument(config_path),'MCP_UNIT':mcp_unit}.items():text=text.replace('@@'+name+'@@',value)
+        with tempfile.TemporaryDirectory(prefix='ziokt-telegram-unit-') as directory:
+            rendered=Path(directory)/'telegram.service';rendered.write_text(text)
+            subprocess.run(['sudo','-n','install','-m','0644',str(rendered),'/etc/systemd/system/'+telegram_unit+'.service'],check=True)
         subprocess.run(['sudo','-n','systemctl','daemon-reload'],check=True)
-        subprocess.run(['sudo','-n','systemctl','restart','ziokt-mcp'],check=True)
-        subprocess.run(['sudo','-n','systemctl','enable','ziokt-telegram-bot'],check=True)
-        subprocess.run(['sudo','-n','systemctl','restart','ziokt-telegram-bot'],check=True)
-        for service in ('ziokt-mcp','ziokt-telegram-bot'):
+        subprocess.run(['sudo','-n','systemctl','restart',mcp_unit],check=True)
+        subprocess.run(['sudo','-n','systemctl','enable',telegram_unit],check=True)
+        subprocess.run(['sudo','-n','systemctl','restart',telegram_unit],check=True)
+        for service in (mcp_unit,telegram_unit):
             subprocess.run(['systemctl','is-active','--quiet',service],check=True)
     return {'enabled':True,'worker_enabled':True,'chat_count':len(ids),'owner_user_count':len(users),'token_printed':False,'service_restarted':restart}
 
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--config',type=Path,default=Path('/home/admin/.local/share/ziokt-production/mcp/mcp.json'))
+    parser.add_argument('--config',type=Path,required=True)
+    parser.add_argument('--service-user');parser.add_argument('--source-root',type=Path);parser.add_argument('--python',type=Path);parser.add_argument('--mcp-unit');parser.add_argument('--telegram-unit')
     parser.add_argument('--chat-id',action='append',default=[],help='Numeric Telegram chat ID; repeat for each allowed chat')
     parser.add_argument('--user-id',action='append',default=[],help='Allowed Telegram sender ID (required for group chats); repeat per owner')
     parser.add_argument('--no-restart',action='store_true')
     args=parser.parse_args()
-    print(json.dumps(configure(args.config,args.chat_id,args.user_id,not args.no_restart)))
+    print(json.dumps(configure(args.config,args.chat_id,args.user_id,not args.no_restart,service_user=args.service_user,source_root=args.source_root,python_executable=args.python,mcp_unit=args.mcp_unit,telegram_unit=args.telegram_unit)))

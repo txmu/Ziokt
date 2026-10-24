@@ -6,6 +6,28 @@ shift 3
 source "$script"
 load_config
 case "$1" in
+ protocol-publish)
+  [[ "$2" =~ ^[a-f0-9]{64}$ ]] || exit 2
+  size=$(python3 - "$3" "$2" <<'PY_PUBLIC_OBJECT'
+import hashlib,os,stat,sys
+fd=os.open(sys.argv[1],os.O_RDONLY|os.O_NOFOLLOW)
+try:
+ info=os.fstat(fd)
+ if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_nlink!=1 or info.st_mode&0o077 or not 1<=info.st_size<=65536:raise ValueError('public object file rejected')
+ raw=os.read(fd,65537)
+ if len(raw)!=info.st_size or hashlib.sha256(raw).hexdigest()!=sys.argv[2]:raise ValueError('public object content address differs')
+ print(len(raw))
+finally:os.close(fd)
+PY_PUBLIC_OBJECT
+  ) || exit 1
+  acquire_lock network; trap 'release_lock network' EXIT
+  db_execute_safe "$DHT_DB" "INSERT OR REPLACE INTO local_chunks(hash,file_path,offset,size) VALUES (%s,%s,0,%d);" "$2" "$3" "$size" >/dev/null
+  if dht_announce_chunk "$2" >/dev/null 2>&1; then
+   printf '{"broadcast":"acknowledged_by_known_peers"}\n'
+  else
+   printf '{"broadcast":"pending"}\n'
+  fi
+  ;;
  topic) acquire_lock network; trap 'release_lock network' EXIT; forum_create_topic "$2" "$3" '' '' ;;
  post) acquire_lock network; trap 'release_lock network' EXIT; forum_create_post "$2" "$3" '' ;;
  engine-propose) acquire_lock network; trap 'release_lock network' EXIT; blockchain_create_transaction propose_new_compute_engine "$2" ;;

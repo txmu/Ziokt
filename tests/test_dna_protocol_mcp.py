@@ -1,5 +1,6 @@
 """Tests for DNA duplex, RNA frames, OpenCI commitments, governance archive, and companion tunnels in MCP."""
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import time
@@ -34,7 +35,13 @@ class TestDnaProtocolMcp(unittest.TestCase):
         key_path=self.root/'owner.pem'
         key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
         key_path.chmod(0o600)
+        archive=self.root/'archive.db'
+        with sqlite3.connect(archive) as db:
+            db.execute('CREATE TABLE blocks(height INTEGER,hash TEXT)');db.execute('INSERT INTO blocks VALUES(784,?)',('a'*64,))
+            db.execute('CREATE TABLE transactions(block_height INTEGER,hash TEXT,type TEXT,data TEXT,timestamp INTEGER)')
+            db.execute('INSERT INTO transactions VALUES(784,?,?,?,1)',('b'*64,'propose_new_compute_engine','{}'))
         self.config = {
+            "governance_archive":str(archive),
             "writes_enabled": True,
             "protocol_state": {"signing_key":str(key_path),"owners":{"archive.library.ziokt":hashlib.sha256(public_key_pem(key).encode()).hexdigest()}},
             "state": str(self.root / "state"),
@@ -189,9 +196,10 @@ class TestDnaProtocolMcp(unittest.TestCase):
         self.assertFalse(call.get("isError"))
         res = call["structuredContent"]
         self.assertEqual(res["schema"], "ziokt.companion-tunnel-status.v1")
-        self.assertEqual(res["status"], "operational")
-        self.assertTrue(res["companion_mesh"]["multi_hop_capable"])
-        self.assertTrue(res["companion_mesh"]["disaster_recovery_forwarding"])
+        self.assertEqual(res["status"], "not_configured")
+        self.assertEqual(res["runtime_connectivity"],"not_assessed")
+        self.assertFalse(res["companion_mesh"]["multi_hop_capable"])
+        self.assertFalse(res["companion_mesh"]["disaster_recovery_forwarding"])
 
 
 if __name__ == "__main__":

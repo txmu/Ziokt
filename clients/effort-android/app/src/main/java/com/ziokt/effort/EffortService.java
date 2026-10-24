@@ -46,6 +46,7 @@ public final class EffortService extends Service {
         wanted=getSharedPreferences("effort",0).getBoolean("wanted",false);
         if(!wanted){stopSelf();return START_NOT_STICKY;}
         foreground=true;String mode=getSharedPreferences("effort",0).getString("mode","network");
+        if("openci".equals(mode)){wanted=false;getSharedPreferences("effort",0).edit().putBoolean("wanted",false).apply();stopSelf();return START_NOT_STICKY;}
         if(Build.VERSION.SDK_INT>=34)startForeground(1,notification(),"compute".equals(mode)?ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE:ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         else startForeground(1,notification());
         cancel();if(online)launch();else status("网络已断开，已暂停；等待系统网络恢复");return START_STICKY;

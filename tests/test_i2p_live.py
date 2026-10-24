@@ -75,7 +75,13 @@ class LiveI2PTests(unittest.TestCase):
                             time.sleep(5)
                     self.assertTrue(success,'actual I2P SAM stream did not complete mTLS sync')
                     self.assertEqual(source.view('wiki'),target.view('wiki'))
-                    sync_remote(target,endpoint,context,private,publisher=public)
+                    deadline=time.monotonic()+300
+                    while True:
+                        try:
+                            sync_remote(target,endpoint,context,private,publisher=public);break
+                        except ProtocolError as error:
+                            if error.code!='CARRIER_UNAVAILABLE' or time.monotonic()>=deadline:raise
+                            time.sleep(5)
                 finally:
                     close_sessions()
                     if server is not None: server.shutdown(); server.server_close()

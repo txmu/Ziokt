@@ -126,10 +126,11 @@ class Service:
         self.add('ziokt_dna_duplex_verify','Verify a DNA duplex against an externally authenticated root hash; optionally repairs single-strand corruption when repair=true.',schema({'gene':PARAMS,'authenticated_root':{'type':'string','pattern':'^[a-f0-9]{64}$'},'repair':{'type':'boolean'}},('gene','authenticated_root')),False,'ziokt:read',('dna-duplex','verify'))
         self.add('ziokt_zdns_rna_announce','Persist an owner-authorized RNA frame using the configured key and atomic outgoing sequence. Reports network publication separately.',schema({'domain':{'type':'string','maxLength':255},'target':{'type':'string','maxLength':255},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sequence':{'type':'integer','minimum':1}},('domain','target')),True,'ziokt:names:write',('zdns-rna','announce'))
         self.add('ziokt_zdns_rna_verify','Verify a signed RNA frame against chain identity, sender PEM, policy ID, validity window (120s), and anti-replay sequence.',schema({'frame':PARAMS,'pem':{'type':'string','maxLength':1024},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sender':{'type':'string','pattern':'^[a-f0-9]{64}$'},'previous_sequence':{'type':'integer','minimum':0}},('frame','pem')),True,'ziokt:names:write',('zdns-rna','verify'))
-        self.add('ziokt_openci_evidence_commit','Persist an evidence commitment with a configured local witness signature; worker authentication and chain inclusion are reported separately.',schema({'pipeline':{'type':'string','maxLength':128},'task':{'type':'string','maxLength':128},'worker':{'type':'string','maxLength':128},'artifact_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'result':PARAMS},('pipeline','task','worker','artifact_digest','result')),True,'ziokt:evidence:write',('openci-evidence','commit'))
+        self.add('ziokt_openci_evidence_commit','Persist an evidence commitment with a configured local witness signature; worker authentication and chain inclusion are reported separately.',schema({'pipeline':{'type':'string','maxLength':128},'task':{'type':'string','maxLength':128},'worker':{'type':'string','maxLength':128},'artifact_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'},'result':PARAMS,'publish':{'type':'boolean'}},('pipeline','task','worker','artifact_digest','result')),True,'ziokt:evidence:write',('openci-evidence','commit'))
+        self.add('ziokt_protocol_publication_status','Inspect this client’s durable native publication, peer acknowledgements and current canonical inclusion.',schema({'publication_id':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('publication_id',)),False,'ziokt:read',('protocol-publication','status'))
         self.add('ziokt_openci_evidence_get','Retrieve persisted local evidence and its signed witness; does not imply chain inclusion.',schema({'commitment_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('commitment_hash',)),False,'ziokt:read',('protocol-evidence','get'))
         self.add('ziokt_openci_evidence_verify','Verify an OpenCI evidence commitment and check artifact digest consistency.',schema({'commitment':PARAMS,'expected_hash':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('commitment',)),False,'ziokt:read',('openci-evidence','verify'))
-        self.add('corium_governance_archive_query','Read-only query of historical proposals, old authorizations, and rule changes from the separated legacy history chain (H0-H784) without altering active mainnet consensus state.',schema({'proposal_type':{'type':'string','maxLength':64},'limit':{'type':'integer','minimum':1,'maximum':100},'archive_path':{'type':'string','maxLength':256}}),False,'corium:read',('governance-archive',))
+        self.add('corium_governance_archive_query','Read-only query of historical proposals, old authorizations, and rule changes from the separated legacy history chain (H0-H784) without altering active mainnet consensus state.',schema({'proposal_type':{'type':'string','maxLength':64},'limit':{'type':'integer','minimum':1,'maximum':100}}),False,'corium:read',('governance-archive',))
         self.add('shadow6_companion_tunnel_status','Inspect Shadow6 and companion connection topology, multi-hop relay forwarding channels, and disaster recovery tunnel readiness across isolated runtime environments.',schema(),False,'shadow6:read',('companion-tunnel-status',))
         self.add('ziokt_naming_status','Report suffix authorities and configured independent naming realms; DNS never grants service access.',schema(),False,'ziokt:read',('naming-status',))
         if config.get('dns_config'):
@@ -257,14 +258,37 @@ class Service:
             from .content_api import attach
             attach(self,config['content_fabric'])
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
+        self.publication_stop=threading.Event();self.publication_thread=None
         self.etp={}
         self.content_etp=None;self.content_etp_config=None
+
+    def start_protocol_publisher(self):
+        if self.current().get('protocol_state',{}).get('publish') is not True:return
+        from .protocol_state import ProtocolState
+        from .protocol_publisher import Publisher
+        def run():
+            while not self.publication_stop.is_set():
+                try:
+                    current=self.current()
+                    if current.get('writes_enabled') is True and current.get('protocol_state',{}).get('publish') is True:
+                        state=ProtocolState(self.root/'protocol',current['protocol_state'])
+                        def authorized(owner,kind):
+                            client=self.client(owner)
+                            scope='ziokt:names:write' if kind=='zdns' else 'ziokt:evidence:write'
+                            return client is not None and scope in client.get('scopes',[])
+                        state.flush(Publisher(state.root,current),authorized)
+                except Exception:log.warning('Native protocol publication unconfirmed; durable outbox retained')
+                self.publication_stop.wait(10)
+        self.publication_thread=threading.Thread(target=run,name='native-protocol-publication',daemon=True)
+        self.publication_thread.start()
 
     def attach_shadow6_control(self,config=None,adapter=None):
         from .shadow6_control_mcp import attach_shadow6_control
         return attach_shadow6_control(self,config=config,adapter=adapter)
 
     def close(self):
+        self.publication_stop.set()
+        if self.publication_thread:self.publication_thread.join(timeout=30)
         with self.lock:
             if self.content_etp is not None:self.content_etp.close();self.content_etp=None
             for gateway in self.etp.values():gateway.close()
@@ -456,22 +480,28 @@ class Service:
             if route[1]=='protect':
                 return dna_protect_payload(args.get('payload_text'), args.get('payload_base64'), args.get('domain', 'library'), args.get('metadata'))
             return dna_verify_payload(args['gene'], args['authenticated_root'], repair=args.get('repair', False))
-        if kind in {'zdns-rna','openci-evidence','protocol-evidence'}:
+        if kind in {'zdns-rna','openci-evidence','protocol-evidence','protocol-publication'}:
             from .protocol_state import ProtocolState
             from .dna_protocol import openci_verify_evidence
             state=ProtocolState(self.root/'protocol',self.current().get('protocol_state'))
             if kind=='protocol-evidence':return state.evidence(principal['client'],args['commitment_hash'])
+            if kind=='protocol-publication':
+                result=state.publication(principal['client'],args['publication_id'])
+                if result.get('native_transaction'):
+                    from .protocol_publisher import Publisher
+                    result.update(Publisher(state.root,self.current()).inclusion(result['native_transaction']))
+                return result
             if kind=='zdns-rna':
-                return state.announce(**args) if route[1]=='announce' else state.verify(**args)
+                return state.announce(owner=principal['client'],**args) if route[1]=='announce' else state.verify(**args)
             if route[1]=='commit':
-                return state.commit(principal['client'],args['pipeline'],args['task'],args['worker'],args['artifact_digest'],args['result'])
+                return state.commit(principal['client'],args['pipeline'],args['task'],args['worker'],args['artifact_digest'],args['result'],publish=args.get('publish',False))
             return openci_verify_evidence(args['commitment'],args.get('expected_hash'))
         if kind=='governance-archive':
             from .dna_protocol import query_governance_archive
-            return query_governance_archive(args.get('archive_path'), args.get('proposal_type'), args.get('limit', 20))
+            return query_governance_archive(self.current().get('governance_archive'), args.get('proposal_type'), args.get('limit', 20))
         if kind=='companion-tunnel-status':
             from .dna_protocol import shadow6_companion_tunnel_status
-            return shadow6_companion_tunnel_status(self.config.get('bridges'))
+            return shadow6_companion_tunnel_status(self.config.get('bridges'),self.current().get('shadow6_exchange'))
         if kind=='tracker-status':
             return {'schema':'ziokt.tracker-capability.v1','configured':sorted(self.config.get('trackers',{})),
                     'optional':True,'replaces_dht':False,'registration_opt_in':True,'maximum_lease_seconds':600,
@@ -932,6 +962,7 @@ def execute(args):
         return service.issue(args.client,set(client['scopes']))
     if args.mcp_action=='serve':
         server=Server((local_listener(config.get('listen','127.0.0.1')),config.get('port',8186)),http_handler(service))
+        service.start_protocol_publisher()
         try:server.serve_forever()
         finally:server.server_close();service.close()
         return {}

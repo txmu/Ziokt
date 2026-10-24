@@ -79,7 +79,7 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'disagree'):
             w.recover_wallet(self.root, other)
         other = dict(self.wallet, network_id='ziokt-main')
-        with self.assertRaisesRegex(ValueError, 'testnet-only'):
+        with patch.object(r,'ZS_MAINNET_ENABLED',False), self.assertRaisesRegex(ValueError, 'enabled mainnet'):
             w.validate_wallet(other)
         with patch.object(r, 'corium_db') as database:
             for network in ('test-../../outside', 'test-'+'a'*65, 'test-\x00'):

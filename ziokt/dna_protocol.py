@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 MAX_GENE_BYTES = 4096
 ALPHABET = 'ACGT'
 PAIR = str.maketrans('ACGT', 'TGCA')
-DEFAULT_ARCHIVE_PATH = Path('/home/admin/legacy-history-archive-h0-h784/chain.db')
+DEFAULT_ARCHIVE_PATH = None
 
 CANONICAL_CHAIN_ID = 'b9856ae079426ddbf6d5ec9e2b69994f8d2c97296bbd9b694b4272825159b01b'
 CANONICAL_POLICY_ID = '5b137ebbc0d470ccdb26448f9683651ebb3d72097158403674dcc4b9a10c7f4d'
@@ -284,9 +284,10 @@ def openci_verify_evidence(commitment_doc, expected_hash=None):
 
 
 def query_governance_archive(archive_db_path=None, proposal_type=None, limit=20):
-    db_file = Path(archive_db_path) if archive_db_path else DEFAULT_ARCHIVE_PATH
+    if archive_db_path is None:return {'found':False,'error':'archive not configured'}
+    db_file = Path(archive_db_path)
     if not db_file.exists():
-        return {'found': False, 'error': f'Archive DB does not exist at {db_file}'}
+        return {'found': False, 'error': 'configured archive unavailable'}
     
     with sqlite3.connect(f'file:{db_file}?mode=ro', uri=True) as con:
         con.row_factory = sqlite3.Row
@@ -325,27 +326,22 @@ def query_governance_archive(archive_db_path=None, proposal_type=None, limit=20)
         tip_hash = cur.execute("SELECT hash FROM blocks WHERE height = ?", (total_blocks,)).fetchone()[0]
         return {
             'found': True,
-            'archive_scope': 'H0-H784',
+            'archive_scope': 'H0-H'+str(total_blocks),
             'latest_archive_height': total_blocks,
             'tip_hash': tip_hash,
-            'archive_path': str(db_file),
             'count': len(results),
             'proposals': results
         }
 
 
-def shadow6_companion_tunnel_status(bridges_map=None):
+def shadow6_companion_tunnel_status(bridges_map=None, exchange_path=None):
     """Inspect companion mesh connectivity, disaster recovery channels, and multi-hop forwarding."""
-    configured_bridges = list(bridges_map.keys()) if bridges_map else [
-        'corium', 'dcpm', 'etp', 'safefs', 'shadow6', 'sim-manager', 'tc16', 'tri', 'ufs', 'watchat', 'zda', 'ziokt'
-    ]
-    
-    # Read exchange information for shadow6 if available
-    exchange_path = Path('/home/admin/.local/share/ziokt-production/mcp/shadow6/exchange.json')
+    configured_bridges = sorted(bridges_map or {})
     component_peers = {}
-    if exchange_path.exists():
+    if exchange_path is not None and Path(exchange_path).is_file():
         try:
-            exchange_data = json.loads(exchange_path.read_text())
+            from .protocol import secure_read,strict_json
+            exchange_data = strict_json(secure_read(exchange_path,65536),65536)
             component_peers = exchange_data.get('component_peers', {})
         except Exception:
             pass
@@ -361,13 +357,14 @@ def shadow6_companion_tunnel_status(bridges_map=None):
         
     return {
         'schema': 'ziokt.companion-tunnel-status.v1',
-        'status': 'operational',
+        'status': 'configured' if configured_bridges else 'not_configured',
+        'runtime_connectivity': 'not_assessed',
         'companion_mesh': {
             'configured_bridges': configured_bridges,
             'component_peer_count': len(component_peers),
             'peer_channels': peer_summary,
-            'multi_hop_capable': True,
-            'disaster_recovery_forwarding': True
+            'multi_hop_capable': False,
+            'disaster_recovery_forwarding': False
         },
         'architectural_separation': {
             'data_preservation': 'dna_duplex (Library/Netnews content-addressed roots)',

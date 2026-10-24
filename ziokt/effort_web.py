@@ -129,7 +129,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def send_value(self,status,value,kind='application/json'):
             data=value if isinstance(value,bytes) else encoded(value)
             self.send_response_only(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
-            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; connect-src "+connect_sources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
+            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src "+connect_sources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
             self.end_headers();self.wfile.write(data)
         def valid_origin(self,post=False):
             # Public GETs are read-only, including navigation from WeChat or an
@@ -156,6 +156,8 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def do_GET(self):
             try:
                 self.valid_origin()
+                if self.path in {'/light.js','/light-worker.js'}:
+                    return self.send_value(200,files_resource('openci').joinpath('web',self.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if self.path=='/api/people/config':return self.send_value(200,{'schema':'ziokt.people-help.v1','relay_origins':list(relay_origins),'direct_relay':{'enabled':direct_relay is not None,'network_id':direct_relay.network if direct_relay else None,'transport':'direct','anonymous':False}})
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)

@@ -106,6 +106,9 @@ class Controller:
                 raise Error('ARTIFACT_FORMAT','Artifact is not a valid bounded output archive',409) from None
 
     def dispatch(self, method, path, query, body, actor, principal):
+        if method=='POST' and path=='/v1/light/claim':
+            from .light import claim
+            return 200,claim(self,principal,body)
         if method=='GET' and path=='/v1/me':
             return 200,{'principal':actor,'role':principal['role'],'projects':principal['projects'],'worker':principal.get('worker'),'native_rewards_enabled':False}
         if method=='POST' and path=='/v1/enrollments/invites':
@@ -166,6 +169,9 @@ class Controller:
         if method == 'POST' and path == '/v1/pipelines':
             owner = self.project(principal, body.get('project'), {'admin', 'submit'})
             self.content_reference(owner, body.get('source'))
+            if any(isinstance(task,dict) and task.get('executor')=='light-c' for task in body.get('tasks',[])):
+                from .light import check_source
+                check_source(self,owner,body['source'])
             return 202, self.state.submit(actor, body)
         if method == 'GET' and path == '/v1/logs':
             pid = query['pipeline'][0]; self.pipeline(principal,pid)
@@ -201,7 +207,10 @@ class Controller:
                 return 200, self.state.append_log(worker,body['pipeline'],body['task'],body['lease'],body['position'],base64.b64decode(body['data_base64'],validate=True))
             owner = self.project(principal, result['project'])
             self.content_reference(owner, body['logs'])
-            if body['exit_code'] == 0: self.content_reference(owner, body['artifact'])
+            if body['exit_code'] == 0:
+                self.content_reference(owner, body['artifact'])
+                from .light import check_result
+                check_result(self,result,body['task'],body['artifact'])
             return 200, self.state.finish(worker, body['pipeline'], body['task'], body['lease'],
                     exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'],attestation=body.get('attestation'))
         if path.startswith('/v1/objects/'):
@@ -258,12 +267,19 @@ def handler(controller):
                 if self.headers.get('Sec-Fetch-Site')=='cross-site':raise Error('ORIGIN_REJECTED','Cross-site access rejected',403)
                 url = urlsplit(self.path)
                 body = None
-                if self.command=='GET' and url.path in {'/','/index.html','/app.js','/style.css'} and not url.query:
+                if self.command=='GET' and url.path in {'/','/index.html','/app.js','/style.css','/light.js','/light-worker.js'} and not url.query:
                     name='index.html' if url.path in {'/','/index.html'} else url.path[1:]
-                    kind={'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8'}[name]
+                    kind={'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8','light.js':'text/javascript; charset=utf-8','light-worker.js':'text/javascript; charset=utf-8'}[name]
                     from importlib.resources import files
                     raw=files('openci').joinpath('web',name).read_bytes()
-                    self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");self.send_header('Connection','close');self.end_headers();self.wfile.write(raw);self.close_connection=True;return
+                    self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");self.send_header('Connection','close');self.end_headers();self.wfile.write(raw);self.close_connection=True;return
+                if self.command=='GET' and url.path=='/v1/light/config':
+                    from .light import settings
+                    self.send(200,settings(controller)[1]);return
+                if self.command=='GET' and url.path.startswith('/compiler/'):
+                    from .light import asset
+                    raw,kind=asset(controller,url.path[len('/compiler/'):])
+                    self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(raw)));self.send_header('X-Content-Type-Options','nosniff');self.send_header('Cache-Control','no-store');self.send_header('Connection','close');self.end_headers();self.wfile.write(raw);self.close_connection=True;return
                 if self.command in {'POST', 'PUT'}:
                     if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                         raise Error('CONTENT_LENGTH_REQUIRED', 'One explicit body size required', 411)

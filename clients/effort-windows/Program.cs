@@ -33,7 +33,7 @@ internal sealed class Preferences
     internal static string FileName => Path.Combine(Folder, "preferences.json");
     internal static Preferences Load()
     {
-        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode == "compute" ? "compute" : "network"; return p; }
+        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode is "compute" or "openci" ? p.Mode : "network"; return p; }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
     }
     internal void Save()
@@ -63,14 +63,14 @@ internal sealed class EffortWindow : Form
     {
         this.background = background; this.smoke = smoke;
         Text = "Ziokt 助力 · Windows"; Width = 1020; Height = 780; MinimumSize = new Size(540, 480);
-        mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作"]); mode.SelectedIndex = prefs.Mode == "compute" ? 1 : 0;
+        mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作", "OpenCI 轻量编译"]); mode.SelectedIndex = prefs.Mode == "openci" ? 2 : prefs.Mode == "compute" ? 1 : 0;
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(8) };
         top.Controls.AddRange([mode, start, stop, startup, state]); Controls.Add(web); Controls.Add(top);
         using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key?.GetValue("ZioktEffort") is string;
         startup.CheckedChanged += (_, _) => SetStartup();
-        start.Click += async (_, _) => { prefs.Mode = mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = true; Save(); await StartAsync(); };
+        start.Click += async (_, _) => { prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = true; Save(); await StartAsync(); };
         stop.Click += async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); state.Text = "已停止；不会自动恢复"; };
-        mode.SelectedIndexChanged += async (_, _) => { prefs.Mode = mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = false; Save(); await StopAsync(); };
+        mode.SelectedIndexChanged += async (_, _) => { prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = false; Save(); await StopAsync(); };
         var menu = new ContextMenuStrip(); menu.Items.Add("打开奋斗页", null, (_, _) => ShowWindow());
         menu.Items.Add("停止助力", null, async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); });
         menu.Items.Add("退出", null, async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); exiting = true; Close(); });
@@ -111,7 +111,7 @@ internal sealed class EffortWindow : Form
                     using var message = JsonDocument.Parse(e.WebMessageAsJson);
                     var value = message.RootElement;
                     if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("kind", out var kind) || kind.GetString() != "effort-intent" || !value.TryGetProperty("active", out var active) || active.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return;
-                    prefs.Resume = active.GetBoolean(); prefs.Mode = mode.SelectedIndex == 1 ? "compute" : "network"; Save();
+                    prefs.Resume = active.GetBoolean(); prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; Save();
                 }
                 catch (JsonException) { }
             };
@@ -124,9 +124,10 @@ internal sealed class EffortWindow : Form
                 navigating = false; ready = e.IsSuccess && Allowed(web.Source?.AbsoluteUri ?? ""); start.Enabled = ready;
                 if (!ready && smoke) { FinishSmoke(false, "navigation_failed"); return; }
                 if (!ready) { state.Text = connected ? "页面暂不可用，点击此处重试" : "网络已断开，等待系统网络恢复"; return; }
-                await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired()))}))},true);'intent-listener-installed'");
+                await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired())||(window.ZioktLight&&window.ZioktLight.desired()))}))},true);'intent-listener-installed'");
+                await ScriptAsync("window.ZioktHostArchitecture=" + JsonSerializer.Serialize(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.X64 ? "x86_64" : System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "aarch64" : "unsupported") + ";'architecture-detected'");
                 await PublishNetworkAsync();
-                state.Text = connected ? "就绪 · 两种方式均可选择；可随时停止" : "网络已断开，已暂停";
+                state.Text = connected ? "就绪 · 三种助力方式；编译须先准入，可随时停止" : "网络已断开，已暂停";
                 if (smoke)
                 {
                     var controls = await ScriptAsync("!!(document.getElementById('help-mode')&&document.getElementById('start')&&window.ZioktCompute&&window.ZioktPeopleRelay)");
@@ -182,7 +183,7 @@ internal sealed class EffortWindow : Form
         var result = await ScriptAsync("(()=>{const m=document.getElementById('help-mode'),b=document.getElementById('start'),bg=document.getElementById('background');if(!m||!b||!bg)return 'unavailable';m.value='" + prefs.Mode + "';m.dispatchEvent(new Event('change'));bg.checked=true;bg.dispatchEvent(new Event('change'));b.click();return 'started'})()");
         state.Text = result == "\"started\"" ? (connected ? "已启用 · 实际任务和回执请看页面" : "等待网络恢复；尚未传输或计算") : "页面尚未就绪，请重试";
     }
-    Task StopAsync() => ScriptAsync("(()=>{if(window.ZioktCompute)window.ZioktCompute.stop();if(window.ZioktPeopleRelay)window.ZioktPeopleRelay.stop();return 'stopped'})()");
+    Task StopAsync() => ScriptAsync("(()=>{if(window.ZioktCompute)window.ZioktCompute.stop();if(window.ZioktPeopleRelay)window.ZioktPeopleRelay.stop();if(window.ZioktLight)window.ZioktLight.stop();return 'stopped'})()");
 }
 
 internal static class SelfTest

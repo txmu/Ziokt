@@ -1352,6 +1352,19 @@ impl EtpEngine {
                         return;
                     }
                 }
+                // Simultaneous IK initiations must select one flight. Without
+                // arbitration both sides can replace their initiator with a
+                // responder and then keep incompatible transport keys.
+                if let Some(previous) = ctx.sessions.get(&src).map(|s| s.value().clone()) {
+                    let previous = previous.lock().await;
+                    if !previous.handshake_completed && !previous.handshake_flight.is_empty()
+                        && ctx.config.keypair.public.as_slice()
+                            < ctx.config.trusted_peers.get(&src).unwrap().as_slice()
+                    {
+                        release_buffer(out);
+                        return;
+                    }
+                }
                 let mut response_payload = b"ETPR4\0\0\0".to_vec();
                 response_payload.extend_from_slice(&ctx.boot_id);
                 if let Ok((wlen, wfin)) = session.crypto.write_handshake_message(&response_payload, &mut out) {
@@ -2345,6 +2358,20 @@ mod runtime_regression_tests {
             wait_for_incarnation(&fresh_ctx,a_addr,a_ctx.boot_id,Some(&old_b)).await;
             a_handle.send_data(b_addr,b"same boot explicit rekey".to_vec()).await.unwrap();assert_eq!(fresh_received.recv().await.unwrap().1,b"same boot explicit rekey");
             new_handle.send_data(a_addr,b"same boot return".to_vec()).await.unwrap();assert_eq!(a_received.recv().await.unwrap().1,b"same boot return");
+            // Real simultaneous reconnects from both owners must converge on
+            // one authenticated flight and preserve reliable stream continuity.
+            for _ in 0..3 {
+                let old_a=a_ctx.sessions.get(&b_addr).unwrap().value().clone();
+                let old_b=fresh_ctx.sessions.get(&a_addr).unwrap().value().clone();
+                let (left,right)=tokio::join!(a_handle.connect(b_addr,b_public.clone()),new_handle.connect(a_addr,a_public.clone()));
+                left.unwrap();right.unwrap();
+                wait_for_incarnation(&a_ctx,b_addr,fresh_ctx.boot_id,Some(&old_a)).await;
+                wait_for_incarnation(&fresh_ctx,a_addr,a_ctx.boot_id,Some(&old_b)).await;
+                a_handle.send_data(b_addr,b"simultaneous rekey forward".to_vec()).await.unwrap();
+                assert_eq!(fresh_received.recv().await.unwrap().1,b"simultaneous rekey forward");
+                new_handle.send_data(a_addr,b"simultaneous rekey return".to_vec()).await.unwrap();
+                assert_eq!(a_received.recv().await.unwrap().1,b"simultaneous rekey return");
+            }
             assert_eq!(a_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);assert_eq!(fresh_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);
         };
         let result=tokio::time::timeout(Duration::from_secs(15),exchange).await;

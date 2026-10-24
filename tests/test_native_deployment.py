@@ -33,7 +33,7 @@ class DeploymentTests(unittest.TestCase):
                 connection.execute('INSERT INTO evidence VALUES (?)', ('preserve-confirmed-state',))
         config = {'corix': str(self.target), 'corix_digest': 'sha256:'+'1'*64,
                   'forum_db': str(self.root/'forum.db'), 'dht_db': str(self.root/'dht.db'),
-                  'state_root': str(state), 'network': 'test-upgrade', 'dns_config': 'preserve-this-setting'}
+                  'service_units':{'p2p':'fixture-p2p','consensus':'fixture-consensus','relayer':'fixture-relayer','gateway':'fixture-gateway','mcp':'fixture-mcp','telegram':'fixture-telegram'}, 'state_root': str(state), 'network': 'test-upgrade', 'dns_config': 'preserve-this-setting'}
         (self.root/'config/gateway.json').write_text(json.dumps(config))
         (self.root/'config/federation.json').write_text(json.dumps({'providers': [{'native_project': 'corium', 'entrypoint_digest': 'sha256:'+'1'*64}]}))
         (self.root/'config/runtime-digests.json').write_text(json.dumps({'digests': {'corix_v108.sh': '1'*64}}))

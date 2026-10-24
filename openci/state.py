@@ -57,7 +57,7 @@ def validate_pipeline(value):
     tasks = {}
     for task in value['tasks']:
         required={'id', 'needs', 'image', 'argv', 'arch', 'pool', 'cpu', 'memory_mb', 'timeout', 'attempts'}
-        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs','worker'}:
+        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs','worker','executor'}:
             raise Error('INVALID_TASK', 'Exact task fields required')
         task=dict(task);task.setdefault('outputs',[])
         if 'worker' in task:identifier(task['worker'])
@@ -81,6 +81,10 @@ def validate_pipeline(value):
             raise Error('INVALID_WORKER_REQUIREMENT', 'Explicit supported architecture and trust pool required')
         integer(task['cpu'], 1, 64); integer(task['memory_mb'], 64, 262144)
         integer(task['timeout'], 1, 10800); integer(task['attempts'], 1, 5)
+        if task.get('executor','oci') not in {'oci','light-c'}:raise Error('TASK_EXECUTOR','Known isolated executor required')
+        if task.get('executor')=='light-c':
+            from .light import validate_task
+            validate_task(task)
         tasks[name] = task
     ordered, order = set(), []
     while len(ordered) < len(tasks):
@@ -226,7 +230,7 @@ class Store:
             phase = 'failed' if values & {'failed', 'blocked'} else 'completed' if values == {'completed'} else 'running' if 'running' in values else 'submitted'
             db.execute('UPDATE pipelines SET state=? WHERE id=?', (phase, pid))
 
-    def claim(self, worker, lease_seconds=60):
+    def claim(self, worker, lease_seconds=60, *, executor="oci", images=None):
         integer(lease_seconds, 10, 300)
         with self.transaction() as db:
             self.refresh(db)
@@ -240,6 +244,7 @@ class Store:
             rows = db.execute("SELECT t.*,p.project,p.body FROM tasks t JOIN pipelines p ON p.id=t.pipeline WHERE t.state='queued' AND p.state NOT IN ('cancelled','published') ORDER BY p.created,t.rowid LIMIT 4096").fetchall()
             for task in rows:
                 spec = json.loads(task['spec'])
+                if spec.get('executor','oci')!=executor or images is not None and spec['image'] not in images:continue
                 if spec.get('worker',worker)!=worker:continue
                 if task['project'] not in projects or spec['arch'] != approved['arch'] or spec['pool'] != approved['pool'] or spec['cpu']+cpu_used > approved['cpu'] or spec['memory_mb']+mem_used > approved['memory_mb']: continue
                 lease = secrets.token_urlsafe(32)

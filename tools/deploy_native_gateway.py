@@ -3,7 +3,7 @@
 
 No compiler, package download, firewall change, or credential printing.
 """
-import argparse,datetime,hashlib,json,os,shutil,subprocess,sys,time,urllib.request
+import argparse,datetime,hashlib,json,os,re,shutil,subprocess,sys,time,urllib.request
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from ziokt.gateway_store import database
@@ -13,6 +13,9 @@ def deploy(root,corix):
  root=Path(root).resolve();corix=Path(corix).resolve();repo=Path(__file__).resolve().parents[1]
  subprocess.run(['bash','-n',str(corix)],check=True)
  config=json.loads((root/'config/gateway.json').read_text())
+ units=config.get('service_units')
+ roles={'p2p','consensus','relayer','gateway','mcp','telegram'}
+ if not isinstance(units,dict) or set(units)!=roles or len(set(units.values()))!=len(roles) or any(not isinstance(v,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',v) for v in units.values()):raise ValueError('explicit distinct service_units required for all native roles')
  # Validate before copying sources or changing digest pins. Malformed hold
  # evidence must fail deployment, rather than implicitly resume consensus.
  from ziokt.assurance import public_hold
@@ -20,14 +23,14 @@ def deploy(root,corix):
  hold=public_hold({'consensus_safety_hold':str(hold_path)}) if hold_path.exists() else None
  held=bool(hold and hold['active'])
  guard_source=corix.with_name('consensus_hold.py')
- guard_override=Path('/etc/systemd/system/ziokt-corium-consensus.service.d/80-provenance-hold.conf')
+ guard_override=Path('/etc/systemd/system')/(units['consensus']+'.service.d')/'80-provenance-hold.conf'
  if guard_override.exists() and not guard_override.read_text().startswith('# Managed Ziokt provenance hold\n'):
   raise ValueError('Existing consensus hold override needs explicit reconciliation')
  if Path(config['corix']).resolve() != (root/'bin/corix_v108.sh').resolve():
   raise ValueError('gateway source path differs from the deployment target')
- services=['ziokt-corium-p2p','ziokt-corium-consensus','ziokt-corium-relayer','ziokt-gateway']
- if (root/'mcp/mcp.json').is_file():services.append('ziokt-mcp')
- if subprocess.run(['systemctl','is-active','--quiet','ziokt-telegram-bot'],capture_output=True).returncode==0:services.append('ziokt-telegram-bot')
+ services=[units[role] for role in ('p2p','consensus','relayer','gateway')]
+ if (root/'mcp/mcp.json').is_file():services.append(units['mcp'])
+ if subprocess.run(['systemctl','is-active','--quiet',units['telegram']],capture_output=True).returncode==0:services.append(units['telegram'])
  control=['systemctl'] if os.geteuid()==0 else ['sudo','-n','systemctl']
  if os.geteuid()!=0:
   # Fail before changing source/configuration when this account cannot restart
@@ -71,10 +74,10 @@ def deploy(root,corix):
  # settings, identities and unit definitions. Initial bootstrap is separate.
  # In particular, never manufacture optimistic NNS rows during an upgrade.
  # A release must not restart mining after a history/provenance safety hold.
- restart_services=[name for name in services if not (held and name=='ziokt-corium-consensus')]
+ restart_services=[name for name in services if not (held and name==units['consensus'])]
  if held:
-  subprocess.run([*control,'stop','ziokt-corium-consensus'],check=True)
-  subprocess.run([*control,'reset-failed','ziokt-corium-consensus'],check=True)
+  subprocess.run([*control,'stop',units['consensus']],check=True)
+  subprocess.run([*control,'reset-failed',units['consensus']],check=True)
  subprocess.run([*control,'restart',*restart_services],check=True)
  deadline=time.monotonic()+30
  while True:

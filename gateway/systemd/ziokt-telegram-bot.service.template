@@ -1,13 +1,13 @@
 [Unit]
 Description=Ziokt Telegram to MCP command bridge
-After=network-online.target ziokt-mcp.service
+After=network-online.target @@MCP_UNIT@@.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=admin
-WorkingDirectory=/home/admin/Ziokt
-ExecStart=/usr/bin/python3 -m ziokt mcp telegram-worker --config /home/admin/.local/share/ziokt-production/mcp/mcp.json
+User=@@SERVICE_USER@@
+WorkingDirectory=@@SOURCE_ROOT@@
+ExecStart=@@PYTHON@@ -m ziokt mcp telegram-worker --config @@MCP_CONFIG@@
 UMask=0077
 Restart=on-failure
 RestartSec=3
