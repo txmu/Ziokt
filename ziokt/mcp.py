@@ -107,8 +107,8 @@ class Service:
         self.config=config
         from .build_info import snapshot
         self.build_info=snapshot()
-        from .assurance import snapshot as assurance_snapshot
-        self.assurance_info=assurance_snapshot()
+        from .assurance import snapshot as assurance_snapshot, public_hold
+        self.assurance_info=assurance_snapshot(public_hold(config))
         self.root=Path(config['state']);self.root.mkdir(parents=True,mode=0o700,exist_ok=True);self.root.chmod(0o700)
         self.db=self.root/'mcp.db'
         self.lock=threading.RLock()
@@ -568,7 +568,11 @@ class Service:
             from .gateway import Gateway
             gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
             method=route[1]
-            if method=='status':return {'network':gateway.config['network'],'authenticated_writes':True}
+            if method=='status':
+                from .assurance import public_hold, snapshot as assurance_snapshot
+                return {'network':gateway.config['network'],'authenticated_writes':True,
+                        'consensus':assurance_snapshot(public_hold(gateway.config))['consensus'],
+                        'build':self.build_info}
             if method=='forum_publish':return {'id':gateway.submit(args['payload'],'mcp:'+principal['client'])}
             if method=='forum_list':
                 with database(gateway.config['forum_db']) as db:

@@ -28,6 +28,7 @@ jobs:
           python -m unittest discover -s tests -p test_gateway_observation.py -v
           python -m unittest discover -s tests -p test_public_address.py -v
           python -m unittest discover -s tests -p test_mcp.py -v
+          python -m unittest discover -s tests -p test_assurance.py -v
           python -m unittest discover -s tests -p test_mcp_registry_audit.py -v
           python -m unittest discover -s tests -p test_frozen_deployment.py -v
           python -m unittest discover -s tests -p test_registry.py -v
@@ -37,6 +38,7 @@ jobs:
           npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
           node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
           node tools/gateway_browser_smoke.cjs
+          node tools/assurance_browser_smoke.cjs
       - name: Verify gateway assets in portable delivery
         run: python ci/build.py
       - uses: actions/upload-artifact@v7.0.2

@@ -65,7 +65,7 @@ def proposal(db,network,payload,height):
 
 def active(db,network,height,validate_previous=True):
     if not (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'}):return None
-    rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
+    rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height,t.hash,b.transactions FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id LEFT JOIN blocks b ON b.height=t.block_height WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
     accepted=[];previous=LEGACY
     for row in rows:
@@ -73,6 +73,13 @@ def active(db,network,height,validate_previous=True):
         except (ValueError, KeyError, TypeError):continue
         activation=value['work_policy']['activation_height']
         if activation>height:continue
+        # A database confirmation flag is not evidence of canonical inclusion.
+        # The enclosing prefix must already have passed header/transaction replay.
+        try:included=loads(row[5]) if row[5] is not None else None
+        except (ValueError,TypeError):included=None
+        require(type(included) is list and included.count(row[4])==1,
+                'WORK_GOVERNANCE_NOT_COMMITTED: active proposal absent from canonical block')
+        require(row['block_height']<height,'work proposal must precede candidate block')
         require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash']==source_digest() and activation>=(row['block_height']+110 if row['block_height']>1 else 0),'active native governance commitment')
         if validate_previous:require(value['previous_policy']==previous and (not accepted or activation>accepted[-1]['work_policy']['activation_height']),'native activation sequence')
         checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(checkpoint['height'],)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'governed checkpoint differs from native prefix')

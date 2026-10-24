@@ -89,6 +89,11 @@ def proposal(db,network,payload,height):
 def active_policy(db,network,engine,height):
     row=db.execute('SELECT e.*,t.data AS proposal,t.block_height AS proposed_height FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id WHERE e.engine_id=? AND t.type=\'propose_new_compute_engine\'',(engine,)).fetchone()
     require(row is not None and row['pkg_id']==PACKAGE and row['is_active']==1 and type(row['proposed_height']) is int,'governed active native engine required')
+    block=db.execute('SELECT transactions FROM blocks WHERE height=?',(row['proposed_height'],)).fetchone()
+    try:included=json.loads(block[0]) if block else None
+    except (ValueError,TypeError):included=None
+    require(type(included) is list and included.count(engine)==1,
+            'OPENCI_GOVERNANCE_NOT_COMMITTED: active proposal absent from canonical block')
     payload=json.loads(row['proposal']);value=proposal(db,network,payload,row['proposed_height'])
     require(row['compute_program_hash']==policy_digest(value) and row['verifier_script_hash']==source_digest(),'active engine commitment mismatch')
     require(value['activation_height']<=height<value['expiry_height'],'bounty admission height')

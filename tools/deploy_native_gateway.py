@@ -13,6 +13,12 @@ def deploy(root,corix):
  root=Path(root).resolve();corix=Path(corix).resolve();repo=Path(__file__).resolve().parents[1]
  subprocess.run(['bash','-n',str(corix)],check=True)
  config=json.loads((root/'config/gateway.json').read_text())
+ # Validate before copying sources or changing digest pins. Malformed hold
+ # evidence must fail deployment, rather than implicitly resume consensus.
+ from ziokt.assurance import public_hold
+ hold_path=root/'config/consensus-safety-hold.json'
+ hold=public_hold({'consensus_safety_hold':str(hold_path)}) if hold_path.exists() else None
+ held=bool(hold and hold['active'])
  if Path(config['corix']).resolve() != (root/'bin/corix_v108.sh').resolve():
   raise ValueError('gateway source path differs from the deployment target')
  services=['ziokt-corium-p2p','ziokt-corium-consensus','ziokt-corium-relayer','ziokt-gateway']
@@ -48,7 +54,10 @@ def deploy(root,corix):
  # Updating interpreted sources must preserve existing NNS publication, DNS
  # settings, identities and unit definitions. Initial bootstrap is separate.
  # In particular, never manufacture optimistic NNS rows during an upgrade.
- subprocess.run([*control,'restart',*services],check=True)
+ # A release must not restart mining after a history/provenance safety hold.
+ restart_services=[name for name in services if not (held and name=='ziokt-corium-consensus')]
+ if held:subprocess.run([*control,'stop','ziokt-corium-consensus'],check=True)
+ subprocess.run([*control,'restart',*restart_services],check=True)
  deadline=time.monotonic()+30
  while True:
   try:
@@ -57,7 +66,7 @@ def deploy(root,corix):
   except OSError:
    if time.monotonic()>deadline:raise
    time.sleep(.5)
- receipt={'schema':'ziokt.gateway-deployment.v1','at':timestamp,'corix_sha256':digest,'backup':str(backup),'status':status,'local_native_compilation':False}
+ receipt={'schema':'ziokt.gateway-deployment.v1','at':timestamp,'corix_sha256':digest,'backup':str(backup),'status':status,'local_native_compilation':False,'consensus_safety_hold':held}
  path=root/'config/gateway-deployment-receipt.json';path.write_text(json.dumps(receipt,indent=2)+'\n');path.chmod(0o600)
  return receipt
 
