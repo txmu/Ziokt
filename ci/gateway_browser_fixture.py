@@ -1,5 +1,5 @@
 """Loopback real database, signature verifier, OAuth and MCP browser fixture."""
-import json,sqlite3,sys,tempfile,threading,signal
+import json,sqlite3,sys,tempfile,threading,signal,os,re
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from ziokt.gateway import Gateway,Server,handler,ASSETS
@@ -37,7 +37,15 @@ with tempfile.TemporaryDirectory(prefix='ziokt-browser-') as directory:
     namespace={'api':API(),'request':{'app_id':parts[1],'path':parts[2:],'query':parse_qs(parsed.query),'locale':locale}}
     source=(ASSETS/'default_dapp/entrypoint.py').read_text().replace('MESSAGES = {}','MESSAGES = '+repr(json.loads((ASSETS/'i18n.json').read_text())))
     exec(compile(source,'default_dapp','exec'),namespace)
-    return self.send(200,namespace['response'].encode(),'text/html; charset=utf-8')
+    response=namespace['response']
+    if os.environ.get('ZIOKT_BROWSER_LEGACY_TEMPLATE')=='1':
+     # Published old templates have literal Chinese links and no JS catalog.
+     response=re.sub(r'    var S6_PROFILES = .*;\n','',response)
+     response=re.sub(r'\s*<p id="s6p1-example-notice".*?</p>','',response)
+     response=re.sub(r'(<a href="https://app.ziokt.com/"[^>]*>).*?</a>',r'\1Ziokt Web 应用</a>',response)
+     response=re.sub(r'(<a href="https://app.ziokt.com/downloads/"[^>]*>).*?</a>',r'\1各平台软件下载</a>',response)
+     response=response.replace(' data-i18n="links.web_app"','').replace(' data-i18n="links.downloads"','')
+    return self.send(200,response.encode(),'text/html; charset=utf-8')
    if self.path.startswith(('/mcp','/oauth/','/.well-known/')):return MCP.do_GET(self)
    return GW.do_GET(self)
   def do_POST(self):

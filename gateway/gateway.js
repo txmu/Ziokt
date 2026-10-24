@@ -94,11 +94,61 @@
     notice.style.cssText = 'margin:0 0 1rem;color:var(--text-secondary);font-size:0.85rem';
     inspection.querySelector('#s6p1-summary-grid')?.before(notice);
   }
-  if (inspection && Array.isArray(window.S6_PROFILES)) {
+  if (inspection) {
+    // Pre-catalog templates expose only HTML rows, not S6_PROFILES.
+    const profiles = Array.isArray(window.S6_PROFILES) ? window.S6_PROFILES :
+      [...document.querySelectorAll('table tbody tr')].filter(row => row.cells.length === 6)
+        .map(row => row.cells[0].textContent.trim()).filter(id => /^[a-z]+-[a-z0-9-]+$/.test(id))
+        .map(id => ({core:id.split('-')[0],transport:id.slice(id.indexOf('-')+1)}));
+    const parseEnvelope = raw => {
+      if (raw.length > 262144 || !/^S6P1\.[A-Za-z0-9_-]+$/.test(raw)) throw Error('Invalid canonical S6P1 envelope');
+      const bytes = atob(raw.slice(5).replace(/-/g,'+').replace(/_/g,'/'));
+      if (btoa(bytes).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'') !== raw.slice(5)) throw Error('Noncanonical Base64URL');
+      const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(bytes,c=>c.charCodeAt(0))));
+      const fields = ['schema','version','purpose','core','role','identity','routes','components','credentials'];
+      if (!value || Object.keys(value).length !== fields.length || fields.some(key=>!Object.hasOwn(value,key)) ||
+          value.schema !== 'shadow6.protocol-envelope.v1' || value.version !== 1 ||
+          typeof value.purpose !== 'string' || !value.purpose.length || value.purpose.length > 64 ||
+          !['broker','agent','client','gate','relay','plugin','all'].includes(value.role)) throw Error('Invalid envelope fields or scope');
+      const cores = Array.isArray(value.core) ? value.core : [value.core];
+      if (!cores.length || cores.length > 16 || new Set(cores).size !== cores.length ||
+          cores.some(core=>typeof core !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(core)) ||
+          Array.isArray(value.core) && cores.includes('all')) throw Error('Invalid Core scope');
+      if (['identity','components','credentials'].some(key=>!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key])) ||
+          !Array.isArray(value.routes) || value.routes.length > 1024) throw Error('Invalid sections or routes');
+      function portable(item,depth) {
+        if (depth > 32 || typeof item === 'number' && !Number.isSafeInteger(item)) throw Error('Nonportable envelope');
+        if (item && typeof item === 'object') Object.values(item).forEach(child=>portable(child,depth+1));
+      }
+      portable(value,0); return value;
+    };
+    // Use text nodes on legacy templates as well as new publications.
+    window.handleParseS6P1 = () => {
+      const rows = document.getElementById('s6p1-routes-tbody');
+      const raw = document.getElementById('s6p1-raw-json');
+      const tag = document.getElementById('s6p1-schema-tag');
+      rows.replaceChildren(); raw.textContent = '';
+      try {
+        const value = parseEnvelope(document.getElementById('s6p1-textarea').value.trim());
+        tag.textContent = 'SCHEMA: '+value.schema+' (v'+value.version+')'; tag.style.color = '#10b981';
+        document.getElementById('s6p1-disp-node').textContent = value.identity.alias || value.identity.node_id || 'Default Node';
+        document.getElementById('s6p1-disp-purpose').textContent = value.purpose;
+        document.getElementById('s6p1-disp-admission').textContent = value.credentials.admission || 'visa-free';
+        value.routes.forEach(route => {
+          const row = document.createElement('tr');
+          for (const key of ['core','transport','host','port']) {
+            const cell = document.createElement('td'); cell.style.padding = '6px';
+            cell.textContent = route && typeof route === 'object' ? String(route[key] ?? '-') : '-'; row.append(cell);
+          }
+          rows.append(row);
+        });
+        raw.textContent = JSON.stringify(value,null,2);
+      } catch(error) { tag.textContent = 'ERROR: '+error.message; tag.style.color = '#ef4444'; }
+    };
     const example = {schema:'shadow6.protocol-envelope.v1',version:1,role:'client',
       purpose:'example:fictional',identity:{alias:'Fictional example'},components:{},credentials:{},
-      core:[...new Set(window.S6_PROFILES.map(profile => profile.core))],
-      routes:window.S6_PROFILES.map((profile,index) => ({core:profile.core,
+      core:[...new Set(profiles.map(profile => profile.core))],
+      routes:profiles.map((profile,index) => ({core:profile.core,
         transport:profile.transport,host:'192.0.2.1',port:24000+index}))};
     const sample = 'S6P1.' + btoa(JSON.stringify(example)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
     const input = document.getElementById('s6p1-textarea');
