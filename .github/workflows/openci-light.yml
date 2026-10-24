@@ -1,0 +1,31 @@
+name: OpenCI lightweight C compiler and architecture admission
+on:
+  push:
+    paths: ["ci/openci/light/**", "openci/light.py", "tests/test_openci_light.py", ".github/workflows/openci-light.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compiler:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Pinned Emscripten on the CI VM only
+        run: |
+          git clone --depth 1 --branch 4.0.23 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 4.0.23
+          "$RUNNER_TEMP/emsdk/emsdk" activate 4.0.23
+      - name: Actual C to native ELF objects in a bounded WebAssembly compiler
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ci/openci/light/build.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: openci-light-compiler-${{ github.sha }}
+          path: dist/light-compiler/
+          if-no-files-found: error

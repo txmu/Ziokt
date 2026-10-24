@@ -1,0 +1,1 @@
+{"schema":"openci.light-compiler-source.v1","upstream":"https://repo.or.cz/tinycc.git","fetch_mirror":"https://github.com/TinyCC/tinycc.git","revision":"e23dabed154a8495f3ac1ff3cc9d04fa1c207893","license":"LGPL-2.1-or-later","emsdk":"4.0.23","targets":["x86_64","aarch64"],"input_bytes":131072,"memory_bytes":67108864,"output_bytes":1048576,"execution_allowed":false}
