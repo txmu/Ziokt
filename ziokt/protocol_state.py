@@ -68,9 +68,9 @@ class ProtocolState:
                     and 1 <= len(domain) <= 255, 'canonical domain required')
         if self.settings.get('ownership_db'):
             db=sqlite3.connect(Path(self.settings['ownership_db']).resolve().as_uri()+'?mode=ro',uri=True,timeout=3)
-            try:row=db.execute('SELECT owner_id,expires_at FROM nns_records WHERE domain_name=?',(domain,)).fetchone()
+            try:row=db.execute('SELECT owner_id,expires_at,registration_type FROM nns_records WHERE domain_name=?',(domain,)).fetchone()
             finally:db.close()
-            dna.require(row is not None and row[0]==sender and type(row[1]) is int and row[1]>int(time.time()),'current unexpired native domain ownership required')
+            dna.require(row is not None and row[0]==sender and type(row[1]) is int and (row[1]>int(time.time()) or row[1]==0 and row[2]=='genesis'),'current unexpired native domain ownership required')
         else:
             dna.require(self.settings.get('owners', {}).get(domain) == sender,
                         'domain ownership must be provisioned by trusted configuration')

@@ -250,3 +250,21 @@ must separately configure `allowed_user_ids`. Other senders receive no response.
 ### OpenCI签名回执同步（2026-10-22）
 
 复用既有 `ziokt_components` 和 `ziokt://components`，返回当前冻结源码版本及 `source_features.openci` 的回执格式、签名域、任务/输入/租约/产物绑定字段和原生dCPM来源记录能力。该字段明确是源码能力：Controller实际在线、远端Worker与恢复不据此认定；链上共识结算标为not_implemented。未新增重复工具或放宽读写scope，工具总数仍462，目录从真实Service重新生成。TG使用同一MCP源码版本，未发送测试消息。详见 `openci/WORKER-RECEIPTS.md`。
+
+Persistent RNA/OpenCI state uses the MCP state's private protocol.sqlite. Configure
+`protocol_state.signing_key` with this node's existing SECP256K1 owner key and
+`protocol_state.ownership_db` with its native NNS database; replay sequences survive
+restarts. Native genesis reservations with zero expiry retain their explicit
+perpetual semantics. Other expired ownership records are rejected. Pin chain_id
+and policy_id to the actual configured protocol domain; source declarations alone
+do not activate a new main chain.
+
+With `protocol_state.publish=true`, a durable outbox publishes signed public RNA
+records and explicitly requested OpenCI evidence commitments through the pinned
+native DHT and content.publish journal. RNA anchors do not overwrite the NNS
+website target or its service/delegation manifest. Evidence anchors contain hashes
+and a local signature, excluding private result contents; neither is a substitute
+for independent worker observations. Publication status distinguishes queued,
+peer acknowledged, submitted and actually included in a canonical block. Retries
+reuse the same native operation ID. The record's public discovery, local ownership
+admission and native content inclusion remain separate facts.

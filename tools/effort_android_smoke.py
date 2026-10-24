@@ -19,10 +19,18 @@ def main():
     def nodes():
         adb('shell','uiautomator','dump','/sdcard/effort-ui.xml');raw=adb('shell','cat','/sdcard/effort-ui.xml');(out/'last-ui.xml').write_text(raw);return list(ET.fromstring(raw).iter('node'))
     def tap(text):
-        for node in nodes():
-            if text in node.get('text',''):
-                a,b,c,d=map(int,re.findall(r'\d+',node.get('bounds','')));adb('shell','input','tap',str((a+c)//2),str((b+d)//2));return
-        raise AssertionError('UI control missing: '+text)
+        # Settings can scroll on smaller/large-font devices; start/stop stay pinned.
+        width,height=map(int,re.findall(r'(\d+)x(\d+)',adb('shell','wm','size'))[-1])
+        for direction in (1,-1):
+            for attempt in range(7):
+                for node in nodes():
+                    if text in node.get('text',''):
+                        a,b,c,d=map(int,re.findall(r'\d+',node.get('bounds','')))
+                        if c>a and d>b:
+                            adb('shell','input','tap',str((a+c)//2),str((b+d)//2));return
+                start,end=(.6,.25) if direction==1 else (.25,.6)
+                adb('shell','input','swipe',str(width//2),str(int(height*start)),str(width//2),str(int(height*end)),'250')
+        raise AssertionError('UI control missing after bounded scrolling: '+text)
     def wait_text(*values,seconds=45):
         end=time.monotonic()+seconds
         while time.monotonic()<end:

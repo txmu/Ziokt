@@ -26,15 +26,12 @@ class Publisher:
 
     def operation(self,publication,kind,document):
         operation='protocol-'+publication[:48]
-        if kind=='zdns':
-            action='naming.submit';resource='naming:'+self.gateway['network']
-            arguments={'transaction_type':'nns_update','payload':{'records':[
-                {'domain_name':document['record']['domain'],'target_hash':publication}]}}
-        else:
-            action='content.publish';resource='content:'+self.gateway['network']
-            arguments={'text':'OpenCI evidence commitment '+document['commitment_hash'],
-                       'data_base64':base64.b64encode(canonical(document)).decode(),
-                       'content_type':'application/json'}
+        action='content.publish';resource='content:'+self.gateway['network']
+        title=('ZDNS RNA publication '+publication if kind=='zdns' else 'OpenCI evidence commitment '+document['commitment_hash'])
+        # RNA discovery is anchored as content. It must never replace a domain's
+        # existing website/service manifest in the NNS target register.
+        arguments={'text':title,'data_base64':base64.b64encode(canonical(document)).decode(),
+                   'content_type':'application/json'}
         plan=self.client.call('operation.prepare',{'operation_id':operation,'action':action,
                               'resource':resource,'arguments':arguments,'expected_revision':None})
         result=self.client.call('operation.reconcile',{'operation_id':operation})
@@ -80,4 +77,4 @@ class Publisher:
         # Registration has its own native durable ID; DHT retries cannot create
         # another transaction, and a peer acknowledgement cannot imply inclusion.
         transaction=self.operation(publication,kind,document)
-        return {'broadcast':broadcast.get('broadcast','pending'),**self.inclusion(transaction)}
+        return {'broadcast':broadcast.get('broadcast','pending'),'anchor_type':'native-content-commitment','nns_target_changed':False,**self.inclusion(transaction)}

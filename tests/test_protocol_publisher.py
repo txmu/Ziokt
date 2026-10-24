@@ -21,21 +21,24 @@ class PublicationTests(unittest.TestCase):
         federation=fixture.root/'federation.json'
         federation.write_text(json.dumps({'schema':'ziokt.federation.v1','enabled':True,'federation_id':'test','providers':[self.client.provider]}));federation.chmod(0o600)
         self.settings={'gateway':str(gateway),'federation':str(federation)}
-        self.state=ProtocolState(fixture.root/'publications',{'signing_key':str(fixture.etc/'identity.key'),'owners':{'corium':fixture.identity},'publish':True})
+        self.state=ProtocolState(fixture.root/'publications',{'signing_key':str(fixture.etc/'identity.key'),'ownership_db':str(fixture.forum),'publish':True})
         self.publisher=Publisher(self.state.root,self.settings)
 
-    def test_native_nns_registration_retry_is_one_transaction_and_requires_inclusion(self):
+    def test_native_rna_content_anchor_retry_preserves_website_and_requires_inclusion(self):
+        with sqlite3.connect(self.fixture.forum) as db:original_target=db.execute("SELECT target_hash FROM nns_records WHERE domain_name='corium'").fetchone()[0]
         doc=self.state.announce('corium','root:actual',owner='alice')
         self.state.flush(self.publisher)
         status=self.state.publication('alice',doc['publication_id'])
         self.assertEqual(status['broadcast'],'pending')
+        self.assertFalse(status['nns_target_changed'])
+        with sqlite3.connect(self.fixture.forum) as db:self.assertEqual(db.execute("SELECT target_hash FROM nns_records WHERE domain_name='corium'").fetchone()[0],original_target)
         self.assertEqual(status['chain_registration'],'submitted')
         with sqlite3.connect(self.fixture.chain) as db:
-            self.assertEqual(db.execute("SELECT count(*) FROM transactions WHERE type='nns_update'").fetchone()[0],1)
+            self.assertEqual(db.execute("SELECT count(*) FROM transactions WHERE type='ziokt_content'").fetchone()[0],1)
         raw={'frame':doc['frame'],'pem':doc['pem'],'sender':doc['sender'],'chain_id':doc['chain_id'],'policy_id':doc['policy_id'],'record':doc['record']}
         again=self.publisher.publish(doc['publication_id'],'zdns',raw)
         self.assertEqual(again['native_transaction'],status['native_transaction'])
-        with sqlite3.connect(self.fixture.chain) as db:self.assertEqual(db.execute("SELECT count(*) FROM transactions WHERE type='nns_update'").fetchone()[0],1)
+        with sqlite3.connect(self.fixture.chain) as db:self.assertEqual(db.execute("SELECT count(*) FROM transactions WHERE type='ziokt_content'").fetchone()[0],1)
         self.fixture.run_core('blockchain_mine_block')
         included=self.publisher.inclusion(status['native_transaction'])
         self.assertEqual(included['chain_registration'],'confirmed')
