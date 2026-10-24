@@ -6,6 +6,10 @@ shift 3
 source "$script"
 load_config
 case "$1" in
+ zkt-governance)
+  [[ "$#" == 3 && "$2" =~ ^(propose|vote|enact)$ ]] || exit 2
+  corix_zkt "$2" "$3"
+  ;;
  protocol-publish)
   [[ "$2" =~ ^[a-f0-9]{64}$ ]] || exit 2
   size=$(python3 - "$3" "$2" <<'PY_PUBLIC_OBJECT'

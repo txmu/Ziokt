@@ -11,3 +11,5 @@ ZKT 是本地非货币声誉，不构成代币、主链共识分数或无需信�
 原生 CLI 支持 `zkt propose SIGNED_JSON`、`zkt vote SIGNED_JSON`、`zkt enact '{"proposal":"HASH"}'` 和 `zkt proposals '{}'`。签名对象使用 ziokt.signed.v1，域 `Ziokt/zkt-governance/v1`。提案载荷为 operation=propose、network_id、base_policy（当前政策规范 JSON SHA256）、policy、64位十六进制 nonce、created_at、activate_at、expires_at；提案 ID 是该载荷的规范 JSON SHA256。投票载荷为 operation=vote、network_id、proposal、approve（布尔）。签名使用排序、紧凑、UTF-8 JSON；每个成员每案只能投票一次，反对票达到 veto_threshold 即否决。
 
 达到审批人数和独立域门槛、时间锁到期且提案未过期后才可 enact。政策与投票在同一账本事务中落盘，旧政策摘要上的竞争提案自动失效。只读状态完整展示当前政策及摘要。签名、域、时间锁或门槛失败时不修改当前政策；本机文件所有者依然属于系统信任边界。
+
+Gateway/MCP/TG 共用 `corium_zkt_governance` 工具入口，接受 action=propose/vote/enact 和对应公开签名载荷。该入口复核固定原生脚本摘要，并由原生引擎验证已治理成员身份、门槛和时间锁；没有远程“直接设置政策”或提交私钥的入口。现有图形工具目录按实际节点权限展示该工具。

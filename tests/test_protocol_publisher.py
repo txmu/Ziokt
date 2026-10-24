@@ -56,3 +56,20 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.publisher.inclusion(status['native_transaction'])['chain_registration'],'confirmed')
         with sqlite3.connect(self.fixture.chain) as db:payload=db.execute("SELECT data FROM transactions WHERE type='ziokt_content'").fetchone()[0]
         self.assertNotIn('keep-local',payload)
+
+    def test_gateway_native_signed_zkt_governance_preserves_financial_chain(self):
+        from ziokt._zkt_runtime import DEFAULT_REPUTATION_POLICY,zkt_set_policy,_zkt_digest
+        from ziokt.security import sign
+        from ziokt.gateway import Gateway
+        import copy,time
+        keys=[bytes([i])*32 for i in (3,4)];public=[sign({},k,'test')['public_key'] for k in keys]
+        policy=copy.deepcopy(DEFAULT_REPUTATION_POLICY);policy['network_id']='default';policy['governance']={'authorities':dict(zip(public,['one','two'])),'threshold':2,'minimum_domains':2,'veto_threshold':2,'timelock_seconds':60,'voting_period_seconds':3600};zkt_set_policy(self.fixture.chain,policy)
+        nxt=copy.deepcopy(policy);nxt['version']+=1;now=int(time.time())
+        payload={'operation':'propose','network_id':'default','base_policy':_zkt_digest(policy),'policy':nxt,'nonce':'7'*64,'created_at':now,'activate_at':now+60,'expires_at':now+600}
+        envelope=sign(payload,keys[0],'Ziokt/zkt-governance/v1')
+        config=json.loads(Path(self.settings['gateway']).read_text());config.update(objects=str(self.fixture.root/'var/lib/corix/p2p/objects'),forum_db=str(self.fixture.forum))
+        gateway=Gateway(config);self.addCleanup(gateway.close)
+        with sqlite3.connect(self.fixture.chain) as db:before=db.execute('SELECT count(*),max(height) FROM blocks').fetchone()
+        result=json.loads(gateway.native_text('zkt-governance','propose',json.dumps(envelope)))
+        self.assertEqual(result['state'],'open')
+        with sqlite3.connect(self.fixture.chain) as db:self.assertEqual(db.execute('SELECT count(*),max(height) FROM blocks').fetchone(),before)

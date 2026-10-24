@@ -122,6 +122,7 @@ class Service:
         self.dispatch={}
         self.add('ziokt_privacy_status','Report actual ownership and transport privacy boundaries; never claim shielded ledger ownership without native consensus support.',schema(),False,'ziokt:read',('privacy-status',))
         self.add('ziokt_chain_provenance','Inspect configured chain identity, current block proof, recovery declaration and source/deployment activation boundaries.',schema(),False,'corium:read',('chain-provenance',))
+        if config.get('gateway'):self.add('corium_zkt_governance','Submit a member-signed ZKT reputation policy proposal or ballot, or enact an approved timelocked proposal. Does not alter financial tokens or main-chain consensus.',schema({'action':{'type':'string','enum':['propose','vote','enact']},'payload':{'type':'object','maxProperties':8}},('action','payload')),True,'corium:write',('zkt-governance',))
         self.add('ziokt_dna_duplex_protect','Encode payload text or base64 into a dual-strand DNA duplex (corium.dna.duplex.v1) with sense/antisense Watson-Crick complementarity and authenticated root for long-term Library/Netnews preservation.',schema({'payload_text':{'type':'string','maxLength':4096},'payload_base64':{'type':'string','maxLength':8192},'domain':{'type':'string','maxLength':64},'metadata':PARAMS}),False,'ziokt:read',('dna-duplex','protect'))
         self.add('ziokt_dna_duplex_verify','Verify a DNA duplex against an externally authenticated root hash; optionally repairs single-strand corruption when repair=true.',schema({'gene':PARAMS,'authenticated_root':{'type':'string','pattern':'^[a-f0-9]{64}$'},'repair':{'type':'boolean'}},('gene','authenticated_root')),False,'ziokt:read',('dna-duplex','verify'))
         self.add('ziokt_zdns_rna_announce','Persist an owner-authorized RNA frame using the configured key and atomic outgoing sequence. Reports network publication separately.',schema({'domain':{'type':'string','maxLength':255},'target':{'type':'string','maxLength':255},'chain_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'policy_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'sequence':{'type':'integer','minimum':1}},('domain','target')),True,'ziokt:names:write',('zdns-rna','announce'))
@@ -472,6 +473,13 @@ class Service:
             fabric.native_etp=native_etp
             try:return invoke(fabric,owner,route[1],args)
             finally:fabric.close()
+        if kind=='zkt-governance':
+            from .gateway import Gateway
+            payload=encoded(args['payload'])
+            if len(payload)>65536:raise ProtocolError('INVALID_PARAMS','bounded signed governance payload required')
+            gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
+            try:return strict_json(gateway.native_text('zkt-governance',args['action'],payload.decode()).encode(),65536)
+            finally:gateway.close()
         if kind=='chain-provenance':
             from .chain_provenance import snapshot
             return snapshot(strict_json(secure_read(self.config['gateway'])))
