@@ -17,12 +17,17 @@ for target in x86_64 aarch64; do
   cp -a "$work/tinycc" "$build"
   (
     cd "$build"
-    ./configure --cpu="$cpu" --cc=emcc --ar=emar --config-backtrace=no --config-bcheck=no --config-predefs=no --config-static=yes
+    ./configure --cpu="$cpu" --cc=cc --ar=ar --config-backtrace=no --config-bcheck=no --config-static=yes
+    python3 - <<'PY_EMBED'
+import json
+from pathlib import Path
+Path('tccdefs_.h').write_text('\n'.join(json.dumps(line+'\n') for line in Path('include/tccdefs.h').read_text().splitlines())+'\n')
+PY_EMBED
     emcc -Oz -D"$define" -DCONFIG_TCC_STATIC=1 -DCONFIG_TCC_BACKTRACE=0 -DCONFIG_TCC_BCHECK=0 -I. libtcc.c "$repo_root/ci/openci/light/compiler.c" \
       -sMODULARIZE=1 -sEXPORT_NAME=createOpenCITcc -sENVIRONMENT=worker,node \
       -sEXPORTED_FUNCTIONS='["_openci_compile","_malloc","_free"]' \
       -sEXPORTED_RUNTIME_METHODS='["ccall","FS"]' -sFORCE_FILESYSTEM=1 \
-      -sINITIAL_MEMORY=67108864 -sMAXIMUM_MEMORY=67108864 -sALLOW_MEMORY_GROWTH=0 \
+      -sINITIAL_MEMORY=67108864 -sALLOW_MEMORY_GROWTH=0 \
       -sSTACK_SIZE=2097152 -sNO_EXIT_RUNTIME=1 -o "$repo_root/dist/light-compiler/$target.js"
   )
 done

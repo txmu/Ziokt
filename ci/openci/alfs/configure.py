@@ -6,6 +6,7 @@ import sys
 
 def main(work):
     root=Path(work).resolve();os.chdir(root/'jhalfs')
+    os.environ['CONFIG_']=''
     sys.path.insert(0,str(root/'jhalfs/menu'))
     import kconfiglib
     config=kconfiglib.Kconfig('Config.in')
@@ -27,6 +28,7 @@ def main(work):
         symbol=config.syms[key]
         if not symbol.set_value(value):raise ValueError('Invalid jhalfs setting: '+key)
     config.write_config('configuration')
+    if not Path('configuration').read_text().startswith('#') or 'CONFIG_BOOK_' in Path('configuration').read_text():raise ValueError('jhalfs requires unprefixed shell settings')
     for key,value in options.items():
         if config.syms[key].str_value!=value:raise ValueError('Inactive jhalfs setting: '+key)
 
