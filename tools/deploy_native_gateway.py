@@ -26,8 +26,9 @@ def deploy(root,corix):
  guard_override=Path('/etc/systemd/system')/(units['consensus']+'.service.d')/'80-provenance-hold.conf'
  if guard_override.exists() and not guard_override.read_text().startswith('# Managed Ziokt provenance hold\n'):
   raise ValueError('Existing consensus hold override needs explicit reconciliation')
- if Path(config['corix']).resolve() != (root/'bin/corix_v108.sh').resolve():
-  raise ValueError('gateway source path differs from the deployment target')
+ target=Path(config['corix'])
+ if target.is_symlink() or not target.is_file() or not target.resolve().is_relative_to(root):raise ValueError('regular reviewed native entrypoint inside deployment root required')
+ target=target.resolve()
  services=[units[role] for role in ('p2p','consensus','relayer','gateway')]
  if (root/'mcp/mcp.json').is_file():services.append(units['mcp'])
  if subprocess.run(['systemctl','is-active','--quiet',units['telegram']],capture_output=True).returncode==0:services.append(units['telegram'])
@@ -42,16 +43,17 @@ def deploy(root,corix):
   source=root/rel
   if source.exists():
    shutil.copy2(source,backup/source.name);(backup/source.name).chmod(0o600)
+ shutil.copy2(target,backup/'native-entrypoint.sh');(backup/'native-entrypoint.sh').chmod(0o600)
  if guard_override.exists():shutil.copy2(guard_override,backup/'consensus-hold.override')
  chain=Path(config['state_root'])/'var/lib/corix/networks'/config['network']/'blockchain/chain.db'
  for name,path in [('forum',config['forum_db']),('dht',config['dht_db']),('chain',chain)]:
   if not Path(path).is_file():raise ValueError('existing native database required for backup')
   with database(path) as source, database(backup/(name+'.db')) as destination:source.backup(destination)
- target=root/'bin/corix_v108.sh';temporary=target.with_suffix('.new');shutil.copyfile(corix,temporary);temporary.chmod(0o755);temporary.replace(target)
+ temporary=target.with_suffix('.new');shutil.copyfile(corix,temporary);temporary.chmod(0o755);temporary.replace(target)
  # A service restart or reboot must also respect the hold, independently of
  # the deployment process that originally paused consensus.
  if guard_source.is_file():
-  guard_target=root/'bin/consensus_hold.py';temporary=guard_target.with_suffix('.new');shutil.copyfile(guard_source,temporary);temporary.chmod(0o755);temporary.replace(guard_target)
+  guard_target=target.with_name('consensus_hold.py');temporary=guard_target.with_suffix('.new');shutil.copyfile(guard_source,temporary);temporary.chmod(0o755);temporary.replace(guard_target)
   def unit_arg(path):return '"'+str(path).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
   override=backup/'consensus-hold.new'
   override.write_text('# Managed Ziokt provenance hold\n[Service]\nExecCondition=/usr/bin/python3 '+unit_arg(guard_target)+' '+unit_arg(hold_path)+'\n')

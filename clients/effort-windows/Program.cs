@@ -28,12 +28,13 @@ internal static class Program
 internal sealed class Preferences
 {
     public string Mode { get; set; } = "network";
+    public string NodeOrigin { get; set; } = "https://fendou.ziokt.com";
     public bool Resume { get; set; }
     internal static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZioktEffort");
     internal static string FileName => Path.Combine(Folder, "preferences.json");
     internal static Preferences Load()
     {
-        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode is "compute" or "openci" ? p.Mode : "network"; return p; }
+        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode is "compute" or "openci" ? p.Mode : "network"; if (!EffortWindow.ValidOrigin(p.NodeOrigin)) p.NodeOrigin = "https://fendou.ziokt.com"; return p; }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
     }
     internal void Save()
@@ -46,7 +47,7 @@ internal sealed class Preferences
 
 internal sealed class EffortWindow : Form
 {
-    const string Origin = "https://fendou.ziokt.com";
+    string Origin => prefs.NodeOrigin;
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     readonly WebView2 web = new() { Dock = DockStyle.Fill };
     readonly Button start = new() { Text = "一键启用（后台继续）", AutoSize = true, Enabled = false };
@@ -65,7 +66,10 @@ internal sealed class EffortWindow : Form
         Text = "Ziokt 助力 · Windows"; Width = 1020; Height = 780; MinimumSize = new Size(540, 480);
         mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作", "OpenCI 轻量编译"]); mode.SelectedIndex = prefs.Mode == "openci" ? 2 : prefs.Mode == "compute" ? 1 : 0;
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(8) };
-        top.Controls.AddRange([mode, start, stop, startup, state]); Controls.Add(web); Controls.Add(top);
+        var node = new TextBox { Width=260, Text=prefs.NodeOrigin, AccessibleName="所连接节点的 HTTPS Origin" };
+        var connect = new Button { Text="连接节点", AutoSize=true };
+        connect.Click += async (_, _) => { var selected=node.Text.Trim().TrimEnd('/'); if(!ValidOrigin(selected)){state.Text="请输入无路径、无凭证的 HTTPS 节点 Origin";return;} await StopAsync();prefs.Resume=false;prefs.NodeOrigin=selected;Save();web.CoreWebView2?.Navigate(Origin+"/"); };
+        top.Controls.AddRange([new Label { Text="节点 HTTPS", AutoSize=true },node,connect,mode, start, stop, startup, state]); Controls.Add(web); Controls.Add(top);
         using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key?.GetValue("ZioktEffort") is string;
         startup.CheckedChanged += (_, _) => SetStartup();
         start.Click += async (_, _) => { prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = true; Save(); await StartAsync(); };
@@ -105,7 +109,7 @@ internal sealed class EffortWindow : Form
             web.CoreWebView2.Settings.IsWebMessageEnabled = true;
             web.CoreWebView2.WebMessageReceived += (_, e) =>
             {
-                if (!Allowed(e.Source)) return;
+                if (!AllowedForOrigin(e.Source,Origin)) return;
                 try
                 {
                     using var message = JsonDocument.Parse(e.WebMessageAsJson);
@@ -116,12 +120,12 @@ internal sealed class EffortWindow : Form
                 catch (JsonException) { }
             };
             web.CoreWebView2.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
-            web.CoreWebView2.NavigationStarting += (_, e) => { if (!Allowed(e.Uri)) { e.Cancel = true; state.Text = "已阻止离开官方奋斗页"; } else { ready = false; navigating = true; start.Enabled = false; } };
+            web.CoreWebView2.NavigationStarting += (_, e) => { if (!AllowedForOrigin(e.Uri,Origin)) { e.Cancel = true; state.Text = "已阻止离开所选节点"; } else { ready = false; navigating = true; start.Enabled = false; } };
             web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) && uri.Scheme == "https") Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); };
             web.CoreWebView2.DownloadStarting += (_, e) => e.Cancel = true;
             web.CoreWebView2.NavigationCompleted += async (_, e) =>
             {
-                navigating = false; ready = e.IsSuccess && Allowed(web.Source?.AbsoluteUri ?? ""); start.Enabled = ready;
+                navigating = false; ready = e.IsSuccess && AllowedForOrigin(web.Source?.AbsoluteUri ?? "",Origin); start.Enabled = ready;
                 if (!ready && smoke) { FinishSmoke(false, "navigation_failed"); return; }
                 if (!ready) { state.Text = connected ? "页面暂不可用，点击此处重试" : "网络已断开，等待系统网络恢复"; return; }
                 await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired())||(window.ZioktLight&&window.ZioktLight.desired()))}))},true);'intent-listener-installed'");
@@ -154,6 +158,8 @@ internal sealed class EffortWindow : Form
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-test.json"), JsonSerializer.Serialize(new { success, detail, actual_winforms_webview2 = true, computation_started = false, relay_started = false, device_test = "not_assessed" }));
         Environment.ExitCode = success ? 0 : 1; exiting = true; Close();
     }
+    internal static bool ValidOrigin(string value) => Uri.TryCreate(value,UriKind.Absolute,out var u) && u.Scheme=="https" && u.UserInfo=="" && u.AbsolutePath=="/" && u.Query=="" && u.Fragment=="" && !string.IsNullOrEmpty(u.Host);
+    internal static bool AllowedForOrigin(string value,string origin) => ValidOrigin(origin) && Uri.TryCreate(value,UriKind.Absolute,out var u) && u.UserInfo=="" && u.GetLeftPart(UriPartial.Authority)==new Uri(origin).GetLeftPart(UriPartial.Authority);
     internal static bool Allowed(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.Host == "fendou.ziokt.com" && uri.Port == 443 && uri.UserInfo == "";
     async Task PublishNetworkAsync()
     {

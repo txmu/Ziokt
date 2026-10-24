@@ -261,8 +261,9 @@ def handler(controller):
                 # API credentials are never accepted from URLs, cookies or bodies.
                 origin=self.headers.get('Origin')
                 settings=strict_json(secure_read(controller.config,65536),65536)
-                approved_origin=settings.get('public_origin')
-                if origin and (not approved_origin or origin!=approved_origin):
+                approved_origins=set(settings.get('public_origins',[]))
+                if settings.get('public_origin'):approved_origins.add(settings['public_origin'])
+                if origin and origin not in approved_origins:
                     raise Error('ORIGIN_REJECTED','Explicit same-origin application required',403)
                 if self.headers.get('Sec-Fetch-Site')=='cross-site':raise Error('ORIGIN_REJECTED','Cross-site access rejected',403)
                 url = urlsplit(self.path)
@@ -273,6 +274,9 @@ def handler(controller):
                     from importlib.resources import files
                     raw=files('openci').joinpath('web',name).read_bytes()
                     self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");self.send_header('Connection','close');self.end_headers();self.wfile.write(raw);self.close_connection=True;return
+                if self.command=='GET' and url.path=='/v1/status':
+                    from ziokt.build_info import snapshot
+                    self.send(200,{'schema':'openci.controller-status.v1','build':snapshot(),'native_rewards_enabled':False,'light_compile_configured':'light_compile' in settings});return
                 if self.command=='GET' and url.path=='/v1/light/config':
                     from .light import settings
                     self.send(200,settings(controller)[1]);return

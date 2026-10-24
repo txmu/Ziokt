@@ -12,7 +12,7 @@ def package(repositories_root,output,evidence=None):
  provenance={'schema':'ziokt.joint-source.v1','repositories':{},'contract':'strict UTF-8; every file name ends in .txt; no native build'}
  with tempfile.TemporaryDirectory(prefix='ziokt-joint-source-') as temporary:
   stage=Path(temporary)/'tree';stage.mkdir()
-  for name in ['Ziokt','Corium','Shadow6']:
+  for name in ['Ziokt','Corium','Shadow6']+(['Ziokt-Releases'] if (base/'Ziokt-Releases').is_dir() else []):
    repo=base/name
    names=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z'],cwd=repo).decode().split('\0')
    included=0

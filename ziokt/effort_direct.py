@@ -14,7 +14,7 @@ from .relay_stream import RelayHalf
 
 
 class DirectRelay:
-    def __init__(self, config, network):
+    def __init__(self, config, network, *, rewards=None):
         fields={'listen','port','target_host','target_port','network_id'}
         if not isinstance(config,dict) or set(config)!=fields or config['network_id']!=network:
             raise ValueError('exact direct relay configuration and matching network required')
@@ -22,6 +22,7 @@ class DirectRelay:
             if type(config[key]) is not int or not 1<=config[key]<=65535:raise ValueError('literal bounded relay ports required')
         bind=ipaddress.ip_address(config['listen']);target=ipaddress.ip_address(config['target_host'])
         if not target.is_loopback:raise ValueError('direct relay target must be the operator local native service')
+        self.rewards=rewards;self.reward_receipts={}
         self.network=network;self.target=(str(target),config['target_port']);self.lock=threading.RLock()
         self.pending=deque();self.sessions={};self.closed=threading.Event();self.reserved=0
         self.listener=socket.socket(socket.AF_INET6 if bind.version==6 else socket.AF_INET)
@@ -34,7 +35,7 @@ class DirectRelay:
         while self.pending and self.pending[0][0]<=now:self.pending.popleft()[1].close()
         for key,(expires,a,b) in list(self.sessions.items()):
             if expires<=now or a.reason or b.reason:
-                self.sessions.pop(key);a.close('relay_released');b.close('relay_released')
+                self.sessions.pop(key);self.reward_receipts.pop(key,None);a.close('relay_released');b.close('relay_released')
 
     def _accept(self):
         while not self.closed.is_set():
@@ -81,10 +82,19 @@ class DirectRelay:
             half=entry[1 if side=='a' else 2]
             if operation=='close':
                 self.sessions.pop(authorization[7:]);entry[1].close('helper_stopped');entry[2].close('helper_stopped')
+                self.reward_receipts.pop(authorization[7:],None)
                 return {'state':'closed'}
         if operation=='read':return half.read()
-        if operation=='write':return half.write(value['frame'])
-        if operation=='ack':return half.acknowledge(value['sequence'])
+        if operation in {'write','ack'}:
+            result=half.write(value['frame']) if operation=='write' else half.acknowledge(value['sequence'])
+            if self.rewards is not None:
+                with self.lock:
+                    session=authorization[7:]
+                    a,b=entry[1].status(),entry[2].status()
+                    if a['state']==b['state']=='complete':
+                        if session not in self.reward_receipts:self.reward_receipts[session]=self.rewards.observe(session,a,b)
+                        result['reputation_receipt']=self.reward_receipts[session]
+            return result
         return half.status()
 
     def close(self):
@@ -93,5 +103,5 @@ class DirectRelay:
             for _,stream in self.pending:stream.close()
             self.pending.clear()
             for _,a,b in self.sessions.values():a.close('service_stopped');b.close('service_stopped')
-            self.sessions.clear()
+            self.sessions.clear();self.reward_receipts.clear()
         self.thread.join(2)

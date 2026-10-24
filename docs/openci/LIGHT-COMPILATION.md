@@ -1,6 +1,6 @@
 # 奋斗端第三模式：轻量分布式 C 对象编译
 
-三个贡献入口为网络协作、Engine Zero 计算、OpenCI 轻量编译。自动选择不是第四类任务。Web 与 Windows 共用经 HTTPS 加载的受限 WebAssembly 编译器；Android 第三模式在独立应用进程的系统 WebView 渲染器中运行，前两种模式仍为 Java 原生单线程。Android 离开第三模式即停止编译，不暗中申请后台权限。所有平台都不执行任务产物。
+三个贡献入口为网络协作、Engine Zero 计算、OpenCI 轻量编译。自动选择不是第四类任务。Web 与 Windows 共用经 HTTPS 加载的受限 WebAssembly 编译器；Android 第三模式在独立应用进程的系统 WebView 渲染器中运行，前两种模式仍为 Java 原生单线程。Android 离开第三模式即停止编译，不暗中申请后台权限。所有平台都不执行任务产物。Windows 与 Android 可显式选择自己的 HTTPS 节点；切换节点会停止原任务并保留目标 Origin 的导航边界。
 
 客户端先检测实际硬件架构：Windows 从 RuntimeInformation、Android 从 SUPPORTED_64_BIT_ABIS、普通浏览器从高熵 UA 架构取得。无法检测则拒绝，不能手选猜测。服务端检查客户端上报、已审批 Worker 架构与本节点 platform.machine 一致。远程硬件报告不等于硬件认证，不能因此取得 Trusted 身份。
 
@@ -18,4 +18,4 @@ Controller 配置示例（路径与摘要须由运营者显式提供）：
 {"light_compile":{"compiler_root":"/owner/releases/light-compiler","manifest_sha256":"<manifest文件SHA256>","cross_compile":false}}
 ```
 
-奋斗服务与 Controller 分开运行；同源反向代理将 `/openci/*` 去前缀后转发至指定 Controller。不向浏览器提供 owner token。运行中的编译器必须来自全部通过的 `openci-light.yml` CI artifact，不在生产节点编译。轻量 C 对象核验与 ALFS 镜像验收是两条实测路径，不能互相替代。
+奋斗服务与 Controller 分开运行；Controller 以 public_origin/public_origins 明确审批自身与奋斗页的 Origin；同源反向代理将 `/openci/*` 去前缀后转发至指定 Controller。不向浏览器提供 owner token。运行中的编译器必须来自全部通过的 `openci-light.yml` CI artifact，不在生产节点编译。轻量 C 对象核验与 ALFS 镜像验收是两条实测路径，不能互相替代。

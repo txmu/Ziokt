@@ -23,16 +23,17 @@ ROOT=Path(__file__).resolve().parents[1]
 def deployment_settings(value):
     import re
     from urllib.parse import urlsplit
-    required={'services','https_service','gateway_status_url','gui_build_url','previous_gui_root'}
+    required={'services','https_service','gateway_status_url','gui_build_url','openci_status_url','effort_status_url','previous_gui_root','extra_databases'}
     if not isinstance(value,dict) or set(value)!=required:raise ValueError('exact explicit deployment settings required')
-    if set(value['services'])!={'gateway','mcp','telegram','content'}:raise ValueError('all four service roles required')
+    if set(value['services'])!={'gateway','mcp','telegram','content','openci','effort'}:raise ValueError('all six service roles required')
     names=[*value['services'].values(),value['https_service']]
-    if len(set(names))!=5 or any(not isinstance(name,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',name) for name in names):raise ValueError('distinct safe service names required')
-    for key in ('gateway_status_url','gui_build_url'):
+    if len(set(names))!=7 or any(not isinstance(name,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',name) for name in names):raise ValueError('distinct safe service names required')
+    for key in ('gateway_status_url','gui_build_url','openci_status_url','effort_status_url'):
         url=urlsplit(value[key])
         if url.scheme not in {'http','https'} or not url.hostname or url.username or url.password or url.fragment:raise ValueError('explicit health URL required')
     path=Path(value['previous_gui_root'])
     if not path.is_absolute() or any(c in str(path) for c in '\n\r\x00"{}'):raise ValueError('safe absolute previous GUI directory required')
+    if set(value['extra_databases'])!={'openci','effort'} or any(not Path(path).is_absolute() for path in value['extra_databases'].values()):raise ValueError('explicit OpenCI and effort database backups required')
     return value
 
 
@@ -104,6 +105,7 @@ def activate(root,release,revision,settings):
     mcp=json.loads((root/'mcp/mcp.json').read_text())
     content_root=Path(mcp['content_fabric']['root'])
     for name,path in [('mcp',Path(mcp['state'])/'mcp.db'),('content',content_root/'content.sqlite')]:backup_database(path,backup/(name+'.sqlite'))
+    for name,path in settings['extra_databases'].items():backup_database(Path(path),backup/(name+'.sqlite'))
     key_map={}
     keys=[content_root/'node.key',*content_root.glob('accounts/*/vault.key')]
     for index,path in enumerate(keys):
@@ -148,6 +150,9 @@ def activate(root,release,revision,settings):
                 if status.get('build',{}).get('source_commit')!=revision:raise ValueError('Gateway release mismatch')
                 with urllib.request.urlopen(settings['gui_build_url'],timeout=3) as response:gui_status=json.load(response)
                 if gui_status.get('source_commit')!=revision:raise ValueError('public GUI release mismatch')
+                for key in ('openci_status_url','effort_status_url'):
+                    with urllib.request.urlopen(settings[key],timeout=3) as response:extra_status=json.load(response)
+                    if extra_status.get('build',{}).get('source_commit')!=revision:raise ValueError(key+' release mismatch')
                 break
             except (OSError,ValueError):
                 if time.monotonic()>deadline:raise

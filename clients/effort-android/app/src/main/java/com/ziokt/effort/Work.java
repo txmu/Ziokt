@@ -12,19 +12,24 @@ import org.json.*;
 /** One bounded native worker. No browser engine, JNI, connectivity probes or arbitrary destinations. */
 final class Work {
     static final String ORIGIN="https://fendou.ziokt.com";
+    private final String origin;
+    private final Consumer<JSONObject> receiptSink;
+    static boolean validOrigin(String value){try{java.net.URI uri=new java.net.URI(value);return "https".equals(uri.getScheme())&&uri.getHost()!=null&&uri.getUserInfo()==null&&(uri.getRawPath()==null||uri.getRawPath().isEmpty()||uri.getRawPath().equals("/"))&&uri.getRawQuery()==null&&uri.getRawFragment()==null;}catch(Exception error){return false;}}
     volatile boolean cancelled;
     private volatile HttpsURLConnection request;
     private final Consumer<String> status;
-    Work(Consumer<String> status) { this.status=status; }
+    Work(Consumer<String> status) { this(status,ORIGIN); }
+    Work(Consumer<String> status,String origin) { this(status,origin,value->{}); }
+    Work(Consumer<String> status,String origin,Consumer<JSONObject> receiptSink) { this.receiptSink=receiptSink;if(!validOrigin(origin))throw new IllegalArgumentException("HTTPS node origin required");this.status=status;this.origin=origin.endsWith("/")?origin.substring(0,origin.length()-1):origin; }
     void cancel() { cancelled=true; HttpsURLConnection c=request;if(c!=null)c.disconnect(); }
     void check() { if(cancelled||Thread.currentThread().isInterrupted())throw new CancellationException(); }
     void pause(long ms) throws InterruptedException { check();Thread.sleep(ms);check(); }
     JSONObject post(String path,JSONObject value,String token) throws Exception {
         check();if(!path.matches("/api/(job|proof|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
         byte[] body=value.toString().getBytes(StandardCharsets.UTF_8);if(body.length>8192)throw new IOException("REQUEST_LIMIT");
-        HttpsURLConnection c=(HttpsURLConnection)new URL(ORIGIN+path).openConnection();request=c;
+        HttpsURLConnection c=(HttpsURLConnection)new URL(origin+path).openConnection();request=c;
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setUseCaches(false);c.setRequestMethod("POST");c.setDoOutput(true);c.setFixedLengthStreamingMode(body.length);
-        c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Origin",ORIGIN);
+        c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Origin",origin);
         if(token!=null)c.setRequestProperty("Authorization","Bearer "+token);
         try {
             check();try(OutputStream out=c.getOutputStream()){out.write(body);}
@@ -80,7 +85,7 @@ final class Work {
                 byte[] bytes=android.util.Base64.decode(encoded,android.util.Base64.NO_WRAP);
                 if(bytes.length>4096||!android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP).equals(encoded)||kind.equals("fin")!=(bytes.length==0))throw new IOException("INVALID_FRAME");
                 JSONObject receipt=relay(to,"write",object("session",to,"frame",frame),token);if(!receipt.getString("state").equals("native_written"))throw new IOException("WRITE_UNCONFIRMED");
-                if(!relay(from,"ack",object("session",from,"sequence",sequence),token).getString("state").equals("acknowledged"))throw new IOException("ACK_UNCONFIRMED");
+                JSONObject ack=relay(from,"ack",object("session",from,"sequence",sequence),token);if(!ack.getString("state").equals("acknowledged"))throw new IOException("ACK_UNCONFIRMED");if(ack.has("reputation_receipt"))receiptSink.accept(ack.getJSONObject("reputation_receipt"));
                 moved=true;if(kind.equals("fin"))fin[index]=true;else total+=bytes.length;
             }
             if(moved)status.accept("主网直连已转发 "+total+" 字节 · 非匿名，尚未结算贡献");pause(500);

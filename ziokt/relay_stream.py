@@ -23,6 +23,7 @@ class RelayHalf:
         self.condition=threading.Condition(threading.RLock());self.write_lock=threading.Lock()
         self.queue=deque();self.next_read=0;self.last_ack=-1;self.next_write=0;self.last_write=None
         self.read_bytes=0;self.write_bytes=0;self.acked_bytes=0;self.reason=None
+        self.acked_hash=hashlib.sha256();self.written_hash=hashlib.sha256()
         self.rate_credit=8192;self.rate_at=clock()
         self.read_fin=False;self.write_fin=False;self.acked_fin=False
         stream.settimeout(1)
@@ -77,7 +78,7 @@ class RelayHalf:
             if sequence==self.last_ack:return {'state':'acknowledged','duplicate':True}
             if not self.queue or self.queue[0]['sequence']!=sequence:raise ProtocolError('RELAY_SEQUENCE','Only the pending frame may be acknowledged')
             frame=self.queue.popleft();self.last_ack=sequence
-            self.acked_bytes+=len(base64.b64decode(frame['data']))
+            self.acked_bytes+=len(base64.b64decode(frame['data']));self.acked_hash.update(base64.b64decode(frame['data']))
             if frame['kind']=='fin':self.acked_fin=True
             self.condition.notify_all()
             return {'state':'acknowledged','duplicate':False}
@@ -106,7 +107,7 @@ class RelayHalf:
                 # sendall may have partially written. Never replay into this stream.
                 self.close('native_write_uncertain');raise ProtocolError('RELAY_WRITE_UNCERTAIN','Native write incomplete; connection closed') from None
             self.rate_credit-=len(data)
-            self.next_write+=1;self.last_write=fingerprint;self.write_bytes+=len(data)
+            self.next_write+=1;self.last_write=fingerprint;self.write_bytes+=len(data);self.written_hash.update(data)
             self.write_fin=frame['kind']=='fin'
             return {'state':'native_written','duplicate':False,'bytes':len(data),'useful_work_verified':False}
 
@@ -115,4 +116,5 @@ class RelayHalf:
             return {'state':'closed' if self.reason else 'complete' if self.acked_fin and self.write_fin else 'open',
                     'reason':self.reason,'read_bytes':self.read_bytes,'native_written_bytes':self.write_bytes,
                     'browser_acknowledged_bytes':self.acked_bytes,'buffered_frames':len(self.queue),
+                    'acknowledged_sha256':self.acked_hash.hexdigest(),'written_sha256':self.written_hash.hexdigest(),
                     'useful_work_verified':False,'anonymity_verified':False}

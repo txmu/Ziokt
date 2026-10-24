@@ -12,6 +12,7 @@ principals={'owner':{'role':'admin','projects':[],'token_sha256':hashlib.sha256(
 for name in ('nodeA','nodeB'):principals[name]={'role':'worker','worker':name,'projects':['demo'],'token_sha256':hashlib.sha256(('ci-'+name).encode()).hexdigest()}
 config=root/'controller.json';config.write_text(json.dumps({'principals':principals,'light_compile':{'compiler_root':str(compiler),'manifest_sha256':hashlib.sha256(raw).hexdigest(),'cross_compile':False}}));config.chmod(0o600)
 controller=Controller(root/'state',config);server=Server(('127.0.0.1',0),handler(controller));origin='http://127.0.0.1:'+str(server.server_port)
+settings=json.loads(config.read_text());settings['public_origin']=origin;config.write_text(json.dumps(settings))
 image=manifest['targets']['x86_64']['image'];seeds={}
 for index,name in enumerate(('nodeA','nodeB')):
     pool='community' if index==0 else 'trusted';seed=secrets.token_bytes(32);seeds[name]=seed

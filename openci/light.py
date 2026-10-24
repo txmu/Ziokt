@@ -27,7 +27,7 @@ def validate_task(task):
 
 def settings(controller):
     value=strict_json(secure_read(controller.config,65536),65536).get('light_compile')
-    if (not isinstance(value,dict) or set(value)!={'compiler_root','manifest_sha256','cross_compile'}
+    if (not isinstance(value,dict) or not {'compiler_root','manifest_sha256','cross_compile'}<=set(value) or set(value)-{'compiler_root','manifest_sha256','cross_compile','controller_origin'}
             or type(value['cross_compile']) is not bool
             or not re.fullmatch('[a-f0-9]{64}',value['manifest_sha256'])):
         raise Error('LIGHT_NOT_CONFIGURED','Operator-pinned lightweight compiler is not configured',503)
@@ -42,6 +42,7 @@ def settings(controller):
     return root,{'schema':'openci.light-admission.v1','node_arch':node,'targets':targets,
                  'input_bytes':131072,'output_bytes':1048576,'memory_bytes':67108864,
                  'timeout_seconds':20,'cross_compile':value['cross_compile'],
+                 'controller_origin':value.get('controller_origin'),
                  'architecture_hardware_attested':False,'execute_task_code':False,
                  'independent_verification_required':True}
 

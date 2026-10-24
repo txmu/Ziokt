@@ -44,7 +44,7 @@ sudo mkdir -p /mnt/openci-lfs
 sudo chown "$(id -u):$(id -g)" /mnt/openci-lfs
 python3 ci/openci/alfs/configure.py "$work"
 # Two explicit confirmations; run_make subsequently drives the unmodified book.
-(cd "$work/jhalfs" && printf 'yes\nyes\n' | ./jhalfs run) 2>&1 | tee "$work/evidence/alfs-build.log"
+python3 ci/openci/alfs/run_jhalfs.py "$work/jhalfs" 2>&1 | tee "$work/evidence/alfs-build.log"
 cleanup
 sudo test -x /mnt/openci-lfs/usr/bin/gcc
 sudo test -s /mnt/openci-lfs/etc/lfs-release

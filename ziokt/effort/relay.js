@@ -68,6 +68,7 @@
         if (receipt.state !== 'native_written') return failed('WRITE_UNCONFIRMED');
         request(from, 'ack', {session: from.session, sequence: frame.sequence}, function (error, ack) {
           if (error || ack.state !== 'acknowledged') return failed(error || 'ACK_UNCONFIRMED');
+          if (ack.reputation_receipt) { window.ZioktRelayReceipt = ack.reputation_receipt; var exportButton = document.getElementById('relay-receipt-export'); if(exportButton) exportButton.hidden = false; }
           if (frame.kind === 'fin') { completed += 1; if (completed === 2) { var direct = !!from.prefix; stop('本次网络协作已完成；尚未结算链上贡献。'); if (direct) { active = true; button.textContent = '停止助力'; button.setAttribute('aria-pressed', 'true'); directOpen(epoch); } } return; }
           bytes += frame.data.length / 4 * 3 - (frame.data.slice(-2) === '==' ? 2 : frame.data.slice(-1) === '=' ? 1 : 0);
           document.getElementById('metrics').textContent = '网络协作已传输 ' + Math.floor(bytes / 1024) + ' KiB · 尚未结算链上贡献';
@@ -139,4 +140,13 @@
   config.onload = function () { try { var value = JSON.parse(config.responseText); if (config.status === 200 && value.schema === 'ziokt.people-help.v1' && Object.prototype.toString.call(value.relay_origins) === '[object Array]') { origins = value.relay_origins; directEnabled = !!(value.direct_relay && value.direct_relay.enabled === true && value.direct_relay.network_id === 'ziokt-main' && value.direct_relay.transport === 'direct'); } } catch (_) {} };
   config.send();
   window.ZioktPeopleRelay = {stop: stop, desired: function () { return active || resumeAfterNetwork; }, supported: function () { return !!(window.XMLHttpRequest && window.JSON); }};
+  var receiptButton = document.getElementById('relay-receipt-export');
+  if (receiptButton) receiptButton.onclick = function () {
+    if (!window.ZioktRelayReceipt) return;
+    var value = JSON.stringify(window.ZioktRelayReceipt, null, 2);
+    if (typeof Blob === 'function' && window.URL && URL.createObjectURL) {
+      var url = URL.createObjectURL(new Blob([value], {type:'application/json'})), link = document.createElement('a');
+      link.href = url; link.download = 'ziokt-peer-relay-receipt.json'; link.click(); later(function () { URL.revokeObjectURL(url); }, 1000);
+    } else document.getElementById('metrics').textContent = value;
+  };
 }());

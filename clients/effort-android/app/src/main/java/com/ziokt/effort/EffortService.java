@@ -60,7 +60,7 @@ public final class EffortService extends Service {
     private void cancel(){if(work!=null)work.cancel();work=null;if(future!=null)future.cancel(true);future=null;}
     private void launch(){
         if(!wanted||!online||work!=null)return;
-        final Work[] reference=new Work[1];Work task=new Work(value->handler.post(()->{if(work!=reference[0])return;long now=SystemClock.elapsedRealtime();if(value.contains("字节")&&now-lastProgress<1500)return;lastProgress=now;status(value);}));reference[0]=task;work=task;
+        final Work[] reference=new Work[1];Work task=new Work(value->handler.post(()->{if(work!=reference[0])return;long now=SystemClock.elapsedRealtime();if(value.contains("字节")&&now-lastProgress<1500)return;lastProgress=now;status(value);}),getSharedPreferences("effort",0).getString("node_origin",Work.ORIGIN),value->{byte[] bytes=value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);if(bytes.length<=16384)try(java.io.OutputStream output=openFileOutput("last-relay-receipt.json",MODE_PRIVATE)){output.write(bytes);}catch(java.io.IOException ignored){}});reference[0]=task;work=task;
         String mode=getSharedPreferences("effort",0).getString("mode","network");int level=getSharedPreferences("effort",0).getInt("level",1);
         future=executor.submit(()->{
             while(!task.cancelled){
