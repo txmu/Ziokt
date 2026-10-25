@@ -1,0 +1,11 @@
+{
+  "schema": "ziokt.upstream-security-backport.v1",
+  "upstream_crate": "glib",
+  "version": "0.18.5",
+  "upstream_crate_sha256": "233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5",
+  "advisory": "RUSTSEC-2024-0429",
+  "upstream_fix": "https://github.com/gtk-rs/gtk-rs-core/pull/1343",
+  "patched_file": "src/variant_iter.rs",
+  "patched_file_sha256": "a0f5ee8acb8faa089bcdfbc9a57372609fce7654026ccef7d9a224d05a654ccc",
+  "change": "Pass a mutable initialized out-pointer to g_variant_get_child; preserve 0.18 ABI."
+}

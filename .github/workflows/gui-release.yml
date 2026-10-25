@@ -68,6 +68,11 @@ jobs:
           node tools/gui_browser_smoke.cjs
           node tools/gui_viewport_smoke.cjs
 
+      - name: Verify pinned GLib security backport with optimized real FFI iteration
+        run: |
+          python3 ci/verify_glib_backport.py
+          cargo test --release --locked --manifest-path ci/glib-backport-repro/Cargo.toml
+
       - name: Check Rust Core & Tauri 2 Config
         run: |
           cd gui/src-tauri

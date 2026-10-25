@@ -31,6 +31,9 @@ PY_EMBED
       -sSTACK_SIZE=2097152 -sNO_EXIT_RUNTIME=1 -o "$repo_root/dist/light-compiler/$target.js"
   )
 done
+git -C "$work/tinycc" archive --format=tar --prefix=tinycc/ "$revision" | gzip -n > dist/light-compiler/tinycc-source.tar.gz
+mkdir -p dist/light-compiler/build-recipe
+cp ci/openci/light/compiler.c ci/openci/light/build.sh ci/openci/light/source.lock.json dist/light-compiler/build-recipe/
 cp "$work/tinycc/COPYING" dist/light-compiler/TINYCC-LICENSE
 cp ci/openci/light/source.lock.json dist/light-compiler/SOURCE.json
 python3 - <<'PY'
@@ -41,6 +44,6 @@ for arch in ('x86_64','aarch64'):
     files={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in (arch+'.js',arch+'.wasm')}
     digest=hashlib.sha256(json.dumps(files,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     targets[arch]={'files':files,'image':'openci/tcc-wasm-'+arch+'@sha256:'+digest}
-(root/'manifest.json').write_text(json.dumps({'schema':'openci.light-compiler.v1','source_revision':json.loads((root/'SOURCE.json').read_text())['revision'],'targets':targets,'input_bytes':131072,'memory_bytes':67108864,'output_bytes':1048576},indent=2)+'\n')
+(root/'manifest.json').write_text(json.dumps({'schema':'openci.light-compiler.v1','source_revision':json.loads((root/'SOURCE.json').read_text())['revision'],'corresponding_source':{'file':'tinycc-source.tar.gz','sha256':hashlib.sha256((root/'tinycc-source.tar.gz').read_bytes()).hexdigest()},'targets':targets,'input_bytes':131072,'memory_bytes':67108864,'output_bytes':1048576},indent=2)+'\n')
 PY
 node ci/openci/light/probe.cjs

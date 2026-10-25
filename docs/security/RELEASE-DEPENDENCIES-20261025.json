@@ -1,0 +1,39 @@
+{
+  "schema": "ziokt.release-dependency-assessment.v1",
+  "revision_at_assessment": "2b9835178dc5ac66cb3a4a8f6869e11d3596470f",
+  "active_sim_manager_npm_audit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "glib": {
+    "schema": "ziokt.upstream-security-backport.v1",
+    "upstream_crate": "glib",
+    "version": "0.18.5",
+    "upstream_crate_sha256": "233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5",
+    "advisory": "RUSTSEC-2024-0429",
+    "upstream_fix": "https://github.com/gtk-rs/gtk-rs-core/pull/1343",
+    "patched_file": "src/variant_iter.rs",
+    "patched_file_sha256": "a0f5ee8acb8faa089bcdfbc9a57372609fce7654026ccef7d9a224d05a654ccc",
+    "change": "Pass a mutable initialized out-pointer to g_variant_get_child; preserve 0.18 ABI."
+  },
+  "upstream_comparison_snapshots": {
+    "paths": [
+      "companions/sim-manager/original",
+      "companions/etp/original"
+    ],
+    "execution": "not used by active builds; preserved upstream comparison inputs"
+  },
+  "manifests": {
+    "gui/src-tauri/Cargo.lock": "b431eff8cd92da72c06411e4fb470d3e12fe4a07f7acb5bb72f8ac77ef88e6ce",
+    "gui/src-tauri/vendor/glib/ZIOKT-BACKPORT.json": "f5ed8769f8336a2644212e4a71ca52eb2094bf9afecb947e8d0727aaa2c41bd8",
+    "companions/etp/src/Cargo.lock": "e0347ceef7a226e70b719c2cdc778638ab16489f93bfe0fb89f718bdc04b5218",
+    "companions/sim-manager/src/package-lock.json": "46585e892ac287abcc57660811e7d2e6667ffdb6792d6f4dd0ba6d038efb8951",
+    "ci/openci/light/source.lock.json": "195f60c5c077acf5165191e57445225d8bc5764bca94ea5cd7920c34b7424fe0",
+    "ci/openci/alfs/source.lock.json": "05393d191df27b5a0081e9939f6141c5718641812ebe71a077b25d1b5beaee81"
+  },
+  "complete_runtime_audit": false
+}

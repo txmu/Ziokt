@@ -21,3 +21,6 @@ tokio = { version = "1.0", features = ["full"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }
