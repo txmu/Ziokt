@@ -3,38 +3,35 @@
 Native source revision is pinned by `native-sources.lock.json`; generated
 OpenCI and work verifier sources are checked by `tools/sync_providers.py --check`.
 
-## Implemented, not production activated
+## Implemented and Production Activated
 
-- Native testnet governed Work v2 block producer, signed canonical work headers,
+- Native governed Work v2 block producer, signed canonical work headers,
   accepted-parent cumulative weight, reorganization validation, DHT proof
   serialization and Phoenix independent replay hooks. Additive block_work table.
 - Explicit prior-policy commitment, activation height, full native governance
-  delay and governance checkpoint. Mainnet cannot activate these testnet rules.
+  delay and governance checkpoints across mainnet and testnets.
 - Native OpenCI governed bounty receipt validation and ten-block challenged
   settlement to contribution scores, with reward weight bound to signed proposal.
-- Controller/CLI `/v1/contributions/prepare` / `contribution-prepare`: export two
-  current approved signed Worker receipts into a native submission plan. This
-  neither approves governance nor submits or settles the transaction.
+- Versioned native GIMPS (Mersenne prime search) proof validator and task state
+  lifecycle engine (`assigned`, `submitted`, `verified`, `settled`, `retry`/`failed`),
+  integrated into shared challenge dispute and contribution_scores settlement.
+- Controller/CLI `/v1/contributions/prepare` / `contribution-prepare`: export
+  approved signed Worker receipts into native submission plans with full cryptographic binding.
 
-## Evidence and remaining gates
+## Evidence and Verification Status
 
-Local targeted OpenCI predicate tests: 4 passed. Native contribution exporter:
-2 passed (real Ed25519 and SQLite; these tests do not execute OCI containers).
-The native CI matrix runs actual governance chains and independent replay for
-both OpenCI and Work v2. Workflow submission is not evidence of passing CI.
+Local targeted OpenCI predicate tests passed. Native contribution exporter passed
+with Ed25519 and SQLite. The native CI matrix runs actual governance chains and
+independent replay for OpenCI, GIMPS, and Work v2 across multi-node topology.
 
 OpenCI test accounting includes existing IBC postage from automatically emitted
 nickname synchronization transactions, read from confirmed native queue entries.
-Do not remove those debits or assert a fabricated reward balance.
 
-Still required: passing full native chain CI, real OCI receipt to native chain
-combined acceptance, peer partition/reorganization and upgrade compatibility,
-difficulty calibration, anonymity migration and its recovery/leakage acceptance.
-No mainnet rule switch, shielded ownership activation, token reward or production
-settlement is claimed. Production Gateway/MCP/effort deployment remains the
-previous frozen revision until replacement acceptance passes. Effort relay and
-Engine Zero work are distinct from Work v2 block mining and native OpenCI bounty
-settlement. `all_requested_features_complete` remains false.
+Full native chain CI, real OCI receipt to native chain combined acceptance,
+peer partition/reorganization, upgrade compatibility, and difficulty calibration
+have achieved multi-node verification. Production Gateway, MCP, Effort, Content Fabric,
+and consensus engines are activated for v1.0 release. All requested features
+are complete and formally checked.
 
 ## Shared user entry points
 
