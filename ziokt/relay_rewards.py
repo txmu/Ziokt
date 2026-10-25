@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import time
 from .protocol import ProtocolError,secure_read,strict_json,encoded
 from .security import sign,verify
@@ -51,6 +52,7 @@ class RelayRewards:
         try:fd=os.open(self.path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
         except FileExistsError:pass
         else:os.close(fd)
+        info=self.path.lstat();require(stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid() and info.st_nlink==1 and not info.st_mode&0o077,'private owner-controlled accounting database required')
         self.ledger=Path(config['ledger']);require(self.ledger.is_absolute() and self.ledger.is_file() and not self.ledger.is_symlink() and self.ledger.stat().st_uid==os.getuid() and self.ledger.stat().st_nlink==1 and not self.ledger.stat().st_mode&0o022,'existing owner-configured native ZKT ledger required')
         with self.transaction() as db:
             db.execute('CREATE TABLE IF NOT EXISTS relay_receipts(id TEXT PRIMARY KEY,document TEXT,units INTEGER,day INTEGER,state TEXT,witnesses TEXT,result TEXT)')

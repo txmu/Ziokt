@@ -38,6 +38,9 @@ class LightTests(unittest.TestCase):
     def test_architecture_rejection_cannot_claim_or_consume_task(self):
         pid=self.submit_light()
         with patch('openci.light.platform.machine',return_value='x86_64'):
+            for invalid in (None,False,0,'',[],{}):
+                with self.subTest(invalid=invalid),self.assertRaises(Error):self.worker.request('POST','/v1/light/claim',{'architecture':invalid})
+                self.assertEqual(self.controller.state.inspect(pid)['tasks'][0]['state'],'queued')
             with self.assertRaises(Error) as denied:self.worker.request('POST','/v1/light/claim',{'architecture':'aarch64'})
             self.assertEqual(denied.exception.code,'LIGHT_ARCH_MISMATCH')
             self.assertEqual(self.controller.state.inspect(pid)['tasks'][0]['state'],'queued')

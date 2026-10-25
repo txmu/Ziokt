@@ -10,7 +10,9 @@ from ziokt.protocol import secure_read, strict_json
 
 
 def architecture(value=None):
-    value=(value or platform.machine()).lower()
+    value=platform.machine() if value is None else value
+    if not isinstance(value,str) or not 1<=len(value)<=16:raise Error('LIGHT_ARCH_UNSUPPORTED','Explicit supported client architecture required',409)
+    value=value.lower()
     result={'amd64':'x86_64','x86_64':'x86_64','arm64':'aarch64','aarch64':'aarch64'}.get(value)
     if result is None:raise Error('LIGHT_ARCH_UNSUPPORTED','Light compilation requires a supported 64-bit architecture',409)
     return result
@@ -62,6 +64,7 @@ def claim(controller,principal,body):
     if principal['role']!='worker':raise Error('WORKER_REQUIRED','Dedicated worker identity required',403)
     if type(body) is not dict or set(body)!={'architecture'}:raise Error('LIGHT_FIELDS','Detected client architecture required')
     _,config=settings(controller)
+    if type(body['architecture']) is not str:raise Error('LIGHT_ARCH_UNSUPPORTED','Explicit detected client architecture required',409)
     actual=architecture(body['architecture'])
     if actual!=config['node_arch']:raise Error('LIGHT_ARCH_MISMATCH','Client and connected node architecture must match',409)
     worker=principal['worker']
