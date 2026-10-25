@@ -1,0 +1,83 @@
+{
+  "schema": "ziokt.formal-models.v1",
+  "scope": "Abstract safety properties with manually reviewed implementation correspondence; not complete implementation refinement.",
+  "models": {
+    "Authority.lean": {
+      "namespace": "Ziokt.Authority",
+      "source_sha256": {
+        "ziokt/security.py": "c9d8b49a1cf08bb12584f59d2c996cc72c1ac41fdea9ebf6035c2de4e991b18e",
+        "ziokt/naming_community.py": "04bd0d145af60df505a1d72c4100b6ea6c16b71a5212630f467f5ff85052e2d7",
+        "ziokt/policy.py": "a756460965d997dfed0a97ce1b3091daef076031e2b9ccac4042c6222195f1d8",
+        "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
+        "ziokt/_verified_guards.py": "0bc665742e787d91246ce5afebc4f08e68188ab5b08373d612552280263550f6"
+      },
+      "regressions": [
+        "tests/test_business.py",
+        "tests/test_naming_community.py",
+        "tests/test_community.py"
+      ]
+    },
+    "Scheduler.lean": {
+      "namespace": "Ziokt.Scheduler",
+      "source_sha256": {
+        "openci/state.py": "623faff6b81e22c541b950e1e2406bf1bd70acea936d14321edb7da76754fddd",
+        "openci/runner.py": "eac4af4cd3ad6d9bfbe3a7243153ff9566141f9dd242f8dd335cc86447e1d317",
+        "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
+        "ziokt/_verified_guards.py": "0bc665742e787d91246ce5afebc4f08e68188ab5b08373d612552280263550f6"
+      },
+      "regressions": [
+        "tests/test_openci_state.py",
+        "tests/test_openci_cache.py",
+        "tests/test_openci_runner_failures.py",
+        "ci/openci/controller_runner_e2e.py"
+      ]
+    },
+    "Content.lean": {
+      "namespace": "Ziokt.Content",
+      "source_sha256": {
+        "ziokt/chunkstore.py": "9cddc14d4868669a2be600a5ba8d61ce832ef626eda5fc4f8dc4dbd56fca8aff",
+        "ziokt/content_fabric.py": "e6747b0a9df7c4949d36ed75ebc89bcd2f73d86277850a91ba80c47ad11da85a",
+        "ziokt/content_rights.py": "0613d4a707da3e897941e5936eee3892d38a08b6fbd2b6b26d65c76857021fb2",
+        "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
+        "ziokt/_verified_guards.py": "0bc665742e787d91246ce5afebc4f08e68188ab5b08373d612552280263550f6",
+        "ziokt/naming_community.py": "04bd0d145af60df505a1d72c4100b6ea6c16b71a5212630f467f5ff85052e2d7"
+      },
+      "regressions": [
+        "tests/test_chunkstore.py",
+        "tests/test_content_fabric.py",
+        "tests/test_content_rights.py"
+      ]
+    },
+    "Release.lean": {
+      "namespace": "Ziokt.Release",
+      "source_sha256": {
+        "tools/package_joint_source.py": "af842f45040d9d77cfa3f1217e55d74965b21daca13c95f1c35a007823357934",
+        "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
+        "ziokt/_verified_guards.py": "0bc665742e787d91246ce5afebc4f08e68188ab5b08373d612552280263550f6"
+      },
+      "regressions": [
+        "../Ziokt-Releases/tests/test_release_gates.py"
+      ],
+      "boundary": "Publication gate implementation is in the separate Releases repository; this repository supplies a reusable abstract gate model only."
+    },
+    "Privacy.lean": {
+      "namespace": "Ziokt.Privacy",
+      "source_sha256": {
+        "ziokt/carrier.py": "7a88726312c53c1fd3c00c4de227b0f18abba5eeb6805f3ce3bdb6e8bf20a02d",
+        "openci/release.py": "ccd1d3fdcaec3a59eec06a0bfed1c3f03b58c5387666650dab386fdd24476877",
+        "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
+        "ziokt/_verified_guards.py": "0bc665742e787d91246ce5afebc4f08e68188ab5b08373d612552280263550f6"
+      },
+      "regressions": [
+        "tests/test_carrier_privacy.py",
+        "tests/test_openci_release.py",
+        "tests/test_content_reference_openci.py"
+      ]
+    }
+  }
+}

@@ -406,9 +406,12 @@ class Fabric:
             value['updated_at']=int(time.time())
             return self._event(owner,'book',record,value,visibility)
 
-    def publish_package(self, owner, name, version, body, visibility='public'):
+    def publish_package(self, owner, name, version, body, visibility='private'):
         with self.transaction():
-            record = f'pkg-{name}-{version}'
+            text(owner,128);text(name,128);text(version,128)
+            if not isinstance(body,dict):raise ValueError('package body required')
+            if body.get('name',name)!=name or body.get('version',version)!=version:raise ValueError('package name/version binding')
+            record = 'pkg-'+hashlib.sha256(encoded([owner,name,version])).hexdigest()
             files = []
             for f in body.get('files', []):
                 item = dict(f)
@@ -421,7 +424,7 @@ class Fabric:
                     item.setdefault('mime', meta['mime'])
                     item['metadata'] = meta
                 files.append(item)
-            value = dict(body, files=files, updated_at=int(time.time()))
+            value = dict(body, name=name, version=version, files=files, updated_at=int(time.time()))
             return self._event(owner, 'package', record, value, visibility=visibility)
 
     def search(self, owner, query='', kind='book', limit=30, offset=0, filters=None, locale=''):

@@ -27,6 +27,9 @@ def digest(value):
     return value
 
 
+from ._verified_guards import within_budget
+
+
 class ChunkStore:
     def __init__(self, vault, *, max_object=MAX_OBJECT_BYTES, disk_bytes=DISK_BYTES):
         self.vault = vault
@@ -93,7 +96,7 @@ class ChunkStore:
                 # Reserve worst-case SafeFS padding before accepting bytes.
                 reserve = self.db.execute("SELECT coalesce(sum(((size+16383)/16384)*32768),0) FROM uploads WHERE state='uploading' AND expires>?", (int(time.time()),)).fetchone()[0]
                 used = self.db.execute('SELECT total FROM usage WHERE id=1').fetchone()[0]
-                if used + reserve + ((size + CHUNK_BYTES-1)//CHUNK_BYTES)*32768 > self.disk_bytes:
+                if not within_budget(self.disk_bytes,used+reserve,((size+CHUNK_BYTES-1)//CHUNK_BYTES)*32768):
                     raise ProtocolError('STORAGE_QUOTA', 'insufficient application storage reservation')
                 self.db.execute("INSERT INTO uploads VALUES(?,?,?,?,'uploading',NULL)", (upload,size,sha256,int(time.time())+ttl))
         return self.status(upload)
@@ -127,7 +130,7 @@ class ChunkStore:
             if stored is None:
                 sealed = self.vault.seal('chunk',data)
                 used = self.db.execute('SELECT total FROM usage WHERE id=1').fetchone()[0]
-                if used + len(sealed) > self.disk_bytes:
+                if not within_budget(self.disk_bytes,used,len(sealed)):
                     raise ProtocolError('STORAGE_QUOTA', 'application ciphertext quota exhausted')
                 path = self.data/tag
                 if not path.exists():

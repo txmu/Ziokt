@@ -1,0 +1,67 @@
+name: v1.0 native system faults, replay and privacy acceptance
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: system-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-system:
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [network-history, dual-chain-governance, privacy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: Ziokt
+          persist-credentials: false
+      - id: native
+        run: python Ziokt/ci/native_refs.py
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Corium
+          ref: ${{ steps.native.outputs.corium }}
+          path: Corium
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Runtime dependencies on disposable CI only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 jq openssl rsync curl gnupg socat
+          python -m pip install --only-binary=:all: -r Ziokt/requirements.txt
+      - name: Actual native TLS, authenticated announcements, sync, reorg, interruption and replay
+        if: matrix.scenario == 'network-history'
+        working-directory: Corium
+        run: |
+          set -o pipefail
+          python -m unittest -v test_reorg test_native_p2p_local test_propagation_status test_consensus_hold test_native_history_replay test_history_verifier test_history_provenance 2>&1 | tee system-acceptance.log
+      - name: Actual governed PoS to PoW checkpoint transition and dual-chain domains
+        if: matrix.scenario == 'dual-chain-governance'
+        working-directory: Corium
+        env:
+          CORIUM_WORK_LIVE_CHAIN: '1'
+        run: |
+          set -o pipefail
+          python -m unittest -v test_work_consensus test_consensus_core test_consensus_process_survival test_dna_protocol test_cooperative_protocol test_formal_alignment 2>&1 | tee system-acceptance.log
+      - name: No DNS downgrade, scoped privacy, relay observer and cancellation boundaries
+        if: matrix.scenario == 'privacy'
+        working-directory: Ziokt
+        run: |
+          set -o pipefail
+          PYTHONPATH=tests:. python -m unittest -v test_carrier_privacy test_privacy_hardening test_privacy_observer test_community_privacy_features test_remote_deadlines test_tor_control test_tor_diagnostics test_content_reference_openci 2>&1 | tee system-acceptance.log
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: ziokt-system-${{ matrix.scenario }}
+          path: |
+            Corium/system-acceptance.log
+            Ziokt/system-acceptance.log
+          if-no-files-found: error

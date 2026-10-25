@@ -8,6 +8,7 @@ from pathlib import Path
 from .protocol import ProtocolError,encoded,strict_json,secure_read
 from .security import verify
 from .naming import LABEL,Names,GROUPS
+from ._verified_guards import fresh_revision
 
 DOMAIN='Ziokt/component-name-registration/v1'
 APP_COMPONENT={'sim-manager':'sim'}
@@ -77,7 +78,7 @@ def publish(bridge,envelope):
     record,_=check_record(bridge,envelope,raw.get('network_id'),raw.get('root',''))
     try:
         old,_=current(bridge,record['network_id'],record['root'])
-        if old['revision']>=record['revision']:
+        if not fresh_revision(old['revision'],record['revision']):
             if old==record:return {'published':True,'revision':record['revision'],'duplicate':True}
             raise ProtocolError('REPLAY_REJECTED','name registration revision cannot decrease or fork')
     except ProtocolError as error:

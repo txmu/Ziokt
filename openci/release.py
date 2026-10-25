@@ -11,6 +11,7 @@ from ziokt.protocol import secure_read,strict_json
 from ziokt.security import sign
 from ziokt.ufsdcpm import reference_package
 from .state import Error,encoded
+from ziokt._verified_guards import public_publication_permitted
 
 IMPORT_LOCK=threading.RLock()
 
@@ -25,13 +26,14 @@ def source_digest(root):
     return 'sha256:'+h.hexdigest()
 
 
-def configure(root,source):
+def configure(root,source,visibility='private'):
     from .cli import private_write
     root=Path(root);source=Path(source).resolve()
+    if visibility not in {'private','public'}:raise Error('RELEASE_VISIBILITY','Explicit private/public visibility required')
     key=root/'release.key'
     if not key.exists():private_write(key,secrets.token_bytes(32))
     settings=strict_json(secure_read(root/'controller.json',65536),65536)
-    settings['release']={'schema':'openci.native-dcpm.v1','source_root':str(source),'source_digest':source_digest(source),'signing_key':str(key),'root':str(root/'native-dcpm')}
+    settings['release']={'schema':'openci.native-dcpm.v1','source_root':str(source),'source_digest':source_digest(source),'signing_key':str(key),'root':str(root/'native-dcpm'),'visibility':visibility}
     private_write(root/'controller.json',settings,replace=True)
     return {'state':'release_configured','publisher':sign({},secure_read(key,32),'OpenCI/publisher/v1')['public_key'],'source_digest':settings['release']['source_digest']}
 
@@ -55,7 +57,8 @@ class ReleaseService:
         self.state=controller.state;self.fabric=controller.fabric
         document=strict_json(secure_read(controller.config,65536),65536)
         settings=document.get('release')
-        if not isinstance(settings,dict) or set(settings)!={'schema','source_root','source_digest','signing_key','root'} or settings['schema']!='openci.native-dcpm.v1':
+        required={'schema','source_root','source_digest','signing_key','root'}
+        if not isinstance(settings,dict) or not required<=set(settings) or set(settings)-required-{'visibility'} or settings['schema']!='openci.native-dcpm.v1' or settings.get('visibility','private') not in {'private','public'}:
             raise Error('RELEASE_NOT_CONFIGURED','Owner-controlled native signer must be configured explicitly',409)
         self.settings=settings;self.native=native_type(settings)
         self.private=secure_read(settings['signing_key'],32)
@@ -126,13 +129,14 @@ class ReleaseService:
             'publisher':self.public,
             'package_reference':package_ref,
             'provenance_reference':provenance_ref,
-            'files':files
+            'files':files,
+            'distribution_visibility':'public' if public_publication_permitted(self.settings.get('visibility','private')=='public') else 'private'
         }
         self.state.queue_package_publication(prepared['id'], pipeline['project'], name, version, package_event_body)
         fabric_published = False
         fabric_error = None
         try:
-            self.fabric.publish_package(owner, name, version, package_event_body, visibility='public')
+            self.fabric.publish_package(owner, name, version, package_event_body, visibility=package_event_body['distribution_visibility'])
             self.state.record_package_publication(prepared['id'], success=True)
             fabric_published = True
         except Exception as exc:
@@ -142,6 +146,7 @@ class ReleaseService:
                 'visibility':'project-authorized','network_published':False,'release_signed':True,
                 'installed':False,'activated':False,'execution_authorized':False,'corium_settled':False,
                 'content_fabric_published':fabric_published,'content_fabric_synced':fabric_published,
+                'content_fabric_visibility':package_event_body['distribution_visibility'],
                 'content_fabric_error':fabric_error}
         return self.state.complete_release(actor,prepared['id'],result)
 
@@ -152,7 +157,7 @@ class ReleaseService:
             retried += 1
             owner = 'openci-' + item['project']
             try:
-                self.fabric.publish_package(owner, item['package_name'], item['version'], item['payload'], visibility='public')
+                self.fabric.publish_package(owner, item['package_name'], item['version'], item['payload'], visibility=item['payload'].get('distribution_visibility','private'))
                 self.state.record_package_publication(item['release_id'], success=True)
                 succeeded += 1
             except Exception as exc:

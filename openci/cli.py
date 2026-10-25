@@ -35,7 +35,7 @@ def main():
     sub.add_parser('init')
     sub.add_parser('git-tick')
     p=sub.add_parser('git-configure');p.add_argument('--project',required=True);p.add_argument('--repository',type=Path,required=True);p.add_argument('--ref',default='refs/heads/main');p.add_argument('--template',type=Path,required=True);p.add_argument('--interval',type=int);p.add_argument('--remote-url')
-    p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True)
+    p=sub.add_parser('release-configure');p.add_argument('--native-source',type=Path,required=True);p.add_argument('--visibility',choices=['private','public'],default='private')
     p=sub.add_parser('release-install');p.add_argument('release');p.add_argument('--destination',type=Path,required=True);p.add_argument('--activate',action='store_true')
     p=sub.add_parser('worker-enroll');p.add_argument('--server',required=True);p.add_argument('--invite-file',type=Path,required=True);p.add_argument('--worker',required=True);p.add_argument('--signing-key-file',type=Path,required=True);p.add_argument('--credential-file',type=Path,required=True)
     p=sub.add_parser('serve');p.add_argument('--listen',default='127.0.0.1');p.add_argument('--port',type=int,default=8768)
@@ -89,7 +89,7 @@ def main():
         return
     if args.action=='release-configure':
         from .release import configure
-        print(json.dumps(configure(root,args.native_source)));return
+        print(json.dumps(configure(root,args.native_source,args.visibility)));return
     if args.action=='release-install':
         from .release import ReleaseService
         controller=Controller(root,root/'controller.json')

@@ -14,6 +14,7 @@ import threading
 import time
 
 from .protocol import ProtocolError
+from ._verified_guards import direct_carrier_permitted
 
 
 def onion_address(host):
@@ -87,7 +88,11 @@ def open_carrier(host, port, value=None, timeout=30, cancellation=None):
     require_network()
     if cancellation is not None and cancellation.is_set(): raise ProtocolError('CANCELLED', 'carrier request cancelled')
     if value is None:
-        if isinstance(host, str) and host.endswith(('.onion', '.i2p')):
+        try:
+            if not isinstance(host,str) or not host or len(host)>253 or '\x00' in host:raise ValueError()
+            canonical=host.encode('idna').decode('ascii').rstrip('.').lower()
+        except (ValueError,UnicodeError):raise ProtocolError('INVALID_CARRIER','bounded valid destination host required') from None
+        if not direct_carrier_permitted(canonical.endswith(('.onion','.i2p'))):
             raise ProtocolError('NO_POLICY_COMPLIANT_PATH', 'anonymous host requires its reviewed carrier')
         return socket.create_connection((host, port), timeout=timeout)
     validate_carrier(value, host)

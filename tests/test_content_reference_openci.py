@@ -60,6 +60,16 @@ class ContentReferenceOpenCITests(unittest.TestCase):
         self.assertEqual(resolved["state"], "available")
         self.assertEqual(resolved["reference"], cref)
 
+    def test_package_names_are_scoped_and_private_unless_explicitly_published(self):
+        first=self.fabric.publish_package('project-one','same-tool','1',{})
+        second=self.fabric.publish_package('project-two','same-tool','1',{})
+        ambiguous=self.fabric.publish_package('project-one','same','tool-1',{})
+        self.assertEqual(len({first['id'],second['id'],ambiguous['id']}),3)
+        self.assertEqual(self.fabric._get('project-one',first['id'])['name'],'same-tool')
+        with self.assertRaises(PermissionError):self.fabric._get('project-two',first['id'])
+        with self.assertRaises(PermissionError):self.fabric._get('@anonymous',first['id'])
+        with self.assertRaises(PermissionError):content_reference.create(self.fabric,'project-one',first['id'])
+
 
 if __name__ == "__main__":
     unittest.main()

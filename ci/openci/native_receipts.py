@@ -25,6 +25,10 @@ def execute(genesis,beneficiary,activation):
     image=json.loads((Path(__file__).with_name('runner-image.lock.json')).read_text())['image']
     with tempfile.TemporaryDirectory(prefix='openci-native-') as directory:
         root=Path(directory);config=configuration(root)
+        from openci.release import configure,ReleaseService
+        native_config=root/'controller.json';native_config.write_bytes(config.read_bytes());native_config.chmod(0o600)
+        configure(root,Path(__file__).resolve().parents[2]/'companions/ufsdcpm/src')
+        config.write_bytes(native_config.read_bytes())
         controller=Controller(root/'controller',config)
         server=Server(('127.0.0.1',0),handler(controller));thread=threading.Thread(target=server.serve_forever);thread.start()
         try:
@@ -57,7 +61,24 @@ def execute(genesis,beneficiary,activation):
             assert not plan['corium_settled'] and not plan['ledger_modified']
             output=root/'result.json';owner.download_artifact_file('demo',plan['payload']['proof_data']['receipts'][0]['attestation']['payload']['result']['artifact'],'result.json',output)
             assert json.loads(output.read_text())=={'sum':68}
-            print('REAL_OCI_NATIVE_RECEIPTS '+json.dumps({'pipeline':pid,'plan_sha256':plan['plan_sha256'],'workers':plan['verification']['workers'],'hardware_independence_verified':False}),flush=True)
+            release=owner.request('POST','/v1/releases',{'pipeline':pid,'task':'build','name':'native-settlement-output','version':'1'})
+            installed=ReleaseService(controller).install(release['id'],root/'installed',activate=True)
+            installed_result=Path(installed['directory'])/'result.json'
+            assert installed_result.read_bytes()==output.read_bytes()
+            provenance=json.loads((Path(installed['directory'])/'provenance.json').read_text())
+            assert provenance['predicate']['buildDefinition']['resolvedDependencies'][0]['digest']['sha256']==reference['digest'][7:]
+            assert release['publication']['content_fabric_visibility']=='private'
+            record=controller.fabric.db.execute("SELECT id FROM records WHERE kind='package' AND owner='openci-demo'").fetchone()
+            try:controller.fabric._get('@anonymous',record['id'])
+            except PermissionError:pass
+            else:raise AssertionError('Private build metadata became public')
+            with ReleaseService(controller).store('demo') as (native,_):
+                installer=native.file_installer(root/'installed');native.reference_store=None
+                assert installer.active(release['publication']['package_id'])['version']=='1'
+            print('REAL_OCI_NATIVE_RECEIPTS '+json.dumps({'pipeline':pid,'plan_sha256':plan['plan_sha256'],'workers':plan['verification']['workers'],
+                'source_reference':reference,'artifact':plan['payload']['proof_data']['receipts'][0]['attestation']['payload']['result']['artifact'],
+                'native_dcpm_ufs_installed':True,'installed_output_sha256':hashlib.sha256(installed_result.read_bytes()).hexdigest(),
+                'offline_install_verification':True,'private_publication_enforced':True,'hardware_independence_verified':False}),flush=True)
             return policy,plan['payload']
         finally:
             server.shutdown();server.server_close();thread.join();controller.close()

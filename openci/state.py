@@ -14,6 +14,7 @@ import re
 import secrets
 import sqlite3
 import time
+from ziokt._verified_guards import within_budget,before_deadline
 
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 DIGEST = re.compile(r'sha256:[a-f0-9]{64}\Z')
@@ -276,7 +277,7 @@ class Store:
                 spec = json.loads(task['spec'])
                 if spec.get('executor','oci')!=executor or images is not None and spec['image'] not in images:continue
                 if spec.get('worker',worker)!=worker:continue
-                if task['project'] not in projects or spec['arch'] != approved['arch'] or spec['pool'] != approved['pool'] or spec['cpu']+cpu_used > approved['cpu'] or spec['memory_mb']+mem_used > approved['memory_mb']: continue
+                if task['project'] not in projects or spec['arch'] != approved['arch'] or spec['pool'] != approved['pool'] or not within_budget(approved['cpu'],cpu_used,spec['cpu']) or not within_budget(approved['memory_mb'],mem_used,spec['memory_mb']): continue
                 lease = secrets.token_urlsafe(32)
                 until, attempt = int(self.clock())+lease_seconds, task['attempt']+1
                 db.execute("UPDATE tasks SET state='running',attempt=?,worker=?,lease_hash=?,lease_until=? WHERE pipeline=? AND id=?", (attempt, worker, hashlib.sha256(lease.encode()).hexdigest(), until, task['pipeline'], task['id']))
@@ -307,7 +308,7 @@ class Store:
         candidate = hashlib.sha256(lease.encode()).hexdigest() if isinstance(lease, str) else ''
         if not row or row['worker'] != worker or not row['lease_hash'] or not hmac.compare_digest(row['lease_hash'], candidate):
             raise Error('LEASE_REJECTED', 'Task is not assigned to this lease', 409)
-        if active and (row['state'] != 'running' or row['lease_until'] <= int(self.clock())):
+        if active and (row['state'] != 'running' or not before_deadline(int(self.clock()),row['lease_until'])):
             raise Error('LEASE_EXPIRED', 'Task lease is no longer active', 409)
         return row
 

@@ -1,0 +1,55 @@
+name: Joint formal safety models and implementation correspondence
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  joint-formal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: Ziokt
+          persist-credentials: false
+      - id: native
+        run: python Ziokt/ci/native_refs.py
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Shadow6
+          ref: ${{ steps.native.outputs.shadow6 }}
+          path: Shadow6
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: txmu/Corium
+          ref: ${{ steps.native.outputs.corium }}
+          path: Corium
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: "python -m pip install --only-binary=:all: -r Ziokt/requirements.txt"
+      - run: bash Ziokt/ci/install-lean.sh
+      - name: Kernel checks, axiom audits, exact inventories and source drift gates
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python Ziokt/formal/check.py | tee evidence/ziokt-formal.json
+          python Shadow6/formal/check.py | tee evidence/shadow6-formal.json
+          bash Corium/formal/check_all_formal.sh | tee evidence/corium-formal.log
+          python Ziokt/tools/formal_coverage.py --output evidence/coverage.json
+      - name: Actual implementation regressions for the modeled boundaries
+        working-directory: Ziokt
+        run: |
+          PYTHONPATH=tests:. python -W error::ResourceWarning -m unittest -v test_verified_guards test_openci_cache test_openci_runner_failures test_naming_community test_business test_protocol test_carrier_privacy
+          cd ../Shadow6
+          python -m unittest -v libshadow6.test_credited_boundary libshadow6.test_peer
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: ziokt-joint-formal-evidence
+          path: evidence/
+          if-no-files-found: error

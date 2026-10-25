@@ -18,6 +18,7 @@ import tempfile
 import time
 import uuid
 from .state import Error, IMAGE
+from ziokt._verified_guards import cache_restores,cache_saves
 
 MAX_SOURCE = 64*1024*1024
 MAX_LOG = 16*1024*1024
@@ -124,7 +125,7 @@ class Runner:
                 member.mode |= 0o200
                 return member
             with tarfile.open(payload,'w') as output:
-                output.add(tree,arcname='.',filter=writable)
+                for child in sorted(tree.iterdir()):output.add(child,arcname=child.name,filter=writable)
             with payload.open('rb') as source:
                 self.command('exec','-i',name,'/bin/tar','--no-same-owner','--no-same-permissions','--no-overwrite-dir','-C',destination,'-xf','-',stdin=source,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
@@ -187,7 +188,7 @@ class Runner:
                     unpack_source(area/'source.tar',area/'source')
                     cache_cfg=assignment.get('cache')
                     cache_mode=cache_cfg.get('mode','read-write') if cache_cfg else 'read-write'
-                    can_restore=cache_mode in ('read-write','read-only')
+                    can_restore=cache_restores(cache_mode)
                     result=self.command('image','inspect',image,'--format','{{.Architecture}}',stdout=subprocess.PIPE,text=True)
                     expected={'x86_64':'amd64','aarch64':'arm64'}[task['arch']]
                     if result.stdout.strip()!=expected:raise Error('IMAGE_ARCH','Pinned image architecture does not match worker requirement')
@@ -242,7 +243,7 @@ class Runner:
                         canonical_outputs(raw,area/'artifact.tar',task['outputs'])
                         from .artifacts import publish_outputs
                         artifact=publish_outputs(self.client,assignment['project'],area/'artifact.tar',task['outputs'],assignment['source'],task['image'])
-                        can_save=cache_mode in ('read-write','write-only')
+                        can_save=cache_saves(cache_mode)
                         if can_save and cache_cfg and cache_cfg.get('key'):
                             try:cache_artifact=self.save_cache(name,area,assignment,cache_cfg)
                             except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:

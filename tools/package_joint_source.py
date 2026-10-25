@@ -7,6 +7,8 @@ from pathlib import Path
 def package(repositories_root,output,evidence=None):
  # A source release cannot bypass the full proof and inventory gate.
  subprocess.run(['bash',str(Path(repositories_root).resolve()/'Corium/formal/check_all_formal.sh')],check=True)
+ for project in ('Ziokt','Shadow6'):
+  subprocess.run([__import__('sys').executable,str(Path(repositories_root).resolve()/project/'formal/check.py')],check=True)
  base=Path(repositories_root).resolve();output=Path(output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
  excluded={'.git','.venv','.venv-ft','.tools','.runtime','.tmp','__pycache__','node_modules','target','.zig-cache','zig-out','.gradle','build','dist','obj','jniLibs','.android-toolchain','.nim_runtime','.pytest_cache','.mypy_cache'}
  provenance={'schema':'ziokt.joint-source.v1','repositories':{},'contract':'strict UTF-8; every file name ends in .txt; no native build'}

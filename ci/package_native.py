@@ -27,6 +27,18 @@ with tarfile.open(dist / "shadow6-ziokt.tar.gz", "w:gz") as archive:
 # its build admission, not a claim that the script became a compiled executable.
 (dist / "corix-ziokt.sh").write_bytes((c / "corix_v108.sh").read_bytes())
 (dist / "corix-ziokt.sh").chmod(0o755)
-manifest = {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
-            for p in dist.iterdir() if p.is_file() and p.name != "manifest.json"}
+# Public verification/hold tools must accompany the native single-file runtime.
+# A node cannot review and release its history hold using an absent sidecar.
+runtime=dist/'corium-runtime';runtime.mkdir(exist_ok=True)
+for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
+             'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
+             'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
+             'dna_protocol.py','cooperative_protocol.py','shielded_ownership.py'):
+    source=c/name
+    if source.is_symlink() or not source.is_file():raise ValueError('native verification source missing: '+name)
+    (runtime/name).write_bytes(source.read_bytes())
+def digest(path):
+    with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+manifest = {str(p.relative_to(dist)): {"bytes": p.stat().st_size, "sha256": digest(p)}
+            for p in dist.rglob('*') if p.is_file() and p != dist/'manifest.json'}
 (dist / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

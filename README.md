@@ -1,6 +1,10 @@
 # Ziokt
 
-Shadow6 与 Corium 的自治联邦。Shadow6 保留多模块和独立 Native Core；Corium 的生产支持全部内嵌于 `corix_v108.sh`。两者默认关闭 Ziokt，无需安装本仓库即可独立使用。
+Ziokt 是面向自治节点的分布式应用与协作平台。它以 Corium 的链、治理与可验证贡献，以及 Shadow6 的独立原生传输为基础，提供自己的节点管理、Content Fabric、Library/Netnews、OpenCI、dCPM/UFS 交付、身份与命名、Gateway/MCP 和跨平台客户端。
+
+节点、内容、构建、分发与恢复通过明确的权限和证据关联；各组件保留独立部署与自治能力。Shadow6 保留多模块和独立 Native Core；Corium 的主要生产入口为 `corix_v108.sh`。双方默认关闭 Ziokt，无需安装本仓库即可独立使用。
+
+v1.0 的审计修复、形式化对应范围、跨组件与故障验收入口见 [v1.0 发布验证说明](docs/V1.0-ASSURANCE.zh-CN.md)。公开交付仍使用 **v1.0**；内部 Python、桌面及移动工程版本统一为 `1.0.0`。精确提交的 CI 结果和产物摘要随 [Ziokt-Releases](https://github.com/txmu/Ziokt-Releases/releases/tag/v1.0) 发布，不能用某个模块通过替代系统验收。
 
 已实现原生双向接入、持久化操作/Saga、12 Core/13 Profile 共用的数据协议、内容/签名包、工作空间、身份与治理校验、冷恢复、隐私 profile、mTLS 和任期隔离。原生能力和权限保持各自所有权；目录投影表示存储元数据，在线与应用完成须有各自原生证据。
 

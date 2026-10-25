@@ -1,6 +1,6 @@
 # 统一客户端：真实后端使用说明
 
-版本：1.1.0，发布验收以对应 GitHub Actions 的结果和下载页清单为准。Web 入口：https://app.ziokt.com/ 。安装包入口：https://github.com/txmu/Ziokt-Releases/releases 。
+版本：1.0.0，发布验收以对应 GitHub Actions 的结果和下载页清单为准。Web 入口：https://app.ziokt.com/ 。安装包入口：https://github.com/txmu/Ziokt-Releases/releases 。
 
 ## 连接与鉴权
 

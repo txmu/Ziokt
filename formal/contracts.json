@@ -1,0 +1,198 @@
+{
+  "schema": "ziokt.guard-contracts.v1",
+  "python_target": "ziokt/_verified_guards.py",
+  "predicates": {
+    "within_budget": {
+      "parameters": {
+        "budget": "Nat",
+        "used": "Nat",
+        "amount": "Nat"
+      },
+      "expression": [
+        "le",
+        [
+          "add",
+          [
+            "var",
+            "used"
+          ],
+          [
+            "var",
+            "amount"
+          ]
+        ],
+        [
+          "var",
+          "budget"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Scheduler.lean",
+        "formal/Content.lean"
+      ],
+      "production_bindings": [
+        "openci/state.py",
+        "ziokt/chunkstore.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "before_deadline": {
+      "parameters": {
+        "now": "Nat",
+        "deadline": "Nat"
+      },
+      "expression": [
+        "lt",
+        [
+          "var",
+          "now"
+        ],
+        [
+          "var",
+          "deadline"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Authority.lean",
+        "formal/Scheduler.lean"
+      ],
+      "production_bindings": [
+        "openci/state.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "fresh_revision": {
+      "parameters": {
+        "previous": "Nat",
+        "incoming": "Nat"
+      },
+      "expression": [
+        "lt",
+        [
+          "var",
+          "previous"
+        ],
+        [
+          "var",
+          "incoming"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Content.lean"
+      ],
+      "production_bindings": [
+        "ziokt/naming_community.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "cache_restores": {
+      "parameters": {
+        "mode": "String"
+      },
+      "expression": [
+        "or",
+        [
+          "eq",
+          [
+            "var",
+            "mode"
+          ],
+          [
+            "str",
+            "read-write"
+          ]
+        ],
+        [
+          "eq",
+          [
+            "var",
+            "mode"
+          ],
+          [
+            "str",
+            "read-only"
+          ]
+        ]
+      ],
+      "lean_targets": [
+        "formal/Scheduler.lean"
+      ],
+      "production_bindings": [
+        "openci/runner.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "cache_saves": {
+      "parameters": {
+        "mode": "String"
+      },
+      "expression": [
+        "or",
+        [
+          "eq",
+          [
+            "var",
+            "mode"
+          ],
+          [
+            "str",
+            "read-write"
+          ]
+        ],
+        [
+          "eq",
+          [
+            "var",
+            "mode"
+          ],
+          [
+            "str",
+            "write-only"
+          ]
+        ]
+      ],
+      "lean_targets": [
+        "formal/Scheduler.lean"
+      ],
+      "production_bindings": [
+        "openci/runner.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "direct_carrier_permitted": {
+      "parameters": {
+        "anonymous": "Bool"
+      },
+      "expression": [
+        "not",
+        [
+          "var",
+          "anonymous"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Privacy.lean"
+      ],
+      "production_bindings": [
+        "ziokt/carrier.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "public_publication_permitted": {
+      "parameters": {
+        "explicit_public": "Bool"
+      },
+      "expression": [
+        "var",
+        "explicit_public"
+      ],
+      "lean_targets": [
+        "formal/Privacy.lean"
+      ],
+      "production_bindings": [
+        "openci/release.py"
+      ],
+      "binding_scope": "production predicate"
+    }
+  }
+}
