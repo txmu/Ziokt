@@ -143,7 +143,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def send_value(self,status,value,kind='application/json'):
             data=value if isinstance(value,bytes) else encoded(value)
             self.send_response_only(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
-            browser_page=self.path.startswith(('/explorer','/p2p/'))
+            browser_page=self.path.startswith(('/explorer','/p2p/')) or (self.headers.get('Host','').split(':')[0].startswith('p2p.'))
             connections="'self' https: http://localhost:* http://127.0.0.1:* http://[::1]:*" if browser_page else connect_sources
             for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src "+connections+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
             request_origin=self.headers.get('Origin')
@@ -169,7 +169,8 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
             # not permission to view a public document. Host pinning, CSP, CORP
             # and absence of CORS remain in force; writes require exact origin.
             host = self.headers.get('Host')
-            if host and host not in allowed_hosts:
+            host_name = host.split(':')[0] if host else ''
+            if host and (host not in allowed_hosts and host_name not in allowed_hosts and not host_name.startswith('p2p.')):
                 raise ProtocolError('ORIGIN_REJECTED','configured public host required')
             if post:
                 sites = self.headers.get_all('Sec-Fetch-Site', [])
@@ -198,9 +199,13 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 if p2p is not None and self.path.startswith('/api/p2p/'):
                     self.rate('p2p-explorer',120)
                     return self.send_value(200,p2p.query(self.path,self.headers.get('Authorization')))
-                if p2p is not None and self.path in {'/p2p','/p2p/','/p2p/app.js','/p2p/style.css'}:
-                    name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/p2p','/p2p/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
-                    return self.send_value(200,files_resource('ziokt').joinpath('p2p',name).read_bytes(),kind)
+                if p2p is not None and (self.headers.get('Host','').split(':')[0].startswith('p2p.') or self.path in {'/p2p','/p2p/','/p2p/app.js','/p2p/style.css'}):
+                    if self.path in {'/','/index.html','/p2p','/p2p/'}:
+                        return self.send_value(200,files_resource('ziokt').joinpath('p2p','index.html').read_bytes(),'text/html; charset=utf-8')
+                    if self.path in {'/app.js','/p2p/app.js'}:
+                        return self.send_value(200,files_resource('ziokt').joinpath('p2p','app.js').read_bytes(),'text/javascript')
+                    if self.path in {'/style.css','/p2p/style.css'}:
+                        return self.send_value(200,files_resource('ziokt').joinpath('p2p','style.css').read_bytes(),'text/css')
                 if explorer is not None and self.path in {'/explorer','/explorer/','/explorer/app.js','/explorer/style.css'}:
                     name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/explorer','/explorer/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
                     return self.send_value(200,files_resource('ziokt').joinpath('explorer',name).read_bytes(),kind)

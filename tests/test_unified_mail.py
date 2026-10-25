@@ -28,6 +28,7 @@ class UnifiedMailTests(unittest.TestCase):
 
         # Generate ed25519 sender key
         self.sender_key = secrets.token_bytes(32)
+        self.sender_pub = sign({}, self.sender_key, 'test')['public_key']
         # Generate relay signing key
         self.relay_key = secrets.token_bytes(32)
 
@@ -322,6 +323,138 @@ class UnifiedMailTests(unittest.TestCase):
         with self.assertRaises(ProtocolError) as ctx:
             unified.relay.forward(bad_envelope)
         self.assertEqual(ctx.exception.code, 'SIGNATURE_REJECTED')
+
+    def test_community_mailbox_persistence_and_inbox(self):
+        db_path = self.root / 'comm_mail.db'
+        channel = CommunityMailChannel(mailbox_db=db_path)
+        res = channel.send(
+            sender_key=self.sender_pub,
+            recipient='charlie',
+            subject='Community Hello',
+            body='Welcome to community mailbox'
+        )
+        self.assertEqual(res['channel'], 'community')
+        self.assertEqual(res['delivery_status'], 'delivered')
+
+        inbox = channel.inbox('charlie')
+        self.assertEqual(len(inbox), 1)
+        self.assertEqual(inbox[0]['subject'], 'Community Hello')
+        self.assertEqual(inbox[0]['body'], 'Welcome to community mailbox')
+
+        read_item = channel.read(res['message_id'])
+        self.assertEqual(read_item['message_id'], res['message_id'])
+        self.assertEqual(read_item['subject'], 'Community Hello')
+
+    def test_mail_relay_community_delivery_and_receipt(self):
+        comm_db = self.root / 'comm_relay.db'
+        relay_db = self.root / 'relay_log.db'
+        comm_channel = CommunityMailChannel(mailbox_db=comm_db)
+        relay = MailRelay(
+            node_id='test-relay-node',
+            signing_key=self.relay_key,
+            community_channel=comm_channel,
+            relay_db=relay_db
+        )
+
+        unified = UnifiedMail(
+            node_id='test-relay-node',
+            signing_key=self.relay_key,
+            community_channel=comm_channel,
+            mailbox_db=comm_db,
+            relay_db=relay_db
+        )
+        receipt = unified.send(
+            sender_private_key=self.sender_key,
+            from_address='alice@node.ziokt',
+            to_address='dave@node.ziokt',
+            subject='Direct Community Delivery',
+            body='Real delivery through relay'
+        )
+        self.assertEqual(receipt['payload']['status'], 'relayed')
+        self.assertEqual(receipt['payload']['channel'], 'community')
+
+        # Check community channel inbox
+        inbox = comm_channel.inbox('dave')
+        self.assertEqual(len(inbox), 1)
+        self.assertEqual(inbox[0]['subject'], 'Direct Community Delivery')
+
+        # Check delivery receipt in relay log
+        rec = unified.delivery_receipt(receipt['payload']['message_id'])
+        self.assertEqual(rec['message_id'], receipt['payload']['message_id'])
+        self.assertEqual(rec['channel'], 'community')
+
+    def test_unified_inbox_aggregating_three_channels(self):
+        comm_db = self.root / 'agg_comm.db'
+        forum_db = self.root / 'agg_forum.db'
+        etp_dir = self.root / 'agg_etp'
+
+        corium_ch = CoriumMailChannel(forum_db=forum_db, objects_dir=self.root / 'agg_cor_objs')
+        etp_ch = ETPMailChannel(mailbox_store_dir=etp_dir)
+        comm_ch = CommunityMailChannel(mailbox_db=comm_db)
+
+        corium_ch.send(self.sender_pub, 'eve', 'Corium msg', 'Corium body')
+        etp_ch.send(self.sender_pub, 'eve', 'ETP msg', 'ETP body')
+        comm_ch.send(self.sender_pub, 'eve', subject='Community msg', body='Community body')
+
+        unified = UnifiedMail(
+            corium_channel=corium_ch,
+            etp_channel=etp_ch,
+            community_channel=comm_ch
+        )
+
+        aggregated = unified.inbox('eve')
+        self.assertIn('corium', aggregated)
+        self.assertIn('etp', aggregated)
+        self.assertIn('community', aggregated)
+        self.assertEqual(len(aggregated['corium']), 1)
+        self.assertEqual(len(aggregated['etp']), 1)
+        self.assertEqual(len(aggregated['community']), 1)
+
+    def test_mail_relay_retry_failed(self):
+        relay_db = self.root / 'retry_relay.db'
+
+        class FlakyChannel:
+            def __init__(self):
+                self.fail = True
+            def send(self, **kwargs):
+                if self.fail:
+                    raise RuntimeError("Transient delivery network error")
+                return {'channel': 'corium', 'status': 'delivered'}
+
+        flaky = FlakyChannel()
+        relay = MailRelay(
+            node_id='retry-node',
+            signing_key=self.relay_key,
+            corium_channel=flaky,
+            relay_db=relay_db
+        )
+
+        unified = UnifiedMail(
+            node_id='retry-node',
+            signing_key=self.relay_key,
+            corium_channel=flaky,
+            relay_db=relay_db
+        )
+
+        receipt = unified.send(
+            sender_private_key=self.sender_key,
+            from_address='alice@node.ziokt',
+            to_address='frank@hub.corium',
+            subject='Flaky Transmission',
+            body='Will fail then succeed'
+        )
+        self.assertEqual(receipt['payload']['status'], 'failed')
+
+        # Retry while failing
+        res1 = unified.retry_failed()
+        self.assertEqual(res1['failed'], 1)
+        self.assertEqual(res1['succeeded'], 0)
+
+        # Fix channel
+        flaky.fail = False
+        res2 = unified.retry_failed()
+        self.assertEqual(res2['succeeded'], 1)
+        self.assertEqual(res2['failed'], 0)
 
 
 if __name__ == '__main__':

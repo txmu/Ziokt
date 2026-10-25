@@ -41,7 +41,7 @@ class TelegramWorker:
         log.info('Telegram command worker initialized; %d MCP tools available', len(self.service.tools))
 
     def _commands(self):
-        command_map={'start':None,'help':None,'status':None,'tools':None,'mcp':None,'confirm':None,'cancel':None,'objects':None,'packages':None,'privacy':None,'dns':None,'trackers':None,'reviews':None,'gui':None}
+        command_map={'start':None,'help':None,'status':None,'tools':None,'mcp':None,'confirm':None,'cancel':None,'objects':None,'packages':None,'privacy':None,'dns':None,'trackers':None,'reviews':None,'gui':None,'p2p':None,'mail':None,'pkg':None,'site':None}
         candidates=[]
         for name,tool in sorted(self.service.tools.items()):
             if re.fullmatch('[a-z0-9_]{1,32}',name) and name not in command_map:
@@ -56,7 +56,7 @@ class TelegramWorker:
             {'command':'confirm','description':'Confirm a pending write by its one-time code'},
             {'command':'cancel','description':'Cancel a pending write by its one-time code'},
         ]
-        menu.extend([{'command':'objects','description':'List all chunked object tools'},{'command':'packages','description':'List signed package and native admission tools'},{'command':'privacy','description':'Show actual ledger and transport privacy boundaries'},{'command':'trackers','description':'Show optional Tracker services and privacy policy'},{'command':'reviews','description':'List consensus review request and proof tools'},{'command':'dns','description':'Show naming realms, chain sources and privacy boundaries'},{'command':'gui','description':'Open the web application and platform downloads'}])
+        menu.extend([{'command':'objects','description':'List all chunked object tools'},{'command':'packages','description':'List signed package and native admission tools'},{'command':'privacy','description':'Show actual ledger and transport privacy boundaries'},{'command':'trackers','description':'Show optional Tracker services and privacy policy'},{'command':'reviews','description':'List consensus review request and proof tools'},{'command':'dns','description':'Show naming realms, chain sources and privacy boundaries'},{'command':'gui','description':'Open the web application and platform downloads'},{'command':'p2p','description':'View P2P browser topology across Corium, Shadow6 & Fabric'},{'command':'mail','description':'Unified Mail: Corium, ETP and Community channels'},{'command':'pkg','description':'Unified Package Lifecycle: install, upgrade, rollback'},{'command':'site','description':'Static Site Publishing & sandboxed preview'}])
         # Keep a little space below Telegram's documented 100-command ceiling;
         # some bot scopes reserve slots for BotFather-managed commands.
         menu.extend(candidates[:14])
@@ -142,7 +142,11 @@ class TelegramWorker:
             return json.dumps({'mcp':'online','telegram':'online','webhook':False,'components':status.get('components',[]),'native_providers':status.get('native_providers',[]),'mcp_tools':len(self.service.tools),'writes_enabled':status.get('writes_enabled',False)},ensure_ascii=False,indent=2)
         if command=='tools':return self.list_tools(rest)
         if command=='objects':return ', '.join(n for n in sorted(self.service.tools) if '_object_' in n)
-        if command=='packages':return ', '.join(n for n in sorted(self.service.tools) if 'package_' in n)
+        if command=='packages':return ', '.join(n for n in sorted(self.service.tools) if 'package_' in n or 'pkg_' in n)
+        if command=='p2p':return 'P2P 浏览器拓扑工具：p2p_topology\n在线视图：https://p2p.ziokt.com/ 或各独立节点 /p2p/ 端点\n调用示例：/mcp p2p_topology {"identities":false}'
+        if command=='mail':return '统一邮件服务：支持 Corium、ETP 与 Community 三大通道\n工具：mail_resolve, mail_send, mail_inbox, mail_forward, mail_retry, mail_receipt\n收件箱查询：/mcp mail_inbox {"recipient":"alice"}'
+        if command=='pkg':return '统一软件包生命周期管理：\n工具：pkg_resolve, pkg_install, pkg_upgrade, pkg_rollback, pkg_uninstall, pkg_repair\n依赖解析：/mcp pkg_resolve {"packages":[["core","^1.0.0"]]}'
+        if command=='site':return '静态建站与隔离发布：\n工具：site_upload, site_preview, site_publish, site_rollback, site_history, site_status\n发布状态：/mcp site_status {"domain":"myblog.corium"}'
         if command=='trackers':return self.render(self.service.call(self.principal,'ziokt_tracker_status',{}))
         if command=='reviews':return ', '.join(n for n in sorted(self.service.tools) if 'privacy_review_' in n or 'privacy_submit_' in n)
         if command=='dns':return self.render(self.service.call(self.principal,'ziokt_naming_status',{}))

@@ -234,6 +234,35 @@ def main(argv=None):
     m_read.add_argument("tx_hash", help="transaction hash")
     m_relay = mail_actions.add_parser("relay", help="forward a signed mail envelope through the public relay")
     m_relay.add_argument("--envelope", type=Path, required=True, help="signed envelope JSON file")
+    m_retry = mail_actions.add_parser("retry", help="retry failed mail deliveries")
+    m_retry.add_argument("--limit", type=int, default=10)
+    m_receipt = mail_actions.add_parser("receipt", help="look up mail delivery receipt")
+    m_receipt.add_argument("message_id", help="message identifier")
+
+    pkg_p = sub.add_parser("package", help="unified package lifecycle management")
+    pkg_actions = pkg_p.add_subparsers(dest="package_action", required=True)
+    pkg_list = pkg_actions.add_parser("list", help="list installed packages")
+    pkg_list.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/packages")
+    pkg_rb = pkg_actions.add_parser("rollback", help="rollback package to previous version")
+    pkg_rb.add_argument("name", help="package name")
+    pkg_rb.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/packages")
+    pkg_un = pkg_actions.add_parser("uninstall", help="uninstall package")
+    pkg_un.add_argument("name", help="package name")
+    pkg_un.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/packages")
+
+    site_p = sub.add_parser("site", help="unified static website publishing")
+    site_actions = site_p.add_subparsers(dest="site_action", required=True)
+    site_st = site_actions.add_parser("status", help="check domain publication status")
+    site_st.add_argument("domain", help="website domain")
+    site_st.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/sites")
+    site_rb = site_actions.add_parser("rollback", help="rollback website to previous version")
+    site_rb.add_argument("domain", help="website domain")
+    site_rb.add_argument("--owner", required=True, help="site owner key")
+    site_rb.add_argument("--target-version", help="specific historical version")
+    site_rb.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/sites")
+    site_hi = site_actions.add_parser("history", help="view website publication history")
+    site_hi.add_argument("domain", help="website domain")
+    site_hi.add_argument("--root", type=Path, default=Path.home()/".local/share/ziokt-production/sites")
     args = parser.parse_args(argv)
     try:
         from .runtime_policy import activate_airgap, status as network_status
@@ -248,6 +277,24 @@ def main(argv=None):
             from .mail import execute_mail_cli
             res=execute_mail_cli(args)
             return 0 if res is None or res==0 else 1
+        elif args.action=='package':
+            from .package_lifecycle import PackageManager
+            mgr=PackageManager(args.root)
+            if args.package_action=='list':
+                result={'packages':mgr.list_packages()}
+            elif args.package_action=='rollback':
+                result=mgr.rollback(args.name)
+            elif args.package_action=='uninstall':
+                result=mgr.uninstall(args.name)
+        elif args.action=='site':
+            from .site_publishing import SitePublisher
+            pub=SitePublisher(args.root)
+            if args.site_action=='status':
+                result=pub.status(args.domain)
+            elif args.site_action=='rollback':
+                result=pub.rollback(args.domain,owner=args.owner,target_version=args.target_version)
+            elif args.site_action=='history':
+                result={'history':pub.history(args.domain)}
         elif args.action=='mcp':
             from .mcp import execute as execute_mcp
             result=execute_mcp(args)

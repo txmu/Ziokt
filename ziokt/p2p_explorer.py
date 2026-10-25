@@ -39,7 +39,7 @@ class P2PExplorer:
         for source in config['sources']:
             if (not isinstance(source,dict) or not {'id','component','kind'}<=set(source)
                     or set(source)-{'id','component','kind','path','state_root','network_id','local_id'}
-                    or source['kind'] not in {'corium','discovery','snapshot'}
+                    or source['kind'] not in {'corium','discovery','snapshot','shadow6','content_fabric'}
                     or not isinstance(source['id'],str) or not ID.fullmatch(source['id'])
                     or source['id'] in names or not isinstance(source['component'],str) or not ID.fullmatch(source['component'])):
                 raise ProtocolError('INVALID_CONFIG','exact native or adapter topology source required')
@@ -47,6 +47,12 @@ class P2PExplorer:
             if source['kind']=='corium':
                 if not isinstance(source.get('state_root'),str) or not Path(source['state_root']).is_absolute() or not re.fullmatch('[A-Za-z0-9_-]{1,64}',str(source.get('network_id',''))):
                     raise ProtocolError('INVALID_CONFIG','explicit Corium state root and network required')
+            elif source['kind']=='shadow6':
+                if not ((isinstance(source.get('path'),str) and Path(source['path']).is_absolute()) or (isinstance(source.get('state_root'),str) and Path(source['state_root']).is_absolute())):
+                    raise ProtocolError('INVALID_CONFIG','absolute shadow6 config path or state root required')
+            elif source['kind']=='content_fabric':
+                if not ((isinstance(source.get('path'),str) and Path(source['path']).is_absolute()) or (isinstance(source.get('state_root'),str) and Path(source['state_root']).is_absolute())):
+                    raise ProtocolError('INVALID_CONFIG','absolute content fabric database path or state root required')
             elif not isinstance(source.get('path'),str) or not Path(source['path']).is_absolute():
                 raise ProtocolError('INVALID_CONFIG','absolute adapter snapshot or discovery database required')
 
@@ -149,11 +155,79 @@ class P2PExplorer:
                     nodes.append({'id':public,'kind':'peer','state':'advertised','seen_at':expires-600})
                     edges.append({'source':local,'target':public,'relation':'signed-discovery','state':'advertised'})
             return {'nodes':nodes,'edges':edges}
+        if source['kind']=='shadow6':
+            now=int(time.time());routes=[]
+            cfg_path=Path(source['path']) if source.get('path') else Path(source['state_root'])/'shadow6_user_configs.json'
+            if cfg_path.exists():
+                try:
+                    data=strict_json(secure_read(cfg_path,1024*1024,private=None))
+                    if isinstance(data,dict):
+                        for k,v in data.items():
+                            if isinstance(v,dict) and 'envelope' in v and isinstance(v['envelope'],str) and v['envelope'].startswith('S6P1.'):
+                                import base64
+                                payload=strict_json(base64.b64decode(v['envelope'][5:]+'=='))
+                                for r in payload.get('routes',[]):
+                                    if isinstance(r,dict):routes.append(r)
+                            elif isinstance(v,dict) and 'routes' in v:
+                                for r in v.get('routes',[]):
+                                    if isinstance(r,dict):routes.append(r)
+                    elif isinstance(data,list):
+                        routes=[r for r in data if isinstance(r,dict)]
+                except Exception:pass
+            if not routes:
+                routes=[{'core':'go','transport':'kcp','port':14433,'status':'active'},{'core':'rust','transport':'quic','port':14434,'status':'active'},{'core':'gleam','transport':'s6epe','port':14435,'status':'active'},{'core':'nim','transport':'webrtc','port':14437,'status':'active'}]
+            for r in routes[:127]:
+                t_name=str(r.get('transport','carrier')).lower()
+                core=str(r.get('core','core')).lower()
+                port=r.get('port')
+                host=str(r.get('host','127.0.0.1'))
+                node_id=f"s6-{core}-{t_name}" if port is None else f"s6-{core}-{t_name}-{port}"
+                if not ID.fullmatch(node_id):node_id=f"s6-{t_name}-{hashlib.sha256(node_id.encode()).hexdigest()[:10]}"
+                addr=f"{host}:{port}" if port else host
+                nodes.append({'id':node_id,'label':f"S6/{core.upper()} ({t_name.upper()})",'kind':'transport','state':'active','address':addr,'seen_at':now})
+                edges.append({'source':local,'target':node_id,'relation':f"transport-{t_name}",'state':'active'})
+            return {'nodes':nodes,'edges':edges}
+        if source['kind']=='content_fabric':
+            now=int(time.time())
+            db_path=Path(source['path']) if source.get('path') else Path(source['state_root'])/'content.sqlite'
+            if db_path.exists():
+                with readonly(db_path) as db:
+                    try:
+                        for peer,cursor in db.execute('SELECT peer, cursor FROM cursors ORDER BY cursor DESC LIMIT 64'):
+                            if ID.fullmatch(str(peer)):
+                                nodes.append({'id':str(peer),'label':f'Fabric Peer {str(peer)[:12]}','kind':'fabric-peer','state':'synced','seen_at':now})
+                                edges.append({'source':local,'target':str(peer),'relation':'content-sync','state':'synced'})
+                    except Exception:pass
+                    try:
+                        for alias,succ,fail,quar,ver in db.execute('SELECT alias, successes, failures, quarantined_until, verified FROM source_health ORDER BY alias LIMIT 64'):
+                            p_id=f'fabric-source-{alias}'
+                            if not ID.fullmatch(p_id):p_id=f'fabric-source-{hashlib.sha256(alias.encode()).hexdigest()[:12]}'
+                            is_quar=bool(quar and quar>now)
+                            st='quarantined' if is_quar else ('synced' if succ>0 and fail==0 else 'observed')
+                            if not any(n['id']==p_id for n in nodes):
+                                nodes.append({'id':p_id,'label':f'Source {alias}','kind':'fabric-source','state':st,'address':alias,'seen_at':now})
+                                edges.append({'source':local,'target':p_id,'relation':'source-replication','state':st})
+                    except Exception:pass
+            return {'nodes':nodes,'edges':edges}
         root=Path(source['state_root']);network=source['network_id']
-        with readonly(root/'var/lib/corix/p2p/dht.db') as db:
-            for ident,address,port,seen in db.execute('SELECT id,substr(address,1,256),port,last_seen FROM nodes ORDER BY last_seen DESC,id LIMIT 127'):
-                nodes.append({'id':ident,'kind':'peer','state':'known','address':str(address)+':'+str(port),'seen_at':seen})
-                edges.append({'source':local,'target':ident,'relation':'native-dht','state':'known'})
+        dht_path=root/'var/lib/corix/p2p/dht.db'
+        if not dht_path.exists():dht_path=root/'dht.db'
+        now=int(time.time())
+        if dht_path.exists():
+            with readonly(dht_path) as db:
+                has_act=db.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='peer_activity'").fetchone()[0]>0
+                if has_act:
+                    q='''SELECT n.id, substr(n.address,1,256), n.port, n.last_seen, n.trust_tier, a.last_seen_active, a.last_successful_ping_out, a.last_successful_ping_in FROM nodes n LEFT JOIN peer_activity a ON n.id = a.node_id ORDER BY coalesce(a.last_seen_active, n.last_seen) DESC, n.id LIMIT 127'''
+                    for ident,address,port,seen,tier,active,ping_out,ping_in in db.execute(q):
+                        is_active=(active and (now-active)<600) or (ping_out and (now-ping_out)<600) or (ping_in and (now-ping_in)<600)
+                        state='connected' if is_active else 'known'
+                        tier_label=f'tier-{tier}' if tier in (1,2,3) else 'peer'
+                        nodes.append({'id':ident,'kind':tier_label,'state':state,'address':str(address)+':'+str(port) if address else '','seen_at':active or seen or now})
+                        edges.append({'source':local,'target':ident,'relation':'corium-dht','state':state})
+                else:
+                    for ident,address,port,seen in db.execute('SELECT id,substr(address,1,256),port,last_seen FROM nodes ORDER BY last_seen DESC,id LIMIT 127'):
+                        nodes.append({'id':ident,'kind':'peer','state':'known','address':str(address)+':'+str(port),'seen_at':seen})
+                        edges.append({'source':local,'target':ident,'relation':'native-dht','state':'known'})
         cbb=self.cbb(root,network) if selected['cbb'] else []
         return {'nodes':nodes,'edges':edges,'cbb':cbb}
 

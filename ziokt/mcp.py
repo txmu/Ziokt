@@ -260,8 +260,23 @@ class Service:
             attach(self,config['content_fabric'])
         self.add('mail_resolve','Resolve a ZDNS address to its target network channel and recipient key.',schema({'address':STRING},('address',)),False,'mail:read',('mail','resolve'))
         self.add('mail_send','Send a mail across Corium, ETP, or Community with optional Content Fabric attachments.',schema({'to':STRING,'subject':STRING,'body':STRING,'attachments':{'type':'array','items':{'type':'object'}}},('to','subject','body')),True,'mail:write',('mail','send'))
-        self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium and ETP.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp']}},('recipient',)),False,'mail:read',('mail','inbox'))
+        self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium, ETP, and Community.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp','community']}},('recipient',)),False,'mail:read',('mail','inbox'))
         self.add('mail_forward','Forward a signed mail envelope through the authenticated and rate-limited public relay.',schema({'envelope':{'type':'object'}},('envelope',)),True,'mail:write',('mail','forward'))
+        self.add('mail_retry','Retry failed mail deliveries from the relay log.',schema({'limit':{'type':'integer','minimum':1,'maximum':50}},()),True,'mail:write',('mail','retry'))
+        self.add('mail_receipt','Look up delivery receipt and final status by message ID.',schema({'message_id':STRING},('message_id',)),False,'mail:read',('mail','receipt'))
+        self.add('p2p_topology','Query unified P2P topology across Corium DHT, Shadow6 transports, and Content Fabric.',schema({'addresses':{'type':'boolean'},'identities':{'type':'boolean'},'cbb':{'type':'boolean'},'content':{'type':'boolean'}},()),False,'p2p:read',('p2p','topology'))
+        self.add('pkg_resolve','Resolve package dependency DAG with SemVer constraint matching and cycle detection.',schema({'packages':{'type':'array','items':{'type':'array','minItems':2,'maxItems':2,'items':STRING}}},('packages',)),False,'package:read',('pkg','resolve'))
+        self.add('pkg_install','Install an authorized package into an isolated slot and activate it.',schema({'manifest':{'type':'object'},'files':{'type':'object'},'publisher':STRING},('manifest','files')),True,'package:write',('pkg','install'))
+        self.add('pkg_upgrade','Upgrade an installed package to a higher SemVer version with automatic rollback record.',schema({'manifest':{'type':'object'},'files':{'type':'object'},'publisher':STRING},('manifest','files')),True,'package:write',('pkg','upgrade'))
+        self.add('pkg_rollback','Rollback a package to its recorded previous version.',schema({'name':STRING},('name',)),True,'package:write',('pkg','rollback'))
+        self.add('pkg_uninstall','Uninstall a package after verifying no active packages depend on it.',schema({'name':STRING},('name',)),True,'package:write',('pkg','uninstall'))
+        self.add('pkg_repair','Audit package file hashes and automatically repair corrupted files from source.',schema({'name':STRING,'source_files':{'type':'object'}},('name',)),True,'package:write',('pkg','repair'))
+        self.add('site_upload','Upload static site files (including index.html) and create manifest.',schema({'files':{'type':'object'},'title':STRING,'version':STRING},('files',)),True,'site:write',('site','upload'))
+        self.add('site_preview','Create a short-lived sandboxed preview session (strict CSP with NO allow-same-origin).',schema({'manifest_digest':STRING},('manifest_digest',)),False,'site:read',('site','preview'))
+        self.add('site_publish','Publish a website version to a domain name with automatic version history.',schema({'domain':STRING,'manifest_digest':STRING,'version':STRING},('domain','manifest_digest')),True,'site:write',('site','publish'))
+        self.add('site_rollback','Rollback a domain website to previous or specific historical version.',schema({'domain':STRING,'target_version':STRING},('domain',)),True,'site:write',('site','rollback'))
+        self.add('site_history','View publication and rollback history for a website domain.',schema({'domain':STRING},('domain',)),False,'site:read',('site','history'))
+        self.add('site_status','Check live website status, active manifest digest, and rollback availability.',schema({'domain':STRING},('domain',)),False,'site:read',('site','status'))
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.publication_stop=threading.Event();self.publication_thread=None
         self.etp={}
@@ -547,6 +562,7 @@ class Service:
             registry=Registry(gateway.config.get('registry_db',self.root/'registry.db'),gateway.config['network'])
             if route[1]=='submit':return registry.submit(principal['client'],args['entry'])
             if route[1]=='list':return registry.list(args['status'],None if 'ziokt:admin' in principal['scopes'] or args['status']=='approved' else principal['client'])
+            return registry.decide(principal['client'],args['registration_id'],args['digest'],args['decision'],gateway.native_text)
         if kind=='mail':
             from .mail import UnifiedMail
             unified=UnifiedMail()
@@ -564,7 +580,54 @@ class Service:
                 )
             if op=='inbox':return unified.inbox(args['recipient'],channel=args.get('channel'))
             if op=='forward':return unified.relay.forward(args['envelope'])
-            return registry.decide(principal['client'],args['registration_id'],args['digest'],args['decision'],gateway.native_text)
+            if op=='retry':return unified.retry_failed(limit=args.get('limit',10))
+            if op=='receipt':return unified.delivery_receipt(args['message_id'])
+        if kind=='p2p':
+            from .p2p_explorer import P2PExplorer
+            p2p_cfg=self.config.get('p2p_explorer',{'public':True,'sources':[]})
+            p2p=P2PExplorer(p2p_cfg)
+            qs='&'.join(f"{k}={1 if args.get(k) else 0}" for k in ('addresses','identities','cbb','content'))
+            return p2p.query(f"/api/p2p/topology?{qs}")
+        if kind=='pkg':
+            from .package_lifecycle import PackageManager, resolve_dependencies
+            pkg_root=self.root/'packages'
+            mgr=PackageManager(pkg_root,allowlist=self.config.get('package_allowlist'))
+            op=route[1]
+            if op=='resolve':
+                pairs=[(p[0],p[1]) for p in args['packages']]
+                return {'resolved':resolve_dependencies(pairs,self.config.get('package_registry',{}))}
+            if op=='install':
+                files={k:(v.encode() if isinstance(v,str) else v) for k,v in args['files'].items()}
+                return mgr.install(args['manifest'],files,publisher=args.get('publisher'))
+            if op=='upgrade':
+                files={k:(v.encode() if isinstance(v,str) else v) for k,v in args['files'].items()}
+                return mgr.upgrade(args['manifest'],files,publisher=args.get('publisher'))
+            if op=='rollback':
+                return mgr.rollback(args['name'])
+            if op=='uninstall':
+                return mgr.uninstall(args['name'])
+            if op=='repair':
+                clean={k:(v.encode() if isinstance(v,str) else v) for k,v in args.get('source_files',{}).items()} if args.get('source_files') else None
+                return mgr.auto_repair(args['name'],clean_source_files=clean)
+        if kind=='site':
+            from .site_publishing import SitePublisher
+            site_root=self.root/'sites'
+            publisher=SitePublisher(site_root)
+            op=route[1]
+            owner=principal.get('client','operator')
+            if op=='upload':
+                files={k:(v.encode() if isinstance(v,str) else v) for k,v in args['files'].items()}
+                return publisher.upload(files,owner=owner,title=args.get('title','Static Site'),version=args.get('version','1.0.0'))
+            if op=='preview':
+                return publisher.create_preview(args['manifest_digest'],owner=owner)
+            if op=='publish':
+                return publisher.publish(args['domain'],args['manifest_digest'],owner=owner,version=args.get('version'))
+            if op=='rollback':
+                return publisher.rollback(args['domain'],owner=owner,target_version=args.get('target_version'))
+            if op=='history':
+                return {'history':publisher.history(args['domain'])}
+            if op=='status':
+                return publisher.status(args['domain'])
         if kind=='admin':
             with database(self.db) as db:
                 if route[1]=='audit':
