@@ -23,6 +23,32 @@ def package(repositories_root,output,evidence=None):
     if source.is_symlink() or not source.is_file():continue
     dest=stage/name/path;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,dest);included+=1
    provenance['repositories'][name]={'revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(),'working_tree_changes':subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True).splitlines(),'staged_source_files':included}
+
+  # Also provide Ziokt-Release (singular) as an alias tree for complete naming compatibility
+  if (stage/'Ziokt-Releases').is_dir() and not (stage/'Ziokt-Release').is_dir():
+   shutil.copytree(stage/'Ziokt-Releases',stage/'Ziokt-Release')
+   provenance['repositories']['Ziokt-Release']={'alias_of':'Ziokt-Releases','staged_source_files':provenance['repositories']['Ziokt-Releases']['staged_source_files']}
+
+  # Place deployment and release tools directly at root and in tools/ for immediate accessibility
+  rel_dir=base/'Ziokt-Releases'
+  if rel_dir.is_dir():
+   tools_dir=stage/'tools';tools_dir.mkdir(parents=True,exist_ok=True)
+   ziokt_tools=stage/'Ziokt/tools';ziokt_tools.mkdir(parents=True,exist_ok=True)
+   for filename in ['deploy.py','install.sh','install.ps1','sources.json','deploy.py.sha256']:
+    src=rel_dir/filename
+    if src.is_file():
+     shutil.copyfile(src,stage/filename)
+     shutil.copyfile(src,tools_dir/filename)
+     shutil.copyfile(src,ziokt_tools/filename)
+   for filename in ['publish.py','mirror_release.py']:
+    src=rel_dir/'tools'/filename
+    if src.is_file():
+     shutil.copyfile(src,tools_dir/filename)
+     shutil.copyfile(src,ziokt_tools/filename)
+   if (rel_dir/'ci/independent_node.py').is_file():
+    shutil.copyfile(rel_dir/'ci/independent_node.py',tools_dir/'independent_node.py')
+    shutil.copyfile(rel_dir/'ci/independent_node.py',ziokt_tools/'independent_node.py')
+
   (stage/'SOURCE_PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
   build_script=base/'package_source.sh'
   if build_script.is_file():
