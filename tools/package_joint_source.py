@@ -24,11 +24,6 @@ def package(repositories_root,output,evidence=None):
     dest=stage/name/path;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,dest);included+=1
    provenance['repositories'][name]={'revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(),'working_tree_changes':subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True).splitlines(),'staged_source_files':included}
 
-  # Also provide Ziokt-Release (singular) as an alias tree for complete naming compatibility
-  if (stage/'Ziokt-Releases').is_dir() and not (stage/'Ziokt-Release').is_dir():
-   shutil.copytree(stage/'Ziokt-Releases',stage/'Ziokt-Release')
-   provenance['repositories']['Ziokt-Release']={'alias_of':'Ziokt-Releases','staged_source_files':provenance['repositories']['Ziokt-Releases']['staged_source_files']}
-
   # Place deployment and release tools directly at root and in tools/ for immediate accessibility
   rel_dir=base/'Ziokt-Releases'
   if rel_dir.is_dir():
