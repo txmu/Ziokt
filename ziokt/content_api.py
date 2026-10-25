@@ -8,6 +8,7 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'library.cover':({'id':str},False),
  'library.index.start':({'id':str},True),
  'library.index.step':({'job':str,'revision':int},True),
  'library.index.status':({'job':str},False),
@@ -143,6 +144,9 @@ def invoke(fabric, owner, operation, args):
         result=collect(fabric,owner,**args)
         for item in result['items']:item['published']=item['published'].isoformat() if item['published'] else None
         return result
+    if operation=='library.cover':
+        from .library_cover import cover
+        return cover(fabric,owner,args['id'])
     if operation in {'library.extract','library.reader.manifest','library.reader.chapter'}:
         from .library_formats import MAX_SOURCE, sniff_format
         from .document_sandbox import parse_document

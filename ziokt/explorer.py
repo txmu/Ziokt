@@ -6,13 +6,19 @@ import sqlite3
 import stat
 from urllib.parse import urlsplit,parse_qs
 from .protocol import ProtocolError
+from ._verified_guards import same_chain_domain
 
 HEX=re.compile(r'[0-9a-f]{64}\Z')
 
 class ChainExplorer:
-    def __init__(self,state_root,network):
+    def __init__(self,state_root,network,expected_genesis=None):
+        if not isinstance(network,str) or not re.fullmatch('[A-Za-z0-9_-]{1,64}',network):
+            raise ProtocolError('INVALID_CONFIG','bounded native network identifier required')
+        if expected_genesis is not None and (not isinstance(expected_genesis,str) or not HEX.fullmatch(expected_genesis)):
+            raise ProtocolError('INVALID_CONFIG','exact genesis digest required')
         self.path=Path(state_root)/'var/lib/corix/networks'/network/'blockchain/chain.db'
         self.network=network
+        self.expected_genesis=expected_genesis
         if not self.path.is_absolute() or self.path.resolve()!=self.path or not stat.S_ISREG(self.path.stat().st_mode):
             raise ProtocolError('INVALID_CONFIG','existing regular chain database required')
 
@@ -31,7 +37,11 @@ class ChainExplorer:
                 db.execute('BEGIN')
                 tip=db.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
                 if tip is None:raise ProtocolError('CHAIN_UNAVAILABLE','chain has no genesis')
-                base={'network_id':self.network,'tip_height':tip[0],'tip_hash':tip[1],'view':'local-canonical','irreversible_finality':False}
+                genesis=db.execute('SELECT hash,timestamp FROM blocks WHERE height=0').fetchone()
+                if genesis is None:raise ProtocolError('CHAIN_UNAVAILABLE','chain has no genesis')
+                if self.expected_genesis is not None and not same_chain_domain(self.expected_genesis,genesis[0]):
+                    raise ProtocolError('NETWORK_MISMATCH','configured genesis differs from chain database')
+                base={'network_id':self.network,'genesis_hash':genesis[0],'tip_height':tip[0],'tip_hash':tip[1],'view':'local-canonical','irreversible_finality':False}
                 if route.path=='/api/explorer/summary' and not args:
                     pending=db.execute('SELECT count(*) FROM transactions WHERE block_height IS NULL').fetchone()[0]
                     validators=db.execute("SELECT count(*) FROM validators WHERE status='active'").fetchone()[0]

@@ -193,6 +193,142 @@
         "openci/release.py"
       ],
       "binding_scope": "production predicate"
+    },
+    "detail_permitted": {
+      "parameters": {
+        "requested": "Bool",
+        "granted": "Bool"
+      },
+      "expression": [
+        "or",
+        [
+          "not",
+          [
+            "var",
+            "requested"
+          ]
+        ],
+        [
+          "var",
+          "granted"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Browsers.lean"
+      ],
+      "production_bindings": [
+        "ziokt/p2p_explorer.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "same_chain_domain": {
+      "parameters": {
+        "expected": "String",
+        "observed": "String"
+      },
+      "expression": [
+        "eq",
+        [
+          "var",
+          "expected"
+        ],
+        [
+          "var",
+          "observed"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Browsers.lean"
+      ],
+      "production_bindings": [
+        "ziokt/explorer.py",
+        "ziokt/explorer_networks.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "different_chain_sources": {
+      "parameters": {
+        "primary": "String",
+        "dna": "String"
+      },
+      "expression": [
+        "not",
+        [
+          "eq",
+          [
+            "var",
+            "primary"
+          ],
+          [
+            "var",
+            "dna"
+          ]
+        ]
+      ],
+      "lean_targets": [
+        "formal/Browsers.lean"
+      ],
+      "production_bindings": [
+        "ziokt/explorer_networks.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "target_matches": {
+      "parameters": {
+        "expected": "String",
+        "actual": "String"
+      },
+      "expression": [
+        "eq",
+        [
+          "var",
+          "expected"
+        ],
+        [
+          "var",
+          "actual"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Distribution.lean"
+      ],
+      "production_bindings": [
+        "ziokt/bundle.py",
+        "ziokt/programs.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "package_member_admitted": {
+      "parameters": {
+        "expected": "Nat",
+        "actual": "Nat",
+        "digest": "Bool"
+      },
+      "expression": [
+        "and",
+        [
+          "eq",
+          [
+            "var",
+            "expected"
+          ],
+          [
+            "var",
+            "actual"
+          ]
+        ],
+        [
+          "var",
+          "digest"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Distribution.lean"
+      ],
+      "production_bindings": [
+        "ziokt/bundle.py"
+      ],
+      "binding_scope": "production predicate"
     }
   }
 }

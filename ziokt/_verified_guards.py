@@ -44,4 +44,35 @@ def public_publication_permitted(explicit_public):
     return explicit_public
 
 
+def detail_permitted(requested, granted):
+    _contract_argument(requested, 'Bool')
+    _contract_argument(granted, 'Bool')
+    return (not requested or granted)
+
+
+def same_chain_domain(expected, observed):
+    _contract_argument(expected, 'String')
+    _contract_argument(observed, 'String')
+    return (expected == observed)
+
+
+def different_chain_sources(primary, dna):
+    _contract_argument(primary, 'String')
+    _contract_argument(dna, 'String')
+    return not (primary == dna)
+
+
+def target_matches(expected, actual):
+    _contract_argument(expected, 'String')
+    _contract_argument(actual, 'String')
+    return (expected == actual)
+
+
+def package_member_admitted(expected, actual, digest):
+    _contract_argument(expected, 'Nat')
+    _contract_argument(actual, 'Nat')
+    _contract_argument(digest, 'Bool')
+    return ((expected == actual) and digest)
+
+
 # END GENERATED VERIFIED GUARDS

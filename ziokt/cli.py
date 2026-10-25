@@ -93,6 +93,23 @@ def inspect(config, action, kind):
 
 
 def main(argv=None):
+    import sys
+    arguments=list(sys.argv[1:] if argv is None else argv)
+    command_arguments=arguments[1:] if arguments[:1]==['--airgap'] else arguments
+    if command_arguments and command_arguments[0] in {'bundle','program','networks'}:
+        from .runtime_policy import activate_airgap
+        if arguments[:1]==['--airgap']:activate_airgap()
+        try:
+            if command_arguments[0]=='bundle':
+                from .bundle import main as delegated
+            elif command_arguments[0]=='program':
+                from .programs import main as delegated
+            else:
+                from .networks import main as delegated
+            return delegated(command_arguments[1:])
+        except (ProtocolError,OSError,ValueError) as error:
+            print(json.dumps({'error':getattr(error,'code','INVALID_REQUEST'),'message':str(error)},ensure_ascii=False),file=sys.stderr)
+            return 2
     parser = argparse.ArgumentParser(prog="ziokt")
     parser.add_argument("--airgap", action="store_true", help="block network and external workers for this process")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -206,6 +223,17 @@ def main(argv=None):
     coin.add_argument("--config", type=Path, required=True)
     coin.add_argument("--provider", required=True)
     coin.add_argument("--address")
+    mail_p = sub.add_parser("mail", help="unified multi-channel mail bridging Corium, ETP, and Community with ZDNS & Content Fabric")
+    mail_actions = mail_p.add_subparsers(dest="mail_action", required=True)
+    m_res = mail_actions.add_parser("resolve", help="resolve ZDNS mail address")
+    m_res.add_argument("address", help="<user>@<domain> address")
+    m_inbox = mail_actions.add_parser("inbox", help="query mail inbox")
+    m_inbox.add_argument("recipient", help="recipient identifier")
+    m_inbox.add_argument("--channel", choices=["corium", "etp", "community"])
+    m_read = mail_actions.add_parser("read", help="read mail by tx hash")
+    m_read.add_argument("tx_hash", help="transaction hash")
+    m_relay = mail_actions.add_parser("relay", help="forward a signed mail envelope through the public relay")
+    m_relay.add_argument("--envelope", type=Path, required=True, help="signed envelope JSON file")
     args = parser.parse_args(argv)
     try:
         from .runtime_policy import activate_airgap, status as network_status
@@ -216,6 +244,10 @@ def main(argv=None):
         elif args.action=='dns':
             from .dns_server import execute as execute_dns
             result=execute_dns(args)
+        elif args.action=='mail':
+            from .mail import execute_mail_cli
+            res=execute_mail_cli(args)
+            return 0 if res is None or res==0 else 1
         elif args.action=='mcp':
             from .mcp import execute as execute_mcp
             result=execute_mcp(args)

@@ -258,6 +258,10 @@ class Service:
         if config.get('content_fabric',{}).get('enabled') is True:
             from .content_api import attach
             attach(self,config['content_fabric'])
+        self.add('mail_resolve','Resolve a ZDNS address to its target network channel and recipient key.',schema({'address':STRING},('address',)),False,'mail:read',('mail','resolve'))
+        self.add('mail_send','Send a mail across Corium, ETP, or Community with optional Content Fabric attachments.',schema({'to':STRING,'subject':STRING,'body':STRING,'attachments':{'type':'array','items':{'type':'object'}}},('to','subject','body')),True,'mail:write',('mail','send'))
+        self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium and ETP.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp']}},('recipient',)),False,'mail:read',('mail','inbox'))
+        self.add('mail_forward','Forward a signed mail envelope through the authenticated and rate-limited public relay.',schema({'envelope':{'type':'object'}},('envelope',)),True,'mail:write',('mail','forward'))
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.publication_stop=threading.Event();self.publication_thread=None
         self.etp={}
@@ -543,6 +547,23 @@ class Service:
             registry=Registry(gateway.config.get('registry_db',self.root/'registry.db'),gateway.config['network'])
             if route[1]=='submit':return registry.submit(principal['client'],args['entry'])
             if route[1]=='list':return registry.list(args['status'],None if 'ziokt:admin' in principal['scopes'] or args['status']=='approved' else principal['client'])
+        if kind=='mail':
+            from .mail import UnifiedMail
+            unified=UnifiedMail()
+            op=route[1]
+            if op=='resolve':return unified.resolve(args['address'])
+            if op=='send':
+                key=secrets.token_bytes(32)
+                return unified.send(
+                    sender_private_key=key,
+                    from_address=principal.get('client','local@node.ziokt'),
+                    to_address=args['to'],
+                    subject=args['subject'],
+                    body=args['body'],
+                    attachments=args.get('attachments')
+                )
+            if op=='inbox':return unified.inbox(args['recipient'],channel=args.get('channel'))
+            if op=='forward':return unified.relay.forward(args['envelope'])
             return registry.decide(principal['client'],args['registration_id'],args['digest'],args['decision'],gateway.native_text)
         if kind=='admin':
             with database(self.db) as db:

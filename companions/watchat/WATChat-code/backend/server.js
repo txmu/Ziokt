@@ -171,7 +171,8 @@ wss.on('connection',ws=>{send(ws,{type:'ready'});let count=0,start=Date.now();ws
  }
  if(x.action==='history'){if(!can(me,x.peerId))return;return send(ws,{type:'history',peerId:x.peerId,messages:store.messages.filter(m=>(m.from===me.id&&m.to===x.peerId)||(m.to===me.id&&m.from===x.peerId)).slice(-100)})}
  if(x.action!=='send'||!can(me,x.to)||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(x.id)||x.kind!=='sealed'||typeof x.ciphertext!=='string'||Buffer.from(x.ciphertext,'base64').length!==2048||Buffer.from(x.ciphertext,'base64').toString('base64')!==x.ciphertext||!Array.isArray(x.attachments)||x.attachments.length>2)return send(ws,{type:'error',error:'INVALID_FRAME'});
- if(x.attachments.some(url=>!/^\/uploads\/[a-f0-9]{32}\.bin$/.test(url)||store.uploads[url.slice(9)]?.owner!==me.id))return send(ws,{type:'error',error:'INVALID_ATTACHMENT'});
+ const isCF=url=>typeof url==='string'&&(url.startsWith('cf1-')||url.startsWith('/cf1/')||url.startsWith('/content/cf1-'))&&/^(cf1-[a-f0-9]{64}|\/cf1\/[a-f0-9]{64}|\/content\/cf1-[a-f0-9]{64})$/.test(url);
+ if(x.attachments.some(url=>!(/^\/uploads\/[a-f0-9]{32}\.bin$/.test(url)&&store.uploads[url.slice(9)]?.owner===me.id)&&!isCF(url)))return send(ws,{type:'error',error:'INVALID_ATTACHMENT'});
  const old=store.messages.find(m=>m.id===x.id);if(old){if(old.from!==me.id||old.to!==x.to||old.ciphertext!==x.ciphertext||JSON.stringify(old.attachments)!==JSON.stringify(x.attachments))return send(ws,{type:'error',error:'IDEMPOTENCY_CONFLICT'});save();return send(ws,{type:'ack',id:x.id})}
  if(store.messages.length>=10000||store.pending.length>=1000)return send(ws,{type:'error',error:'LIMIT'});
  const routeResult=await transportManager.routeMessage({id:x.id,from:me.id,to:x.to,kind:'sealed',ciphertext:x.ciphertext,attachments:x.attachments,transport:x.transport||transportManager.getUserMode(me.id),hops:x.hops,nonce:x.nonce||x.id},x.transport);

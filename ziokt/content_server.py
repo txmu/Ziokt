@@ -28,7 +28,7 @@ from .chunkstore import CHUNK_BYTES
 
 TRANSPORT_DOMAIN='Ziokt/ContentFabric/transport/v1'
 PUBLIC_READ_OPERATIONS={
-    'applications.capabilities','library.search','library.get','library.extract','library.reader.manifest','library.reader.chapter',
+    'applications.capabilities','library.search','library.get','library.cover','library.extract','library.reader.manifest','library.reader.chapter',
     'netnews.groups','netnews.articles','netnews.search','netnews.get',
     'content.object.info','content.object.get','content.object.verify','feeds.describe',
 }

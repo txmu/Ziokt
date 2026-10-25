@@ -93,3 +93,29 @@ test('fixed Ziokt bridge worker opens the scoped Python companion and correlates
  assert.equal(result.schema,'ziokt.ano-result.v1');assert.equal(result.result,'positive');
 });
 function spawnSyncPython(source,directory,root){return require('node:child_process').spawnSync('python3',['-c',source,directory],{env:{PATH:process.env.PATH||'',PYTHONPATH:root,PYTHONDONTWRITEBYTECODE:'1'},stdio:'ignore'}).status}
+
+test('content fabric attachments validation in live server',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'watchat-cf-test-')),port=await freePort(),base=`http://127.0.0.1:${port}`;
+ const child=spawn(process.execPath,[path.resolve(__dirname,'../backend/server.js')],{env:{...process.env,PORT:String(port),DATA_DIR:dir,ADMIN_PASSWORD:'test-password-very-strong',ZIOKT_STANDALONE:'1',ZIOKT_BRIDGE_CONFIG:'',SIM_BRIDGE_CONFIG:'',WATCHAT_PUSH_CONFIG:'',WATCHAT_WEBHOOK_CONFIG:'',WATCHAT_ORIGIN:''},stdio:['ignore','pipe','pipe']});
+ t.after(async()=>{child.kill();await delay(50);fs.rmSync(dir,{recursive:true,force:true})});
+ let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base)).ok){ready=true;break}}catch(_){}await delay(20)}assert.ok(ready);
+ async function request(url,{cookie,data,method=data?'POST':'GET'}={}){const headers={Origin:base};if(cookie)headers.Cookie=cookie;if(data)headers['Content-Type']='application/json';return fetch(base+url,{method,headers,body:data?JSON.stringify(data):undefined})}
+ const adminRes=await request('/api/login',{data:{username:'admin',password:'test-password-very-strong'}});
+ const adminCookie=adminRes.headers.get('set-cookie').split(';')[0];
+ await request('/api/users',{cookie:adminCookie,data:{username:'bob',name:'Bob',password:'test-password-bob-strong'}});
+ const bobRes=await(await request('/api/login',{data:{username:'bob',password:'test-password-bob-strong'}})).json();
+ await request('/api/contacts',{cookie:adminCookie,data:{id:bobRes.user.id}});
+
+ const socket=new WebSocket(base.replace('http:','ws:')+'/ws',{headers:{Cookie:adminCookie,Origin:base}});const events=[];
+ socket.on('message',x=>events.push(JSON.parse(x)));await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject)});t.after(()=>socket.close());
+
+ const validCfHash='a'.repeat(64);
+ const msg1={action:'send',id:crypto.randomUUID(),to:bobRes.user.id,kind:'sealed',ciphertext:crypto.randomBytes(2048).toString('base64'),attachments:[`cf1-${validCfHash}`]};
+ socket.send(JSON.stringify(msg1));await delay(80);assert.ok(events.some(x=>x.type==='ack'&&x.id===msg1.id));
+
+ const msg2={action:'send',id:crypto.randomUUID(),to:bobRes.user.id,kind:'sealed',ciphertext:crypto.randomBytes(2048).toString('base64'),attachments:[`/content/cf1-${validCfHash}`]};
+ socket.send(JSON.stringify(msg2));await delay(80);assert.ok(events.some(x=>x.type==='ack'&&x.id===msg2.id));
+
+ const badMsg={action:'send',id:crypto.randomUUID(),to:bobRes.user.id,kind:'sealed',ciphertext:crypto.randomBytes(2048).toString('base64'),attachments:['https://malicious.com/payload.exe']};
+ socket.send(JSON.stringify(badMsg));await delay(80);assert.ok(events.some(x=>x.error==='INVALID_ATTACHMENT'));
+});

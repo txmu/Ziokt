@@ -31,6 +31,14 @@ def encoded_image(image):
     raise ValueError('rendered page response budget')
 
 
+def cover_image(raw):
+    if not isinstance(raw,bytes) or not 0<len(raw)<=4*1024*1024:raise ValueError('cover image byte budget')
+    with Image.open(io.BytesIO(raw),formats=IMAGE_FORMATS) as image:
+        if image.width*image.height>MAX_PIXELS:raise ValueError('cover image pixel budget')
+        image.load();thumb=image.copy();thumb.thumbnail((360,540))
+    return {'image':encoded_image(thumb),'rendered_in_sandbox':True,'external_resources_loaded':False}
+
+
 def read(source,mime,mode,*,chapter=0,offset=0,limit=64,fragment=''):
     if mode not in {'manifest','chapter','preview'}:raise ValueError('page index')
     if mode=='preview':

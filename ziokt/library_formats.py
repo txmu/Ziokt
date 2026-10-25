@@ -98,6 +98,28 @@ def local_member(base,href):
     return path,parsed.fragment
 
 
+def epub_cover(source):
+    archive,names=safe_archive(source)
+    with archive:
+        if 'META-INF/container.xml' not in names:return None
+        container=xml(archive.read('META-INF/container.xml'))
+        roots=[entry.get('full-path') for entry in container.iter() if entry.tag.rsplit('}',1)[-1]=='rootfile']
+        if not roots or roots[0] not in names:return None
+        package_path=roots[0];package=xml(archive.read(package_path));items={}
+        cover_id=None
+        for entry in package.iter():
+            tag=entry.tag.rsplit('}',1)[-1]
+            if tag=='item':items[entry.get('id')]=entry
+            if tag=='meta' and entry.get('name')=='cover':cover_id=entry.get('content')
+        candidates=[item for item in items.values() if 'cover-image' in item.get('properties','').split()]
+        if cover_id in items:candidates.append(items[cover_id])
+        for item in candidates:
+            if item.get('media-type') not in {'image/png','image/jpeg','image/webp','image/gif'}:continue
+            path,_=local_member(package_path,item.get('href',''))
+            if path in names:return archive.read(path)
+    return None
+
+
 def reader(source,mime,mode,*,chapter=0,offset=0,limit=64,fragment=''):
     """Complete supported spine with bounded manifest/text pages; no silent truncation."""
     if mode not in {'manifest','chapter'}:raise ValueError('reader mode')

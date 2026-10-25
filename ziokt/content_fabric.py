@@ -237,6 +237,8 @@ class Fabric:
         self.db.execute('DELETE FROM content_references WHERE record=?',(record,))
         if kind=='book' and isinstance(body.get('file_id'),str):
             self.db.execute('INSERT INTO content_references VALUES(?,?,?,?)',(record,body['file_id'],'book',''))
+            if isinstance(body.get('cover'),str) and re.fullmatch(r'cf1-[a-f0-9]{64}',body['cover']):
+                self.db.execute('INSERT OR IGNORE INTO content_references VALUES(?,?,?,?)',(record,body['cover'],'cover',''))
         if kind in {'package','artifact','build-artifact','build-cache'}:
             if isinstance(body.get('package_reference'),dict) and 'object' in body['package_reference']:
                 self.db.execute('INSERT OR IGNORE INTO content_references VALUES(?,?,?,?)',(record,body['package_reference']['object'],'package',body.get('name','')))
@@ -408,6 +410,10 @@ class Fabric:
             self._rate(owner,'book')
             obj=self.object_info(owner,value['file_id'])
             if obj['owner']!=owner:raise PermissionError('only owned objects may be published')
+            if isinstance(value.get('cover'),str) and value['cover'].startswith('cf1-'):
+                image=self.object_info(owner,value['cover']);meta=json.loads(image['metadata'])
+                if image['owner']!=owner or meta['mime'] not in {'image/png','image/jpeg','image/webp','image/gif'} or meta['size']>4*1024*1024:
+                    raise PermissionError('owned bounded image cover required')
             value['file']=json.loads(obj['metadata'])
             value['updated_at']=int(time.time())
             return self._event(owner,'book',record,value,visibility)

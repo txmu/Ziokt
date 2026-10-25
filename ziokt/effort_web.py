@@ -107,7 +107,7 @@ class EffortPool:
             return {**receipt,'duplicate':False}
 
 
-def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None,downloads=None,openci_endpoint=None):
+def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None,downloads=None,openci_endpoint=None,p2p=None,browser_origins=()):
     require_network()
     origins = [origin] if isinstance(origin, str) else list(origin)
     for o in origins:
@@ -116,6 +116,11 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         if p.scheme=='http' and p.hostname not in {'127.0.0.1','localhost','::1'}:raise ProtocolError('INVALID_CONFIG','public workers require HTTPS')
     allowed_hosts = {urlsplit(o).netloc for o in origins}
     allowed_origin_strs = set(origins)
+    if not isinstance(browser_origins,(list,tuple)) or len(browser_origins)>16:raise ProtocolError('INVALID_CONFIG','bounded browser origins required')
+    from .relay_web import approved_origin
+    for item in browser_origins:
+        try:approved_origin(item)
+        except ValueError:raise ProtocolError('INVALID_CONFIG','exact browser HTTPS or loopback origin required') from None
     if not isinstance(relay_origins,(list,tuple)) or len(relay_origins)>8:raise ProtocolError('INVALID_CONFIG','bounded approved collaboration origins required')
     for item in relay_origins:
         from .relay_web import approved_origin
@@ -138,8 +143,26 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
         def send_value(self,status,value,kind='application/json'):
             data=value if isinstance(value,bytes) else encoded(value)
             self.send_response_only(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
-            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src "+connect_sources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
+            browser_page=self.path.startswith(('/explorer','/p2p/'))
+            connections="'self' https: http://localhost:* http://127.0.0.1:* http://[::1]:*" if browser_page else connect_sources
+            for key,val in {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src "+connections+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Cross-Origin-Resource-Policy':'same-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=()','Connection':'close'}.items():self.send_header(key,val)
+            request_origin=self.headers.get('Origin')
+            if self.path.startswith(('/api/explorer/','/api/p2p/')) and request_origin in browser_origins:
+                self.send_header('Access-Control-Allow-Origin',request_origin)
+                self.send_header('Vary','Origin')
             self.end_headers();self.wfile.write(data)
+        def do_OPTIONS(self):
+            try:
+                self.valid_origin()
+                if not self.path.startswith(('/api/explorer/','/api/p2p/')) or self.headers.get('Origin') not in browser_origins:
+                    raise ProtocolError('ORIGIN_REJECTED','approved browser origin required')
+                if self.headers.get('Access-Control-Request-Method')!='GET':raise ProtocolError('ORIGIN_REJECTED','read-only browser request required')
+                headers={h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers','').split(',') if h.strip()}
+                if headers-{'authorization'}:raise ProtocolError('ORIGIN_REJECTED','fixed browser credential header required')
+                self.send_response(204);self.send_header('Access-Control-Allow-Origin',self.headers['Origin'])
+                self.send_header('Access-Control-Allow-Methods','GET');self.send_header('Access-Control-Allow-Headers','Authorization')
+                self.send_header('Vary','Origin');self.send_header('Content-Length','0');self.end_headers()
+            except ProtocolError:self.send_value(403,{'error':'ORIGIN_REJECTED'})
         def valid_origin(self,post=False):
             # Public GETs are read-only, including navigation from WeChat or an
             # external site. Fetch Metadata describes the navigation initiator,
@@ -172,13 +195,19 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)
                     return self.send_value(200,explorer.query(self.path))
+                if p2p is not None and self.path.startswith('/api/p2p/'):
+                    self.rate('p2p-explorer',120)
+                    return self.send_value(200,p2p.query(self.path,self.headers.get('Authorization')))
+                if p2p is not None and self.path in {'/p2p','/p2p/','/p2p/app.js','/p2p/style.css'}:
+                    name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/p2p','/p2p/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
+                    return self.send_value(200,files_resource('ziokt').joinpath('p2p',name).read_bytes(),kind)
                 if explorer is not None and self.path in {'/explorer','/explorer/','/explorer/app.js','/explorer/style.css'}:
                     name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/explorer','/explorer/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
                     return self.send_value(200,files_resource('ziokt').joinpath('explorer',name).read_bytes(),kind)
                 files={'/':('index.html','text/html; charset=utf-8'),'/relay.js':('relay.js','text/javascript'),'/geography.js':('geography.js','text/javascript'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
                 if self.path not in files:return self.send_value(404,{'error':'NOT_FOUND'})
                 name,kind=files[self.path];self.send_value(200,assets.joinpath(name).read_bytes(),kind)
-            except ProtocolError as exc:self.send_value(404 if exc.code=='NOT_FOUND' else 429 if exc.code=='BACKPRESSURE' else 503 if exc.code=='CHAIN_UNAVAILABLE' else 403 if exc.code=='ORIGIN_REJECTED' else 400,{'error':exc.code})
+            except ProtocolError as exc:self.send_value(404 if exc.code=='NOT_FOUND' else 429 if exc.code=='BACKPRESSURE' else 503 if exc.code=='CHAIN_UNAVAILABLE' else 401 if exc.code=='AUTH_REQUIRED' else 403 if exc.code in {'ORIGIN_REJECTED','POLICY_DENIED'} else 400,{'error':exc.code})
             except (OSError,ValueError,TypeError):self.send_value(503,{'error':'CHAIN_UNAVAILABLE'})
         def do_POST(self):
             try:
@@ -229,7 +258,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
     required={'schema','origin','listen','port','federation_config','provider','network_id','submitter','state_root'}
-    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','relay_origins','direct_relay','relay_rewards','downloads','openci_endpoint'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','explorer_networks','browser_origins','p2p_explorer','relay_origins','direct_relay','relay_rewards','downloads','openci_endpoint'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
     if not isinstance(config['network_id'],str) or not config['network_id'] or len(config['network_id'])>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in config['network_id']):raise ProtocolError('INVALID_CONFIG','explicit Corium mainnet identifier required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
@@ -243,14 +272,16 @@ def main(argv=None):
     direct_relay=None
     try:
         # Refuse to open the web listener until the configured native chain is ready.
-        from .explorer import ChainExplorer
-        explorer=ChainExplorer(provider['state_root'],provider['network_id']) if config.get('explorer',False) else None
+        from .explorer_networks import ExplorerNetworks
+        explorer=ExplorerNetworks(provider['state_root'],provider['network_id'],config.get('explorer_networks',[])) if config.get('explorer',False) else None
+        from .p2p_explorer import P2PExplorer
+        p2p=P2PExplorer(config['p2p_explorer']) if 'p2p_explorer' in config else None
         from .effort_direct import DirectRelay
         from .relay_rewards import RelayRewards
         if 'relay_rewards' in config and 'direct_relay' not in config:raise ProtocolError('INVALID_CONFIG','native direct relay required for reward observations')
         rewards=RelayRewards(config['relay_rewards'],config['network_id']) if 'relay_rewards' in config else None
         direct_relay=DirectRelay(config['direct_relay'],config['network_id'],rewards=rewards) if 'direct_relay' in config else None
-        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'))
+        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'),p2p=p2p,browser_origins=config.get('browser_origins',[]))
         try:
             if tls:
                 if not {'certificate','private_key'}<=set(config) or urlsplit(config['origin']).scheme!='https':raise ProtocolError('INVALID_CONFIG','complete HTTPS credentials required')

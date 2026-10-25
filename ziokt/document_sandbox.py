@@ -132,12 +132,20 @@ def worker():
     mime=formats.sniff_format(source,request.get('mime'))
     request['mime']=mime
     raster=None
-    if mime in {'application/pdf','application/vnd.comicbook+zip','application/x-cbz','application/zip','application/x-zip-compressed'}:
+    if request['mode']=='cover' or mime in {'application/pdf','application/vnd.comicbook+zip','application/x-cbz','application/zip','application/x-zip-compressed'}:
         raster_spec=importlib.util.spec_from_file_location('raster_reader',Path(__file__).with_name('raster_reader.py'))
         raster=importlib.util.module_from_spec(raster_spec);raster_spec.loader.exec_module(raster)
     confine()
     try:
-        if raster is not None and mime in raster.MIMES and (mime=='application/pdf' or mime in {'application/vnd.comicbook+zip','application/x-cbz'}):
+        if request['mode']=='cover':
+            if mime=='application/epub+zip':
+                image=formats.epub_cover(source);result=raster.cover_image(image) if image else {'image':None}
+            elif mime in {'image/png','image/jpeg','image/webp','image/gif'}:result=raster.cover_image(source)
+            elif mime in raster.MIMES:
+                result=raster.read(source,mime,'chapter',chapter=0,limit=1)
+                result={key:result[key] for key in ('image','rendered_in_sandbox','external_resources_loaded') if key in result}
+            else:result={'image':None}
+        elif raster is not None and mime in raster.MIMES and (mime=='application/pdf' or mime in {'application/vnd.comicbook+zip','application/x-cbz'}):
             result=raster.read(source,mime,request['mode'],**request['arguments'])
         else:
             result=formats.extract(source,mime) if request['mode']=='preview' else formats.reader(source,mime,request['mode'],**request['arguments'])
