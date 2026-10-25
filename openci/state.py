@@ -81,9 +81,10 @@ def validate_pipeline(value):
                 raise Error('INVALID_CACHE_KEY','Bounded alphanumeric cache key required')
         if 'cache_paths' in task:
             paths=task['cache_paths']
-            if not isinstance(paths,list) or len(paths)>16 or any(not isinstance(p,str) or not p or len(p)>256 or p.startswith('/') or '..' in p.split('/') for p in paths):
+            if not isinstance(paths,list) or len(paths)>16 or any(not isinstance(p,str) or not p or len(p)>256 or p.startswith('/') or '..' in p.split('/') or '\\' in p or '\x00' in p or p=='.' or str(PurePosixPath(p))!=p for p in paths):
                 raise Error('INVALID_CACHE_PATHS','Bounded relative cache paths required')
-        if 'cache_mode' in task and task['cache_mode'] not in {'read-write','read-only','write-only'}:
+            if len(set(paths))!=len(paths):raise Error('INVALID_CACHE_PATHS','Duplicate cache paths')
+        if 'cache_mode' in task and (not isinstance(task['cache_mode'],str) or task['cache_mode'] not in {'read-write','read-only','write-only'}):
             raise Error('INVALID_CACHE_MODE','cache_mode must be read-write, read-only, or write-only')
         outputs=task['outputs']
         if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') or str(PurePosixPath(p))!=p or p=='.' for p in outputs):
@@ -287,12 +288,12 @@ class Store:
                     source_dict = json.loads(task['body'])['source']
                     source_digest = source_dict.get('digest')
                     mode = spec.get('cache_mode', 'read-write')
-                    paths = spec.get('cache_paths', ['/cache'])
+                    paths = spec.get('cache_paths', [])
                     canonical_key = canonical_cache_key(spec['cache_key'], source_digest, spec['image'], spec['arch'], spec['argv'], paths)
-                    cache_row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND (cache_key=? OR cache_key=?)', (task['project'], canonical_key, spec['cache_key'])).fetchone()
+                    cache_row = None if mode=='write-only' else db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND cache_key=?', (task['project'], canonical_key)).fetchone()
                     if cache_row:
                         now = int(self.clock())
-                        db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND (cache_key=? OR cache_key=?)', (now, task['project'], canonical_key, spec['cache_key']))
+                        db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, task['project'], canonical_key))
                         cache_info = {'key': canonical_key, 'base_key': spec['cache_key'], 'reference': json.loads(cache_row[0]), 'size': cache_row[1], 'hit': True, 'paths': paths, 'mode': mode}
                     else:
                         cache_info = {'key': canonical_key, 'base_key': spec['cache_key'], 'reference': None, 'hit': False, 'paths': paths, 'mode': mode}
@@ -347,11 +348,11 @@ class Store:
             db.execute('UPDATE attempts SET state=?,finished=?,receipt=? WHERE pipeline=? AND id=? AND attempt=?', (state, int(self.clock()), receipt, pid, task, row['attempt']))
             self.event(db, worker, 'task.'+state, pid, task)
             spec = json.loads(row['spec'])
-            if exit_code == 0 and cache_artifact is not None and spec.get('cache_key'):
+            if exit_code == 0 and cache_artifact is not None and spec.get('cache_key') and spec.get('cache_mode','read-write')!='read-only':
                 proj = db.execute('SELECT project FROM pipelines WHERE id=?', (pid,)).fetchone()['project']
                 pipe_body = json.loads(db.execute('SELECT body FROM pipelines WHERE id=?', (pid,)).fetchone()['body'])
                 source_digest = pipe_body.get('source', {}).get('digest')
-                paths = spec.get('cache_paths', ['/cache'])
+                paths = spec.get('cache_paths', [])
                 canonical_key = canonical_cache_key(spec['cache_key'], source_digest, spec['image'], spec['arch'], spec['argv'], paths)
                 now = int(self.clock())
                 db.execute('''

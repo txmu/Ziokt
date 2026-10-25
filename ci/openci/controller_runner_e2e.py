@@ -115,9 +115,35 @@ print('Native isolated task completed',flush=True)
             assert any(event['action']=='task.verified' for event in events)
             logs=owner.request('GET','/v1/logs?pipeline='+pid+'&task=build&attempt=1')['chunks']
             assert logs, 'Real-time log stream was not persisted'
+
+            cache_code=b"""import json,pathlib
+result={}
+for name,path in [('cache',pathlib.Path('/cache/counter')),('work',pathlib.Path('/work/.cache/counter'))]:
+    path.parent.mkdir(parents=True,exist_ok=True)
+    count=int(path.read_text())+1 if path.exists() else 1
+    path.write_text(str(count));result[name]=count
+pathlib.Path('/out/result.json').write_text(json.dumps(result))
+"""
+            cache_source=root/'cache-source.tar'
+            with tarfile.open(cache_source,'w') as archive:
+                member=tarfile.TarInfo('build.py');member.size=len(cache_code);archive.addfile(member,io.BytesIO(cache_code))
+            cache_reference=owner.upload('demo',cache_source)
+            cache_results=[]
+            for number,(mode,expected) in enumerate([('read-write',1),('read-write',2),('read-only',3),('read-write',3),('write-only',1),('read-only',2)]):
+                spec=task('cache',image,'community');spec.update(cache_key='oci-cache-v1',cache_paths=['.cache'],cache_mode=mode)
+                value={'schema':'openci.pipeline.v1','project':'demo','nonce':'cache-'+str(number),'source':cache_reference,'tasks':[spec]}
+                cache_pid=owner.request('POST','/v1/pipelines',value)['pipeline']
+                runner=Runner(Client(origin,'builder-integration-token'),root/'builder',[image],signing_key=root/'builder-receipt.key')
+                assert runner.run_once()['state']=='completed'
+                cache_state=owner.request('GET','/v1/pipelines/'+cache_pid)
+                output=root/('cache-result-'+str(number)+'.json')
+                owner.download_artifact_file('demo',cache_state['tasks'][0]['receipt']['artifact'],'result.json',output)
+                observed=json.loads(output.read_text())
+                assert observed=={'cache':expected,'work':expected}, (mode,observed,expected)
+                cache_results.append({'mode':mode,'observed':observed})
             print(json.dumps({'schema':'openci.oci-e2e.v1','state':'passed','pipeline':pid,'image':image,
                 'git_webhook_trigger':True,'git_commit':commit,'native_content_storage':True,'real_oci_execution':True,'independent_reexecution':True,
-                'distinct_hosts':False,'signed_worker_receipts':True,'producer_revocation_blocks_release':True,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
+                'bounded_oci_cache_modes':cache_results,'distinct_hosts':False,'signed_worker_receipts':True,'producer_revocation_blocks_release':True,'release_signed':True,'native_file_installed':True,'corium_settled':False}))
         finally:server.shutdown();server.server_close();thread.join();controller.close()
 
 

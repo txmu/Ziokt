@@ -64,7 +64,9 @@ def canonical_outputs(archive, output, required=()):
             if total>64*1024*1024 or entry.size<0: raise Error('ARTIFACT_LIMIT','Output budget exceeded')
             entry.uid=entry.gid=entry.mtime=0;entry.uname=entry.gname='';entry.pax_headers={}
             entry.mode=0o755 if entry.isdir() or entry.mode & 0o111 else 0o644
-            target.addfile(entry, source.extractfile(entry) if entry.isfile() else None)
+            if entry.isfile():
+                with source.extractfile(entry) as payload:target.addfile(entry,payload)
+            else:target.addfile(entry)
         if not set(required)<=regular:raise Error('OUTPUT_MISSING','Task did not produce every declared output file',409)
 
 
@@ -86,6 +88,61 @@ class Runner:
 
     def command(self,*argv,**kwargs):
         return subprocess.run([self.runtime,*map(str,argv)],check=True,timeout=30,**kwargs)
+
+    def collect(self, name, directory, paths, output):
+        """Bound untrusted container archives before parsing or uploading them."""
+        with Path(output).open('wb') as archive:
+            copied=subprocess.Popen([self.runtime,'exec',name,'/bin/tar','-C',directory,'-cf','-','--',*paths],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+            count=0;started=time.monotonic()
+            try:
+                while True:
+                    self.tick()
+                    if time.monotonic()-started>60:raise Error('ARTIFACT_TIMEOUT','Archive collection deadline exceeded')
+                    ready,_,_=select.select([copied.stdout],[],[],.25)
+                    if not ready:continue
+                    data=os.read(copied.stdout.fileno(),65536)
+                    if not data:break
+                    count+=len(data)
+                    if count>MAX_OUTPUT:raise Error('ARTIFACT_LIMIT','Container archive exceeds budget')
+                    archive.write(data)
+                if copied.wait(timeout=10)!=0:raise Error('ARTIFACT_COPY','Could not collect container archive')
+            finally:
+                if copied.poll() is None:copied.kill();copied.wait(timeout=10)
+                copied.stdout.close()
+
+    def restore_cache(self, name, area, assignment, cache):
+        archive=area/'cache-in.tar'
+        self.client.download(assignment['project'],cache['reference'],archive,MAX_OUTPUT)
+        restored=area/'cache-restored'
+        unpack_source(archive,restored)
+        # Versioned cache namespaces avoid collisions between /cache and /work.
+        for namespace,destination in [('cache','/cache'),('work','/work')]:
+            tree=restored/namespace
+            if not tree.is_dir():continue
+            payload=area/(namespace+'-restore.tar')
+            def writable(member):
+                member.mode |= 0o200
+                return member
+            with tarfile.open(payload,'w') as output:
+                output.add(tree,arcname='.',filter=writable)
+            with payload.open('rb') as source:
+                self.command('exec','-i',name,'/bin/tar','--no-same-owner','--no-same-permissions','--no-overwrite-dir','-C',destination,'-xf','-',stdin=source,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
+    def save_cache(self, name, area, assignment, cache):
+        directory=area/'cache-save';directory.mkdir()
+        paths=cache.get('paths') or []
+        for namespace,source,selected in [('cache','/cache',['.']),('work','/work',paths)]:
+            if not selected:continue
+            archive=area/(namespace+'-raw.tar')
+            self.collect(name,source,selected,archive)
+            unpack_source(archive,directory/namespace)
+        files=[p for p in directory.rglob('*') if p.is_file()]
+        if not files:return None
+        archive=area/'cache-out.tar'
+        with tarfile.open(archive,'w') as output:
+            for path in sorted(directory.iterdir()):output.add(path,arcname=path.name)
+        if archive.stat().st_size>MAX_OUTPUT:raise Error('ARTIFACT_LIMIT','Combined cache exceeds budget')
+        return self.client.upload(assignment['project'],archive)
 
     def recover(self):
         # Remove only containers labelled by this private runner state directory.
@@ -122,22 +179,15 @@ class Runner:
         try:
             with tempfile.TemporaryDirectory(prefix='attempt-',dir=self.root) as temporary:
                 area=Path(temporary); logs=area/'build.log';logs.touch(mode=0o600)
-                artifact=None;exit_code=125
+                artifact=None;cache_artifact=None;exit_code=125
                 try:
                     task=assignment['task'];image=task['image']
                     if image not in self.images:raise Error('IMAGE_NOT_APPROVED','Image is not in the operator allowlist')
                     self.client.download(assignment['project'],assignment['source'],area/'source.tar',MAX_SOURCE)
                     unpack_source(area/'source.tar',area/'source')
                     cache_cfg=assignment.get('cache')
-                    cache_dir=area/'cache';cache_dir.mkdir(mode=0o777,parents=True,exist_ok=True)
                     cache_mode=cache_cfg.get('mode','read-write') if cache_cfg else 'read-write'
                     can_restore=cache_mode in ('read-write','read-only')
-                    if can_restore and cache_cfg and cache_cfg.get('hit') and cache_cfg.get('reference'):
-                        try:
-                            cache_in=area/'cache_in.tar'
-                            self.client.download(assignment['project'],cache_cfg['reference'],cache_in,MAX_OUTPUT)
-                            unpack_source(cache_in,cache_dir)
-                        except Exception:pass
                     result=self.command('image','inspect',image,'--format','{{.Architecture}}',stdout=subprocess.PIPE,text=True)
                     expected={'x86_64':'amd64','aarch64':'arm64'}[task['arch']]
                     if result.stdout.strip()!=expected:raise Error('IMAGE_ARCH','Pinned image architecture does not match worker requirement')
@@ -148,21 +198,15 @@ class Runner:
                         '--tmpfs','/tmp:rw,nosuid,nodev,size=16777216,mode=1777',
                         '--tmpfs','/work:rw,nosuid,nodev,size=134217728,mode=1777',
                         '--tmpfs','/out:rw,nosuid,nodev,size=67108864,mode=1777',
+                        '--tmpfs','/cache:rw,nosuid,nodev,size=67108864,mode=1777',
                         '--mount','type=bind,src='+str(area/'source')+',dst=/src,readonly',
-                        '--mount','type=bind,src='+str(cache_dir)+',dst=/cache,rw',
                         '--workdir','/work',image,'/bin/sh','-c','exec sleep 10800',stdout=subprocess.DEVNULL)
                     self.command('start',name,stdout=subprocess.DEVNULL)
-                    if can_restore and (cache_dir/'work_cache').is_dir():
+                    if can_restore and cache_cfg and cache_cfg.get('hit') and cache_cfg.get('reference'):
                         try:
-                            sub_tar=area/'work_restore.tar'
-                            with tarfile.open(sub_tar,'w:') as wtar:
-                                for wf in (cache_dir/'work_cache').rglob('*'):
-                                    if wf.is_file():wtar.add(wf,arcname=str(wf.relative_to(cache_dir/'work_cache')))
-                            if sub_tar.exists() and sub_tar.stat().st_size>0:
-                                rest_proc=subprocess.Popen([self.runtime,'exec','-i',name,'/bin/tar','-C','/work','-xf','-'],
-                                                           stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                                rest_proc.communicate(input=sub_tar.read_bytes(),timeout=10)
-                        except Exception:pass
+                            self.restore_cache(name,area,assignment,cache_cfg)
+                        except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
+                            with logs.open('ab') as log:log.write(('OpenCI cache restore skipped: '+str(error)+'\n').encode()[:4096])
                     process=subprocess.Popen([self.runtime,'exec',name,*task['argv']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
                     started=time.monotonic();size=0;position=0;pending=bytearray();live=True
                     try:
@@ -194,52 +238,15 @@ class Runner:
                         process.stdout.close()
                     if exit_code==0:
                         raw=area/'outputs.raw.tar'
-                        with raw.open('wb') as archive:
-                            copied=subprocess.Popen([self.runtime,'exec',name,'/bin/tar','-C','/out','-cf','-','.'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                            count=0;copy_started=time.monotonic()
-                            try:
-                                while True:
-                                    self.tick()
-                                    if time.monotonic()-copy_started>60:raise Error('ARTIFACT_TIMEOUT','Output collection deadline exceeded')
-                                    ready,_,_=select.select([copied.stdout],[],[],.25)
-                                    if not ready:continue
-                                    data=os.read(copied.stdout.fileno(),65536)
-                                    if not data:break
-                                    count+=len(data)
-                                    if count>MAX_OUTPUT:raise Error('ARTIFACT_LIMIT','Container output archive exceeds budget')
-                                    archive.write(data)
-                                if copied.wait(timeout=30)!=0:raise Error('ARTIFACT_COPY','Could not collect container outputs')
-                            finally:
-                                if copied.poll() is None:copied.kill();copied.wait(timeout=10)
-                                copied.stdout.close();copied.stderr.close()
+                        self.collect(name,'/out',['.'],raw)
                         canonical_outputs(raw,area/'artifact.tar',task['outputs'])
                         from .artifacts import publish_outputs
                         artifact=publish_outputs(self.client,assignment['project'],area/'artifact.tar',task['outputs'],assignment['source'],task['image'])
-                        cache_artifact=None
                         can_save=cache_mode in ('read-write','write-only')
                         if can_save and cache_cfg and cache_cfg.get('key'):
-                            paths=cache_cfg.get('paths') or ['/cache']
-                            for rel_path in paths:
-                                if not rel_path.startswith('/'):
-                                    sub_tar=area/f"cache_{hashlib.sha256(rel_path.encode()).hexdigest()[:8]}.tar"
-                                    try:
-                                        cp=subprocess.Popen([self.runtime,'exec',name,'/bin/tar','-C','/work','-cf','-',rel_path],
-                                                            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
-                                        out_bytes,_=cp.communicate(timeout=10)
-                                        if cp.returncode==0 and out_bytes:
-                                            sub_tar.write_bytes(out_bytes)
-                                            unpack_source(sub_tar,cache_dir/'work_cache')
-                                    except Exception:pass
-                            cache_files=[p for p in cache_dir.rglob('*') if p.is_file()]
-                            if cache_files:
-                                cache_out=area/'cache_out.tar'
-                                with tarfile.open(cache_out,'w:') as ctar:
-                                    for cf in cache_files:
-                                        rel=cf.relative_to(cache_dir)
-                                        ctar.add(cf,arcname=str(rel))
-                                if cache_out.stat().st_size<=MAX_OUTPUT:
-                                    try:cache_artifact=self.client.upload(assignment['project'],cache_out)
-                                    except Exception:cache_artifact=None
+                            try:cache_artifact=self.save_cache(name,area,assignment,cache_cfg)
+                            except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
+                                with logs.open('ab') as log:log.write(('OpenCI cache save skipped: '+str(error)+'\n').encode()[:4096])
                 except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
                     exit_code=124 if isinstance(error,Error) and error.code=='TASK_TIMEOUT' else 125
                     with logs.open('ab') as log:log.write(('\nOpenCI Runner: '+type(error).__name__+': '+str(error)+'\n').encode()[:4096])

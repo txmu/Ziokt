@@ -4,6 +4,7 @@ The signed community owner assigns roots. This is a community authority, not an
 invented Corium consensus proof. Corium suffixes exclusively use native NNS.
 """
 import hashlib
+from pathlib import Path
 from .protocol import ProtocolError,encoded,strict_json,secure_read
 from .security import verify
 from .naming import LABEL,Names,GROUPS
@@ -25,8 +26,8 @@ def check_record(bridge,envelope,network_id,root):
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
             from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-            key_bytes = secure_read(bridge.signing_key, 32) if isinstance(bridge.signing_key, (str, bytes)) and (isinstance(bridge.signing_key, bytes) or len(bridge.signing_key) != 32) else bridge.signing_key
-            if isinstance(key_bytes, (str, Path)): key_bytes = secure_read(key_bytes, 32)
+            key_bytes = bridge.signing_key
+            if isinstance(key_bytes, (str, Path)):key_bytes = secure_read(key_bytes, 32)
             authorities.append(Ed25519PrivateKey.from_private_bytes(key_bytes).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex())
         except Exception:pass
     if hasattr(bridge, 'community') and hasattr(bridge.community, 'owner') and bridge.community.owner:

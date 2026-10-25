@@ -181,6 +181,38 @@ class CacheTests(unittest.TestCase):
             self.assertTrue(k.startswith("my-build-cache--"))
             self.assertEqual(len(k), len("my-build-cache--") + 32)
 
+    def test_cache_paths_reject_ambiguous_and_noncanonical_names(self):
+        from test_openci_state import pipeline
+        for paths in [['.'],['../a'],['/a'],['a\\b'],['a\x00b'],['a//b'],['a/'],['a','a']]:
+            value=pipeline();value['tasks'][0]['cache_paths']=paths
+            with self.subTest(paths=paths),self.assertRaises(Error):validate_pipeline(value)
+
+    def test_claim_never_falls_back_to_unbound_cache_and_modes_are_enforced(self):
+        from test_openci_state import pipeline,REF,OTHER
+        self.store.approve_worker('owner','builder',arch='x86_64',pool='community',cpu=1,memory_mb=128,slots=1,projects=['demo'])
+        self.store.cache_put('demo','shared',OTHER,12)
+        def claim(nonce,mode='read-write'):
+            value=pipeline(nonce=nonce);value['tasks'][0].update(cache_key='shared',cache_mode=mode)
+            self.store.submit('owner',value)
+            return self.store.claim('builder')
+        def finish(value,artifact=REF):
+            return self.store.finish('builder',value['pipeline'],'build',value['lease'],exit_code=0,artifact=REF,logs=OTHER,cache_artifact=artifact,cache_size=12)
+        first=claim('first')
+        self.assertFalse(first['cache']['hit'])
+        finish(first)
+        readonly=claim('readonly','read-only')
+        self.assertTrue(readonly['cache']['hit'])
+        self.assertEqual(readonly['cache']['reference'],REF)
+        finish(readonly,OTHER)
+        self.assertEqual(self.store.cache_get('demo',first['cache']['key'])['artifact'],REF)
+        writeonly=claim('writeonly','write-only')
+        self.assertFalse(writeonly['cache']['hit'])
+        self.assertIsNone(writeonly['cache']['reference'])
+        finish(writeonly,OTHER)
+        changed=pipeline(nonce='changed');changed['tasks'][0].update(cache_key='shared',argv=['changed'])
+        self.store.submit('owner',changed)
+        self.assertFalse(self.store.claim('builder')['cache']['hit'])
+
 
 if __name__ == "__main__":
     unittest.main()
