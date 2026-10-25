@@ -58,11 +58,10 @@ sudo chroot /mnt/openci-lfs /usr/bin/passwd -d root
 sudo mkdir -p /mnt/openci-lfs/etc/systemd/system/getty.target.wants
 sudo ln -sf /usr/lib/systemd/system/serial-getty@.service /mnt/openci-lfs/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service
 printf '%s\n' "$GITHUB_SHA" | sudo tee /mnt/openci-lfs/etc/openci-build-id >/dev/null
-sudo mkdir -p "$work/images" "$work/rootfs"
+sudo mkdir -p "$work/rootfs"
 sudo rsync -aHAX --exclude=/sources --exclude=/jhalfs --exclude=/dev/*** --exclude=/proc/*** --exclude=/sys/*** --exclude=/run/*** /mnt/openci-lfs/ "$work/rootfs/"
 sudo mkdir -p "$work/rootfs/dev" "$work/rootfs/proc" "$work/rootfs/sys" "$work/rootfs/run"
-truncate -s 8G "$work/images/rootfs.ext4"
-sudo mkfs.ext4 -q -F -d "$work/rootfs" "$work/images/rootfs.ext4"
+bash ci/openci/alfs/image.sh "$work/rootfs" "$work/images"
 sudo cp /mnt/openci-lfs/boot/vmlinuz-* "$work/images/bzImage"
 sudo chown -R "$(id -u):$(id -g)" "$work/images" "$work/evidence"
 python3 ci/openci/alfs/boot.py "$work/images" "$work/evidence" "$GITHUB_SHA"

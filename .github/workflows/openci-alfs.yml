@@ -1,15 +1,37 @@
-name: OpenCI official ALFS full build and QEMU boot
+name: OpenCI ALFS packaging and optional full build
 on:
   push:
     paths: ["ci/openci/alfs/**", ".github/workflows/openci-alfs.yml"]
   workflow_dispatch:
+    inputs:
+      full_build:
+        description: Compile the entire pinned official book and boot it (several hours)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: openci-alfs-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  image-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reproduce root-owned image directory and verify production packaging without compilation
+        run: bash ci/openci/alfs/check_image.sh
+      - name: Verify the pinned kernel configuration adaptation
+        run: python3 -m unittest discover -s tests -p test_openci_alfs_config.py -v
+      - name: Record validation scope
+        run: |
+          echo '### ALFS packaging regression' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Real ext4 packaging and original permission regression passed. No ALFS rebuild or ALFS QEMU boot was performed in this job.' >> "$GITHUB_STEP_SUMMARY"
   official-alfs:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_build
+    needs: image-regression
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
