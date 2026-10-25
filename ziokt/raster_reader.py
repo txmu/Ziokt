@@ -8,9 +8,12 @@ import warnings
 import zipfile
 from pathlib import PurePosixPath
 import pypdfium2 as pdfium
-from PIL import Image, PngImagePlugin, JpegImagePlugin
+from PIL import Image, PngImagePlugin, JpegImagePlugin, WebPImagePlugin, GifImagePlugin
 
-MIMES={'application/pdf','application/vnd.comicbook+zip','application/x-cbz'}
+MIMES={'application/pdf','application/vnd.comicbook+zip','application/x-cbz','application/zip','application/x-zip-compressed'}
+IMAGE_FORMATS=['PNG','JPEG','WEBP','GIF']
+IMAGE_EXTENSIONS={'.png','.jpg','.jpeg','.webp','.gif'}
+IGNORED_CBZ_MEMBERS={'comicinfo.xml','thumbs.db','.ds_store','desktop.ini','metadata.json','info.txt'}
 MAX_PIXELS=8_000_000
 Image.init()  # Import trusted codecs before the worker denies filesystem access.
 Image.MAX_IMAGE_PIXELS=MAX_PIXELS
@@ -29,7 +32,29 @@ def encoded_image(image):
 
 
 def read(source,mime,mode,*,chapter=0,offset=0,limit=64,fragment=''):
-    if mode not in {'manifest','chapter'} or type(chapter) is not int or not 0<=chapter<1024:raise ValueError('page index')
+    if mode not in {'manifest','chapter','preview'}:raise ValueError('page index')
+    if mode=='preview':
+        if mime=='application/pdf':
+            if not source.startswith(b'%PDF-'):raise ValueError('PDF signature')
+            doc=pdfium.PdfDocument(source)
+            try:
+                count=len(doc);chapters=[];total=0;truncated=False
+                for p in range(min(count,16)):
+                    page=doc[p]
+                    try:
+                        textpage=page.get_textpage()
+                        try:
+                            nchars=textpage.count_chars();room=16000-total
+                            txt=textpage.get_text_range(0,min(room,nchars)) if room>0 else ''
+                            chapters.append({'title':'Page '+str(p+1),'text':txt});total+=len(txt)
+                            if total>=16000:truncated=True;break
+                        finally:textpage.close()
+                    finally:page.close()
+                return {'format':mime,'chapters':chapters,'truncated':truncated or count>16,'scripts_executed':False}
+            finally:doc.close()
+        else:
+            return {'format':mime,'chapters':[{'title':'Page 1','text':''}],'truncated':False,'scripts_executed':False}
+    if type(chapter) is not int or not 0<=chapter<1024:raise ValueError('page index')
     if type(offset) is not int or not 0<=offset<=16*1024*1024 or type(limit) is not int or not 1<=limit<=(128 if mode=='manifest' else 16384) or fragment:raise ValueError('page bounds')
     if mime=='application/pdf':
         if not source.startswith(b'%PDF-'):raise ValueError('PDF signature')
@@ -67,15 +92,16 @@ def read(source,mime,mode,*,chapter=0,offset=0,limit=64,fragment=''):
                 names.add(e.filename)
                 if e.file_size>4*1024*1024 or e.file_size>max(1024,e.compress_size*200):raise ValueError('CBZ member budget')
                 if not e.is_dir():
-                    if path.name.lower()=='comicinfo.xml' and e.file_size<=65536:continue
-                    if path.suffix.lower() not in {'.png','.jpg','.jpeg'}:raise ValueError('CBZ contains unsupported active or non-image member')
+                    name_lower=path.name.lower()
+                    if name_lower in IGNORED_CBZ_MEMBERS or name_lower.endswith(('.nfo','.txt')) or name_lower.startswith('.') or any(p.startswith('__MACOSX') for p in path.parts):continue
+                    if path.suffix.lower() not in IMAGE_EXTENSIONS:continue
                     pages.append(e.filename)
             pages.sort(key=lambda name:[int(value) if value.isascii() and value.isdigit() else value.casefold() for value in re.split(r'([0-9]+)',name)]);count=len(pages)
             if not 1<=count<=1024:raise ValueError('CBZ page count')
             if mode=='manifest':return manifest(mime,count,offset,limit)
             if chapter>=count:raise ValueError('page unavailable')
             raw=archive.read(pages[chapter])
-            with Image.open(io.BytesIO(raw),formats=['PNG','JPEG']) as candidate:
+            with Image.open(io.BytesIO(raw),formats=IMAGE_FORMATS) as candidate:
                 if candidate.width*candidate.height>MAX_PIXELS:raise ValueError('CBZ image pixels')
                 candidate.load();image=candidate.copy()
         text='';total=0

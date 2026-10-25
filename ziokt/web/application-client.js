@@ -19,8 +19,18 @@ class ZioktApplicationClient {
   static async digest(bytes) {return 'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');}
   async upload(file,{id=crypto.randomUUID(),progress=()=>{}}={}) {
     if(file.size>16*1024*1024)throw Error('BROWSER_OBJECT_LIMIT');
+    let mime=file.type||'';
+    const lowerName=(file.name||'').toLowerCase();
+    if(!mime||mime==='application/octet-stream'||mime==='application/zip'||mime==='application/x-zip-compressed'){
+      if(lowerName.endsWith('.epub'))mime='application/epub+zip';
+      else if(lowerName.endsWith('.cbz')||lowerName.endsWith('.cbr'))mime='application/vnd.comicbook+zip';
+      else if(lowerName.endsWith('.pdf'))mime='application/pdf';
+      else if(lowerName.endsWith('.txt'))mime='text/plain';
+      else if(lowerName.endsWith('.md'))mime='text/markdown';
+      else if(lowerName.endsWith('.html')||lowerName.endsWith('.htm'))mime='text/html';
+    }
     const digest=await ZioktApplicationClient.digest(await file.arrayBuffer());
-    const state=await this.call('content.upload.begin',{upload:id,size:file.size,digest,mime:file.type||'application/octet-stream',name:file.name||'content.bin'});
+    const state=await this.call('content.upload.begin',{upload:id,size:file.size,digest,mime:mime||'application/octet-stream',name:file.name||'content.bin'});
     if(state.state!=='complete')for(let position=state.next_missing,start=position*16384;start<file.size;position++,start+=16384){
       const bytes=new Uint8Array(await file.slice(start,start+16384).arrayBuffer());let raw='';for(const b of bytes)raw+=String.fromCharCode(b);
       await this.call('content.upload.put',{upload:id,position,data:btoa(raw)});progress(Math.min(file.size,start+16384),file.size);
@@ -48,6 +58,7 @@ globalThis.ZioktDocumentReader={
     const lifetime=Symbol('reader');container._readerLifetime=lifetime;const alive=()=>container.isConnected&&container._readerLifetime===lifetime;
     let manifestOffset=0,chapterCount=0,chapter=0,offset=0,next=null,sequence=0;
     const bar=node('div'),select=node('select'),body=node('pre'),pageStatus=node('p'),navigation=node('select'),image=node('img');
+    bar.className='reader-bar';body.className='reader-body';pageStatus.className='reader-status';image.className='reader-image';
     image.hidden=true;image.style.cssText='max-width:100%;height:auto';image.decoding='async';
     select.setAttribute('aria-label',label('章节或页码','Chapter or page'));navigation.setAttribute('aria-label',label('目录','Table of contents'));
     body.tabIndex=0;body.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';pageStatus.setAttribute('role','status');
@@ -69,6 +80,7 @@ globalThis.ZioktDocumentReader={
       const result=await call('library.reader.chapter',{id,chapter:target,offset:start,limit:16384,fragment});
       if(request!==sequence||!alive())return;
       chapter=target;offset=result.offset;next=result.next_offset;body.textContent=result.text;
+      body.hidden=!result.text;
       image.removeAttribute('src');image.hidden=true;
       if(result.image){
         const value=result.image;

@@ -256,6 +256,14 @@ class Fabric:
 
     def begin(self, owner, upload, size, digest, mime='application/octet-stream', name=None):
         ident(owner);ident(upload);header(mime,128)
+        if name and mime in {'application/octet-stream','application/zip','application/x-zip-compressed',''}:
+            lower=name.lower()
+            if lower.endswith('.epub'):mime='application/epub+zip'
+            elif lower.endswith(('.cbz','.cbr')):mime='application/vnd.comicbook+zip'
+            elif lower.endswith('.pdf'):mime='application/pdf'
+            elif lower.endswith(('.txt','.text')):mime='text/plain'
+            elif lower.endswith(('.md','.markdown')):mime='text/markdown'
+            elif lower.endswith(('.html','.htm')):mime='text/html'
         if self.optimizations.get(owner)['effective']['collect_expired_uploads']:self.collect_uploads(owner)
         if not isinstance(digest,str) or not re.fullmatch('sha256:[a-f0-9]{64}',digest):raise ValueError('digest')
         if type(size) is not int or not 0<=size<=self.max_object:raise ValueError('size')
@@ -294,6 +302,16 @@ class Fabric:
             with self.store(owner) as store:
                 reference=store.finish(upload)
                 hashes=[r[0][7:] for r in store.db.execute('SELECT c.digest FROM members m JOIN chunks c ON c.tag=m.tag WHERE m.object=? ORDER BY m.position',(reference['manifest_digest'],))]
+                if meta.get('mime') in {'application/octet-stream','application/zip','application/x-zip-compressed',''}:
+                    try:
+                        from .library_formats import sniff_format
+                        m0=store.db.execute('SELECT tag FROM members WHERE object=? AND position=0',(reference['manifest_digest'],)).fetchone()
+                        if m0:
+                            chunk0=store._read(m0[0])
+                            refined=sniff_format(chunk0,meta.get('mime'),meta.get('name'))
+                            if refined and refined!='application/octet-stream':meta['mime']=refined
+                    except Exception:
+                        pass
                 meta={**meta,'merkle_root':merkle_root(hashes),'created_at':int(time.time())}
             # Opaque account-scoped ID: no cross-account plaintext existence oracle.
             oid='cf1-'+hashlib.sha256((owner+'\0'+reference['manifest_digest']).encode()).hexdigest()

@@ -73,6 +73,22 @@ class RasterTests(unittest.TestCase):
             with self.subTest(channel=channel),self.assertRaisesRegex(ValueError,'pipe output limit'):
                 bounded_process([sys.executable,'-I','-c','import sys;sys.'+channel+'.buffer.write(b"x"*'+str(MAX_OUTPUT+10000)+')'],b'')
 
+    def test_cbz_with_metadata_files_and_webp(self):
+        output=io.BytesIO()
+        with zipfile.ZipFile(output,'w') as archive:
+            archive.writestr('ComicInfo.xml','<ComicInfo><Title>Sample</Title></ComicInfo>')
+            archive.writestr('read_me.txt','Scanlation info')
+            archive.writestr('.DS_Store',b'\0'*10)
+            img1=io.BytesIO();Image.new('RGB',(100,150),'green').save(img1,'PNG');archive.writestr('page_01.png',img1.getvalue())
+            img2=io.BytesIO();Image.new('RGB',(100,150),'yellow').save(img2,'WEBP');archive.writestr('page_02.webp',img2.getvalue())
+        source=output.getvalue()
+        manifest=parse_document(source,'application/vnd.comicbook+zip','manifest')
+        self.assertEqual(manifest['chapter_count'],2)
+        p1=parse_document(source,'application/vnd.comicbook+zip','chapter',chapter=0)
+        self.check_image(p1)
+        p2=parse_document(source,'application/vnd.comicbook+zip','chapter',chapter=1)
+        self.check_image(p2)
+
     def test_api_checks_private_book_before_and_after_render(self):
         from ziokt.content_fabric import Fabric
         from ziokt.content_api import invoke

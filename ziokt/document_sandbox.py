@@ -129,15 +129,18 @@ def worker():
     if len(line)>2048 or not line.endswith(b'\n'):raise ValueError('reader request limit')
     request=json.loads(line);source=sys.stdin.buffer.read(MAX_INPUT+1)
     if len(source)>MAX_INPUT:raise ValueError('reader source limit')
+    mime=formats.sniff_format(source,request.get('mime'))
+    request['mime']=mime
     raster=None
-    if request['mime'] in {'application/pdf','application/vnd.comicbook+zip','application/x-cbz'}:
+    if mime in {'application/pdf','application/vnd.comicbook+zip','application/x-cbz','application/zip','application/x-zip-compressed'}:
         raster_spec=importlib.util.spec_from_file_location('raster_reader',Path(__file__).with_name('raster_reader.py'))
         raster=importlib.util.module_from_spec(raster_spec);raster_spec.loader.exec_module(raster)
     confine()
     try:
-        if raster is not None:
-            result=raster.read(source,request['mime'],request['mode'],**request['arguments'])
-        else:result=formats.extract(source,request['mime']) if request['mode']=='preview' else formats.reader(source,request['mime'],request['mode'],**request['arguments'])
+        if raster is not None and mime in raster.MIMES and (mime=='application/pdf' or mime in {'application/vnd.comicbook+zip','application/x-cbz'}):
+            result=raster.read(source,mime,request['mode'],**request['arguments'])
+        else:
+            result=formats.extract(source,mime) if request['mode']=='preview' else formats.reader(source,mime,request['mode'],**request['arguments'])
         value={'ok':True,'result':result}
     except (ValueError,KeyError,TypeError,formats.zipfile.BadZipFile,formats.ET.ParseError,RuntimeError,OSError):
         value={'ok':False,'error':'document rejected by bounded parser'}

@@ -141,7 +141,7 @@ def invoke(fabric, owner, operation, args):
         for item in result['items']:item['published']=item['published'].isoformat() if item['published'] else None
         return result
     if operation in {'library.extract','library.reader.manifest','library.reader.chapter'}:
-        from .library_formats import MAX_SOURCE
+        from .library_formats import MAX_SOURCE, sniff_format
         from .document_sandbox import parse_document
         with fabric.lock:book=fabric._get(owner,args['id'],'book')
         import json
@@ -153,7 +153,8 @@ def invoke(fabric, owner, operation, args):
         mode='preview' if operation=='library.extract' else operation.rsplit('.',1)[-1]
         arguments={key:value for key,value in args.items() if key!='id'}
         if mode=='chapter':arguments.setdefault('limit',16384)
-        result=parse_document(source,info['mime'],mode,**arguments)
+        mime=sniff_format(source,info.get('mime'),info.get('name') or book.get('title'))
+        result=parse_document(source,mime,mode,**arguments)
         with fabric.lock:fabric._get(owner,args['id'],'book')
         return result
     if operation=='optimization.get':return fabric.optimizations.get(owner,args.get('application','content'))
