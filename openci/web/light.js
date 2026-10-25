@@ -7,7 +7,7 @@ const hex=data=>Array.from(new Uint8Array(data),v=>v.toString(16).padStart(2,'0'
 const unhex=value=>{if(typeof value!=='string'||!/^([a-f0-9]{2})+$/.test(value))throw Error('Invalid key encoding');return Uint8Array.from(value.match(/../g),v=>parseInt(v,16))};
 function canonical(value){if(value===null||typeof value!=='object')return JSON.stringify(value);if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}'}
 const digest=async data=>hex(await crypto.subtle.digest('SHA-256',typeof data==='string'?encoder.encode(data):data));
-function status(value){$('light-status').textContent=value}
+function status(value){const el=$('light-status');if(el){el.dataset.active='1';el.textContent=value}}
 async function request(path,body,method){const response=await fetch(prefix+path,{method:method||(body===undefined?'GET':'POST'),headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',credentials:'omit',redirect:'error',signal:abort?.signal});const value=await response.json();if(!response.ok)throw Error((value.error?.code||'HTTP_'+response.status)+': '+(value.error?.message||'Request rejected'));return value}
 async function detectedArchitecture(){
  if(['x86_64','aarch64'].includes(window.ZioktHostArchitecture))return window.ZioktHostArchitecture;
@@ -17,7 +17,18 @@ async function detectedArchitecture(){
 async function signed(payload,domain){if(!key)throw Error('Worker signing key required');return {schema:'ziokt.signed.v1',domain,public_key:publicKey,payload,signature:hex(await crypto.subtle.sign('Ed25519',key,encoder.encode(domain+'\n'+canonical(payload))))}}
 async function importSeed(raw){if(raw.length!==32)throw Error('Exact worker seed required');seed=raw;const pkcs=new Uint8Array(48);pkcs.set(unhex('302e020100300506032b657004220420'));pkcs.set(raw,16);key=await crypto.subtle.importKey('pkcs8',pkcs,{name:'Ed25519'},true,['sign']);const jwk=await crypto.subtle.exportKey('jwk',key);const b64=jwk.x.replace(/-/g,'+').replace(/_/g,'/');publicKey=hex(Uint8Array.from(atob(b64+'='.repeat((4-b64.length%4)%4)),v=>v.charCodeAt(0)))}
 function download(name,value){if(name==='openci-worker-private.json'&&window.ZioktCredentialExport){window.ZioktCredentialExport.save(JSON.stringify(value));return}const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)+'\n'],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-async function loadConfig(){config=await request('/v1/light/config');if(config.controller_origin){const origin=new URL(config.controller_origin);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Invalid configured Controller origin');$('light-controller').href=origin.origin+'/'}hostArchitecture=await detectedArchitecture();$('light-architecture').textContent='设备 '+hostArchitecture+' / 节点 '+config.node_arch+' / 目标 '+Object.keys(config.targets).join(', ');if(hostArchitecture!==config.node_arch)throw Error('设备架构必须与所连接节点一致。Client/node architecture mismatch.');return config}
+async function loadConfig(){
+ config=await request('/v1/light/config');
+ if(config.controller_origin){const origin=new URL(config.controller_origin);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Invalid configured Controller origin');$('light-controller').href=origin.origin+'/'}
+ hostArchitecture=await detectedArchitecture();
+ const el=$('light-architecture');
+ if(el){
+   el.dataset.detected='1';
+   el.textContent=document.documentElement.lang==='en'?('Device '+hostArchitecture+' / Node '+config.node_arch+' / Targets '+Object.keys(config.targets).join(', ')):('设备 '+hostArchitecture+' / 节点 '+config.node_arch+' / 目标 '+Object.keys(config.targets).join(', '));
+ }
+ if(hostArchitecture!==config.node_arch)throw Error(document.documentElement.lang==='en'?'Client/node architecture mismatch.':'设备架构必须与所连接节点一致。Client/node architecture mismatch.');
+ return config;
+}
 $('light-enroll').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{
  await loadConfig();const file=$('light-invite').files[0];if(!file||file.size>16384)throw Error('Bounded invitation file required');const invitation=JSON.parse(await file.text());workerId=$('light-worker-id').value.trim();if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(workerId)||invitation.schema!=='openci.worker-invite.v1'||invitation.caps.arch!==hostArchitecture)throw Error('Invitation worker/architecture mismatch');
  const allowedOrigin=prefix?new URL($('light-controller').href).origin:location.origin;if(invitation.controller_origin!==allowedOrigin)throw Error('Invitation belongs to another Controller');
@@ -26,12 +37,12 @@ $('light-enroll').addEventListener('submit',async event=>{event.preventDefault()
  if(!pendingEnrollment){const pair=await crypto.subtle.generateKey('Ed25519',true,['sign','verify']);const exported=await crypto.subtle.exportKey('pkcs8',pair.privateKey);await importSeed(new Uint8Array(exported).slice(-32));pendingEnrollment={digest:invitationDigest,request:{invite:invitation.invite,proof:await signed({invite_sha256:invitationDigest,worker:workerId,nonce:hex(crypto.getRandomValues(new Uint8Array(16)))},'OpenCI/worker-enrollment/v1')}}}
  const result=await request('/v1/enrollments/redeem',pendingEnrollment.request);token=result.access_token;
  download('openci-worker-private.json',{schema:'openci.light-credential.v1',controller:allowedOrigin,worker:workerId,token,seed_hex:hex(seed)});pendingEnrollment=null;
- status('准入完成，私有 Worker 凭证已下载，请妥善保管。等待运营者批准编译器与独立故障域；尚未取得奖励权限。');
+ status(document.documentElement.lang==='en'?'Admission complete. Private Worker credential downloaded; retain securely. Awaiting operator approval of compiler and independent failure domain; rewards not yet authorized.':'准入完成，私有 Worker 凭证已下载，请妥善保管。等待运营者批准编译器与独立故障域；尚未取得奖励权限。');
 }catch(error){status(error.message)}finally{event.submitter.disabled=false}});
-$('light-import').addEventListener('change',async()=>{try{stop();await loadConfig();const file=$('light-import').files[0];if(!file||file.size>16384)throw Error('Bounded private worker file required');const value=JSON.parse(await file.text());const origin=prefix?new URL($('light-controller').href).origin:location.origin;if(value.schema!=='openci.light-credential.v1'||value.controller!==origin||typeof value.token!=='string'||value.token.length>256)throw Error('Worker credential rejected');await importSeed(unhex(value.seed_hex));token=value.token;workerId=value.worker;const me=await request('/v1/me');if(me.role!=='worker'||me.worker!==workerId)throw Error('Dedicated matching worker required');await loadConfig();status('凭证已导入当前页面内存。可以开始领取已批准的轻量 C 编译任务。')}catch(error){logout();status(error.message)}finally{$('light-import').value=''}});
-function stop(){active=false;generation++;clearTimeout(timer);timer=null;if(compiler)compiler.terminate();compiler=null;if(abort)abort.abort();abort=null;$('light-start').textContent='开始轻量编译';$('light-start').setAttribute('aria-pressed','false');status('已停止；不会执行任务产物。')}
+$('light-import').addEventListener('change',async()=>{try{stop();await loadConfig();const file=$('light-import').files[0];if(!file||file.size>16384)throw Error('Bounded private worker file required');const value=JSON.parse(await file.text());const origin=prefix?new URL($('light-controller').href).origin:location.origin;if(value.schema!=='openci.light-credential.v1'||value.controller!==origin||typeof value.token!=='string'||value.token.length>256)throw Error('Worker credential rejected');await importSeed(unhex(value.seed_hex));token=value.token;workerId=value.worker;const me=await request('/v1/me');if(me.role!=='worker'||me.worker!==workerId)throw Error('Dedicated matching worker required');await loadConfig();status(document.documentElement.lang==='en'?'Credential imported into page memory. Ready to claim approved lightweight C compilation tasks.':'凭证已导入当前页面内存。可以开始领取已批准的轻量 C 编译任务。')}catch(error){logout();status(error.message)}finally{$('light-import').value=''}});
+function stop(){active=false;generation++;clearTimeout(timer);timer=null;if(compiler)compiler.terminate();compiler=null;if(abort)abort.abort();abort=null;$('light-start').textContent=document.documentElement.lang==='en'?'Start Lightweight Build':'开始轻量编译';$('light-start').setAttribute('aria-pressed','false');status(document.documentElement.lang==='en'?'Stopped; task outputs will not be executed.':'已停止；不会执行任务产物。')}
 function logout(){stop();token='';seed=null;key=null;publicKey='';workerId='';pendingEnrollment=null}
-$('light-logout').addEventListener('click',()=>{logout();status('Worker 凭证已从页面内存清除。')});
+$('light-logout').addEventListener('click',()=>{logout();status(document.documentElement.lang==='en'?'Worker credentials cleared from page memory.':'Worker 凭证已从页面内存清除。')});
 async function upload(assignment,data,mime='application/octet-stream'){
  const query='?project='+encodeURIComponent(assignment.project),id='light-'+hex(crypto.getRandomValues(new Uint8Array(16))),hash='sha256:'+await digest(data);
  await request('/v1/objects/begin'+query,{upload:id,size:data.length,digest:hash,mime});
@@ -42,19 +53,26 @@ async function source(assignment){const query='?project='+encodeURIComponent(ass
 function compile(assignment,text,epoch){return new Promise((resolve,reject)=>{const target=assignment.task.argv[1],entry=config.targets[target];if(!entry||entry.image!==assignment.task.image)return reject(Error('Unapproved compiler target'));compiler=new Worker(prefix+'/light-worker.js');const instance=compiler,deadline=setTimeout(()=>finish(Error('Compiler time budget exceeded')),20000);function finish(error,result){clearTimeout(deadline);instance.terminate();if(compiler===instance)compiler=null;if(epoch!==generation)return reject(Error('Stopped'));error?reject(error):resolve(new Uint8Array(result))}instance.onmessage=e=>e.data.error?finish(Error(e.data.error)):finish(null,e.data.object);instance.onerror=()=>finish(Error('Compiler unavailable'));instance.postMessage({target,source:text,prefix,files:entry.files})})}
 async function next(epoch){if(!active||epoch!==generation)return;abort=new AbortController();try{
  await loadConfig();const assignment=(await request('/v1/light/claim',{architecture:hostArchitecture})).assignment;
- if(!assignment){status('等待匹配架构与已批准工具链的真实任务；空闲时不计算。');return}
- status('正在编译 '+assignment.pipeline+' / '+assignment.task.id+'，只生成对象文件。');
+ if(!assignment){status(document.documentElement.lang==='en'?'Awaiting authentic tasks matching architecture and approved toolchains; idle when no work.':'等待匹配架构与已批准工具链的真实任务；空闲时不计算。');return}
+ status(document.documentElement.lang==='en'?('Compiling '+assignment.pipeline+' / '+assignment.task.id+', generating object files only.'):('正在编译 '+assignment.pipeline+' / '+assignment.task.id+'，只生成对象文件。'));
  const input=await source(assignment),object=await compile(assignment,input,epoch);
  if(!active||epoch!==generation)return;
  const objectRef=await upload(assignment,object),set={schema:'openci.artifact-set.v1',source:assignment.source,image:assignment.task.image,files:[{path:'unit.o',reference:objectRef,size:object.length}]};
  const artifact=await upload(assignment,encoder.encode(canonical(set)),'application/vnd.openci.artifact-set+json'),logs=await upload(assignment,encoder.encode(canonical({schema:'openci.light-compile-log.v1',host_arch:hostArchitecture,target:assignment.task.argv[1],object_bytes:object.length,task_code_executed:false})),'application/json');
  const result={exit_code:0,artifact,logs},statement={schema:'openci.worker-receipt.v1',worker:workerId,pipeline:assignment.pipeline,task:assignment.task.id,attempt:assignment.attempt,source:assignment.source,task_digest:'sha256:'+await digest(canonical(assignment.task)),lease_digest:'sha256:'+await digest(assignment.lease),result};
  const receipt=await request('/v1/finish',{pipeline:assignment.pipeline,task:assignment.task.id,lease:assignment.lease,...result,attestation:await signed(statement,'OpenCI/worker-receipt/v1')});
- status('签名产物已提交：'+receipt.state+'；独立核验 '+receipt.verification+'，尚未结算奖励。');
+ status(document.documentElement.lang==='en'?('Signed artifact submitted: '+receipt.state+'; independent verification '+receipt.verification+', rewards not yet settled.'):('签名产物已提交：'+receipt.state+'；独立核验 '+receipt.verification+'，尚未结算奖励。'));
 }catch(error){if(active&&epoch===generation)status(error.message+'；未确认成功。')}finally{abort=null;if(active&&epoch===generation)timer=setTimeout(()=>next(epoch),5000)}}
-async function start(){try{if(!token||!key)throw Error('请先接入节点或导入专用 Worker 凭证。');if(navigator.onLine===false)throw Error('Offline');await loadConfig();active=true;$('light-start').textContent='停止轻量编译';$('light-start').setAttribute('aria-pressed','true');next(++generation)}catch(error){status(error.message)}}
+async function start(){try{if(!token||!key)throw Error(document.documentElement.lang==='en'?'Please join as a worker or import dedicated Worker credentials first.':'请先接入节点或导入专用 Worker 凭证。');if(navigator.onLine===false)throw Error('Offline');await loadConfig();active=true;$('light-start').textContent=document.documentElement.lang==='en'?'Stop Lightweight Build':'停止轻量编译';$('light-start').setAttribute('aria-pressed','true');next(++generation)}catch(error){status(error.message)}}
 $('light-start').addEventListener('click',()=>active?stop():start());
 const mode=$('help-mode'),shared=$('start');if(mode&&shared){shared.addEventListener('click',event=>{if(mode.value!=='openci')return;event.stopImmediatePropagation();event.preventDefault();active?stop():start()},true);mode.addEventListener('change',()=>{if(mode.value!=='openci')stop();panel.hidden=mode.value!=='openci'})}
 addEventListener('offline',()=>{if(active)stop()});addEventListener('pagehide',logout);document.addEventListener('visibilitychange',()=>{if(document.hidden&&!$('background')?.checked)stop()});
+document.addEventListener('languagechange',()=>{
+ if(config&&hostArchitecture){
+   $('light-architecture').textContent=document.documentElement.lang==='en'?('Device '+hostArchitecture+' / Node '+config.node_arch+' / Targets '+Object.keys(config.targets).join(', ')):('设备 '+hostArchitecture+' / 节点 '+config.node_arch+' / 目标 '+Object.keys(config.targets).join(', '));
+ }
+ if(!active){$('light-start').textContent=document.documentElement.lang==='en'?'Start Lightweight Build':'开始轻量编译';}
+ else{$('light-start').textContent=document.documentElement.lang==='en'?'Stop Lightweight Build':'停止轻量编译';}
+});
 window.ZioktLight={stop,desired:()=>active};
 })();
