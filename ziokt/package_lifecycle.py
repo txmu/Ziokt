@@ -7,10 +7,12 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import tempfile
 import time
 
 from .protocol import ProtocolError, encoded, secure_read, strict_json
 from .security import verify, sign
+from .package_storage import atomic_write, check_files, relative_path, safe_path
 
 PACKAGE_DOMAIN = 'Ziokt/package-lifecycle/v1'
 
@@ -160,9 +162,9 @@ class PackageManager:
 
     def __init__(self, root_dir, allowlist=None, registry=None):
         self.root = Path(root_dir)
-        self.slots_dir = self.root / 'slots'
-        self.active_dir = self.root / 'active'
-        self.db_path = self.root / 'packages.db'
+        self.slots_dir = safe_path(self.root, 'slots')
+        self.active_dir = safe_path(self.root, 'active')
+        self.db_path = safe_path(self.root, 'packages.db')
         self.allowlist = set(allowlist) if allowlist else set()
         self.registry = registry or {}
         self.slots_dir.mkdir(parents=True, exist_ok=True)
@@ -201,21 +203,27 @@ class PackageManager:
 
     def authorize_package(self, manifest_data, files_dict, publisher=None, allowlist=None):
         """Verify package manifest format, files SHA-256 integrity, and publisher authorization."""
-        manifest = manifest_data if isinstance(manifest_data, dict) else strict_json(manifest_data)
+        envelope = manifest_data if isinstance(manifest_data, dict) else strict_json(manifest_data)
+        if not isinstance(envelope, dict):
+            raise ProtocolError('INVALID_MANIFEST', 'signed package manifest required')
+        effective_allowlist = set(allowlist) if allowlist is not None else self.allowlist
+        pub = envelope.get('public_key')
+        if not pub or pub not in effective_allowlist or (publisher is not None and publisher != pub):
+            raise ProtocolError('UNAUTHORIZED_PUBLISHER', 'explicitly authorized signing publisher required')
+        manifest = verify(envelope, pub, PACKAGE_DOMAIN, maximum=1024 * 1024)
+        if manifest.get('publisher') != pub:
+            raise ProtocolError('UNAUTHORIZED_PUBLISHER', 'manifest publisher must match signature')
         schema = manifest.get('schema')
         if schema not in {'ziokt.package.v1', 'ziokt.dcpm-package.v2', 'shadow6.package.v1'}:
             raise ProtocolError('INVALID_MANIFEST', f'unsupported package schema: {schema}')
 
         name = manifest.get('name') or manifest.get('id')
         version = manifest.get('version')
-        if not name or not ID_RE.fullmatch(name):
+        if not isinstance(name, str) or not ID_RE.fullmatch(name):
             raise ProtocolError('INVALID_PACKAGE_NAME', 'canonical package identifier required')
         parse_semver(version)
 
-        pub = publisher or manifest.get('publisher')
-        effective_allowlist = set(allowlist) if allowlist is not None else self.allowlist
-        if effective_allowlist and (not pub or pub not in effective_allowlist):
-            raise ProtocolError('UNAUTHORIZED_PUBLISHER', f'publisher "{pub}" is not in package allowlist')
+        check_files(files_dict, reserved={'_manifest.json'})
 
         # File hash integrity verification
         expected_files = manifest.get('files', {})
@@ -225,11 +233,16 @@ class PackageManager:
         else:
             exp_map = expected_files
 
+        if not isinstance(exp_map, dict) or set(exp_map) != set(files_dict) or (isinstance(expected_files, list) and len(exp_map) != len(expected_files)):
+            raise ProtocolError('PACKAGE_INTEGRITY', 'signed manifest must cover exactly every supplied file')
+
         for file_path, exp_hash in exp_map.items():
             if file_path not in files_dict:
                 raise ProtocolError('PACKAGE_INTEGRITY', f'missing file required by manifest: {file_path}')
             actual_data = files_dict[file_path]
             actual_hash = hashlib.sha256(actual_data).hexdigest()
+            if not isinstance(exp_hash, str):
+                raise ProtocolError('PACKAGE_INTEGRITY', 'SHA-256 file hash required')
             clean_exp = exp_hash.removeprefix('sha256:')
             if actual_hash != clean_exp:
                 raise ProtocolError('PACKAGE_INTEGRITY', f'file hash mismatch for {file_path}')
@@ -239,27 +252,29 @@ class PackageManager:
             'name': name,
             'version': version,
             'publisher': pub or 'unknown',
-            'manifest': manifest
+            'manifest': manifest,
+            'envelope': envelope
         }
 
     def _write_slot(self, name, version, manifest, files_dict):
-        slot = self.slots_dir / name / version
-        slot.mkdir(parents=True, exist_ok=True)
-        # Protect against path traversal and write files
-        for rel_path, data in files_dict.items():
-            if '..' in rel_path or rel_path.startswith('/') or '\\' in rel_path:
-                raise ProtocolError('PATH_TRAVERSAL', f'illegal path in package: {rel_path}')
-            target = slot / rel_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-
-        # Write manifest
-        (slot / '_manifest.json').write_text(json.dumps(manifest, indent=2))
+        check_files(files_dict, reserved={'_manifest.json'})
+        slot = safe_path(self.slots_dir, name + '/' + version)
+        if slot.exists():
+            raise ProtocolError('PACKAGE_EXISTS', 'immutable version slot already exists')
+        slot.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.stage-', dir=slot.parent) as directory:
+            stage = Path(directory) / 'slot'
+            stage.mkdir()
+            for rel_path, data in files_dict.items():
+                target = safe_path(stage, rel_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+            (stage / '_manifest.json').write_text(json.dumps(manifest, indent=2))
+            os.rename(stage, slot)
         return slot
 
     def _set_active(self, name, version, slot_path):
-        active_pointer = self.active_dir / f"{name}.json"
-        temp_pointer = self.active_dir / f"{name}.json.tmp"
+        active_pointer = safe_path(self.active_dir, f"{name}.json")
         data = {
             'schema': 'ziokt.package-active.v1',
             'name': name,
@@ -267,13 +282,28 @@ class PackageManager:
             'slot_path': str(slot_path),
             'updated_at': int(time.time())
         }
-        temp_pointer.write_text(json.dumps(data, indent=2))
-        os.replace(temp_pointer, active_pointer)
+        atomic_write(active_pointer, encoded(data))
+
+    def _check_dependencies(self, manifest, replacing=None):
+        deps = manifest.get('dependencies', {})
+        if not isinstance(deps, dict):
+            raise ProtocolError('DEPENDENCY_MISSING', 'dependency mapping required')
+        for name, constraint in deps.items():
+            installed = self.get(name)
+            if not installed or installed['status'] != 'active' or not matches_constraint(installed['version'], constraint):
+                raise ProtocolError('DEPENDENCY_INCOMPATIBLE', 'active dependency does not satisfy ' + name)
+        if replacing:
+            for installed in self.list_packages(status='active'):
+                constraint = installed['manifest'].get('dependencies', {}).get(replacing)
+                if constraint is not None and not matches_constraint(manifest['version'], constraint):
+                    raise ProtocolError('DEPENDENCY_CONFLICT', 'upgrade breaks dependent ' + installed['name'])
 
     def install(self, manifest_data, files_dict, publisher=None, allowlist=None):
         """Install package into isolated slot and set active pointer."""
         auth = self.authorize_package(manifest_data, files_dict, publisher, allowlist)
         name, version, pub, manifest = auth['name'], auth['version'], auth['publisher'], auth['manifest']
+        if self.get(name):
+            raise ProtocolError('PACKAGE_EXISTS', 'use upgrade for an installed package')
 
         # Dependency check
         deps = manifest.get('dependencies', {})
@@ -288,7 +318,7 @@ class PackageManager:
                 )
 
         now = int(time.time())
-        slot = self._write_slot(name, version, manifest, files_dict)
+        slot = self._write_slot(name, version, auth['envelope'], files_dict)
         self._set_active(name, version, slot)
 
         files_manifest = {p: hashlib.sha256(b).hexdigest() for p, b in files_dict.items()}
@@ -326,6 +356,9 @@ class PackageManager:
         current = self.get(name)
         if not current:
             raise ProtocolError('PACKAGE_NOT_FOUND', f'cannot upgrade uninstalled package: {name}')
+        if current['publisher'] != pub:
+            raise ProtocolError('UNAUTHORIZED_PUBLISHER', 'upgrade cannot change publisher')
+        self._check_dependencies(manifest, replacing=name)
 
         if compare_semver(new_version, current['version']) <= 0:
             raise ProtocolError(
@@ -334,7 +367,7 @@ class PackageManager:
             )
 
         now = int(time.time())
-        slot = self._write_slot(name, new_version, manifest, files_dict)
+        slot = self._write_slot(name, new_version, auth['envelope'], files_dict)
         self._set_active(name, new_version, slot)
 
         files_manifest = {p: hashlib.sha256(b).hexdigest() for p, b in files_dict.items()}
@@ -378,9 +411,20 @@ class PackageManager:
         if not prev_version:
             raise ProtocolError('ROLLBACK_UNAVAILABLE', f'no recorded previous version for {name}')
 
-        prev_slot = self.slots_dir / name / prev_version
+        prev_slot = safe_path(self.slots_dir, name + '/' + prev_version)
         if not prev_slot.exists():
             raise ProtocolError('ROLLBACK_SLOT_MISSING', f'previous slot directory missing: {prev_slot}')
+
+        envelope = strict_json(safe_path(prev_slot, '_manifest.json').read_bytes(), 1024 * 1024)
+        manifest = verify(envelope, current['publisher'], PACKAGE_DOMAIN, maximum=1024 * 1024)
+        if manifest.get('name') != name or manifest.get('version') != prev_version or manifest.get('publisher') != current['publisher']:
+            raise ProtocolError('PACKAGE_INTEGRITY', 'rollback metadata mismatch')
+        expected = manifest['files']
+        files_manifest = {entry['path']: (entry.get('sha256') or entry.get('digest')).removeprefix('sha256:') for entry in expected} if isinstance(expected, list) else {path: digest.removeprefix('sha256:') for path, digest in expected.items()}
+        for path, digest in files_manifest.items():
+            if hashlib.sha256(safe_path(prev_slot, path).read_bytes()).hexdigest() != digest:
+                raise ProtocolError('PACKAGE_INTEGRITY', 'rollback slot is corrupted')
+        self._check_dependencies(manifest, replacing=name)
 
         now = int(time.time())
         self._set_active(name, prev_version, prev_slot)
@@ -389,9 +433,9 @@ class PackageManager:
             with conn as db:
                 db.execute('''
                     UPDATE packages SET
-                    version = ?, previous_version = ?, updated_at = ?, status = 'active', slot_path = ?
+                    version = ?, previous_version = ?, updated_at = ?, status = 'active', slot_path = ?, manifest = ?, files_manifest = ?
                     WHERE name = ?
-                ''', (prev_version, current['version'], now, str(prev_slot), name))
+                ''', (prev_version, current['version'], now, str(prev_slot), json.dumps(manifest), json.dumps(files_manifest), name))
                 db.execute('''
                     INSERT INTO package_history (package_name, version, action, timestamp, details)
                     VALUES (?, ?, ?, ?, ?)
@@ -464,7 +508,7 @@ class PackageManager:
         missing = []
 
         for rel_path, exp_hash in files_manifest.items():
-            fpath = slot / rel_path
+            fpath = safe_path(slot, rel_path)
             if not fpath.exists():
                 missing.append(rel_path)
                 continue
@@ -496,9 +540,12 @@ class PackageManager:
         if clean_source_files:
             for rel_path in audit['missing_files'] + audit['corrupted_files']:
                 if rel_path in clean_source_files:
-                    fpath = slot / rel_path
+                    data = clean_source_files[rel_path]
+                    if not isinstance(data, bytes) or hashlib.sha256(data).hexdigest() != current['files_manifest'][rel_path]:
+                        raise ProtocolError('PACKAGE_INTEGRITY', 'repair source does not match signed digest')
+                    fpath = safe_path(slot, rel_path)
                     fpath.parent.mkdir(parents=True, exist_ok=True)
-                    fpath.write_bytes(clean_source_files[rel_path])
+                    atomic_write(fpath, data)
                     restored.append(rel_path)
                 else:
                     unrepaired.append(rel_path)

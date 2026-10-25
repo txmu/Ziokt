@@ -14,7 +14,11 @@ Bridges Corium Strata and dCPM decentralized package management:
    - Enforces cryptographic signature verification against locally authorized publisher keys.
    - Strictly unprivileged file extraction without install scripts (install_scripts=False).
 """
+from contextlib import closing
 import argparse
+import base64
+import secrets
+import tempfile
 import hashlib
 import json
 import os
@@ -27,6 +31,9 @@ import time
 
 from .protocol import ProtocolError, secure_read, strict_json, encoded
 from .security import sign, verify
+from .package_storage import atomic_write, check_files, relative_path, safe_path
+
+DCPM_DOMAIN = "Ziokt/dcpm-strata/v1"
 
 SPEC_RE = re.compile(r'^(?:([a-zA-Z0-9_-]+)/)?([a-zA-Z0-9_-]+)(?::([a-zA-Z0-9_-]+))?(?:#([0-9A-Za-z.-]+))?(?:@([a-f0-9]{64}))?$')
 
@@ -35,10 +42,12 @@ def parse_package_spec(spec_str):
     """Parse Corium-compatible package specification.
     Format: [category/]name[:slot][#version][@publisher_key]
     """
-    m = SPEC_RE.match(spec_str.strip())
+    m = SPEC_RE.fullmatch(spec_str) if isinstance(spec_str, str) and len(spec_str) <= 256 else None
     if not m:
         raise ProtocolError('INVALID_SPEC', f'malformed package spec: {spec_str}')
     category, name, slot, version, publisher = m.groups()
+    if version in {".", ".."}:
+        raise ProtocolError("INVALID_SPEC", "canonical version required")
     return {
         'category': category or 'app',
         'name': name,
@@ -50,23 +59,23 @@ def parse_package_spec(spec_str):
 
 class DCPMStrataManager:
     def __init__(self, root_dir):
-        self.root = Path(root_dir).resolve()
-        self.dcpm_dir = self.root / '.dcpm'
-        self.slots_dir = self.root / 'slots'
-        self.db_path = self.dcpm_dir / 'installed.db'
-        self.auth_file = self.dcpm_dir / 'authorities.json'
+        self.root = Path(root_dir).absolute()
+        self.dcpm_dir = safe_path(self.root, '.dcpm')
+        self.slots_dir = safe_path(self.root, 'slots')
+        self.db_path = safe_path(self.dcpm_dir, 'installed.db')
+        self.auth_file = safe_path(self.dcpm_dir, 'authorities.json')
         self._ensure_layout()
 
     def _ensure_layout(self):
         self.dcpm_dir.mkdir(parents=True, exist_ok=True)
         self.slots_dir.mkdir(parents=True, exist_ok=True)
         for d in ('bin', 'lib', 'usr', 'etc', 'var'):
-            (self.root / d).mkdir(parents=True, exist_ok=True)
+            safe_path(self.root, d).mkdir(parents=True, exist_ok=True)
 
         if not self.auth_file.is_file():
-            self.auth_file.write_text(json.dumps({'trusted_publishers': []}, indent=2))
+            atomic_write(self.auth_file, encoded({'trusted_publishers': []}))
 
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             db.execute("""
             CREATE TABLE IF NOT EXISTS installed_packages (
                 name TEXT NOT NULL,
@@ -107,166 +116,156 @@ class DCPMStrataManager:
             raise ProtocolError('INVALID_KEY', 'valid 64-char hex ed25519 public key required')
         trusted = self.get_trusted_publishers()
         trusted.add(pubkey_hex)
-        self.auth_file.write_text(json.dumps({'trusted_publishers': sorted(trusted)}, indent=2))
+        atomic_write(self.auth_file, encoded({'trusted_publishers': sorted(trusted)}))
 
-    def stage_package(self, spec_str, files, publisher_key, private_key=None, dependencies=None):
-        """Stage package files into slots/{name}/{slot}/{version}.
-        Verifies publisher identity and authorization.
-        """
+    def stage_package(self, spec_str, files, publisher_key, private_key=None, dependencies=None, signed_manifest=None):
+        """Verify an explicitly trusted signature before writing an immutable slot."""
         spec = parse_package_spec(spec_str)
-        name = spec['name']
-        slot = spec['slot']
-        version = spec['version']
-        category = spec['category']
+        if not re.fullmatch(r'[a-f0-9]{64}', publisher_key):
+            raise ProtocolError('INVALID_KEY', 'Ed25519 publisher key required')
+        if spec['publisher'] and spec['publisher'] != publisher_key:
+            raise ProtocolError('SIGNATURE_REJECTED', 'pinned publisher mismatch')
+        if publisher_key not in self.get_trusted_publishers() and spec['publisher'] != publisher_key:
+            raise PermissionError('DCPM_UNTRUSTED_PUBLISHER')
+        files = {name: data.encode() if isinstance(data, str) else data for name, data in files.items()}
+        check_files(files, reserved={'.dcpm', 'slots', '.corix_strata', '_manifest.json'})
+        deps = dependencies or []
+        if not isinstance(deps, list) or len(deps) > 128:
+            raise ProtocolError('DEPENDENCY_CONFLICT', 'bounded dependency specifications required')
+        for dep in deps:
+            parse_package_spec(dep)
+        manifest = {'schema': 'ziokt.dcpm-package.v1', 'name': spec['name'], 'category': spec['category'],
+                    'slot': spec['slot'], 'version': spec['version'], 'publisher': publisher_key,
+                    'dependencies': deps, 'files': [{'path': path, 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+                                                   for path, data in sorted(files.items())], 'install_scripts': False}
+        envelope = signed_manifest
+        if private_key is not None:
+            envelope = sign(manifest, private_key, DCPM_DOMAIN)
+        if envelope is None or verify(envelope, publisher_key, DCPM_DOMAIN, maximum=1024*1024) != manifest:
+            raise ProtocolError('SIGNATURE_REJECTED', 'matching signed manifest required')
+        digest = hashlib.sha256(encoded(manifest)).hexdigest()
+        slot_dir = safe_path(self.slots_dir, '/'.join((spec['name'], spec['slot'], spec['version'])))
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT version,publisher,status,category FROM installed_packages WHERE name=? AND slot=?', (spec['name'],spec['slot'])).fetchone()
+            if row and (row[1] != publisher_key or row[2] == 'staged' or row[3] != spec['category']):
+                raise ProtocolError('PACKAGE_CONFLICT', 'publisher/category change or pending stage rejected')
+            if slot_dir.exists():
+                raise ProtocolError('PACKAGE_EXISTS', 'immutable package version already exists')
+            slot_dir.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix='.stage-', dir=slot_dir.parent) as temporary:
+                stage = Path(temporary)/'payload'; stage.mkdir()
+                for path, data in files.items():
+                    target = safe_path(stage, path); target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                    target.chmod(0o755 if path.startswith(('bin/', 'usr/bin/')) else 0o644)
+                (stage/'_manifest.json').write_bytes(encoded(envelope))
+                os.rename(stage, slot_dir)
+            db.execute('''INSERT INTO installed_packages
+                (name,category,slot,version,previous_version,publisher,manifest_hash,status,installed_at,files_json)
+                VALUES (?,?,?,?,?,?,?,'staged',?,?) ON CONFLICT(name,slot) DO UPDATE SET
+                version=excluded.version,previous_version=excluded.previous_version,manifest_hash=excluded.manifest_hash,
+                status='staged',installed_at=excluded.installed_at,files_json=excluded.files_json''',
+                (spec['name'],spec['category'],spec['slot'],spec['version'],row[0] if row else None,publisher_key,digest,int(time.time()),json.dumps(list(files))))
+        return {'status':'staged','spec':spec_str,'manifest_hash':digest,'slot_path':str(slot_dir)}
 
-        trusted = self.get_trusted_publishers()
-        # Security Policy: publisher must be authorized or explicitly pinned in spec
-        if publisher_key not in trusted and spec['publisher'] != publisher_key:
-            raise PermissionError(f'DCPM_UNTRUSTED_PUBLISHER: publisher {publisher_key} is not authorized in this strata')
+    def _manifest(self, name, slot, version, publisher):
+        directory = safe_path(self.slots_dir, '/'.join((name,slot,version)))
+        envelope = strict_json(safe_path(directory, '_manifest.json').read_bytes(), 1024*1024)
+        manifest = verify(envelope,publisher,DCPM_DOMAIN,maximum=1024*1024)
+        if (manifest.get('name'),manifest.get('slot'),manifest.get('version'),manifest.get('publisher')) != (name,slot,version,publisher):
+            raise ProtocolError('PACKAGE_INTEGRITY','slot identity mismatch')
+        for entry in manifest['files']:
+            data = safe_path(directory,entry['path']).read_bytes()
+            if len(data) != entry['size'] or hashlib.sha256(data).hexdigest() != entry['sha256']:
+                raise ProtocolError('PACKAGE_INTEGRITY','slot content mismatch')
+        return directory, manifest
 
-        slot_dir = self.slots_dir / name / slot / version
-        slot_dir.mkdir(parents=True, exist_ok=True)
-
-        manifest_entries = []
-        file_paths = []
-        for rel_path, data in files.items():
-            if isinstance(data, str):
-                data = data.encode('utf-8')
-            dest = slot_dir / rel_path
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-            digest = hashlib.sha256(data).hexdigest()
-            manifest_entries.append({'path': rel_path, 'sha256': digest, 'size': len(data)})
-            file_paths.append(rel_path)
-
-        manifest = {
-            'schema': 'ziokt.dcpm-package.v1',
-            'name': name,
-            'category': category,
-            'slot': slot,
-            'version': version,
-            'publisher': publisher_key,
-            'dependencies': dependencies or [],
-            'files': manifest_entries,
-            'install_scripts': False
-        }
-        manifest_hash = hashlib.sha256(encoded(manifest)).hexdigest()
-
-        # Check existing version for rollback record
-        prev_ver = None
-        with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT version FROM installed_packages WHERE name=? AND slot=?", (name, slot)).fetchone()
-            if row:
-                prev_ver = row[0]
-            db.execute("""
-            INSERT INTO installed_packages (name, category, slot, version, previous_version, publisher, manifest_hash, status, installed_at, files_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'staged', ?, ?)
-            ON CONFLICT(name, slot) DO UPDATE SET
-                version=excluded.version,
-                previous_version=COALESCE(installed_packages.version, excluded.previous_version),
-                publisher=excluded.publisher,
-                manifest_hash=excluded.manifest_hash,
-                status='staged',
-                installed_at=excluded.installed_at,
-                files_json=excluded.files_json
-            """, (name, category, slot, version, prev_ver, publisher_key, manifest_hash, int(time.time()), json.dumps(file_paths)))
-            db.commit()
-
-        return {
-            'status': 'staged',
-            'spec': f"{category}/{name}:{slot}#{version}@{publisher_key}",
-            'manifest_hash': manifest_hash,
-            'slot_path': str(slot_dir)
-        }
+    def _activate(self, db, name, slot, version, publisher, previous):
+        directory, manifest = self._manifest(name,slot,version,publisher)
+        old_files = set()
+        if previous:
+            old_dir, old_manifest = self._manifest(name,slot,previous,publisher)
+            old_files = {item['path'] for item in old_manifest['files']}
+        deps = [parse_package_spec(value) for value in manifest['dependencies']]
+        for dep in deps:
+            row = db.execute('SELECT version,publisher,status FROM installed_packages WHERE name=? AND slot=?',(dep['name'],dep['slot'])).fetchone()
+            if not row or row[2] != 'active' or row[0] != dep['version'] or (dep['publisher'] and row[1] != dep['publisher']):
+                raise ProtocolError('DEPENDENCY_CONFLICT','required active dependency is missing or incompatible')
+        for constraint, in db.execute('SELECT constraint_expr FROM package_dependencies WHERE depends_on_name=? AND depends_on_slot=?',(name,slot)):
+            dep = parse_package_spec(constraint)
+            if dep['version'] != version or (dep['publisher'] and dep['publisher'] != publisher):
+                raise ProtocolError('DEPENDENCY_CONFLICT','activation breaks a reverse dependency')
+        new_files = {entry['path'] for entry in manifest['files']}
+        targets = {}
+        for path in sorted(old_files | new_files):
+            target = safe_path(self.root,path,leaf_link=True)
+            if target.exists() or target.is_symlink():
+                if not target.is_symlink() or path not in old_files or target.resolve() != (old_dir/path).resolve():
+                    raise ProtocolError('FILE_CONFLICT','projection belongs to another package or operator')
+            targets[path] = target
+        originals = {path:os.readlink(target) if target.is_symlink() else None for path,target in targets.items()}
+        try:
+            for path,target in targets.items():
+                target.parent.mkdir(parents=True,exist_ok=True)
+                if path not in new_files:
+                    if target.is_symlink(): target.unlink()
+                    continue
+                temporary = target.with_name('.dcpm-'+secrets.token_hex(12))
+                try:
+                    temporary.symlink_to(os.path.relpath(directory/path,target.parent));os.replace(temporary,target)
+                finally:
+                    if temporary.is_symlink():temporary.unlink()
+            db.execute('DELETE FROM package_dependencies WHERE package_name=? AND package_slot=?',(name,slot))
+            for dep,raw in zip(deps,manifest['dependencies']):
+                db.execute('INSERT INTO package_dependencies VALUES (?,?,?,?,?)',(name,slot,dep['name'],dep['slot'],raw))
+            db.execute("UPDATE installed_packages SET version=?,previous_version=?,status='active',manifest_hash=?,files_json=? WHERE name=? AND slot=?",
+                       (version,previous,hashlib.sha256(encoded(manifest)).hexdigest(),json.dumps(sorted(new_files)),name,slot))
+        except Exception:
+            for path,target in targets.items():
+                if target.is_symlink():target.unlink()
+                if originals[path] is not None:target.symlink_to(originals[path])
+            raise
+        return {'status':'active','name':name,'slot':slot,'version':version}
 
     def commit(self, name, slot='0'):
-        """Commit staged package: activates projections into strata bin/lib/etc."""
-        with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT version, files_json FROM installed_packages WHERE name=? AND slot=?", (name, slot)).fetchone()
-            if not row:
-                raise ProtocolError('PACKAGE_NOT_FOUND', f'no staged package for {name}:{slot}')
-            version, files_raw = row
-            files = json.loads(files_raw)
-
-            slot_dir = self.slots_dir / name / slot / version
-            # Project files into strata root
-            for rel in files:
-                src = slot_dir / rel
-                target = self.root / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if target.is_symlink() or target.is_file():
-                    target.unlink()
-                # Create relative symlink
-                rel_symlink = os.path.relpath(src, target.parent)
-                target.symlink_to(rel_symlink)
-
-            db.execute("UPDATE installed_packages SET status='active' WHERE name=? AND slot=?", (name, slot))
-            db.commit()
-
-        return {'status': 'active', 'name': name, 'slot': slot, 'version': version}
+        relative_path(name);relative_path(slot)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT version,publisher,previous_version,status FROM installed_packages WHERE name=? AND slot=?',(name,slot)).fetchone()
+            if not row:raise ProtocolError('PACKAGE_NOT_FOUND','no staged package')
+            if row[3] != 'staged':raise ProtocolError('PACKAGE_CONFLICT','package is not staged')
+            return self._activate(db,name,slot,row[0],row[1],row[2])
 
     def rollback(self, name, slot='0'):
-        """Atomically rolls back to previous version slot."""
-        with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT version, previous_version FROM installed_packages WHERE name=? AND slot=?", (name, slot)).fetchone()
-            if not row or not row[1]:
-                raise ProtocolError('ROLLBACK_UNAVAILABLE', f'no previous version for {name}:{slot}')
-            cur_ver, prev_ver = row
-
-            prev_dir = self.slots_dir / name / slot / prev_ver
-            if not prev_dir.is_dir():
-                raise ProtocolError('ROLLBACK_FAILED', f'previous slot directory missing: {prev_dir}')
-
-            # Switch active version to prev_ver
-            db.execute("""
-            UPDATE installed_packages
-            SET version=?, previous_version=?, status='active', installed_at=?
-            WHERE name=? AND slot=?
-            """, (prev_ver, cur_ver, int(time.time()), name, slot))
-            db.commit()
-
-        # Re-commit previous version
-        return self.commit(name, slot)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT version,publisher,previous_version,status FROM installed_packages WHERE name=? AND slot=?',(name,slot)).fetchone()
+            if not row or not row[2]:raise ProtocolError('ROLLBACK_UNAVAILABLE','no previous version')
+            return self._activate(db,name,slot,row[2],row[1],row[0] if row[3]=='active' else row[2])
 
     def uninstall(self, name, slot='0'):
-        """Removes package files and cleans active projections."""
-        with sqlite3.connect(self.db_path) as db:
-            # Check reverse dependencies
-            rev_deps = db.execute(
-                "SELECT package_name, package_slot FROM package_dependencies WHERE depends_on_name=? AND depends_on_slot=?",
-                (name, slot)
-            ).fetchall()
-            if rev_deps:
-                dependents = [f"{r[0]}:{r[1]}" for r in rev_deps]
-                raise ProtocolError('DEPENDENCY_CONFLICT', f'cannot uninstall {name}:{slot}; required by {dependents}')
-
-            row = db.execute("SELECT version, files_json FROM installed_packages WHERE name=? AND slot=?", (name, slot)).fetchone()
-            if not row:
-                raise ProtocolError('PACKAGE_NOT_FOUND', f'{name}:{slot} is not installed')
-            version, files_raw = row
-            files = json.loads(files_raw)
-
-            # Clean active projection symlinks
-            for rel in files:
-                target = self.root / rel
-                if target.is_symlink():
-                    target.unlink()
-
-            # Clean slot dir
-            pkg_slot_dir = self.slots_dir / name / slot
-            if pkg_slot_dir.is_dir():
-                shutil.rmtree(pkg_slot_dir, ignore_errors=True)
-
-            db.execute("DELETE FROM installed_packages WHERE name=? AND slot=?", (name, slot))
-            db.execute("DELETE FROM package_dependencies WHERE package_name=? AND package_slot=?", (name, slot))
-            db.commit()
-
-        return {'status': 'uninstalled', 'name': name, 'slot': slot}
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM package_dependencies WHERE depends_on_name=? AND depends_on_slot=?',(name,slot)).fetchone():
+                raise ProtocolError('DEPENDENCY_CONFLICT','package has reverse dependencies')
+            row=db.execute('SELECT version,publisher,previous_version,status FROM installed_packages WHERE name=? AND slot=?',(name,slot)).fetchone()
+            if not row:raise ProtocolError('PACKAGE_NOT_FOUND','package not installed')
+            active_version=row[2] if row[3]=='staged' else row[0]
+            if active_version:
+                directory,manifest=self._manifest(name,slot,active_version,row[1])
+                for entry in manifest['files']:
+                    target=safe_path(self.root,entry['path'],leaf_link=True)
+                    if target.is_symlink() and target.resolve()==(directory/entry['path']).resolve():target.unlink()
+            db.execute('DELETE FROM installed_packages WHERE name=? AND slot=?',(name,slot))
+            db.execute('DELETE FROM package_dependencies WHERE package_name=? AND package_slot=?',(name,slot))
+            shutil.rmtree(safe_path(self.slots_dir,name+'/'+slot))
+        return {'status':'uninstalled','name':name,'slot':slot}
 
     def list_packages(self, quiet=False, format='tsv'):
         """Lists installed packages. Quiet mode outputs Strata-compatible export format."""
         results = []
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             rows = db.execute(
                 "SELECT name, category, slot, version, publisher, status FROM installed_packages ORDER BY name, slot"
             ).fetchall()
@@ -305,6 +304,7 @@ def main(argv=None):
     # install
     install_p = subparsers.add_parser("install", help="Install a package")
     install_p.add_argument("spec", help="Package specification [category/]name[:slot][#version][@publisher]")
+    install_p.add_argument("--bundle", required=True, help="JSON with signed manifest and base64 files")
     install_p.add_argument("--publisher", default="", help="Publisher public key")
     install_p.add_argument("--stage-only", action="store_true", help="Stage without committing projection")
 
@@ -355,21 +355,12 @@ def main(argv=None):
     elif args.subcommand == "install":
         spec = parse_package_spec(args.spec)
         pubkey = args.publisher or spec['publisher']
-        if not pubkey:
-            # If not provided, check if authority exists or generate deterministic dummy for testing
-            trusted = mgr.get_trusted_publishers()
-            if trusted:
-                pubkey = next(iter(trusted))
-            else:
-                pubkey = "a" * 64
-                mgr.authorize_publisher(pubkey)
-
-        # Create basic package payload (binary/executable + config)
-        pkg_files = {
-            f"bin/{spec['name']}": f"#!/bin/sh\necho '{spec['name']} version {spec['version']}'\n".encode(),
-            f"etc/{spec['name']}.conf": f"# Configuration for {spec['name']}\nversion={spec['version']}\n".encode()
-        }
-        res = mgr.stage_package(args.spec, pkg_files, pubkey)
+        bundle = strict_json(Path(args.bundle).read_bytes(), 1024*1024)
+        envelope = bundle['manifest']
+        pubkey = pubkey or envelope.get('public_key', '')
+        pkg_files = {path: base64.b64decode(data, validate=True) for path, data in bundle['files'].items()}
+        res = mgr.stage_package(args.spec, pkg_files, pubkey,
+                                dependencies=envelope.get('payload', {}).get('dependencies', []), signed_manifest=envelope)
         if not args.stage_only:
             commit_res = mgr.commit(spec['name'], spec['slot'])
             print(f"Installed and activated {spec['name']}:{spec['slot']} ({spec['version']})")

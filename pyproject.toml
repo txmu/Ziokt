@@ -14,6 +14,7 @@ security = ["cryptography==50.0.1"]
 [project.scripts]
 ziokt = "ziokt.cli:main"
 openci = "openci.cli:main"
+dcpm = "ziokt.dcpm_strata:main"
 
 [tool.setuptools]
 packages = ["ziokt", "openci"]

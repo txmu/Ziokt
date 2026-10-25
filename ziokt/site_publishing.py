@@ -13,6 +13,7 @@ import time
 from .protocol import ProtocolError, encoded, secure_read, strict_json
 from .security import sign, verify
 from .naming import split_name
+from .package_storage import atomic_write, safe_path, check_files
 
 SITE_DOMAIN = 'Ziokt/site-publishing/v1'
 
@@ -67,8 +68,8 @@ class SitePublisher:
 
     def __init__(self, root_dir, signing_key=None):
         self.root = Path(root_dir)
-        self.objects_dir = self.root / 'objects'
-        self.db_path = self.root / 'sites.db'
+        self.objects_dir = safe_path(self.root, 'objects')
+        self.db_path = safe_path(self.root, 'sites.db')
         self.signing_key = signing_key
         self.objects_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
@@ -113,17 +114,39 @@ class SitePublisher:
         if not isinstance(data, (bytes, bytearray)):
             raise ProtocolError('INVALID_OBJECT', 'bytes object required')
         digest = hashlib.sha256(data).hexdigest()
-        target = self.objects_dir / digest
+        target = safe_path(self.objects_dir, digest)
         if not target.exists():
-            target.write_bytes(data)
+            atomic_write(target, data)
+        elif hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            raise ProtocolError('OBJECT_INTEGRITY', 'stored object has been corrupted')
         return f"sha256:{digest}"
 
     def get_object(self, digest_str):
+        if not isinstance(digest_str, str) or not re.fullmatch(r'(?:sha256:)?[a-f0-9]{64}', digest_str):
+            raise ProtocolError('INVALID_DIGEST', 'canonical SHA-256 digest required')
         clean = digest_str.removeprefix('sha256:')
-        target = self.objects_dir / clean
+        target = safe_path(self.objects_dir, clean)
         if not target.exists():
             raise ProtocolError('OBJECT_NOT_FOUND', f'object {digest_str} not in local store')
-        return target.read_bytes()
+        if not target.is_file() or target.stat().st_size > 32 * 1024 * 1024:
+            raise ProtocolError('OBJECT_INTEGRITY', 'bounded regular object required')
+        data = target.read_bytes()
+        if hashlib.sha256(data).hexdigest() != clean:
+            raise ProtocolError('OBJECT_INTEGRITY', 'object digest mismatch')
+        return data
+
+    def manifest(self, digest):
+        value = strict_json(self.get_object(digest), 1024 * 1024)
+        if (not isinstance(value, dict) or value.get('schema') != 'ziokt.static-site.v1' or
+                not isinstance(value.get('owner'), str) or not value['owner'] or
+                not isinstance(value.get('files'), dict) or not 1 <= len(value['files']) <= 4096 or
+                value.get('entry') != 'index.html' or 'index.html' not in value['files']):
+            raise ProtocolError('INVALID_MANIFEST', 'static site manifest required')
+        for path, ref in value['files'].items():
+            validate_file_path(path)
+            if not isinstance(ref, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', ref):
+                raise ProtocolError('INVALID_DIGEST', 'invalid site object reference')
+        return value
 
     def upload(self, files_dict, owner, title="Static Site", version="1.0.0"):
         """Validate and ingest website files, generate and store site manifest."""
@@ -134,6 +157,9 @@ class SitePublisher:
 
         if 'index.html' not in files_dict:
             raise ProtocolError('ENTRY_MISSING', 'index.html entrypoint is required in root of site bundle')
+
+        files_dict = {path: data.encode('utf-8') if isinstance(data, str) else bytes(data) if isinstance(data, bytearray) else data for path, data in files_dict.items()}
+        check_files(files_dict)
 
         stored_files = {}
         total_size = 0
@@ -177,8 +203,11 @@ class SitePublisher:
     def create_preview(self, manifest_digest, owner, ttl=3600):
         """Generate a short-lived token to preview the site in strict isolation."""
         # Verify manifest exists
-        manifest_bytes = self.get_object(manifest_digest)
-        strict_json(manifest_bytes)
+        manifest = self.manifest(manifest_digest)
+        if manifest['owner'] != owner:
+            raise ProtocolError('PERMISSION_DENIED', 'caller is not the site owner')
+        if type(ttl) is not int or not 1 <= ttl <= 86400:
+            raise ProtocolError('INVALID_TTL', 'preview lifetime must be 1..86400 seconds')
 
         token = secrets.token_urlsafe(24)
         now = int(time.time())
@@ -210,10 +239,10 @@ class SitePublisher:
         if not row:
             raise ProtocolError('PREVIEW_NOT_FOUND', 'preview token expired or nonexistent')
         manifest_digest, expires_at = row
-        if now > expires_at:
+        if now >= expires_at:
             raise ProtocolError('PREVIEW_EXPIRED', 'preview session has expired')
 
-        manifest = strict_json(self.get_object(manifest_digest))
+        manifest = self.manifest(manifest_digest)
         rel_path = request_path.strip('/')
         if not rel_path:
             rel_path = manifest.get('entry', 'index.html')
@@ -241,7 +270,9 @@ class SitePublisher:
         """Validate and associate domain with site manifest."""
         if not isinstance(domain, str) or not DOMAIN_RE.fullmatch(domain):
             raise ProtocolError('INVALID_DOMAIN', f'canonical domain required: {domain}')
-        manifest = strict_json(self.get_object(manifest_digest))
+        if domain != domain.lower() or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in domain.split('.')):
+            raise ProtocolError('INVALID_DOMAIN', 'lowercase canonical domain required')
+        manifest = self.manifest(manifest_digest)
         if manifest.get('owner') != owner:
             raise ProtocolError('PERMISSION_DENIED', 'caller is not the owner of this site manifest')
         return {'domain': domain, 'manifest_digest': manifest_digest, 'owner': owner}
@@ -249,16 +280,21 @@ class SitePublisher:
     def publish(self, domain, manifest_digest, owner, version=None):
         """Publish site version atomically to domain and record in history."""
         self.bind_domain(domain, manifest_digest, owner)
-        manifest = strict_json(self.get_object(manifest_digest))
+        manifest = self.manifest(manifest_digest)
         ver = version or manifest.get('version', '1.0.0')
+        if ver != manifest['version']:
+            raise ProtocolError('VERSION_MISMATCH', 'publication version must match its manifest')
 
         now = int(time.time())
         with closing(sqlite3.connect(self.db_path)) as conn:
             with conn as db:
+                db.execute('BEGIN IMMEDIATE')
                 current = db.execute(
-                    'SELECT active_manifest_digest, version FROM site_publications WHERE domain = ?',
+                    'SELECT active_manifest_digest, version, owner FROM site_publications WHERE domain = ?',
                     (domain,)
                 ).fetchone()
+                if current and current[2] != owner:
+                    raise ProtocolError('PERMISSION_DENIED', 'domain belongs to another publisher')
                 prev_digest = current[0] if current else None
 
                 db.execute('''
@@ -309,7 +345,7 @@ class SitePublisher:
             # Look up specific historical version
             with closing(sqlite3.connect(self.db_path)) as conn:
                 h_row = conn.execute(
-                    'SELECT manifest_digest, version FROM site_version_history WHERE domain = ? AND version = ? ORDER BY published_at DESC LIMIT 1',
+                    'SELECT manifest_digest, version FROM site_version_history WHERE domain = ? AND version = ? ORDER BY id DESC LIMIT 1',
                     (domain, target_version)
                 ).fetchone()
             if not h_row:
@@ -319,16 +355,20 @@ class SitePublisher:
             if not prev_digest:
                 raise ProtocolError('ROLLBACK_UNAVAILABLE', f'no previous version recorded for {domain}')
             target_digest = prev_digest
-            target_ver = strict_json(self.get_object(target_digest)).get('version', 'unknown')
+            target_ver = self.manifest(target_digest)['version']
+
+        self.bind_domain(domain, target_digest, owner)
 
         now = int(time.time())
         with closing(sqlite3.connect(self.db_path)) as conn:
             with conn as db:
-                db.execute('''
+                changed = db.execute('''
                     UPDATE site_publications SET
                     active_manifest_digest = ?, previous_manifest_digest = ?, version = ?, updated_at = ?
-                    WHERE domain = ?
-                ''', (target_digest, active_digest, target_ver, now, domain))
+                    WHERE domain = ? AND owner = ? AND active_manifest_digest = ?
+                ''', (target_digest, active_digest, target_ver, now, domain, owner, active_digest))
+                if changed.rowcount != 1:
+                    raise ProtocolError('PUBLICATION_CHANGED', 'publication changed during rollback')
 
                 db.execute('''
                     INSERT INTO site_version_history
@@ -356,7 +396,7 @@ class SitePublisher:
         """Retrieve deployment history for a domain."""
         with closing(sqlite3.connect(self.db_path)) as conn:
             rows = conn.execute(
-                'SELECT manifest_digest, version, action, published_at, details FROM site_version_history WHERE domain = ? ORDER BY published_at DESC LIMIT 50',
+                'SELECT manifest_digest, version, action, published_at, details FROM site_version_history WHERE domain = ? ORDER BY id DESC LIMIT 50',
                 (domain,)
             ).fetchall()
         return [{

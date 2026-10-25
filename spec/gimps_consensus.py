@@ -2,8 +2,8 @@
 
 Supports:
 1. Versioned schema 'corium.gimps-proof.v1' and backward-compatible legacy format.
-2. Mathematical verification of Lucas-Lehmer residues (exact calculation for p <= 61,
-   residue bounds and consistency checks for arbitrary p).
+2. Full Lucas-Lehmer recomputation for exponents 2..4096; larger exponents and
+   unimplemented factoring methods fail closed until a bounded verifier is provided.
 3. Task state lifecycle:
    - assigned: task dispatched with an unexpired lease
    - submitted: transaction present in mempool or confirmed block
@@ -14,6 +14,7 @@ Supports:
 5. Strict duplicate detection: rejects duplicate submissions for already settled or pending exponents,
    while allowing retry of failed exponents.
 """
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -27,6 +28,7 @@ PACKAGE = 'corium/built-in-gimps'
 SCHEMA = 'corium.gimps-proof.v1'
 MAX_INTEGER = 2**63 - 1
 DEFAULT_LEASE_SECONDS = 600
+MAX_VERIFIED_EXPONENT = 4096
 
 
 def canonical(value, ascii=False):
@@ -49,7 +51,7 @@ def integer(value, low, high):
 
 def lucas_lehmer_verify(p, claimed_residue):
     """Deterministically compute Lucas-Lehmer residue for small exponents (p <= 61)."""
-    if p < 2:
+    if type(p) is not int or not 2 <= p <= MAX_VERIFIED_EXPONENT or type(claimed_residue) is not int:
         return False, None
     if p == 2:
         return (claimed_residue == 0), 0
@@ -155,8 +157,8 @@ def reconcile_task_states(db, engine_id, set_id, start_exp, end_exp, current_tim
         try:
             exp = int(row[1])
             if start_exp <= exp <= end_exp:
-                cur = db.execute("SELECT state FROM gimps_tasks WHERE engine_id=? AND exponent=?", (engine_id, exp)).fetchone()
-                if not cur or cur[0] != 'settled':
+                cur = db.execute("SELECT state,proof_tx_hash FROM gimps_tasks WHERE engine_id=? AND exponent=?", (engine_id, exp)).fetchone()
+                if not cur or (cur[0] != 'settled' and cur[1] == row[0]):
                     db.execute(
                         "INSERT INTO gimps_tasks (engine_id, problem_set_id, exponent, state, proof_tx_hash) "
                         "VALUES (?, ?, ?, 'failed', ?) "
@@ -181,8 +183,8 @@ def generate_next_gimps_task(db, engine_id, set_id, metadata, current_time=None)
             metadata = json.loads(metadata)
         except Exception:
             return None
-    start_exp = int(metadata.get('start_exponent', 0))
-    end_exp = int(metadata.get('end_exponent', 0))
+    start_exp = integer(metadata.get('start_exponent', 0), 2, MAX_VERIFIED_EXPONENT)
+    end_exp = integer(metadata.get('end_exponent', 0), start_exp, MAX_VERIFIED_EXPONENT)
     if start_exp <= 0 or end_exp < start_exp:
         return None
 
@@ -212,7 +214,7 @@ def generate_next_gimps_task(db, engine_id, set_id, metadata, current_time=None)
         db.execute(
             "INSERT INTO gimps_tasks (engine_id, problem_set_id, exponent, state, assigned_at, lease_timeout) "
             "VALUES (?, ?, ?, 'assigned', ?, ?) "
-            "ON CONFLICT(engine_id, exponent) DO UPDATE SET state='assigned', assigned_at=excluded.assigned_at, lease_timeout=excluded.lease_timeout",
+            "ON CONFLICT(engine_id, exponent) DO UPDATE SET state='assigned', assigned_at=excluded.assigned_at, lease_timeout=excluded.lease_timeout, proof_tx_hash=NULL",
             (engine_id, set_id, p, current_time, timeout)
         )
         return f"{p}|{p}"
@@ -237,12 +239,18 @@ def validate_gimps_proof(db, network, payload, sender, height, accepted_tx=None)
     require(row[0] == PACKAGE, 'engine package must be corium/built-in-gimps')
     weight = row[2] if len(row) > 2 and row[2] is not None else 100
 
-    # Parse exponent
-    try:
-        p = int(problem_id)
-        require(p >= 3, 'Mersenne exponent must be >= 3')
-    except (ValueError, TypeError):
-        raise ValueError('problem_id must be integer exponent')
+    integer(weight, 0, MAX_INTEGER // 100)
+    integer(height, 0, MAX_INTEGER)
+    require(type(problem_id) is str and re.fullmatch(r'[1-9][0-9]{0,3}', problem_id), 'canonical exponent string required')
+    p = integer(int(problem_id), 2, MAX_VERIFIED_EXPONENT)
+    active = db.execute('SELECT metadata FROM problem_sets WHERE engine_id=? AND activation_height<=?', (engine_id,height)).fetchall()
+    assigned_range = False
+    for item in active:
+        meta = json.loads(item[0])
+        start, end = meta.get('start_exponent'), meta.get('end_exponent')
+        if type(start) is int and type(end) is int and 2 <= start <= p <= end <= MAX_VERIFIED_EXPONENT:
+            assigned_range = True
+    require(assigned_range, 'exponent must belong to an active bounded problem set')
 
     # Duplicate submission / Double redeem check
     completed = db.execute(
@@ -260,29 +268,25 @@ def validate_gimps_proof(db, network, payload, sender, height, accepted_tx=None)
         if accepted_tx is None or r[0] != accepted_tx:
             raise ValueError(f'exponent {p} already settled or pending confirmation')
 
-    # Mathematical Proof Validation
-    require(isinstance(proof_data, dict), 'proof_data must be dictionary')
-    if proof_data.get('schema') == SCHEMA:
-        # Versioned proof format: corium.gimps-proof.v1
-        exact(proof_data, {'schema', 'exponent', 'method', 'residue', 'is_prime', 'iterations'})
-        require(proof_data['exponent'] == p, 'proof exponent mismatch')
-        require(proof_data['method'] in ('lucas-lehmer', 'p-minus-one', 'trial-factoring'), 'supported method')
-        residue = proof_data['residue']
-        require(isinstance(residue, int) and residue >= 0, 'non-negative integer residue required')
-        require(isinstance(proof_data['is_prime'], bool), 'boolean is_prime required')
-        require(proof_data['iterations'] == p - 2, 'exact Lucas-Lehmer iterations required')
-
-        if p <= 61 and proof_data['method'] == 'lucas-lehmer':
-            valid, expected = lucas_lehmer_verify(p, residue)
-            require(valid, f'invalid Lucas-Lehmer residue for p={p}: expected {expected}, got {residue}')
-            require(proof_data['is_prime'] == (expected == 0), 'is_prime must match residue zero check')
+    # Only fully recomputed Lucas-Lehmer results may receive native credit.
+    require(type(proof_data) is dict, 'proof_data must be dictionary')
+    versioned = 'schema' in proof_data
+    if versioned:
+        exact(proof_data, {'schema','exponent','method','residue','is_prime','iterations'})
+        require(proof_data['schema'] == SCHEMA, 'supported proof schema required')
+        require(type(proof_data['exponent']) is int and proof_data['exponent'] == p, 'proof exponent mismatch')
+        require(proof_data['method'] == 'lucas-lehmer', 'unimplemented proof method rejected')
+        require(type(proof_data['iterations']) is int and proof_data['iterations'] == p - 2, 'exact iteration count required')
+        require(type(proof_data['is_prime']) is bool, 'boolean primality claim required')
     else:
-        # Legacy backward-compatible format: {'residue': 0, ...} or {}
-        if 'residue' in proof_data and isinstance(proof_data['residue'], int):
-            residue = proof_data['residue']
-            if p <= 61 and residue != 0:
-                valid, expected = lucas_lehmer_verify(p, residue)
-                require(valid or residue == 0, 'invalid legacy residue')
+        exact(proof_data, {'residue'})
+    residue = proof_data['residue']
+    require(type(residue) is int and 0 <= residue < (1 << p)-1, 'bounded integer residue required')
+    valid, expected = lucas_lehmer_verify(p, residue)
+    require(valid, 'invalid Lucas-Lehmer residue')
+    prime_exponent = all(p % divisor for divisor in range(2, int(p**0.5)+1))
+    if versioned:
+        require(proof_data['is_prime'] == (prime_exponent and expected == 0), 'primality claim mismatch')
 
     return {
         'status': 'valid',
@@ -393,9 +397,10 @@ def validate_challenge(db, network, target_tx):
 def main(args):
     action = args[0]
     database = args[1]
-    with sqlite3.connect(database) as db:
+    with closing(sqlite3.connect(database)) as db, db:
         db.row_factory = sqlite3.Row
         if action == 'next-task':
+            db.execute('BEGIN IMMEDIATE')
             engine_id, set_id, metadata = args[2:5]
             res = generate_next_gimps_task(db, engine_id, set_id, metadata)
             if res:
@@ -418,9 +423,9 @@ def main(args):
             code = validate_challenge(db, network, target_tx)
             print(code)
             if code == 0:
-                sys.exit(0)
+                sys.exit(0)  # Challenge succeeded
             else:
-                sys.exit(0)
+                sys.exit(0)  # Output is 1 or 0
         else:
             raise ValueError(f"unknown gimps action: {action}")
 
