@@ -2,10 +2,25 @@
 import os
 from pathlib import Path
 import sys
+import hashlib
+import json
+
+
+def prepare_kernel_defaults(root):
+    """Resolve toolchain-dependent Kconfig defaults in the target chroot."""
+    path=root/'jhalfs/LFS/lfs.xsl';source=path.read_text()
+    original='timeout 60 make oldconfig';replacement='timeout 60 make olddefconfig'
+    if source.count(original)!=1:raise ValueError('Pinned jhalfs kernel configuration boundary changed')
+    patched=source.replace(original,replacement)
+    path.write_text(patched)
+    (root/'evidence/kernel-config-adaptation.json').write_text(json.dumps({'source':'LFS/lfs.xsl',
+        'original_sha256':hashlib.sha256(source.encode()).hexdigest(),'patched_sha256':hashlib.sha256(patched.encode()).hexdigest(),
+        'original':original,'replacement':replacement,'reason':'Target compiler changes Kconfig defaults; choose kernel defaults noninteractively before the official build and QEMU test.'},indent=2)+'\n')
 
 
 def main(work):
     root=Path(work).resolve();os.chdir(root/'jhalfs')
+    prepare_kernel_defaults(root)
     os.environ['CONFIG_']=''
     sys.path.insert(0,str(root/'jhalfs/menu'))
     import kconfiglib

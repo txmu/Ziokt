@@ -38,7 +38,7 @@
       "namespace": "Ziokt.Content",
       "source_sha256": {
         "ziokt/chunkstore.py": "9cddc14d4868669a2be600a5ba8d61ce832ef626eda5fc4f8dc4dbd56fca8aff",
-        "ziokt/content_fabric.py": "e6747b0a9df7c4949d36ed75ebc89bcd2f73d86277850a91ba80c47ad11da85a",
+        "ziokt/content_fabric.py": "c8e8569bfca92150477732f63456a6a48ef1c5a2d17875cf99431f4e1ea52dfd",
         "ziokt/content_rights.py": "0613d4a707da3e897941e5936eee3892d38a08b6fbd2b6b26d65c76857021fb2",
         "formal/contracts.json": "bb331139b2f2565b21c63afe67f13a560be35c84ee4d4140a1eeeb05cd48fc82",
         "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",

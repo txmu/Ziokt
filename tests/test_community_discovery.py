@@ -54,6 +54,18 @@ class DiscoveryTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ProtocolError):
                 self.directory.ingest([sign({**new['payload'], **change}, self.keys[1], DOMAIN)])
 
+    def test_excluded_nodes_cannot_route_or_admit_a_certificate(self):
+        self.advert()
+        blocked=PeerDirectory(self.root/'blocked',self.policy,self.owner,allowed_networks=['127.0.0.0/8'],excluded_nodes=[self.public[1]])
+        self.addCleanup(blocked.close)
+        blocked.ingest(self.directory.export())
+        self.assertEqual(blocked.peers(),[])
+        self.assertFalse(blocked.certificate_admitted('1'*64))
+        # Removing the exclusion permits the same signed identity again.
+        blocked.excluded_nodes=frozenset()
+        self.assertEqual(len(blocked.peers()),1)
+        self.assertTrue(blocked.certificate_admitted('1'*64))
+
     def start(self, server):
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         def stop(): server.shutdown(); server.server_close(); thread.join(5)

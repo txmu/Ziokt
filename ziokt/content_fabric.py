@@ -30,6 +30,12 @@ GROUP = re.compile(r'[a-z0-9][a-z0-9+_-]*(?:\.[a-z0-9][a-z0-9+_-]*)+\Z')
 MESSAGE = re.compile(r'<[A-Za-z0-9.!#$%&\x27*+/=?^_`{|}~-]{1,160}@[A-Za-z0-9.-]{1,120}>\Z')
 
 
+class RateLimited(ValueError):
+    def __init__(self,retry_after):
+        super().__init__('rate limit')
+        self.retry_after=retry_after
+
+
 def text(value, limit=4096, empty=False):
     if not isinstance(value, str) or len(value.encode()) > limit or '\x00' in value or (not value and not empty):
         raise ValueError('bounded text required')
@@ -194,10 +200,10 @@ class Fabric:
         finally:store.close()
 
     def _rate(self, owner, action, maximum=120):
-        now=int(time.time())//60
+        timestamp=int(time.time());now=timestamp//60
         row=self.db.execute('SELECT window,count FROM rates WHERE owner=? AND action=?',(owner,action)).fetchone()
         count=row['count']+1 if row and row['window']==now else 1
-        if count>maximum:raise ValueError('rate limit')
+        if count>maximum:raise RateLimited(60-timestamp%60)
         self.db.execute('INSERT OR REPLACE INTO rates VALUES(?,?,?,?)',(owner,action,now,count))
 
     def _audit(self, owner, action, resource):

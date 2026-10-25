@@ -177,3 +177,12 @@ SAM 必须在本机运行并由操作者启用。Ziokt 使用 SAM 3.1、Ed25519 
 发现配置可附加 `corium`：`{"federation_config":"/private/federation.json","provider_id":"corium-local","sources":[{"peer_id":"原生Corium身份","digest":"sha256:发现记录数组摘要"}]}`。最多两个固定对象，经 Corium `content.get` 的明确 Shadow6 绑定拉取，再验证社区签名。Corium DHT 地址是线索，不能直接当作代理地址或成员授权。记录数组可经已有 `artifact.stage` 受权工作流发布；Ziokt 不自动公开社区元数据。
 
 Nim agent/client 原生配置支持最多八个显式 `ice_servers`（STUN/TURN/TURNS）和 `ice_transport_policy: all|relay`；relay 必须配置 TURN。TURN 凭据留在私有原生配置文件。未配置时不主动访问外部 STUN。NAT 场景由 ICE 选择可达路径，复杂对称 NAT 可能仍需 TURN。Corium 打洞绑定请求者身份，只使用已存储的批准地址，限制并发、地址数和发送冷却；不能保证穿透所有 NAT。
+# 节点排除名单
+
+每个节点可在 Corium 当前网络的 `corix.conf` 中设置 `[p2p]` 的
+`excluded_nodes = <64位节点ID>,<另一节点ID>`。这些节点的出站请求会在建立传输前
+拒绝，入站消息会在操作前拒绝。Ziokt discovery 配置支持同名 JSON 数组
+`"excluded_nodes": ["<节点签名公钥>"]`，过滤选路及入站证书准入。
+多个节点沿用现有配置分发相同名单即可联合排除；删除条目即可解除，修改后重启
+对应服务。名单由各节点所有者选择，只影响本节点，不赋予任何节点单方面控制全网的权限。
+

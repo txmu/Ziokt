@@ -15,7 +15,7 @@ import tempfile
 import tarfile
 from urllib.parse import parse_qs, urlsplit
 
-from ziokt.content_fabric import Fabric
+from ziokt.content_fabric import Fabric,RateLimited
 from ziokt.protocol import ProtocolError, secure_read, strict_json
 from .state import Error, Store, identifier, reference
 
@@ -289,6 +289,7 @@ def handler(controller):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Connection', 'close')
+            if status==429:self.send_header('Retry-After',str(value.get('error',{}).get('retry_after',60)))
             self.end_headers()
             self.wfile.write(raw)
             self.close_connection = True
@@ -348,6 +349,8 @@ def handler(controller):
                 self.send(status, result)
             except Error as error:
                 self.send(error.status, {'error': {'code': error.code, 'message': str(error), 'retryable': error.status in (429, 503)}})
+            except RateLimited as error:
+                self.send(429,{'error':{'code':'RATE_LIMIT','message':str(error),'retryable':True,'retry_after':error.retry_after}})
             except PermissionError:
                 self.send(403, {'error': {'code': 'OBJECT_FORBIDDEN', 'message': 'Object not accessible in this project', 'retryable': False}})
             except (ValueError, TypeError, KeyError, ProtocolError) as error:

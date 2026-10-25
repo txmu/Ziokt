@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import secrets
+import time
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -25,19 +26,31 @@ class Client:
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def request(self, method, path, value=None, raw=None):
-        self.tick()
         data = raw if raw is not None else json.dumps(value, allow_nan=False).encode() if value is not None else None
         request = Request(self.origin+path, data=data, method=method,
             headers={'Authorization':'Bearer '+self.token, 'Content-Type':'application/octet-stream' if raw is not None else 'application/json'})
-        try:
-            with self.opener.open(request, timeout=20) as response:
-                body = response.read(2*1024*1024+1)
-                if len(body) > 2*1024*1024: raise Error('RESPONSE_LIMIT', 'Controller response exceeds budget')
-                return json.loads(body)
-        except HTTPError as error:
-            try: value = json.loads(error.read(4096))['error']
-            except (ValueError, KeyError): raise Error('HTTP_ERROR', 'Controller rejected request', error.code) from None
-            raise Error(value['code'], value['message'], error.code) from None
+        deadline=time.monotonic()+65
+        for attempt in range(3):
+            self.tick()
+            try:
+                with self.opener.open(request, timeout=20) as response:
+                    body = response.read(2*1024*1024+1)
+                    if len(body) > 2*1024*1024: raise Error('RESPONSE_LIMIT', 'Controller response exceeds budget')
+                    return json.loads(body)
+            except HTTPError as error:
+                with error:
+                    try:
+                        failure=json.loads(error.read(4096))['error']
+                        if not isinstance(failure,dict) or not isinstance(failure.get('code'),str) or not isinstance(failure.get('message'),str):raise ValueError()
+                    except (ValueError,KeyError,TypeError):raise Error('HTTP_ERROR','Controller rejected request',error.code) from None
+                    retry=error.headers.get('Retry-After','') if error.headers else ''
+                if error.code!=429 or failure.get('retryable') is not True or not retry.isascii() or not retry.isdecimal() or not 0<=int(retry)<=60 or attempt==2:
+                    raise Error(failure['code'],failure['message'],error.code) from None
+                resume=time.monotonic()+int(retry)
+                if resume>deadline:raise Error('RATE_LIMIT','Controller throttle exceeds retry deadline',429)
+                while time.monotonic()<resume:
+                    self.tick()  # Preserve the worker lease while the upload budget refills.
+                    time.sleep(min(.25,max(0,resume-time.monotonic())))
 
     def upload(self, project, path, *, mime='application/octet-stream'):
         path = Path(path)

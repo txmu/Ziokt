@@ -6,6 +6,8 @@ Ziokt 是面向自治节点的分布式应用与协作平台。它以 Corium 的
 
 v1.0 的审计修复、形式化对应范围、跨组件与故障验收入口见 [v1.0 发布验证说明](docs/V1.0-ASSURANCE.zh-CN.md)。公开交付仍使用 **v1.0**；内部 Python、桌面及移动工程版本统一为 `1.0.0`。精确提交的 CI 结果和产物摘要随 [Ziokt-Releases](https://github.com/txmu/Ziokt-Releases/releases/tag/v1.0) 发布，不能用某个模块通过替代系统验收。
 
+节点可通过 `excluded_nodes` 排除名单拒绝指定节点的入站、出站和发现选路；多个节点使用同一名单即可联合排除。配置和解除方式见 [隐私路由与节点排除](docs/privacy-routing.zh-CN.md)。
+
 已实现原生双向接入、持久化操作/Saga、12 Core/13 Profile 共用的数据协议、内容/签名包、工作空间、身份与治理校验、冷恢复、隐私 profile、mTLS 和任期隔离。原生能力和权限保持各自所有权；目录投影表示存储元数据，在线与应用完成须有各自原生证据。
 
 ```sh

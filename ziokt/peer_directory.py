@@ -25,7 +25,10 @@ _cache_lock = threading.RLock()
 
 
 class PeerDirectory:
-    def __init__(self, root, policy, owner, *, allowed_networks=(), native_bindings=None):
+    def __init__(self, root, policy, owner, *, allowed_networks=(), native_bindings=None,excluded_nodes=()):
+        if not isinstance(excluded_nodes,(list,tuple)) or len(excluded_nodes)>64 or any(not isinstance(node,str) or not PUBLIC.fullmatch(node) for node in excluded_nodes):
+            raise ProtocolError('INVALID_DISCOVERY','bounded excluded node identities required')
+        self.excluded_nodes=frozenset(excluded_nodes)
         self.policy = policy_document(policy, owner)
         self.policy_id = content_id(encoded(policy))
         if not isinstance(allowed_networks, (list, tuple)) or len(allowed_networks) > 8:
@@ -153,6 +156,7 @@ class PeerDirectory:
         for envelope in [*(strict_json(row[0]) for row in rows), *incoming]:
             try:
                 public, value = self.validate(envelope)
+                if public in self.excluded_nodes:continue
                 with self.lock:
                     water = self.db.execute('SELECT epoch,sequence,digest FROM water WHERE public=?',(public,)).fetchone()
                 if water and water[0] == value['epoch'] and (value['sequence'] < water[1] or
@@ -189,7 +193,7 @@ class PeerDirectory:
             rows = self.db.execute('SELECT r.public,r.document,COALESCE(h.failures,0),COALESCE(h.cooldown,0),COALESCE(h.rtt,120000) '
                 'FROM records r LEFT JOIN health h ON h.public=r.public WHERE r.expires>? ORDER BY COALESCE(h.failures,0),COALESCE(h.rtt,120000),r.public', (int(time.time()),)).fetchall()
         for public, raw, failures, cooldown, rtt in rows:
-            if cooldown > int(time.time()): continue
+            if cooldown > int(time.time()) or public in self.excluded_nodes: continue
             envelope = strict_json(raw); _, value = self.validate(envelope)
             for endpoint in value['endpoints']:
                 if endpoint['service'] == service:
@@ -438,7 +442,7 @@ def load_directory(path):
         if len(_directories) >= 4: raise ProtocolError('BACKPRESSURE', 'discovery instance budget exhausted')
         config = strict_json(data)
         required = {'schema', 'enabled', 'root', 'policy', 'owner', 'allowed_networks', 'native_bindings', 'client_tls', 'hop_count'}
-        optional = {'signing_key', 'client_certificate', 'endpoints', 'bootstrap', 'interval', 'corium', 'trackers'}
+        optional = {'signing_key', 'client_certificate', 'endpoints', 'bootstrap', 'interval', 'corium', 'trackers','excluded_nodes'}
         if not isinstance(config, dict) or not required <= set(config) or set(config)-required-optional or config['schema'] != 'ziokt.discovery.v1' or config['enabled'] is not True:
             raise ProtocolError('DISCOVERY_DISABLED', 'exact explicitly enabled discovery config required')
         for field in ('root', 'policy', *(['signing_key'] if 'signing_key' in config else [])):
@@ -457,7 +461,7 @@ def load_directory(path):
         if type(config['hop_count']) is not int or not 2 <= config['hop_count'] <= 4:
             raise ProtocolError('INVALID_DISCOVERY', 'bounded discovered hop count required')
         directory = PeerDirectory(config['root'], strict_json(secure_read(config['policy'])), config['owner'],
-                                  allowed_networks=config['allowed_networks'], native_bindings=config['native_bindings'])
+                                  allowed_networks=config['allowed_networks'], native_bindings=config['native_bindings'],excluded_nodes=config.get('excluded_nodes',()))
         directory.policy_path = config['policy']
         _directories[str(path)] = (digest, directory, config)
         return directory, config
