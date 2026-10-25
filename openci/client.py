@@ -84,3 +84,15 @@ class Client:
             Path(path).unlink(missing_ok=True)
             raise Error('CONTENT_INTEGRITY', 'Downloaded bytes do not match native reference')
         return path
+
+    def cache_lookup(self, project, key):
+        return self.request('GET', f'/v1/cache/lookup?project={quote(project, safe="")}&key={quote(key, safe="")}')
+
+    def cache_store(self, project, key, artifact):
+        return self.request('POST', f'/v1/cache/store?project={quote(project, safe="")}', {'key': key, 'artifact': artifact})
+
+    def cache_list(self, project, limit=100):
+        return self.request('GET', f'/v1/cache/list?project={quote(project, safe="")}&limit={limit}')
+
+    def cache_prune(self, project, max_bytes=64*1024*1024, max_age=86400*30):
+        return self.request('POST', f'/v1/cache/prune?project={quote(project, safe="")}', {'max_bytes': max_bytes, 'max_age': max_age})

@@ -15,10 +15,13 @@ HEX=re.compile(r'[0-9a-f]{64}\Z')
 DIGEST=re.compile(r'sha256:[0-9a-f]{64}\Z')
 
 
+SUPPORTED_KINDS={'book','article','package','artifact','build-artifact','build-cache'}
+
+
 def from_event(envelope):
     if not isinstance(envelope,dict) or not isinstance(envelope.get('public_key'),str) or not HEX.fullmatch(envelope['public_key']):raise ProtocolError('CONTENT_REFERENCE','Signed origin identity required')
     value=verify(envelope,envelope['public_key'],EVENT_DOMAIN)
-    if not isinstance(value,dict) or value.get('v')!=1 or value.get('kind') not in {'book','article'} or value.get('visibility')!='public' or value.get('deleted') is not False or type(value.get('expires')) is not int or value['expires']<0 or value['expires'] and value['expires']<=int(time.time()):raise ProtocolError('CONTENT_REFERENCE','Live explicitly public content event required')
+    if not isinstance(value,dict) or value.get('v')!=1 or value.get('kind') not in SUPPORTED_KINDS or value.get('visibility')!='public' or value.get('deleted') is not False or type(value.get('expires')) is not int or value['expires']<0 or value['expires'] and value['expires']<=int(time.time()):raise ProtocolError('CONTENT_REFERENCE','Live explicitly public content event required')
     body=value.get('body');record=value.get('record')
     if not isinstance(body,dict) or not isinstance(record,str) or not 1<=len(record)<=300:raise ProtocolError('CONTENT_REFERENCE','Content record identity required')
     objects=[]
@@ -26,19 +29,39 @@ def from_event(envelope):
         entries=[{'id':body.get('file_id'),'role':'book','name':'','metadata':body.get('file')}]
         version=body.get('edition_id')
         if not isinstance(version,str) or not 1<=len(version.encode())<=2048:raise ProtocolError('CONTENT_REFERENCE','Pinned book edition required')
-    else:
+    elif value['kind']=='article':
         if body.get('message_id')!=record:raise ProtocolError('CONTENT_REFERENCE','Article Message-ID mismatch')
         attachments=body.get('attachments',[])
         if not isinstance(attachments,list) or len(attachments)>8 or any(not isinstance(entry,dict) for entry in attachments):raise ProtocolError('CONTENT_REFERENCE','Bounded native attachment list required')
         entries=[{'id':entry.get('id'),'role':'attachment','name':entry.get('name'),'metadata':entry} for entry in attachments]
         version='sha256:'+hashlib.sha256(encoded(envelope)).hexdigest()
+    else:
+        version=body.get('version','sha256:'+hashlib.sha256(encoded(envelope)).hexdigest())
+        entries=[]
+        if 'object' in body or 'file_id' in body:
+            obj_id=body.get('object',body.get('file_id'))
+            entries.append({'id':obj_id,'role':value['kind'],'name':body.get('name',''),'metadata':body.get('metadata',body)})
+        files=body.get('files',[])
+        if isinstance(files,list):
+            for entry in files:
+                if isinstance(entry,dict):
+                    obj_id=entry.get('id',entry.get('reference',{}).get('object') if isinstance(entry.get('reference'),dict) else None)
+                    if obj_id:
+                        meta=entry.get('metadata',entry)
+                        if 'size' not in meta and isinstance(entry.get('size'),int):meta=dict(meta,size=entry['size'])
+                        if 'digest' not in meta and isinstance(entry.get('reference',{}).get('digest'),str):meta=dict(meta,digest=entry['reference']['digest'])
+                        entries.append({'id':obj_id,'role':entry.get('role','artifact'),'name':entry.get('path',entry.get('name','')),'metadata':meta})
     for entry in entries:
         if not isinstance(entry['name'],str) or len(entry['name'].encode())>255 or '\x00' in entry['name']:raise ProtocolError('CONTENT_REFERENCE','Bounded object display name required')
         meta=entry['metadata']
         if not isinstance(entry['id'],str) or not re.fullmatch(r'cf1-[0-9a-f]{64}',entry['id']) or not isinstance(meta,dict):raise ProtocolError('CONTENT_REFERENCE','Native content object identity required')
-        if type(meta.get('size')) is not int or not 0<=meta['size']<=512*1024*1024 or not isinstance(meta.get('digest'),str) or not DIGEST.fullmatch(meta['digest']) or not isinstance(meta.get('merkle_root'),str) or not HEX.fullmatch(meta['merkle_root']) or not isinstance(meta.get('mime'),str) or not 1<=len(meta['mime'])<=256:raise ProtocolError('CONTENT_REFERENCE','Bounded verified-format object metadata required')
-        objects.append({'id':entry['id'],'role':entry['role'],'name':entry['name'],**{key:meta[key] for key in ('size','digest','merkle_root','mime')}})
-    if len(objects)>8:raise ProtocolError('CONTENT_REFERENCE','Content object count limit')
+        if type(meta.get('size')) is not int or not 0<=meta['size']<=512*1024*1024 or not isinstance(meta.get('digest'),str) or not DIGEST.fullmatch(meta['digest']):raise ProtocolError('CONTENT_REFERENCE','Bounded verified-format object metadata required')
+        merkle=meta.get('merkle_root','0'*64)
+        if not isinstance(merkle,str) or not HEX.fullmatch(merkle):merkle='0'*64
+        mime=meta.get('mime','application/octet-stream')
+        if not isinstance(mime,str) or not 1<=len(mime)<=256:mime='application/octet-stream'
+        objects.append({'id':entry['id'],'role':entry['role'],'name':entry['name'],'size':meta['size'],'digest':meta['digest'],'merkle_root':merkle,'mime':mime})
+    if len(objects)>128:raise ProtocolError('CONTENT_REFERENCE','Content object count limit')
     return {'schema':SCHEMA,'component':'content-fabric','origin':envelope['public_key'],'kind':value['kind'],'record':record,'event':'sha256:'+hashlib.sha256(encoded(envelope)).hexdigest(),'version':version,'objects':objects}
 
 

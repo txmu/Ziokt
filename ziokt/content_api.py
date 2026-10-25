@@ -64,6 +64,9 @@ OPERATIONS={
  'community.forum.list':({'limit':int,'offset':int},False),
  'community.forum.post':({'title':str,'body':str,'operation':str,'reply_to':str},True),
  'content.health':({},False),
+ 'content.fabric.prune':({'target_bytes':int,'max_age_days':int},True),
+ 'content.fabric.health':({},False),
+ 'content.fabric.repair':({},True),
  'content.sync':({'peer':str},True),
  'library.download':({'book':str,'sources':list,'max_chunks':int},True),
  'applications.tc16.compile':({'source':str,'syntax':str,'target':str,'profile':str},True),
@@ -200,6 +203,9 @@ def invoke(fabric, owner, operation, args):
         if operation=='content.rights.decide':return governance.decide(owner,args['case'],args['decision'],args['reason'],allow=True)
         return governance.policy(owner,args['record'],args['action'],args['reason'],allow=True)
     if operation=='content.health':return fabric.health(owner)
+    if operation=='content.fabric.prune':return fabric.prune(owner,target_bytes=args.get('target_bytes'),max_age_days=args.get('max_age_days',14))
+    if operation=='content.fabric.health':return fabric.replica_health(owner)
+    if operation=='content.fabric.repair':return fabric.auto_repair(owner)
     if operation=='content.sync':
         from .content_server import sync
         return sync(fabric,args['peer'],fabric.remote_peers)

@@ -231,6 +231,14 @@ class Fabric:
         self.db.execute('DELETE FROM content_references WHERE record=?',(record,))
         if kind=='book' and isinstance(body.get('file_id'),str):
             self.db.execute('INSERT INTO content_references VALUES(?,?,?,?)',(record,body['file_id'],'book',''))
+        if kind in {'package','artifact','build-artifact','build-cache'}:
+            if isinstance(body.get('package_reference'),dict) and 'object' in body['package_reference']:
+                self.db.execute('INSERT OR IGNORE INTO content_references VALUES(?,?,?,?)',(record,body['package_reference']['object'],'package',body.get('name','')))
+            for f in body.get('files',[]):
+                if isinstance(f,dict):
+                    obj_id=f.get('reference',{}).get('object') if isinstance(f.get('reference'),dict) else f.get('id')
+                    if obj_id and re.fullmatch(r'cf1-[a-f0-9]{64}',obj_id):
+                        self.db.execute('INSERT OR IGNORE INTO content_references VALUES(?,?,?,?)',(record,obj_id,f.get('role','artifact'),f.get('path',f.get('name',''))))
         attachments=body.get('attachments',[])
         if not isinstance(attachments,list) or len(attachments)>8:raise ValueError('attachment count')
         seen=set()
@@ -275,6 +283,9 @@ class Fabric:
             if old and (old['owner']!=owner or json.loads(old['metadata'])!=meta):raise ValueError('upload conflict')
             # Conservative node-wide reservation across accounts, persisted through crashes.
             used=self.db.execute("SELECT coalesce(sum(((json_extract(metadata,'$.size')+16383)/16384)*32768),0) FROM uploads").fetchone()[0]
+            if not old and (used+((size+16383)//16384)*32768>self.quota or self.db.execute('SELECT count(*) FROM uploads').fetchone()[0]>=4096 or shutil.disk_usage(self.root).free < size*2+1048576):
+                self._auto_prune(size)
+                used=self.db.execute("SELECT coalesce(sum(((json_extract(metadata,'$.size')+16383)/16384)*32768),0) FROM uploads").fetchone()[0]
             if not old and (used+((size+16383)//16384)*32768>self.quota or self.db.execute('SELECT count(*) FROM uploads').fetchone()[0]>=4096):raise ValueError('node storage quota (includes encryption overhead)')
             if shutil.disk_usage(self.root).free < size*2+1048576:raise ValueError('disk space')
             with self.store(owner) as store:result=store.begin(upload,size,digest,86400)
@@ -394,6 +405,24 @@ class Fabric:
             value['file']=json.loads(obj['metadata'])
             value['updated_at']=int(time.time())
             return self._event(owner,'book',record,value,visibility)
+
+    def publish_package(self, owner, name, version, body, visibility='public'):
+        with self.transaction():
+            record = f'pkg-{name}-{version}'
+            files = []
+            for f in body.get('files', []):
+                item = dict(f)
+                if 'id' in item and ('digest' not in item or 'merkle_root' not in item):
+                    obj = self.object_info(owner, item['id'])
+                    meta = json.loads(obj['metadata'])
+                    item.setdefault('size', meta['size'])
+                    item.setdefault('digest', meta['digest'])
+                    item.setdefault('merkle_root', meta['merkle_root'])
+                    item.setdefault('mime', meta['mime'])
+                    item['metadata'] = meta
+                files.append(item)
+            value = dict(body, files=files, updated_at=int(time.time()))
+            return self._event(owner, 'package', record, value, visibility=visibility)
 
     def search(self, owner, query='', kind='book', limit=30, offset=0, filters=None, locale=''):
         text(query,256,empty=True)
@@ -654,6 +683,78 @@ class Fabric:
         with self.lock:
             integrity=self.db.execute('PRAGMA quick_check').fetchone()[0]
             return {'schema':'ziokt.content-health.v1','node':self.public,'native_store':integrity,'account':owner,'objects':self.db.execute('SELECT count(*) FROM objects WHERE owner=?',(owner,)).fetchone()[0],'downloads':[dict(row) for row in self.db.execute('SELECT id,state,error FROM downloads WHERE owner=? ORDER BY id LIMIT 30',(owner,))],'observations':{'database_checked_now':True,'all_objects_verified':False,'end_to_end_verified':False},'guarantees':{'private_catalogue_exported':False,'ciphertext_at_rest':'SafeFS AEAD','metadata_at_rest':'private SQLite, not encrypted','remote_erasure_guaranteed':False}}
+
+    def _auto_prune(self, needed_bytes=0):
+        now = int(time.time())
+        max_age = 3600 if needed_bytes > 0 else 86400
+        pruned_uploads = 0
+        for row in self.db.execute('SELECT id, owner FROM uploads').fetchall():
+            try:
+                with self.store(row['owner']) as store:
+                    st = store.status(row['id'])
+                    if st.get('state') == 'uploading' and now - st.get('started', now) > max_age:
+                        store.abort(row['id'])
+                        store.gc()
+                        self.db.execute('DELETE FROM uploads WHERE id=?', (row['id'],))
+                        pruned_uploads += 1
+            except Exception:
+                self.db.execute('DELETE FROM uploads WHERE id=?', (row['id'],))
+                pruned_uploads += 1
+        expired = self.db.execute('UPDATE records SET deleted=1 WHERE deleted=0 AND expires>0 AND expires<=?', (now,)).rowcount
+        cleaned_downloads = self.db.execute("DELETE FROM downloads WHERE state IN ('failed', 'cancelled')").rowcount
+        return {'pruned_uploads': pruned_uploads, 'expired_records': expired, 'cleaned_downloads': cleaned_downloads}
+
+    def prune(self, owner=None, target_bytes=None, max_age_days=14):
+        with self.lock:
+            result = self._auto_prune(needed_bytes=target_bytes or 0)
+            now = int(time.time())
+            cutoff = now - (max_age_days * 86400)
+            self.db.execute('DELETE FROM audit WHERE at < ?', (cutoff,))
+            self.db.execute('DELETE FROM rates WHERE window < ?', (cutoff,))
+            free = shutil.disk_usage(self.root).free
+            used = self.db.execute("SELECT coalesce(sum(((json_extract(metadata,'$.size')+16383)/16384)*32768),0) FROM uploads").fetchone()[0]
+            return {
+                'schema': 'ziokt.content-prune.v1',
+                'pruned_uploads': result['pruned_uploads'],
+                'expired_records': result['expired_records'],
+                'cleaned_downloads': result['cleaned_downloads'],
+                'disk_free': free,
+                'reserved_upload_bytes': used,
+                'quota_bytes': self.quota
+            }
+
+    def replica_health(self, owner='@anonymous'):
+        with self.lock:
+            peers_count = len(self.peers or [])
+            cursors = [dict(r) for r in self.db.execute('SELECT peer, cursor FROM cursors').fetchall()]
+            replication_stats = {
+                'pending': self.db.execute("SELECT count(*) FROM replication WHERE state='pending'").fetchone()[0],
+                'synced': self.db.execute("SELECT count(*) FROM replication WHERE state='synced'").fetchone()[0],
+                'failed': self.db.execute("SELECT count(*) FROM replication WHERE state='failed'").fetchone()[0],
+            }
+            locations_count = self.db.execute('SELECT count(*) FROM locations').fetchone()[0]
+            objects_count = self.db.execute('SELECT count(*) FROM objects').fetchone()[0]
+            healthy = (replication_stats['failed'] == 0)
+            return {
+                'schema': 'ziokt.content-replica-health.v1',
+                'peers_configured': peers_count,
+                'cursors': cursors,
+                'replication': replication_stats,
+                'locations_mapped': locations_count,
+                'total_objects': objects_count,
+                'healthy': healthy
+            }
+
+    def auto_repair(self, owner='@anonymous'):
+        with self.transaction():
+            retried_replications = self.db.execute("UPDATE replication SET state='pending', error='' WHERE state='failed'").rowcount
+            retried_downloads = self.db.execute("UPDATE downloads SET state='pending', error='' WHERE state='failed'").rowcount
+            return {
+                'schema': 'ziokt.content-auto-repair.v1',
+                'retried_replications': retried_replications,
+                'retried_downloads': retried_downloads,
+                'status': 'repaired'
+            }
 
     def objects(self,owner,limit=30,offset=0):
         if type(limit) is not int or not 1<=limit<=100 or type(offset) is not int or not 0<=offset<=100000:raise ValueError('object pagination')

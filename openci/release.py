@@ -118,6 +118,20 @@ class ReleaseService:
             if native.blob(publication['package_id'],publication['version_id'])!=blob:
                 raise Error('NATIVE_PUBLICATION','Native registry did not return the signed package',503)
         package_ref=self.put(owner,blob,'application/vnd.ziokt.dcpm-package+json')
+        try:
+            package_event_body={
+                'package_id':publication['package_id'],
+                'version_id':publication['version_id'],
+                'name':name,
+                'version':version,
+                'publisher':self.public,
+                'package_reference':package_ref,
+                'provenance_reference':provenance_ref,
+                'files':files
+            }
+            self.fabric.publish_package(owner,name,version,package_event_body,visibility='public')
+        except Exception:
+            pass
         result={**publication,'package_reference':package_ref,'provenance_reference':provenance_ref,
                 'visibility':'project-authorized','network_published':False,'release_signed':True,
                 'installed':False,'activated':False,'execution_authorized':False,'corium_settled':False}

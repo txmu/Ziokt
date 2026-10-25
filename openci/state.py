@@ -57,10 +57,19 @@ def validate_pipeline(value):
     tasks = {}
     for task in value['tasks']:
         required={'id', 'needs', 'image', 'argv', 'arch', 'pool', 'cpu', 'memory_mb', 'timeout', 'attempts'}
-        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs','worker','executor'}:
+        if not isinstance(task, dict) or not required<=set(task) or set(task)-required-{'outputs','worker','executor','cache_key','cache_paths','cache_mode'}:
             raise Error('INVALID_TASK', 'Exact task fields required')
         task=dict(task);task.setdefault('outputs',[])
         if 'worker' in task:identifier(task['worker'])
+        if 'cache_key' in task:
+            if not isinstance(task['cache_key'],str) or not 1<=len(task['cache_key'])<=128 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}',task['cache_key']):
+                raise Error('INVALID_CACHE_KEY','Bounded alphanumeric cache key required')
+        if 'cache_paths' in task:
+            paths=task['cache_paths']
+            if not isinstance(paths,list) or len(paths)>16 or any(not isinstance(p,str) or not p or len(p)>256 or p.startswith('/') or '..' in p.split('/') for p in paths):
+                raise Error('INVALID_CACHE_PATHS','Bounded relative cache paths required')
+        if 'cache_mode' in task and task['cache_mode'] not in {'read-write','read-only','write-only'}:
+            raise Error('INVALID_CACHE_MODE','cache_mode must be read-write, read-only, or write-only')
         outputs=task['outputs']
         if not isinstance(outputs,list) or len(outputs)>128 or any(not isinstance(p,str) or not p or len(p)>1024 or p.startswith('/') or '..' in p.split('/') or '\\' in p or p.endswith('/') or str(PurePosixPath(p))!=p or p=='.' for p in outputs):
             raise Error('INVALID_OUTPUTS','Bounded relative output file paths required')
@@ -123,6 +132,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS git_schedules(project TEXT PRIMARY KEY,next_due INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS git_deliveries(project TEXT NOT NULL,delivery TEXT NOT NULL,commit_id TEXT NOT NULL,state TEXT NOT NULL,pipeline TEXT,error TEXT,updated INTEGER NOT NULL,PRIMARY KEY(project,delivery));
                 CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,pipeline TEXT NOT NULL,task TEXT NOT NULL,project TEXT NOT NULL,name TEXT NOT NULL,version TEXT NOT NULL,publisher TEXT NOT NULL,state TEXT NOT NULL,request TEXT NOT NULL,publication TEXT,created INTEGER NOT NULL,UNIQUE(name,version,publisher),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
+                CREATE TABLE IF NOT EXISTS build_caches(project TEXT NOT NULL,cache_key TEXT NOT NULL,artifact TEXT NOT NULL,created INTEGER NOT NULL,last_accessed INTEGER NOT NULL,size INTEGER NOT NULL,hit_count INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(project,cache_key));
                 PRAGMA user_version=1;
             ''')
         os.chmod(self.path, 0o600)
@@ -253,7 +263,18 @@ class Store:
                 db.execute('INSERT INTO attempts VALUES(?,?,?,?,?,?,NULL,NULL)', (task['pipeline'], task['id'], attempt, worker, 'running', int(self.clock())))
                 db.execute("UPDATE pipelines SET state='running' WHERE id=?", (task['pipeline'],))
                 self.event(db, worker, 'task.claimed', task['pipeline'], task['id'], {'attempt': attempt})
-                return {'pipeline': task['pipeline'], 'project': task['project'], 'task': spec, 'source': json.loads(task['body'])['source'], 'attempt': attempt, 'worker':worker, 'lease': lease, 'lease_until': until}
+                cache_info = None
+                if spec.get('cache_key'):
+                    cache_row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND cache_key=?', (task['project'], spec['cache_key'])).fetchone()
+                    if cache_row:
+                        now = int(self.clock())
+                        db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, task['project'], spec['cache_key']))
+                        cache_info = {'key': spec['cache_key'], 'reference': json.loads(cache_row[0]), 'size': cache_row[1], 'hit': True, 'paths': spec.get('cache_paths', ['.cache'])}
+                    else:
+                        cache_info = {'key': spec['cache_key'], 'reference': None, 'hit': False, 'paths': spec.get('cache_paths', ['.cache'])}
+                res = {'pipeline': task['pipeline'], 'project': task['project'], 'task': spec, 'source': json.loads(task['body'])['source'], 'attempt': attempt, 'worker':worker, 'lease': lease, 'lease_until': until}
+                if cache_info is not None: res['cache'] = cache_info
+                return res
             return None
 
     def _lease(self, db, worker, pid, task, lease, active=True):
@@ -273,10 +294,13 @@ class Store:
             db.execute('UPDATE tasks SET lease_until=? WHERE pipeline=? AND id=?', (until, pid, task))
         return {'state': 'running', 'lease_until': until}
 
-    def finish(self, worker, pid, task, lease, *, exit_code, artifact, logs, attestation=None):
+    def finish(self, worker, pid, task, lease, *, exit_code, artifact, logs, attestation=None, cache_artifact=None, cache_size=0):
         integer(exit_code, 0, 255); reference(logs)
         if exit_code == 0: reference(artifact)
         elif artifact is not None: raise Error('INVALID_RECEIPT', 'Failed task cannot publish a success artifact')
+        if cache_artifact is not None:
+            if exit_code != 0: raise Error('INVALID_RECEIPT', 'Failed task cannot publish a build cache')
+            reference(cache_artifact)
         receipt = encoded({'exit_code': exit_code, 'artifact': artifact, 'logs': logs})
         with self.transaction() as db:
             row = self._lease(db, worker, pid, task, lease, active=False)
@@ -298,6 +322,18 @@ class Store:
             db.execute('UPDATE tasks SET state=?,receipt=? WHERE pipeline=? AND id=?', (state, receipt, pid, task))
             db.execute('UPDATE attempts SET state=?,finished=?,receipt=? WHERE pipeline=? AND id=? AND attempt=?', (state, int(self.clock()), receipt, pid, task, row['attempt']))
             self.event(db, worker, 'task.'+state, pid, task)
+            spec = json.loads(row['spec'])
+            if exit_code == 0 and cache_artifact is not None and spec.get('cache_key'):
+                proj = db.execute('SELECT project FROM pipelines WHERE id=?', (pid,)).fetchone()['project']
+                now = int(self.clock())
+                db.execute('''
+                    INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                    ON CONFLICT(project, cache_key) DO UPDATE SET
+                        artifact=excluded.artifact,
+                        last_accessed=excluded.last_accessed,
+                        size=excluded.size
+                ''', (proj, spec['cache_key'], json.dumps(cache_artifact, sort_keys=True), now, now, cache_size))
             self.refresh(db)
         return {'state': state, 'duplicate': False, 'verification': 'pending', 'release': 'unpublished'}
 
@@ -495,3 +531,71 @@ class Store:
             db.execute("UPDATE releases SET state='withdrawn' WHERE id=?",(rid,))
             self.event(db,actor,'release.withdrawn',row['pipeline'],row['task'],{'release':rid,'independent_copies_deleted':False})
         return self.release(rid)
+
+    def cache_get(self, project, key):
+        with closing(self.connect()) as db:
+            row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND cache_key=?', (project, key)).fetchone()
+            if not row: return None
+            now = int(self.clock())
+            db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, project, key))
+            db.commit()
+            return {'artifact': json.loads(row[0]), 'size': row[1], 'hit_count': row[2] + 1}
+
+    def cache_put(self, project, key, artifact, size=0):
+        reference(artifact)
+        if type(size) is not int or not 0 <= size <= 512*1024*1024:
+            raise Error('INVALID_CACHE_SIZE', 'Cache size outside budget')
+        now = int(self.clock())
+        payload = json.dumps(artifact, sort_keys=True)
+        with closing(self.connect()) as db:
+            db.execute('''
+                INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT(project, cache_key) DO UPDATE SET
+                    artifact=excluded.artifact,
+                    last_accessed=excluded.last_accessed,
+                    size=excluded.size
+            ''', (project, key, payload, now, now, size))
+            db.commit()
+        return {'project': project, 'cache_key': key, 'size': size, 'stored': True}
+
+    def cache_list(self, project, limit=100):
+        with closing(self.connect()) as db:
+            rows = db.execute('''
+                SELECT cache_key, artifact, created, last_accessed, size, hit_count
+                FROM build_caches WHERE project=? ORDER BY last_accessed DESC LIMIT ?
+            ''', (project, min(max(1, limit), 500))).fetchall()
+            return [{
+                'cache_key': r[0], 'artifact': json.loads(r[1]),
+                'created': r[2], 'last_accessed': r[3], 'size': r[4], 'hit_count': r[5]
+            } for r in rows]
+
+    def cache_delete(self, project, key):
+        with closing(self.connect()) as db:
+            cursor = db.execute('DELETE FROM build_caches WHERE project=? AND cache_key=?', (project, key))
+            db.commit()
+            return {'deleted': bool(cursor.rowcount)}
+
+    def cache_prune(self, project, max_bytes=64*1024*1024, max_age_seconds=86400*30):
+        now = int(self.clock())
+        pruned = 0
+        pruned_bytes = 0
+        with closing(self.connect()) as db:
+            if max_age_seconds > 0:
+                cutoff = now - max_age_seconds
+                expired = db.execute('SELECT cache_key, size FROM build_caches WHERE project=? AND last_accessed < ?', (project, cutoff)).fetchall()
+                for key, sz in expired:
+                    db.execute('DELETE FROM build_caches WHERE project=? AND cache_key=?', (project, key))
+                    pruned += 1
+                    pruned_bytes += sz
+            total = db.execute('SELECT COALESCE(SUM(size), 0) FROM build_caches WHERE project=?', (project,)).fetchone()[0]
+            if total > max_bytes:
+                lru = db.execute('SELECT cache_key, size FROM build_caches WHERE project=? ORDER BY last_accessed ASC', (project,)).fetchall()
+                for key, sz in lru:
+                    if total <= max_bytes: break
+                    db.execute('DELETE FROM build_caches WHERE project=? AND cache_key=?', (project, key))
+                    total -= sz
+                    pruned += 1
+                    pruned_bytes += sz
+            db.commit()
+        return {'pruned_entries': pruned, 'pruned_bytes': pruned_bytes}

@@ -128,6 +128,14 @@ class Runner:
                     if image not in self.images:raise Error('IMAGE_NOT_APPROVED','Image is not in the operator allowlist')
                     self.client.download(assignment['project'],assignment['source'],area/'source.tar',MAX_SOURCE)
                     unpack_source(area/'source.tar',area/'source')
+                    cache_cfg=assignment.get('cache')
+                    cache_dir=area/'cache';cache_dir.mkdir(mode=0o777,parents=True,exist_ok=True)
+                    if cache_cfg and cache_cfg.get('hit') and cache_cfg.get('reference'):
+                        try:
+                            cache_in=area/'cache_in.tar'
+                            self.client.download(assignment['project'],cache_cfg['reference'],cache_in,MAX_OUTPUT)
+                            unpack_source(cache_in,cache_dir)
+                        except Exception:pass
                     result=self.command('image','inspect',image,'--format','{{.Architecture}}',stdout=subprocess.PIPE,text=True)
                     expected={'x86_64':'amd64','aarch64':'arm64'}[task['arch']]
                     if result.stdout.strip()!=expected:raise Error('IMAGE_ARCH','Pinned image architecture does not match worker requirement')
@@ -139,6 +147,7 @@ class Runner:
                         '--tmpfs','/work:rw,nosuid,nodev,size=134217728,mode=1777',
                         '--tmpfs','/out:rw,nosuid,nodev,size=67108864,mode=1777',
                         '--mount','type=bind,src='+str(area/'source')+',dst=/src,readonly',
+                        '--mount','type=bind,src='+str(cache_dir)+',dst=/cache,rw',
                         '--workdir','/work',image,'/bin/sh','-c','exec sleep 10800',stdout=subprocess.DEVNULL)
                     self.command('start',name,stdout=subprocess.DEVNULL)
                     process=subprocess.Popen([self.runtime,'exec',name,*task['argv']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
@@ -193,12 +202,25 @@ class Runner:
                         canonical_outputs(raw,area/'artifact.tar',task['outputs'])
                         from .artifacts import publish_outputs
                         artifact=publish_outputs(self.client,assignment['project'],area/'artifact.tar',task['outputs'],assignment['source'],task['image'])
+                        cache_artifact=None
+                        if cache_cfg and cache_cfg.get('key'):
+                            cache_files=[p for p in cache_dir.rglob('*') if p.is_file()]
+                            if cache_files:
+                                cache_out=area/'cache_out.tar'
+                                with tarfile.open(cache_out,'w:') as ctar:
+                                    for cf in cache_files:
+                                        rel=cf.relative_to(cache_dir)
+                                        ctar.add(cf,arcname=str(rel))
+                                if cache_out.stat().st_size<=MAX_OUTPUT:
+                                    try:cache_artifact=self.client.upload(assignment['project'],cache_out)
+                                    except Exception:cache_artifact=None
                 except (Error,OSError,ValueError,tarfile.TarError,subprocess.SubprocessError) as error:
                     exit_code=124 if isinstance(error,Error) and error.code=='TASK_TIMEOUT' else 125
                     with logs.open('ab') as log:log.write(('\nOpenCI Runner: '+type(error).__name__+': '+str(error)+'\n').encode()[:4096])
                 log_reference=self.client.upload(assignment['project'],logs)
                 receipt={'pipeline':assignment['pipeline'],'task':assignment['task']['id'],'lease':assignment['lease'],
                          'exit_code':exit_code,'artifact':artifact if exit_code==0 else None,'logs':log_reference}
+                if cache_artifact is not None:receipt['cache_artifact']=cache_artifact
                 if self.signing_key:
                     from ziokt.protocol import secure_read
                     from ziokt.security import sign

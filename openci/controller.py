@@ -207,12 +207,40 @@ class Controller:
                 return 200, self.state.append_log(worker,body['pipeline'],body['task'],body['lease'],body['position'],base64.b64decode(body['data_base64'],validate=True))
             owner = self.project(principal, result['project'])
             self.content_reference(owner, body['logs'])
+            cache_artifact = body.get('cache_artifact')
+            cache_size = 0
             if body['exit_code'] == 0:
                 self.content_reference(owner, body['artifact'])
+                if cache_artifact:
+                    row = self.content_reference(owner, cache_artifact)
+                    cache_size = json.loads(row['metadata'])['size']
                 from .light import check_result
                 check_result(self,result,body['task'],body['artifact'])
             return 200, self.state.finish(worker, body['pipeline'], body['task'], body['lease'],
-                    exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'],attestation=body.get('attestation'))
+                    exit_code=body['exit_code'], artifact=body['artifact'], logs=body['logs'],
+                    attestation=body.get('attestation'), cache_artifact=cache_artifact, cache_size=cache_size)
+        if path.startswith('/v1/cache/'):
+            project = query.get('project', [None])[0]
+            owner = self.project(principal, project)
+            if method == 'GET' and path == '/v1/cache/lookup':
+                key = query.get('key', [None])[0]
+                if not key: raise Error('INVALID_CACHE_KEY', 'Cache key query param required')
+                entry = self.state.cache_get(project, key)
+                return 200, {'hit': entry is not None, 'cache': entry}
+            if method == 'POST' and path == '/v1/cache/store':
+                key = body.get('key')
+                artifact = body.get('artifact')
+                if not key or not artifact: raise Error('INVALID_CACHE_STORE', 'Key and artifact required')
+                row = self.content_reference(owner, artifact)
+                size = json.loads(row['metadata'])['size']
+                return 200, self.state.cache_put(project, key, artifact, size)
+            if method == 'GET' and path == '/v1/cache/list':
+                limit = int(query.get('limit', ['100'])[0])
+                return 200, {'caches': self.state.cache_list(project, limit)}
+            if method == 'POST' and path == '/v1/cache/prune':
+                max_bytes = body.get('max_bytes', 64*1024*1024)
+                max_age = body.get('max_age', 86400*30)
+                return 200, self.state.cache_prune(project, max_bytes, max_age)
         if path.startswith('/v1/objects/'):
             project = query.get('project', [None])[0]
             owner = self.project(principal, project)
