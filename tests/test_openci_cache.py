@@ -147,8 +147,39 @@ class CacheTests(unittest.TestCase):
                                                 {"role": "admin", "projects": ["proj"]})
             self.assertEqual(status, 200)
             self.assertEqual(p_res["pruned_entries"], 1)
+
+            # Test outbox publication queue endpoints
+            controller.state.queue_package_publication("rel1", "proj", "pkg-foo", "1.0", {"name": "pkg-foo", "version": "1.0"})
+            status, pend = controller.dispatch("GET", "/v1/releases/pending-fabric", {"project": ["proj"]},
+                                               None, "admin", {"role": "admin", "projects": ["proj"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(len(pend["pending"]), 1)
+            self.assertEqual(pend["pending"][0]["package_name"], "pkg-foo")
+
+            # Mark publication succeeded
+            controller.state.record_package_publication("rel1", success=True)
+            status, pend_after = controller.dispatch("GET", "/v1/releases/pending-fabric", {"project": ["proj"]},
+                                                     None, "admin", {"role": "admin", "projects": ["proj"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(len(pend_after["pending"]), 0)
         finally:
             controller.close()
+
+    def test_canonical_cache_key_binding(self):
+        from openci.state import canonical_cache_key
+        base = "my-build-cache"
+        k1 = canonical_cache_key(base, source_digest="sha256:1111", image="gcc:13", arch="x86_64", argv=["make"])
+        k2 = canonical_cache_key(base, source_digest="sha256:2222", image="gcc:13", arch="x86_64", argv=["make"])
+        k3 = canonical_cache_key(base, source_digest="sha256:1111", image="gcc:14", arch="x86_64", argv=["make"])
+        k4 = canonical_cache_key(base, source_digest="sha256:1111", image="gcc:13", arch="aarch64", argv=["make"])
+        k5 = canonical_cache_key(base, source_digest="sha256:1111", image="gcc:13", arch="x86_64", argv=["make", "-j4"])
+
+        # All variants produce unique canonical keys to strictly prevent stale/cross-env reuse
+        keys = {k1, k2, k3, k4, k5}
+        self.assertEqual(len(keys), 5)
+        for k in keys:
+            self.assertTrue(k.startswith("my-build-cache--"))
+            self.assertEqual(len(k), len("my-build-cache--") + 32)
 
 
 if __name__ == "__main__":

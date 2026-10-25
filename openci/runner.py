@@ -130,7 +130,9 @@ class Runner:
                     unpack_source(area/'source.tar',area/'source')
                     cache_cfg=assignment.get('cache')
                     cache_dir=area/'cache';cache_dir.mkdir(mode=0o777,parents=True,exist_ok=True)
-                    if cache_cfg and cache_cfg.get('hit') and cache_cfg.get('reference'):
+                    cache_mode=cache_cfg.get('mode','read-write') if cache_cfg else 'read-write'
+                    can_restore=cache_mode in ('read-write','read-only')
+                    if can_restore and cache_cfg and cache_cfg.get('hit') and cache_cfg.get('reference'):
                         try:
                             cache_in=area/'cache_in.tar'
                             self.client.download(assignment['project'],cache_cfg['reference'],cache_in,MAX_OUTPUT)
@@ -150,6 +152,17 @@ class Runner:
                         '--mount','type=bind,src='+str(cache_dir)+',dst=/cache,rw',
                         '--workdir','/work',image,'/bin/sh','-c','exec sleep 10800',stdout=subprocess.DEVNULL)
                     self.command('start',name,stdout=subprocess.DEVNULL)
+                    if can_restore and (cache_dir/'work_cache').is_dir():
+                        try:
+                            sub_tar=area/'work_restore.tar'
+                            with tarfile.open(sub_tar,'w:') as wtar:
+                                for wf in (cache_dir/'work_cache').rglob('*'):
+                                    if wf.is_file():wtar.add(wf,arcname=str(wf.relative_to(cache_dir/'work_cache')))
+                            if sub_tar.exists() and sub_tar.stat().st_size>0:
+                                rest_proc=subprocess.Popen([self.runtime,'exec','-i',name,'/bin/tar','-C','/work','-xf','-'],
+                                                           stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                                rest_proc.communicate(input=sub_tar.read_bytes(),timeout=10)
+                        except Exception:pass
                     process=subprocess.Popen([self.runtime,'exec',name,*task['argv']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
                     started=time.monotonic();size=0;position=0;pending=bytearray();live=True
                     try:
@@ -203,7 +216,20 @@ class Runner:
                         from .artifacts import publish_outputs
                         artifact=publish_outputs(self.client,assignment['project'],area/'artifact.tar',task['outputs'],assignment['source'],task['image'])
                         cache_artifact=None
-                        if cache_cfg and cache_cfg.get('key'):
+                        can_save=cache_mode in ('read-write','write-only')
+                        if can_save and cache_cfg and cache_cfg.get('key'):
+                            paths=cache_cfg.get('paths') or ['/cache']
+                            for rel_path in paths:
+                                if not rel_path.startswith('/'):
+                                    sub_tar=area/f"cache_{hashlib.sha256(rel_path.encode()).hexdigest()[:8]}.tar"
+                                    try:
+                                        cp=subprocess.Popen([self.runtime,'exec',name,'/bin/tar','-C','/work','-cf','-',rel_path],
+                                                            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+                                        out_bytes,_=cp.communicate(timeout=10)
+                                        if cp.returncode==0 and out_bytes:
+                                            sub_tar.write_bytes(out_bytes)
+                                            unpack_source(sub_tar,cache_dir/'work_cache')
+                                    except Exception:pass
                             cache_files=[p for p in cache_dir.rglob('*') if p.is_file()]
                             if cache_files:
                                 cache_out=area/'cache_out.tar'

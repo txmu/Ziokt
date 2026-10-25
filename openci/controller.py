@@ -143,6 +143,15 @@ class Controller:
             self.pipeline(principal,body['pipeline'],{'admin'})
             from .release import ReleaseService
             return 200,ReleaseService(self).publish(actor,body['pipeline'],body['task'],body['name'],body['version'])
+        if method == 'POST' and path == '/v1/releases/sync-fabric':
+            project = body.get('project') if isinstance(body, dict) else None
+            if project: self.project(principal, project, {'admin'})
+            from .release import ReleaseService
+            return 200, ReleaseService(self).retry_pending_publications(project)
+        if method == 'GET' and path == '/v1/releases/pending-fabric':
+            project = query.get('project', [None])[0]
+            if project: self.project(principal, project)
+            return 200, {'pending': self.state.list_pending_publications(project)}
         if method == 'GET' and path.startswith('/v1/releases/'):
             release=self.state.release(path.split('/')[-1]);self.project(principal,release['project'])
             return 200,release

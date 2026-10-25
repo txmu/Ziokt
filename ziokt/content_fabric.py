@@ -702,7 +702,35 @@ class Fabric:
                 pruned_uploads += 1
         expired = self.db.execute('UPDATE records SET deleted=1 WHERE deleted=0 AND expires>0 AND expires<=?', (now,)).rowcount
         cleaned_downloads = self.db.execute("DELETE FROM downloads WHERE state IN ('failed', 'cancelled')").rowcount
-        return {'pruned_uploads': pruned_uploads, 'expired_records': expired, 'cleaned_downloads': cleaned_downloads}
+        evicted_objects = 0
+        reclaimed_bytes = 0
+        if needed_bytes > 0:
+            candidates = self.db.execute("""
+                SELECT o.id, o.owner, o.metadata 
+                FROM objects o
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM content_references c JOIN records r ON r.id=c.record
+                    WHERE c.object=o.id AND r.deleted=0 AND (r.expires=0 OR r.expires>?) AND c.role NOT IN ('build-cache')
+                )
+                ORDER BY o.rowid ASC
+            """, (now,)).fetchall()
+            for cand in candidates:
+                if reclaimed_bytes >= needed_bytes:
+                    break
+                try:
+                    sz = json.loads(cand['metadata']).get('size', 0)
+                    self.release_object(cand['owner'], cand['id'])
+                    evicted_objects += 1
+                    reclaimed_bytes += sz
+                except Exception:
+                    pass
+        return {
+            'pruned_uploads': pruned_uploads,
+            'expired_records': expired,
+            'cleaned_downloads': cleaned_downloads,
+            'evicted_objects': evicted_objects,
+            'reclaimed_bytes': reclaimed_bytes
+        }
 
     def prune(self, owner=None, target_bytes=None, max_age_days=14):
         with self.lock:
@@ -718,6 +746,8 @@ class Fabric:
                 'pruned_uploads': result['pruned_uploads'],
                 'expired_records': result['expired_records'],
                 'cleaned_downloads': result['cleaned_downloads'],
+                'evicted_objects': result['evicted_objects'],
+                'reclaimed_bytes': result['reclaimed_bytes'],
                 'disk_free': free,
                 'reserved_upload_bytes': used,
                 'quota_bytes': self.quota
@@ -746,14 +776,37 @@ class Fabric:
             }
 
     def auto_repair(self, owner='@anonymous'):
-        with self.transaction():
+        with self.lock:
             retried_replications = self.db.execute("UPDATE replication SET state='pending', error='' WHERE state='failed'").rowcount
             retried_downloads = self.db.execute("UPDATE downloads SET state='pending', error='' WHERE state='failed'").rowcount
+            cleaned_refs = self.db.execute("""
+                DELETE FROM content_references 
+                WHERE record NOT IN (SELECT id FROM records) 
+                   OR object NOT IN (SELECT id FROM objects UNION SELECT remote FROM locations)
+            """).rowcount
+            verified_objects = 0
+            corrupted_objects = []
+            objects_to_check = self.db.execute("SELECT id, owner, metadata FROM objects ORDER BY rowid DESC LIMIT 128").fetchall()
+            for obj in objects_to_check:
+                try:
+                    res = self.verify_object(obj['owner'], obj['id'])
+                    if res.get('verified'):
+                        verified_objects += 1
+                    else:
+                        corrupted_objects.append(obj['id'])
+                except Exception as exc:
+                    corrupted_objects.append({'id': obj['id'], 'error': str(exc)})
+            db_check = self.db.execute('PRAGMA quick_check').fetchone()[0]
+            status = 'repaired' if len(corrupted_objects) == 0 and db_check == 'ok' else 'degraded'
             return {
                 'schema': 'ziokt.content-auto-repair.v1',
                 'retried_replications': retried_replications,
                 'retried_downloads': retried_downloads,
-                'status': 'repaired'
+                'cleaned_orphaned_references': cleaned_refs,
+                'verified_objects': verified_objects,
+                'corrupted_objects': len(corrupted_objects),
+                'database_check': db_check,
+                'status': status
             }
 
     def objects(self,owner,limit=30,offset=0):

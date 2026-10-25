@@ -118,24 +118,53 @@ class ReleaseService:
             if native.blob(publication['package_id'],publication['version_id'])!=blob:
                 raise Error('NATIVE_PUBLICATION','Native registry did not return the signed package',503)
         package_ref=self.put(owner,blob,'application/vnd.ziokt.dcpm-package+json')
+        package_event_body={
+            'package_id':publication['package_id'],
+            'version_id':publication['version_id'],
+            'name':name,
+            'version':version,
+            'publisher':self.public,
+            'package_reference':package_ref,
+            'provenance_reference':provenance_ref,
+            'files':files
+        }
+        self.state.queue_package_publication(prepared['id'], pipeline['project'], name, version, package_event_body)
+        fabric_published = False
+        fabric_error = None
         try:
-            package_event_body={
-                'package_id':publication['package_id'],
-                'version_id':publication['version_id'],
-                'name':name,
-                'version':version,
-                'publisher':self.public,
-                'package_reference':package_ref,
-                'provenance_reference':provenance_ref,
-                'files':files
-            }
-            self.fabric.publish_package(owner,name,version,package_event_body,visibility='public')
-        except Exception:
-            pass
+            self.fabric.publish_package(owner, name, version, package_event_body, visibility='public')
+            self.state.record_package_publication(prepared['id'], success=True)
+            fabric_published = True
+        except Exception as exc:
+            fabric_error = f"{type(exc).__name__}: {str(exc)}"
+            self.state.record_package_publication(prepared['id'], success=False, error=fabric_error)
         result={**publication,'package_reference':package_ref,'provenance_reference':provenance_ref,
                 'visibility':'project-authorized','network_published':False,'release_signed':True,
-                'installed':False,'activated':False,'execution_authorized':False,'corium_settled':False}
+                'installed':False,'activated':False,'execution_authorized':False,'corium_settled':False,
+                'content_fabric_published':fabric_published,'content_fabric_synced':fabric_published,
+                'content_fabric_error':fabric_error}
         return self.state.complete_release(actor,prepared['id'],result)
+
+    def retry_pending_publications(self, project=None):
+        pending = self.state.list_pending_publications(project)
+        retried = 0; succeeded = 0; errors = []
+        for item in pending:
+            retried += 1
+            owner = 'openci-' + item['project']
+            try:
+                self.fabric.publish_package(owner, item['package_name'], item['version'], item['payload'], visibility='public')
+                self.state.record_package_publication(item['release_id'], success=True)
+                succeeded += 1
+            except Exception as exc:
+                err_msg = f"{type(exc).__name__}: {str(exc)}"
+                self.state.record_package_publication(item['release_id'], success=False, error=err_msg)
+                errors.append({'release_id': item['release_id'], 'error': err_msg})
+        return {
+            'pending_count': len(pending),
+            'retried': retried,
+            'succeeded': succeeded,
+            'errors': errors
+        }
 
     def install(self,rid,root,*,activate=False):
         release=self.state.release(rid)

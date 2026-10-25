@@ -45,6 +45,9 @@ class ReleaseTests(HTTPTests):
         self.assertEqual(release['state'],'published')
         self.assertNotIn('worker_attestations',release['request'])  # preserve legacy request identity
         self.assertTrue(release['publication']['release_signed'])
+        self.assertTrue(release['publication']['content_fabric_published'])
+        self.assertTrue(release['publication']['content_fabric_synced'])
+        self.assertIsNone(release['publication']['content_fabric_error'])
         self.assertFalse(release['publication']['corium_settled'])
         self.assertEqual(self.owner.request('POST','/v1/releases',request)['id'],release['id'])
         installed=ReleaseService(self.controller).install(release['id'],self.root/'installed',activate=True)

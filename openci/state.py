@@ -48,6 +48,21 @@ def integer(value, low, high):
     return value
 
 
+def canonical_cache_key(base_key, source_digest=None, image=None, arch=None, argv=None, cache_paths=None, lockfile_digest=None):
+    """Deterministically bind cache key to source revision, toolchain, architecture, build command and paths."""
+    context = [
+        str(base_key or ''),
+        str(source_digest or ''),
+        str(image or ''),
+        str(arch or ''),
+        json.dumps(argv or [], sort_keys=True),
+        json.dumps(cache_paths or [], sort_keys=True),
+        str(lockfile_digest or '')
+    ]
+    fingerprint = hashlib.sha256('\x00'.join(context).encode('utf-8')).hexdigest()[:32]
+    return f"{base_key}--{fingerprint}"
+
+
 def validate_pipeline(value):
     if not isinstance(value, dict) or set(value) != {'schema', 'project', 'nonce', 'source', 'tasks'} or value['schema'] != 'openci.pipeline.v1':
         raise Error('INVALID_PIPELINE', 'Versioned pipeline with exact fields required')
@@ -132,9 +147,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS git_schedules(project TEXT PRIMARY KEY,next_due INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS git_deliveries(project TEXT NOT NULL,delivery TEXT NOT NULL,commit_id TEXT NOT NULL,state TEXT NOT NULL,pipeline TEXT,error TEXT,updated INTEGER NOT NULL,PRIMARY KEY(project,delivery));
                 CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,pipeline TEXT NOT NULL,task TEXT NOT NULL,project TEXT NOT NULL,name TEXT NOT NULL,version TEXT NOT NULL,publisher TEXT NOT NULL,state TEXT NOT NULL,request TEXT NOT NULL,publication TEXT,created INTEGER NOT NULL,UNIQUE(name,version,publisher),FOREIGN KEY(pipeline) REFERENCES pipelines(id));
-                CREATE TABLE IF NOT EXISTS build_caches(project TEXT NOT NULL,cache_key TEXT NOT NULL,artifact TEXT NOT NULL,created INTEGER NOT NULL,last_accessed INTEGER NOT NULL,size INTEGER NOT NULL,hit_count INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(project,cache_key));
+                CREATE TABLE IF NOT EXISTS build_caches(project TEXT NOT NULL,cache_key TEXT NOT NULL,artifact TEXT NOT NULL,created INTEGER NOT NULL,last_accessed INTEGER NOT NULL,size INTEGER NOT NULL,hit_count INTEGER NOT NULL DEFAULT 0,base_key TEXT NOT NULL DEFAULT '',source_digest TEXT NOT NULL DEFAULT '',image TEXT NOT NULL DEFAULT '',arch TEXT NOT NULL DEFAULT '',PRIMARY KEY(project,cache_key));
+                CREATE TABLE IF NOT EXISTS pending_package_publications(release_id TEXT PRIMARY KEY,project TEXT NOT NULL,package_name TEXT NOT NULL,version TEXT NOT NULL,payload TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,last_attempt INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',created INTEGER NOT NULL);
                 PRAGMA user_version=1;
             ''')
+            for col, col_def in [('base_key', "TEXT NOT NULL DEFAULT ''"), ('source_digest', "TEXT NOT NULL DEFAULT ''"), ('image', "TEXT NOT NULL DEFAULT ''"), ('arch', "TEXT NOT NULL DEFAULT ''")]:
+                try: db.execute(f"ALTER TABLE build_caches ADD COLUMN {col} {col_def}")
+                except Exception: pass
         os.chmod(self.path, 0o600)
 
     def connect(self):
@@ -265,13 +284,18 @@ class Store:
                 self.event(db, worker, 'task.claimed', task['pipeline'], task['id'], {'attempt': attempt})
                 cache_info = None
                 if spec.get('cache_key'):
-                    cache_row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND cache_key=?', (task['project'], spec['cache_key'])).fetchone()
+                    source_dict = json.loads(task['body'])['source']
+                    source_digest = source_dict.get('digest')
+                    mode = spec.get('cache_mode', 'read-write')
+                    paths = spec.get('cache_paths', ['/cache'])
+                    canonical_key = canonical_cache_key(spec['cache_key'], source_digest, spec['image'], spec['arch'], spec['argv'], paths)
+                    cache_row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND (cache_key=? OR cache_key=?)', (task['project'], canonical_key, spec['cache_key'])).fetchone()
                     if cache_row:
                         now = int(self.clock())
-                        db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, task['project'], spec['cache_key']))
-                        cache_info = {'key': spec['cache_key'], 'reference': json.loads(cache_row[0]), 'size': cache_row[1], 'hit': True, 'paths': spec.get('cache_paths', ['.cache'])}
+                        db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND (cache_key=? OR cache_key=?)', (now, task['project'], canonical_key, spec['cache_key']))
+                        cache_info = {'key': canonical_key, 'base_key': spec['cache_key'], 'reference': json.loads(cache_row[0]), 'size': cache_row[1], 'hit': True, 'paths': paths, 'mode': mode}
                     else:
-                        cache_info = {'key': spec['cache_key'], 'reference': None, 'hit': False, 'paths': spec.get('cache_paths', ['.cache'])}
+                        cache_info = {'key': canonical_key, 'base_key': spec['cache_key'], 'reference': None, 'hit': False, 'paths': paths, 'mode': mode}
                 res = {'pipeline': task['pipeline'], 'project': task['project'], 'task': spec, 'source': json.loads(task['body'])['source'], 'attempt': attempt, 'worker':worker, 'lease': lease, 'lease_until': until}
                 if cache_info is not None: res['cache'] = cache_info
                 return res
@@ -325,15 +349,23 @@ class Store:
             spec = json.loads(row['spec'])
             if exit_code == 0 and cache_artifact is not None and spec.get('cache_key'):
                 proj = db.execute('SELECT project FROM pipelines WHERE id=?', (pid,)).fetchone()['project']
+                pipe_body = json.loads(db.execute('SELECT body FROM pipelines WHERE id=?', (pid,)).fetchone()['body'])
+                source_digest = pipe_body.get('source', {}).get('digest')
+                paths = spec.get('cache_paths', ['/cache'])
+                canonical_key = canonical_cache_key(spec['cache_key'], source_digest, spec['image'], spec['arch'], spec['argv'], paths)
                 now = int(self.clock())
                 db.execute('''
-                    INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count)
-                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                    INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count, base_key, source_digest, image, arch)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                     ON CONFLICT(project, cache_key) DO UPDATE SET
                         artifact=excluded.artifact,
                         last_accessed=excluded.last_accessed,
-                        size=excluded.size
-                ''', (proj, spec['cache_key'], json.dumps(cache_artifact, sort_keys=True), now, now, cache_size))
+                        size=excluded.size,
+                        base_key=excluded.base_key,
+                        source_digest=excluded.source_digest,
+                        image=excluded.image,
+                        arch=excluded.arch
+                ''', (proj, canonical_key, json.dumps(cache_artifact, sort_keys=True), now, now, cache_size, spec['cache_key'], source_digest or '', spec.get('image', ''), spec.get('arch', '')))
             self.refresh(db)
         return {'state': state, 'duplicate': False, 'verification': 'pending', 'release': 'unpublished'}
 
@@ -534,14 +566,19 @@ class Store:
 
     def cache_get(self, project, key):
         with closing(self.connect()) as db:
-            row = db.execute('SELECT artifact, size, hit_count FROM build_caches WHERE project=? AND cache_key=?', (project, key)).fetchone()
+            row = db.execute('''
+                SELECT cache_key, artifact, size, hit_count 
+                FROM build_caches 
+                WHERE project=? AND (cache_key=? OR base_key=?)
+                ORDER BY (cache_key=?) DESC, last_accessed DESC LIMIT 1
+            ''', (project, key, key, key)).fetchone()
             if not row: return None
             now = int(self.clock())
-            db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, project, key))
+            db.execute('UPDATE build_caches SET hit_count=hit_count+1, last_accessed=? WHERE project=? AND cache_key=?', (now, project, row['cache_key']))
             db.commit()
-            return {'artifact': json.loads(row[0]), 'size': row[1], 'hit_count': row[2] + 1}
+            return {'cache_key': row['cache_key'], 'artifact': json.loads(row['artifact']), 'size': row['size'], 'hit_count': row['hit_count'] + 1}
 
-    def cache_put(self, project, key, artifact, size=0):
+    def cache_put(self, project, key, artifact, size=0, base_key='', source_digest='', image='', arch=''):
         reference(artifact)
         if type(size) is not int or not 0 <= size <= 512*1024*1024:
             raise Error('INVALID_CACHE_SIZE', 'Cache size outside budget')
@@ -549,15 +586,61 @@ class Store:
         payload = json.dumps(artifact, sort_keys=True)
         with closing(self.connect()) as db:
             db.execute('''
-                INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count)
-                VALUES (?, ?, ?, ?, ?, ?, 0)
+                INSERT INTO build_caches(project, cache_key, artifact, created, last_accessed, size, hit_count, base_key, source_digest, image, arch)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                 ON CONFLICT(project, cache_key) DO UPDATE SET
                     artifact=excluded.artifact,
                     last_accessed=excluded.last_accessed,
-                    size=excluded.size
-            ''', (project, key, payload, now, now, size))
+                    size=excluded.size,
+                    base_key=excluded.base_key,
+                    source_digest=excluded.source_digest,
+                    image=excluded.image,
+                    arch=excluded.arch
+            ''', (project, key, payload, now, now, size, base_key or key, source_digest or '', image or '', arch or ''))
             db.commit()
         return {'project': project, 'cache_key': key, 'size': size, 'stored': True}
+
+    def queue_package_publication(self, release_id, project, package_name, version, payload):
+        now = int(self.clock())
+        with closing(self.connect()) as db:
+            db.execute('''
+                INSERT INTO pending_package_publications(release_id, project, package_name, version, payload, attempts, last_attempt, last_error, status, created)
+                VALUES(?, ?, ?, ?, ?, 0, 0, '', 'pending', ?)
+                ON CONFLICT(release_id) DO UPDATE SET
+                    payload=excluded.payload,
+                    status='pending'
+            ''', (release_id, project, package_name, version, json.dumps(payload, sort_keys=True), now))
+            db.commit()
+
+    def record_package_publication(self, release_id, success, error=None):
+        now = int(self.clock())
+        status = 'published' if success else 'failed'
+        err_str = '' if success else str(error or 'unknown error')[:1024]
+        with closing(self.connect()) as db:
+            if success:
+                db.execute("UPDATE pending_package_publications SET status='published', last_attempt=?, last_error='' WHERE release_id=?", (now, release_id))
+            else:
+                db.execute("UPDATE pending_package_publications SET status='failed', attempts=attempts+1, last_attempt=?, last_error=? WHERE release_id=?", (now, err_str, release_id))
+            db.commit()
+
+    def list_pending_publications(self, project=None):
+        with closing(self.connect()) as db:
+            if project:
+                rows = db.execute("SELECT * FROM pending_package_publications WHERE project=? AND status!='published' ORDER BY created", (project,)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM pending_package_publications WHERE status!='published' ORDER BY created").fetchall()
+            return [{
+                'release_id': r['release_id'],
+                'project': r['project'],
+                'package_name': r['package_name'],
+                'version': r['version'],
+                'payload': json.loads(r['payload']),
+                'attempts': r['attempts'],
+                'last_attempt': r['last_attempt'],
+                'last_error': r['last_error'],
+                'status': r['status'],
+                'created': r['created']
+            } for r in rows]
 
     def cache_list(self, project, limit=100):
         with closing(self.connect()) as db:

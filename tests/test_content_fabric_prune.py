@@ -37,9 +37,19 @@ class ContentFabricPruneTests(unittest.TestCase):
         self.assertEqual(health["schema"], "ziokt.content-replica-health.v1")
         self.assertTrue(health["healthy"])
 
+        # Add an object and verify auto_repair actively verifies objects and database check
+        payload = b"verifiable object data"
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        self.fabric.begin(owner, "up_vrf", len(payload), digest, "text/plain")
+        self.fabric.put(owner, "up_vrf", 0, payload)
+        fin = self.fabric.finish(owner, "up_vrf")
+
         repair = self.fabric.auto_repair(owner)
         self.assertEqual(repair["schema"], "ziokt.content-auto-repair.v1")
         self.assertEqual(repair["status"], "repaired")
+        self.assertGreaterEqual(repair["verified_objects"], 1)
+        self.assertEqual(repair["corrupted_objects"], 0)
+        self.assertEqual(repair["database_check"], "ok")
 
     def test_api_integration(self):
         owner = "alice"

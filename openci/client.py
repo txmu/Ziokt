@@ -96,3 +96,11 @@ class Client:
 
     def cache_prune(self, project, max_bytes=64*1024*1024, max_age=86400*30):
         return self.request('POST', f'/v1/cache/prune?project={quote(project, safe="")}', {'max_bytes': max_bytes, 'max_age': max_age})
+
+    def sync_fabric_releases(self, project=None):
+        body = {'project': project} if project else {}
+        return self.request('POST', '/v1/releases/sync-fabric', body)
+
+    def list_pending_fabric_releases(self, project=None):
+        url = f'/v1/releases/pending-fabric?project={quote(project, safe="")}' if project else '/v1/releases/pending-fabric'
+        return self.request('GET', url)
