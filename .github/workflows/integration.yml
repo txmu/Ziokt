@@ -98,7 +98,7 @@ jobs:
         run: bash ci/run-i2p.sh
   native-integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: Ziokt

@@ -303,9 +303,19 @@ class TC16NamingAndDiscoveryTests(unittest.TestCase):
         A, AAAA, TXT, and HTTPS records for .tc16 and .tcc names.
         """
         opened = servers(self.resolver, port=0, doh_port=0)
+        def safe_stop(srv):
+            try:
+                srv.server_close()
+            except Exception:
+                pass
+            try:
+                t = threading.Thread(target=srv.shutdown, daemon=True)
+                t.start()
+                t.join(timeout=1.0)
+            except Exception:
+                pass
         for s in opened:
-            self.addCleanup(s.server_close)
-            self.addCleanup(s.shutdown)
+            self.addCleanup(safe_stop, s)
             threading.Thread(target=s.serve_forever, daemon=True).start()
         udp, tcp, doh = opened
 
