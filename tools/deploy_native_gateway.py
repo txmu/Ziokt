@@ -50,6 +50,25 @@ def deploy(root,corix):
  for name,path in [('forum',config['forum_db']),('dht',config['dht_db']),('chain',chain)]:
   if not Path(path).is_file():raise ValueError('existing native database required for backup')
   with database(path) as source, database(backup/(name+'.db')) as destination:source.backup(destination)
+ # Standalone native commands import these sidecars as well as the embedded
+ # provider runtime. Updating just the shell leaves two verifier versions live.
+ sidecars={}
+ for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
+              'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
+              'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
+              'dna_protocol.py','cooperative_protocol.py','shielded_ownership.py','gimps_consensus.py'):
+  source=corix.with_name(name);destination=target.with_name(name)
+  if not source.is_file():
+   if corix.name=='corix_v108.sh':raise ValueError('native runtime module missing: '+name)
+   continue
+  if source.is_symlink() or destination.is_symlink():raise ValueError('regular native runtime module required')
+  compile(source.read_bytes(),str(source),'exec')
+  sidecars[name]=hashlib.sha256(source.read_bytes()).hexdigest()
+  if destination.exists():
+   shutil.copy2(destination,backup/name);(backup/name).chmod(0o600)
+ for name in sidecars:
+  destination=target.with_name(name);temporary=destination.with_suffix('.new')
+  shutil.copyfile(corix.with_name(name),temporary);temporary.chmod(0o500);temporary.replace(destination)
  temporary=target.with_suffix('.new');shutil.copyfile(corix,temporary);temporary.chmod(0o755);temporary.replace(target)
  # A service restart or reboot must also respect the hold, independently of
  # the deployment process that originally paused consensus.
@@ -77,7 +96,8 @@ def deploy(root,corix):
  # settings, identities and unit definitions. Initial bootstrap is separate.
  # In particular, never manufacture optimistic NNS rows during an upgrade.
  # A release must not restart mining after a history/provenance safety hold.
- restart_services=[name for name in services if not (held and name==units['consensus'])]
+ was_consensus_active=subprocess.run(['systemctl','is-active','--quiet',units['consensus']],capture_output=True).returncode==0
+ restart_services=[name for name in services if name!=units['consensus'] or (not held and was_consensus_active)]
  if held:
   subprocess.run([*control,'stop',units['consensus']],check=True)
   subprocess.run([*control,'reset-failed',units['consensus']],check=True)
@@ -90,7 +110,7 @@ def deploy(root,corix):
   except OSError:
    if time.monotonic()>deadline:raise
    time.sleep(.5)
- receipt={'schema':'ziokt.gateway-deployment.v1','at':timestamp,'corix_sha256':digest,'backup':str(backup),'status':status,'local_native_compilation':False,'consensus_safety_hold':held}
+ receipt={'schema':'ziokt.gateway-deployment.v1','at':timestamp,'corix_sha256':digest,'runtime_modules_sha256':sidecars,'backup':str(backup),'status':status,'local_native_compilation':False,'consensus_safety_hold':held,'consensus_preserved_inactive':not was_consensus_active}
  path=root/'config/gateway-deployment-receipt.json';path.write_text(json.dumps(receipt,indent=2)+'\n');path.chmod(0o600)
  return receipt
 

@@ -135,6 +135,8 @@ def activate(root,release,revision,settings):
         for service,(path,_) in units.items():
             dropin=backup/(service+'.new')
             content='[Service]\nWorkingDirectory='+str(release)+'\nEnvironment=PYTHONDONTWRITEBYTECODE=1\n'
+            if service==settings['services']['effort']:
+                content+='ExecStart=\nExecStart=/usr/bin/python3 -m ziokt effort-web --config "'+str(root/'config/effort-web.json')+'"\n'
             if service==settings['services']['content']:content+='MemoryHigh=384M\nMemoryMax=512M\nCPUQuota=100%\n'
             dropin.write_text(content)
             run('sudo','-n','install','-d',str(path.parent))

@@ -1,0 +1,25 @@
+{
+  "binary_url": "https://download.mersenne.ca/gimps/v30/30.19/p95v3019b20.linux64.tar.gz",
+  "binary_archive_sha256": "4ce2377e03deb4cf189523136e26401ba08f67857a128e420dd030d00cdca601",
+  "publisher_checksums": "https://www.mersenne.org/download/",
+  "producer": "unmodified official mprime 30.19 build 20 Linux x86_64",
+  "configuration": "UsePrimenet=0; NumWorkers=1; [PrimeNet] ProofPower=5; ProofUploads=0",
+  "tasks": [
+    "PRP=1,2,127,-1,99,0,3,1",
+    "PRP=1,2,521,-1,99,0,3,1"
+  ],
+  "files": {
+    "p0000127.proof": {
+      "sha256": "64f06115e6274c2ab7db7e8b3864bcf312e5dae3dab12a4f67e29a7e674c325b",
+      "bytes": 364,
+      "exponent": 127
+    },
+    "p0000521.proof": {
+      "sha256": "3961cf6f27a353a1d147e4d7170fc909a27a67c689a033bbf512943511294aba",
+      "bytes": 448,
+      "exponent": 521
+    }
+  },
+  "official_server_submission": false,
+  "encoding": "Base64 lossless binary fixtures for the text-only source exchange archive"
+}

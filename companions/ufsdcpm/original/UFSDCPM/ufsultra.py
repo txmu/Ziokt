@@ -516,7 +516,7 @@ if %errorlevel% == 0 (
         content = template.format(
             mode=mode,
             python=sys.executable,
-            script=__file
+            script=__file__,
             protect_system='full' if cfg['protect_system'] else 'false',
             security=security
         )

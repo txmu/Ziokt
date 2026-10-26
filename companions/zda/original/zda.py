@@ -622,7 +622,7 @@ class ZDAStructuralLogic(ZDALogic):
         return ZDAStructuralLogic(ZDANumber(
             min(self.value.real, other.value.real),
             min(self.value.imag, other.value.imag)
-        )
+        ))
     
     def __or__(self, other):
         """
@@ -651,7 +651,7 @@ class ZDAStructuralLogic(ZDALogic):
         return ZDAStructuralLogic(ZDANumber(
             max(self.value.real, other.value.real),
             max(self.value.imag, other.value.imag)
-        )
+        ))
     
     def __invert__(self):
         """

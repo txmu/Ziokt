@@ -33,7 +33,7 @@ runtime=dist/'corium-runtime';runtime.mkdir(exist_ok=True)
 for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
              'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
              'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
-             'dna_protocol.py','cooperative_protocol.py','shielded_ownership.py'):
+             'dna_protocol.py','cooperative_protocol.py','shielded_ownership.py','gimps_consensus.py'):
     source=c/name
     if source.is_symlink() or not source.is_file():raise ValueError('native verification source missing: '+name)
     (runtime/name).write_bytes(source.read_bytes())

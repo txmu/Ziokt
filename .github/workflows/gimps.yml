@@ -1,0 +1,43 @@
+name: GIMPS proof and independent worker boundaries
+on:
+  push:
+    paths: ['ziokt/effort_gimps.py', 'ziokt/gimps_files.py', 'ziokt/effort/worker.js', 'spec/gimps_consensus.py', 'tests/test_*gimps*.py', 'tests/fixtures/gimps/**', 'native-sources.lock.json', 'ci/gimps_official_smoke.py', '.github/workflows/gimps.yml']
+  pull_request:
+    paths: ['ziokt/effort_gimps.py', 'ziokt/gimps_files.py', 'ziokt/effort/worker.js', 'spec/gimps_consensus.py', 'tests/test_*gimps*.py', 'tests/fixtures/gimps/**', 'native-sources.lock.json', 'ci/gimps_official_smoke.py', '.github/workflows/gimps.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof-boundaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Ziokt
+          persist-credentials: false
+      - id: native
+        working-directory: Ziokt
+        run: python3 ci/native_refs.py
+      - uses: actions/checkout@v4
+        with:
+          repository: txmu/Corium
+          ref: ${{ steps.native.outputs.corium }}
+          path: Corium
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r Ziokt/requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y sqlite3 bc xxd jq openssl gpg libgmp10
+      - name: Native arithmetic, browser worker, durable leases and transport trust
+        working-directory: Ziokt
+        env:
+          PYTHONPATH: .:tests:../Corium
+        run: python -m unittest -v test_effort_gimps test_gimps_boundaries test_native_deployment test_gimps_consensus test_retroshare
+      - name: Regenerate genuine official tiny binary proof files
+        working-directory: Ziokt
+        run: python ci/gimps_official_smoke.py

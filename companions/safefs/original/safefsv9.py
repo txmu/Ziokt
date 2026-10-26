@@ -1815,14 +1815,15 @@ class EnhancedCrypto:
             
             return package
             
-        finally:
-            # 新增安全擦除
-            if safe_buf:
-                SecureWipe.wipe_memory(safe_buf)
-            SecureWipe.wipe_memory(derived_key) if 'derived_key' in locals() else None
         except Exception as e:
             SecureEnv._write_audit_log(f"安全加密失败: {e}")
             raise CryptoError(f"安全加密失败: {e}")
+        finally:
+            # Always clear temporary key material, including on failure.
+            if safe_buf:
+                SecureWipe.wipe_memory(safe_buf)
+            if 'derived_key' in locals():
+                SecureWipe.wipe_memory(derived_key)
 
     @staticmethod
     def decrypt_data_secure(encrypted: bytes, key: bytes) -> bytes:
@@ -1881,15 +1882,15 @@ class EnhancedCrypto:
             
             return decrypted[:data_len]  # 精确切片防止填充泄露
             
-        finally:
-            # 新增安全擦除
-            if safe_buf:
-                SecureWipe.wipe_memory(safe_buf)
-            SecureWipe.wipe_memory(derived_key) if 'derived_key' in locals() else None
         except Exception as e:
             SecureEnv._write_audit_log(f"安全解密失败: {e}")
             raise CryptoError(f"安全解密失败: {e}")
-                    
+        finally:
+            if safe_buf:
+                SecureWipe.wipe_memory(safe_buf)
+            if 'derived_key' in locals():
+                SecureWipe.wipe_memory(derived_key)
+
 # ===== 主功能实现 =====
 class SafeFS:
     """主加密系统"""
@@ -2366,7 +2367,7 @@ class SafeFS:
             "aslr": "启用" if self.config.enable_aslr else "禁用",
             "memory_lock": "启用" if self.config.enable_memory_lock else "禁用",
             "anti_debug": "启用" if self.config.enable_anti_debug else "禁用",
-            "airgap": "启用" if self.config.use_airgap else "禁用"
+            "airgap": "启用" if self.config.use_airgap else "禁用",
             # 新增检查项
             "proc_access": "安全" if SecureEnv.monitor_proc_access() else "异常",
             "integrity": "通过" if SecureEnv.verify_integrity() else "失败",
@@ -2711,18 +2712,19 @@ def main():
                 menu_level, params = main_menu()
                 
                 if menu_level == MenuLevel.ENCRYPT:
-                    # 加密文件（新增内存保护）
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        result = safe_fs.encrypt_file(
-                            params["src_path"],
-                            params["dest_path"] or None,
-                            params["password"]
-                        )
-                    print(Color.GREEN + "\n加密成功!" + Color.END)
-                    print(f"输出文件: {result[0]}")
-                    print(f"备份密钥: {Color.YELLOW}{result[1]}{Color.END}")
-                    print(f"TOTP密钥: {Color.CYAN}{result[2]}{Color.END}")
+                    try:
+                        # 加密文件（新增内存保护）
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            result = safe_fs.encrypt_file(
+                                params["src_path"],
+                                params["dest_path"] or None,
+                                params["password"]
+                            )
+                        print(Color.GREEN + "\n加密成功!" + Color.END)
+                        print(f"输出文件: {result[0]}")
+                        print(f"备份密钥: {Color.YELLOW}{result[1]}{Color.END}")
+                        print(f"TOTP密钥: {Color.CYAN}{result[2]}{Color.END}")
                     except NetworkAnomalyError as e:
                         print(Color.RED + f"\n网络异常: {e}" + Color.END)
                         print("建议在隔离环境中操作敏感文件")

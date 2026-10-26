@@ -258,6 +258,9 @@ class Service:
         if config.get('content_fabric',{}).get('enabled') is True:
             from .content_api import attach
             attach(self,config['content_fabric'])
+        self.add('retroshare_status','Inspect configured native RetroShare JSON API connectivity and authenticated peer counts.',schema(),False,'ziokt:read',('retroshare','status'))
+        for action in ('friends','online','shares','downloads'):
+            self.add('retroshare_'+action,'Read native RetroShare '+action+' through explicit private loopback API credentials.',schema(),False,'retroshare:read',('retroshare',action))
         self.add('mail_identity','Inspect your persistent mail public key and native sender address.',schema(),False,'mail:read',('mail','identity'))
         self.add('mail_internet_status','Inspect your configured TLS internet mail queue.',schema(),False,'mail:read',('mail','internet-status'))
         for action in ('internet-flush','internet-poll'):
@@ -481,6 +484,10 @@ class Service:
 
     def execute(self,principal,name,args):
         route=self.dispatch[name];kind=route[0]
+        if kind=='retroshare':
+            from .retroshare import RetroShare
+            native=RetroShare(self.current().get('retroshare'))
+            return native.status() if route[1]=='status' else native.inspect(route[1])
         if kind=='content-fabric':
             from .content_fabric import Fabric
             from .content_api import invoke,required_scopes

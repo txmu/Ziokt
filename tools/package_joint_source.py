@@ -59,6 +59,15 @@ def package(repositories_root,output,evidence=None):
     (stage/evidence_path.name).write_text(json.dumps(observed,sort_keys=True,indent=2)+'\n')
   spec=importlib.util.spec_from_file_location('prepare_text_zip',base/'Shadow6/Tools/prepare_text_zip.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
   kept,removed=module.prepare(stage)
+  # Compile the actual exchange contents, including original companion sources
+  # and duplicated deployment tools. AST parsing alone misses top-level await.
+  checked=0
+  for file in sorted(stage.rglob('*.py.txt')):
+   compile(file.read_bytes(),str(file.relative_to(stage)),'exec')
+   checked+=1
+  if not checked:raise ValueError('joint source Python inventory is empty')
+  provenance['python_compile_checked']=checked
+  (stage/'SOURCE_PROVENANCE.json.txt').write_text(json.dumps(provenance,indent=2)+'\n')
   manifest={str(file.relative_to(stage)):hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(stage.rglob('*')) if file.is_file()}
   (stage/'SOURCE_SHA256.json.txt').write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n');kept+=1
   temporary_zip=Path(temporary)/'source.zip'

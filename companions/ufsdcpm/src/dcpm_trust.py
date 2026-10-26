@@ -275,9 +275,9 @@ async def verify_package(package):
     return True
 
 
-# 使用示例
-package = Package(...)
-if await verify_package(package):
-    print("软件包验证通过，可以安全安装")
-else:
-    print("软件包验证失败，安装被拒绝")
+# Explicit example entrypoint; importing this library performs no verification.
+async def example(package):
+    if await verify_package(package):
+        print("软件包验证通过，可以安全安装")
+    else:
+        print("软件包验证失败，安装被拒绝")

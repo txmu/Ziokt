@@ -54,7 +54,7 @@
     "Release.lean": {
       "namespace": "Ziokt.Release",
       "source_sha256": {
-        "tools/package_joint_source.py": "af842f45040d9d77cfa3f1217e55d74965b21daca13c95f1c35a007823357934",
+        "tools/package_joint_source.py": "83bc525547c970527f2b116e3debc06ca927e2ef05c0ebfbec253bf7a3270b5b",
         "formal/contracts.json": "04f2b025d48296a69e1aceb17998e12a2eabf7de8b6bf97e37c337ce7de27fef",
         "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
         "ziokt/_verified_guards.py": "bee12530372896fb029389b2c93a117a16af6e19c3dac71b1832c9e8f13b331f"

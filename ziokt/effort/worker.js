@@ -8,9 +8,9 @@ self.onmessage=async({data:job})=>{
   postMessage(typeof BigInt==='function'?{type:'ready'}:{error:'UNSUPPORTED_BROWSER'});return;
  }
  if(job&&job.engine==='gimps'){
-  const isPrp=job.proof_schema==='corium.gimps-prp-proof.v1'||job.method==='prp-fiat-shamir';
-  const isLL=job.proof_schema==='corium.gimps-proof.v2'&&job.method==='lucas-lehmer';
-  const maxExp=isPrp?(job.max_exponent||2000000000):4096;
+  const isPrp=job.exponent!==2&&(job.proof_schema==='corium.gimps-prp-proof.v1'||job.method==='prp-fiat-shamir');
+  const isLL=(job.proof_schema==='corium.gimps-proof.v2'&&job.method==='lucas-lehmer')||job.exponent===2;
+  const maxExp=isPrp?Math.min(job.max_exponent||100000,100000):4096;
   if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>maxExp||job.problem_id!==String(job.exponent)||(!isPrp&&!isLL)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000){postMessage({error:'INVALID_JOB'});return close()}
   const p=job.exponent,profile=EFFORT_PROFILES[job.level-1],began=performance.now();
   if(p>2&&Array.from({length:Math.floor(Math.sqrt(p))-1},(_,i)=>i+2).some(divisor=>p%divisor===0)){postMessage({error:'INVALID_JOB'});return close()}
@@ -19,7 +19,7 @@ self.onmessage=async({data:job})=>{
    const modulus=(BigInt(1)<<BigInt(p))-BigInt(1);
    if(isPrp){
     let s=BigInt(3),startIter=0;
-    if(job.checkpoint&&Number.isInteger(job.checkpoint.iteration)&&job.checkpoint.s&&job.checkpoint.iteration<p-1){
+    if(job.checkpoint&&Number.isInteger(job.checkpoint.iteration)&&typeof job.checkpoint.s==='string'&&job.checkpoint.s.length<=Math.ceil(p/3)&&/^[0-9]+$/.test(job.checkpoint.s)&&job.checkpoint.iteration>=0&&job.checkpoint.iteration<p-1){
      try{s=BigInt(job.checkpoint.s);startIter=job.checkpoint.iteration}catch(_){}
     }
     for(let i=startIter;i<p-1;i++){
@@ -49,18 +49,38 @@ self.onmessage=async({data:job})=>{
      curr_Y=(modPow(Z,r,modulus)*curr_Y)%modulus;
      curr_T=half;
     }
+    const digest=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text)))).map(b=>b.toString(16).padStart(2,'0')).join('');
+    const square=async(value,count)=>{for(let i=0;i<count;i++){value=value*value%modulus;if(i%256===255){if(Date.now()/1000>=job.expires||performance.now()-began>90000)throw Error('deadline');await new Promise(resolve=>setTimeout(resolve,profile.pause))}}return value};
+    const transition=async(x,y,count)=>{
+     const steps=[];
+     while(count>32){
+      const odd=count%2===1;
+      if(odd){x=x*x%modulus;count--}
+      const z=await square(x,Math.floor(count/2));
+      const r=BigInt('0x'+await digest(`corium-checkpoint-v1:${x.toString(16)}:${y.toString(16)}:${z.toString(16)}:${modulus.toString(16)}:${count}`));
+      steps.push({Z:'0x'+z.toString(16),odd});
+      x=modPow(x,r,modulus)*z%modulus;y=modPow(z,r,modulus)*y%modulus;count=Math.floor(count/2);
+     }
+     return steps;
+    };
     const gerbicz_checkpoints=[];
-    const initBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`gerbicz-init:${p}:3`));
-    let curr_chk_hash=Array.from(new Uint8Array(initBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-    const chk_intervals=p>5?[0,Math.floor((p-1)/2),p-1]:[0,p-1];
+    let curr_chk_hash=await digest(`gerbicz-init:${p}:3:4294967311`),previousIt=0,previousState=BigInt(3);
+    const chk_intervals=[...new Set([0,Math.floor((p-1)/2),p-1])].sort((a,b)=>a-b);
     for(const it of chk_intervals){
-     const sBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`${p}:${it}:${res64}`));
-     const sHash=Array.from(new Uint8Array(sBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-     const nextBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`${curr_chk_hash}:${it}:${sHash}`));
-     curr_chk_hash=Array.from(new Uint8Array(nextBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-     gerbicz_checkpoints.push({iteration:it,state_hash:sHash,hash:curr_chk_hash});
+     const state=await square(previousState,it-previousIt);
+     const state_hash=await digest(`${p}:${it}:${state.toString(16)}`);
+     const res64=(state&BigInt('0xFFFFFFFFFFFFFFFF')).toString(16).toUpperCase().padStart(16,'0');
+     const math_residue_q=Number(state%BigInt('4294967311'));
+     curr_chk_hash=await digest(`${curr_chk_hash}:${it}:${state_hash}:${res64}:${math_residue_q}`);
+     gerbicz_checkpoints.push({iteration:it,state:'0x'+state.toString(16),state_hash,res64,math_residue_q,hash:curr_chk_hash,transition:await transition(previousState,state,it-previousIt)});
+     previousIt=it;previousState=state;
     }
-    const KNOWN=[2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,136279841];
+    const block_size=Math.max(1,Math.floor(Math.sqrt(p-1))),blocks=Math.floor((p-1)/block_size);
+    let blockState=BigInt(3),product=BigInt(1);
+    for(let b=0;b<blocks;b++){product=product*blockState%modulus;blockState=await square(blockState,block_size)}
+    if((await square(product,block_size))*BigInt(3)%modulus!==product*blockState%modulus)throw Error('Gerbicz identity');
+    const gerbicz_check={block_size,blocks,product:'0x'+product.toString(16),end_state:'0x'+blockState.toString(16),transition:await transition(BigInt(3),blockState,blocks*block_size)};
+    const KNOWN=[2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,136279841];
     postMessage({
      proof:{
       schema:'corium.gimps-prp-proof.v1',
@@ -71,11 +91,12 @@ self.onmessage=async({data:job})=>{
       res64:res64,
       is_prp:is_prime,
       prp_result:is_prime?'PRP':'COMPOSITE',
-      is_prime:(is_prime&&(p<=61||KNOWN.includes(p))),
+      is_prime:(is_prime&&KNOWN.includes(p)),
       iterations:p-1,
       proof_steps:proof_steps,
       gerbicz_status:'OK',
-      gerbicz_checkpoints:gerbicz_checkpoints
+      gerbicz_checkpoints:gerbicz_checkpoints,
+      gerbicz_check
      }
     });
     return close();
@@ -86,7 +107,7 @@ self.onmessage=async({data:job})=>{
      residue=(residue*residue-BigInt(2))%modulus;
      if((i+1)%profile.batch===0){postMessage({type:'progress',iterations:i+1,total:p-2,elapsed:performance.now()-began});await new Promise(resolve=>setTimeout(resolve,profile.pause))}
     }
-    postMessage({proof:{schema:job.proof_schema,exponent:p,method:'lucas-lehmer',residue:residue.toString(),is_prime:residue===BigInt(0),iterations:p-2}});return close();
+    postMessage({proof:{schema:'corium.gimps-proof.v2',exponent:p,method:'lucas-lehmer',residue:residue.toString(),is_prime:residue===BigInt(0),iterations:p-2}});return close();
    }
   }catch(_){postMessage({error:'INVALID_JOB'});return close()}
  }

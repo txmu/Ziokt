@@ -94,7 +94,8 @@ class GimpsEffortTests(unittest.TestCase):
             'iterations': 6,
             'proof_steps': generated['proof_steps'],
             'gerbicz_status': 'OK',
-            'gerbicz_checkpoints': generated['gerbicz_checkpoints']
+            'gerbicz_checkpoints': generated['gerbicz_checkpoints'],
+            'gerbicz_check': generated['gerbicz_check']
         }
         # Strict prover-verifier separation: submission without proof_steps fails
         bad_proof = dict(prp_proof, proof_steps=[])
@@ -108,20 +109,13 @@ class GimpsEffortTests(unittest.TestCase):
         self.assertFalse(receipt['corium_settled'])
         self.assertIn("M(7) is PRP!", receipt['primenet_v5_result'])
 
-        # Verify export to Content Fabric chunkstore (dual format: official .proof and JSON package)
-        proof_file = chunkstore / "p7.proof"
-        self.assertTrue(proof_file.exists())
-        self.assertIn("[GIMPS PRP PROOF]", proof_file.read_text())
-
-        from ziokt.effort_gimps import parse_official_gimps_proof_file
-        parsed_mprime = parse_official_gimps_proof_file(proof_file.read_text())
-        self.assertEqual(parsed_mprime['exponent'], 7)
-        self.assertTrue(parsed_mprime['is_prp'])
-        self.assertEqual(parsed_mprime['res64'], '000000000000007E')
-
-        json_file = chunkstore / "p7.json"
+        # Native transcripts are explicitly Corium JSON, never fake official .proof.
+        self.assertFalse((chunkstore / "p7.proof").exists())
+        json_file = chunkstore / "p7.corium-proof.json"
         self.assertTrue(json_file.exists())
         proof_json = json.loads(json_file.read_text())
+        self.assertEqual(proof_json['format'], 'corium-json')
+        self.assertFalse(proof_json['primenet_accepted'])
         self.assertEqual(proof_json['schema'], 'corium.gimps-scientific-proof.v1')
         self.assertEqual(proof_json['exponent'], 7)
 
@@ -140,7 +134,7 @@ class GimpsEffortTests(unittest.TestCase):
             db_path = Path(tmpdir) / 'test_chk.sqlite'
             with sqlite3.connect(db_path) as db:
                 cm = CheckpointManager(db, governor)
-                cm.save_checkpoint('task-1', 'gimps-1', 13, 'worker-1', 500, {'midpoint': '0xABC'})
+                cm.save_checkpoint('task-1', 'gimps-1', 13, 'worker-1', 5, {'midpoint': '0xABC'})
                 loaded = cm.load_checkpoint('task-1')
                 self.assertIsNotNone(loaded)
                 self.assertEqual(loaded['exponent'], 13)
@@ -148,7 +142,7 @@ class GimpsEffortTests(unittest.TestCase):
 
                 by_exp = cm.load_checkpoint_by_exponent(13)
                 self.assertIsNotNone(by_exp)
-                self.assertEqual(by_exp['iteration'], 500)
+                self.assertEqual(by_exp['iteration'], 5)
 
                 cm.delete_checkpoint('task-1')
                 self.assertIsNone(cm.load_checkpoint('task-1'))
@@ -182,9 +176,10 @@ class GimpsEffortTests(unittest.TestCase):
                 self.assertEqual(att['status'], 'submitted')
                 self.assertEqual(att['v5_result'], v5_str)
 
-                pnet.record_acceptance(127, receipt={'confirmed': True})
+                with self.assertRaises(ValueError):
+                    pnet.record_acceptance(127, receipt={'confirmed': True})
                 att = pnet.get_attestation(127)
-                self.assertEqual(att['status'], 'accepted')
+                self.assertEqual(att['status'], 'submitted')
 
                 # Test staging & offline transmission
                 res_offline = pnet.transmit_v5_result(127, v5_str, primenet_url=None)
@@ -202,39 +197,27 @@ class GimpsEffortTests(unittest.TestCase):
             self.assertEqual(parsed_list[0]['exponent'], 127)
 
     def test_official_gimps_results_and_proof_fixtures(self):
-        from ziokt.effort_gimps import MPrimeEngineAdapter, parse_official_gimps_proof_file
-        fixture_dir = Path(__file__).parent / 'fixtures' / 'gimps'
-        results_file = fixture_dir / 'official_results.txt'
-        self.assertTrue(results_file.exists())
-
-        adapter = MPrimeEngineAdapter()
-        parsed = adapter.parse_results_file(results_file)
-        self.assertEqual(len(parsed), 11)
-
-        # M(7) prime
-        self.assertEqual(parsed[0]['exponent'], 7)
-        self.assertTrue(parsed[0]['is_prime'])
-        self.assertEqual(parsed[0]['res64'], '000000000000007E')
-
-        # M(67) composite
-        m67 = next(p for p in parsed if p['exponent'] == 67)
-        self.assertFalse(m67['is_prime'])
-        self.assertEqual(m67['res64'], '908373768E1CDE07')
-
-        # M(127) prime
-        m127 = next(p for p in parsed if p['exponent'] == 127)
-        self.assertTrue(m127['is_prime'])
-
-        # Verify parsing and mathematical verification of official p127_official.proof
-        proof_file = fixture_dir / 'p127_official.proof'
-        self.assertTrue(proof_file.exists())
-        proof_data = parse_official_gimps_proof_file(proof_file.read_text())
-        self.assertEqual(proof_data['exponent'], 127)
-        self.assertTrue(proof_data['is_prime'])
-        self.assertTrue(proof_data['is_prp'])
-
-        from ziokt._runtime import _native_gimps
-        self.assertTrue(_native_gimps.verify_prp_proof(127, proof_data))
+        import base64
+        import hashlib
+        from ziokt.gimps_files import verify_proof
+        from ziokt.effort_gimps import MPrimeEngineAdapter
+        fixtures = Path(__file__).parent / 'fixtures/gimps'
+        provenance = json.loads((fixtures / 'mprime-provenance.json').read_text())
+        for name, expected in provenance['files'].items():
+            raw = base64.b64decode((fixtures / (name + '.b64')).read_text(), validate=False)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), expected['sha256'])
+            verified = verify_proof(raw)
+            self.assertEqual(verified['exponent'], expected['exponent'])
+            self.assertTrue(verified['math_verified'])
+            self.assertFalse(verified['primenet_accepted'])
+            with tempfile.TemporaryDirectory() as directory:
+                (Path(directory) / name).write_bytes(raw)
+                converted = MPrimeEngineAdapter(work_dir=directory).build_proof_from_mprime(expected['exponent'])
+                from ziokt._runtime import _native_gimps
+                self.assertTrue(_native_gimps.verify_prp_proof(expected['exponent'], converted))
+        parsed = MPrimeEngineAdapter().parse_results_file(fixtures / 'mprime-results.jsonl')
+        self.assertEqual([r['exponent'] for r in parsed], [127, 521])
+        self.assertTrue(all(r['is_prp'] and not r['is_prime'] for r in parsed))
 
     def test_lease_persistence_and_node_restart(self):
         sys.path.insert(0, str(C))
@@ -290,6 +273,10 @@ class GimpsEffortTests(unittest.TestCase):
         # Lease deleted after submission
         row = pool2.db.execute("SELECT 1 FROM gimps_leases WHERE token=?", (token,)).fetchone()
         self.assertIsNone(row)
+        # A completed token has a durable idempotent receipt, even after restart.
+        pool3 = GimpsPool(client, fixture.identity, state_dir, expected_network='default')
+        self.addCleanup(pool3.close)
+        self.assertTrue(pool3.submit(token, proof_13)['duplicate'])
 
     def test_primenet_response_verification(self):
         from ziokt.effort_gimps import PrimeNetAdapter
@@ -298,7 +285,7 @@ class GimpsEffortTests(unittest.TestCase):
         ack, rej, receipt = PrimeNetAdapter.parse_primenet_response(resp_json_ok, 200)
         self.assertTrue(ack)
         self.assertFalse(rej)
-        self.assertEqual(receipt['assignment_uid'], 'UID-999')
+        self.assertEqual(receipt['status'], 'protocol_success')
 
         # 2. Official JSON with pnErrorResult = 1 -> rejected
         resp_json_err = json.dumps({'pnErrorResult': 1, 'pnErrorDetail': 'Assignment expired or unknown'})

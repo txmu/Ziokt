@@ -40,7 +40,7 @@ class IntegratedSystem:
             Path(config_path) if config_path else None,
             Path('dcpm-ufs-config.json'),
             Path('/etc/dcpm-ufs/config.json'),
-            Path.home() / '.config/dcpm-ufs/config.json')
+            Path.home() / '.config/dcpm-ufs/config.json'
         ]
         
         for path in config_paths:
@@ -215,6 +215,7 @@ class IntegratedSystem:
                     metadata = await self.ufs_chain.publish_file(
                         temp_path, owner, permissions,
                         redundancy=self.config['storage'].get('redundancy', 3)
+                    )
                     
                     # 返回响应
                     self.send_response(201)
