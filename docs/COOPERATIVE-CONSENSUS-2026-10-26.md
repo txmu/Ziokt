@@ -1,5 +1,9 @@
 # Cooperative consensus integration (2026-10-26)
 
+**Release audit status: not cleared for production activation.** The registry
+consensus paths below are integrated, but cooperative asset authorization and
+production DNA/mainnet activation remain release blockers.
+
 `cooperative_command` now enters the native transaction pool only after the
 same signature, chain identity, previous state root, sequence, membership,
 quorum, and anti-takeover checks used by block validation. Local mining,
