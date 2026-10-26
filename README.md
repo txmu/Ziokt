@@ -53,3 +53,5 @@ Native integration uses adjacent `../Corium` and `../Shadow6` checkouts, or the 
 The ecosystem release remains **v1.0**; Ziokt application projects use `1.0.0`. Lean models and generated production predicates supplement existing Ada/SPARK and Idris contracts. They do not prove every implementation, dependency, FFI or operating-system behavior. Read the exact revision and acceptance scope in the release evidence. Multi-process CI does not replace independent physical VPS acceptance.
 
 [Corium](https://github.com/txmu/Corium) · [Shadow6](https://github.com/txmu/Shadow6) · [Release and deployment tools](https://github.com/txmu/Ziokt-Releases)
+
+Signed multi-observer topology, TLS SMTP/IMAP bridging, and encrypted offline recovery: [operator guide](docs/DOOMSDAY-OBSERVATORY-MAIL.zh-CN.md).

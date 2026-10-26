@@ -62,7 +62,16 @@ def parse_mail_address(address):
 
 def resolve_mail_destination(address, names=None, nns_resolver=None):
     """Resolve destination channel and recipient key from a ZDNS address."""
-    local_part, domain, authority, root, children = parse_mail_address(address)
+    try:
+        local_part, domain, authority, root, children = parse_mail_address(address)
+    except (ProtocolError, ValueError):
+        from .mail_internet import address as internet_address
+        external=internet_address(address)
+        # Reserved native authorities must never fall back to an internet relay.
+        if external.rsplit('.',1)[-1] in SUFFIXES:
+            raise ProtocolError('INVALID_ADDRESS','native mail name cannot downgrade to SMTP')
+        return {'schema':'ziokt.mail-destination.v1','address':external,'local_part':external.split('@',1)[0],
+                'domain':external.split('@',1)[1],'channel':'internet','authority':'internet','recipient_key':None,'resolved':True}
     channel = 'community'
     if authority in ('corium',):
         channel = 'corium'
@@ -473,7 +482,8 @@ class CommunityMailChannel:
             except Exception:
                 sealed = None
 
-        message_id = hashlib.sha256((sender_key + recipient + str(ts) + subject).encode()).hexdigest()
+        message_id = hashlib.sha256(encoded({'sender':sender_key,'recipient':recipient,'timestamp':ts,
+                                             'subject':subject,'body':body,'attachments':validated_attachments})).hexdigest()
 
         if self.mailbox_db:
             with closing(sqlite3.connect(self.mailbox_db)) as conn:
@@ -564,7 +574,7 @@ class CommunityMailChannel:
 class MailRelay:
     """Public relay / forwarding engine equipped with authentication, anti-spam, and anti-flood."""
     def __init__(self, node_id, signing_key=None, names=None, corium_channel=None,
-                 etp_channel=None, community_channel=None, content_fabric=None, relay_db=None):
+                 etp_channel=None, community_channel=None, content_fabric=None, relay_db=None, internet_channel=None):
         self.node_id = node_id
         self.signing_key = signing_key
         self.names = names
@@ -572,6 +582,7 @@ class MailRelay:
         self.etp_channel = etp_channel or ETPMailChannel()
         self.community_channel = community_channel or CommunityMailChannel()
         self.cf = content_fabric
+        self.internet_channel = internet_channel
         self.relay_db = Path(relay_db) if relay_db else None
         if self.relay_db:
             self._ensure_schema()
@@ -598,7 +609,7 @@ class MailRelay:
                 ''')
                 db.execute('CREATE INDEX IF NOT EXISTS idx_delivery_status ON delivery_log(status, last_attempt)')
 
-    def forward(self, envelope):
+    def forward(self, envelope, *, _retry=False):
         """Relay a signed mail envelope with authentication, anti-flood, and anti-spam verification."""
         if not isinstance(envelope, dict):
             raise ProtocolError('INVALID_ENVELOPE', 'dictionary mail envelope required')
@@ -619,10 +630,21 @@ class MailRelay:
             if field not in payload:
                 raise ProtocolError('INVALID_PAYLOAD', f'missing required payload field: {field}')
 
+        persisted=None
+        if self.relay_db:
+            with closing(sqlite3.connect(self.relay_db)) as db:
+                persisted=db.execute('SELECT envelope,receipt,status,attempts FROM delivery_log WHERE message_id=?',(payload['id'],)).fetchone()
+        if persisted:
+            if bytes(persisted[0])!=encoded(envelope):raise ProtocolError('REPLAY_DETECTED','mail identifier reused with different content')
+            if not _retry:return strict_json(persisted[1]) if persisted[1] else {'message_id':payload['id'],'status':'pending'}
+            if persisted[2] not in {'failed','pending'} or persisted[3]>=5:raise ProtocolError('REPLAY_DETECTED','delivery cannot be retried')
+        elif _retry:raise ProtocolError('REPLAY_DETECTED','retry requires a durable previously accepted envelope')
+
         # 3. Anti-spam checks: content bounds, freshness, replay deduplication
         validated_attachments = self.anti_spam.validate_content(payload['subject'], payload['body'], payload.get('attachments'))
-        self.anti_spam.check_freshness(payload['timestamp'])
-        self.anti_spam.check_replay(payload['id'])
+        if not _retry:
+            self.anti_spam.check_freshness(payload['timestamp'])
+            self.anti_spam.check_replay(payload['id'])
 
         # 4. ZDNS Address resolution
         dest = resolve_mail_destination(payload['to'], names=self.names)
@@ -633,7 +655,11 @@ class MailRelay:
         delivery_status = 'relayed'
         delivery_error = ''
         try:
-            if channel == 'corium':
+            if channel == 'internet':
+                if self.internet_channel is None:raise ProtocolError('MAIL_UNAVAILABLE','internet mail is not configured')
+                channel_result=self.internet_channel.send(sender_public,payload['to'],payload['subject'],payload['body'],validated_attachments,payload['timestamp'],message_id=payload['id'])
+                delivery_status='queued'
+            elif channel == 'corium':
                 channel_result = self.corium_channel.send(
                     sender_key=sender_public,
                     recipient_id=dest['recipient_key'] or dest['local_part'],
@@ -661,7 +687,7 @@ class MailRelay:
                     attachments=validated_attachments,
                     timestamp=payload['timestamp']
                 )
-            delivery_status = 'delivered'
+            if delivery_status != 'queued':delivery_status = 'delivered'
         except Exception as exc:
             delivery_status = 'failed'
             delivery_error = str(exc)
@@ -676,7 +702,7 @@ class MailRelay:
             'channel': channel,
             'relay_node': self.node_id,
             'relayed_at': int(time.time()),
-            'status': 'relayed' if delivery_status != 'failed' else 'failed',
+            'status': 'queued' if delivery_status == 'queued' else 'relayed' if delivery_status != 'failed' else 'failed',
             'error': delivery_error if delivery_status == 'failed' else None,
             'details': channel_result
         }
@@ -724,9 +750,11 @@ class MailRelay:
                 env = strict_json(raw_env)
                 with self.anti_spam._lock:
                     self.anti_spam.seen_messages.discard(msg_id)
-                receipt = self.forward(env)
+                receipt = self.forward(env,_retry=True)
+                with closing(sqlite3.connect(self.relay_db)) as conn:
+                    with conn as db:db.execute('UPDATE delivery_log SET attempts=? WHERE message_id=?',(attempts+1,msg_id))
                 st = receipt.get('payload', {}).get('status') if 'payload' in receipt else receipt.get('status', 'relayed')
-                if st in ('relayed', 'delivered'):
+                if st in ('relayed', 'delivered', 'queued'):
                     succeeded += 1
                 else:
                     failed += 1
@@ -770,7 +798,7 @@ class UnifiedMail:
     """Top-level unified mail coordinator bridging all channels and relay services."""
     def __init__(self, node_id="node-unified-mail", signing_key=None, names=None,
                  corium_channel=None, etp_channel=None, community_channel=None, content_fabric=None,
-                 mailbox_db=None, relay_db=None):
+                 mailbox_db=None, relay_db=None, internet_channel=None):
         self.node_id = node_id
         self.signing_key = signing_key
         self.names = names
@@ -778,6 +806,7 @@ class UnifiedMail:
         self.etp_channel = etp_channel or ETPMailChannel()
         self.community_channel = community_channel or CommunityMailChannel(mailbox_db=mailbox_db)
         self.cf = content_fabric
+        self.internet_channel = internet_channel
         self.relay = MailRelay(
             node_id=node_id,
             signing_key=signing_key,
@@ -786,11 +815,23 @@ class UnifiedMail:
             etp_channel=self.etp_channel,
             community_channel=self.community_channel,
             content_fabric=content_fabric,
-            relay_db=relay_db
+            relay_db=relay_db,
+            internet_channel=internet_channel
         )
 
     def resolve(self, address):
         return resolve_mail_destination(address, names=self.names)
+
+    @classmethod
+    def configured(cls, config):
+        root=Path(config['state']);root.mkdir(parents=True,mode=0o700,exist_ok=True)
+        from .package_storage import safe_path
+        from .mail_internet import InternetMail
+        internet=InternetMail(config['internet'],config.get('internet_state',root/'internet')) if config.get('internet') else None
+        return cls(node_id=config.get('node_id','local-mail'),
+                   corium_channel=CoriumMailChannel(safe_path(root,'corium.db'),safe_path(root,'objects')),
+                   etp_channel=ETPMailChannel(mailbox_store_dir=safe_path(root,'etp')),
+                   mailbox_db=safe_path(root,'community.db'),relay_db=safe_path(root,'relay.db'),internet_channel=internet)
 
     def create_envelope(self, sender_private_key, from_address, to_address, subject, body, attachments=None, timestamp=None):
         """Construct and sign an envelope ready for relay forwarding."""
@@ -822,6 +863,8 @@ class UnifiedMail:
             results['etp'] = self.etp_channel.inbox(recipient_id)
         if channel in (None, 'community'):
             results['community'] = self.community_channel.inbox(recipient_id)
+        if channel in (None,'internet') and self.internet_channel:
+            results['internet']=self.internet_channel.inbox(recipient_id)
         return results
 
     def read_corium(self, tx_hash):
@@ -840,7 +883,21 @@ class UnifiedMail:
 def execute_mail_cli(args):
     """CLI dispatcher for `ziokt mail` subcommands."""
     action = getattr(args, 'mail_action', None)
-    unified = UnifiedMail()
+    config=getattr(args,'config',None)
+    if config:
+        unified=UnifiedMail.configured(strict_json(secure_read(config,65536)))
+    else:
+        unified=UnifiedMail.configured({'state':str(Path.home()/'.local/share/ziokt/mail')})
+    if action=='send':
+        result=unified.send(secure_read(args.key,32),args.from_address,args.to,args.subject,secure_read(args.body_file,65536,private=None).decode())
+        print(json.dumps(result,ensure_ascii=False,indent=2));return
+    if action=='internet-resolve':
+        if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','configure an internet mail account first')
+        print(json.dumps(unified.internet_channel.resolve(args.message_id,args.decision)));return
+    if action in {'internet-flush','internet-poll','internet-status'}:
+        if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','configure an internet mail account first')
+        operation={'internet-flush':unified.internet_channel.flush,'internet-poll':unified.internet_channel.poll,'internet-status':unified.internet_channel.status}[action]
+        print(json.dumps(operation() if action=='internet-status' else operation(args.limit),ensure_ascii=False,indent=2));return
     if action == 'resolve':
         res = unified.resolve(args.address)
         print(json.dumps(res, indent=2))

@@ -53,3 +53,5 @@ python3 -m venv .venv
 生态发行版保持 **v1.0**，Ziokt 应用工程版本为 `1.0.0`。Lean 模型与生成的生产判断补充既有 Ada/SPARK 和 Idris 契约；它们没有证明全部实现、依赖、FFI 和操作系统行为。精确版本、验证结果与剩余边界随发布证据提供，同机多进程 CI 不代替多台物理 VPS 验收。
 
 [Corium](https://github.com/txmu/Corium) · [Shadow6](https://github.com/txmu/Shadow6) · [发布与部署工具](https://github.com/txmu/Ziokt-Releases)
+
+多节点签名拓扑、SMTP/IMAP 桥接与 Doomsday 冷恢复：[配置与使用](docs/DOOMSDAY-OBSERVATORY-MAIL.zh-CN.md)。

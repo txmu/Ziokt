@@ -258,9 +258,13 @@ class Service:
         if config.get('content_fabric',{}).get('enabled') is True:
             from .content_api import attach
             attach(self,config['content_fabric'])
+        self.add('mail_identity','Inspect your persistent mail public key and native sender address.',schema(),False,'mail:read',('mail','identity'))
+        self.add('mail_internet_status','Inspect your configured TLS internet mail queue.',schema(),False,'mail:read',('mail','internet-status'))
+        for action in ('internet-flush','internet-poll'):
+            self.add('mail_'+action.replace('-','_'),'Process a bounded durable TLS mail batch.',schema({'limit':{'type':'integer','minimum':1,'maximum':50}},()),True,'mail:write',('mail',action))
         self.add('mail_resolve','Resolve a ZDNS address to its target network channel and recipient key.',schema({'address':STRING},('address',)),False,'mail:read',('mail','resolve'))
         self.add('mail_send','Send a mail across Corium, ETP, or Community with optional Content Fabric attachments.',schema({'to':STRING,'subject':STRING,'body':STRING,'attachments':{'type':'array','items':{'type':'object'}}},('to','subject','body')),True,'mail:write',('mail','send'))
-        self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium, ETP, and Community.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp','community']}},('recipient',)),False,'mail:read',('mail','inbox'))
+        self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium, ETP, and Community.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp','community','internet']}},('recipient',)),False,'mail:read',('mail','inbox'))
         self.add('mail_forward','Forward a signed mail envelope through the authenticated and rate-limited public relay.',schema({'envelope':{'type':'object'}},('envelope',)),True,'mail:write',('mail','forward'))
         self.add('mail_retry','Retry failed mail deliveries from the relay log.',schema({'limit':{'type':'integer','minimum':1,'maximum':50}},()),True,'mail:write',('mail','retry'))
         self.add('mail_receipt','Look up delivery receipt and final status by message ID.',schema({'message_id':STRING},('message_id',)),False,'mail:read',('mail','receipt'))
@@ -565,20 +569,46 @@ class Service:
             return registry.decide(principal['client'],args['registration_id'],args['digest'],args['decision'],gateway.native_text)
         if kind=='mail':
             from .mail import UnifiedMail
-            unified=UnifiedMail()
+            from .package_storage import safe_path
+            # Each principal has independent persistent mailbox and identity state.
+            identity=hashlib.sha256(principal['client'].encode()).hexdigest()
+            client_config=self.config.get('mail',{}).get('clients',{}).get(principal['client'],{})
+            mail_config={'state':str(self.root/'mail'),'node_id':'mcp-mail'}
+            if client_config.get('internet'):
+                mail_config['internet']=client_config['internet']
+                mail_config['internet_state']=str(self.root/'mail/internet'/identity)
+            with self.lock:
+                if not hasattr(self,'mail_services'):self.mail_services={}
+                if identity not in self.mail_services:self.mail_services[identity]=UnifiedMail.configured(mail_config)
+                unified=self.mail_services[identity]
             op=route[1]
             if op=='resolve':return unified.resolve(args['address'])
+            key_dir=self.root/'mail/identities';key_dir.mkdir(mode=0o700,exist_ok=True)
+            key_path=safe_path(key_dir,identity+'.key')
+            with self.lock:
+                if not key_path.exists():
+                    from .cli import write_binary_exclusive
+                    write_binary_exclusive(key_path,secrets.token_bytes(32))
+                key=secure_read(key_path,32)
+            from .security import sign as mail_sign
+            public=mail_sign({},key,'Ziokt/mail-identity/v1')['public_key']
+            if op=='identity':return {'public_key':public,'address':public+'@node.ziokt','internet_configured':bool(unified.internet_channel)}
+            if op.startswith('internet-'):
+                if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','no internet account assigned to this client')
+                if op=='internet-status':return unified.internet_channel.status()
+                return (unified.internet_channel.flush if op=='internet-flush' else unified.internet_channel.poll)(args.get('limit',10))
             if op=='send':
-                key=secrets.token_bytes(32)
                 return unified.send(
                     sender_private_key=key,
-                    from_address=principal.get('client','local@node.ziokt'),
+                    from_address=public+'@node.ziokt',
                     to_address=args['to'],
                     subject=args['subject'],
                     body=args['body'],
                     attachments=args.get('attachments')
                 )
-            if op=='inbox':return unified.inbox(args['recipient'],channel=args.get('channel'))
+            if op=='inbox':
+                if args['recipient'] not in client_config.get('recipients',[public]):raise ProtocolError('POLICY_DENIED','mailbox is not assigned to this client')
+                return unified.inbox(args['recipient'],channel=args.get('channel'))
             if op=='forward':return unified.relay.forward(args['envelope'])
             if op=='retry':return unified.retry_failed(limit=args.get('limit',10))
             if op=='receipt':return unified.delivery_receipt(args['message_id'])

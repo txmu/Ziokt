@@ -96,11 +96,13 @@ def main(argv=None):
     import sys
     arguments=list(sys.argv[1:] if argv is None else argv)
     command_arguments=arguments[1:] if arguments[:1]==['--airgap'] else arguments
-    if command_arguments and command_arguments[0] in {'bundle','program','networks'}:
+    if command_arguments and command_arguments[0] in {'bundle','program','networks','doomsday'}:
         from .runtime_policy import activate_airgap
         if arguments[:1]==['--airgap']:activate_airgap()
         try:
-            if command_arguments[0]=='bundle':
+            if command_arguments[0]=='doomsday':
+                from .doomsday import main as delegated
+            elif command_arguments[0]=='bundle':
                 from .bundle import main as delegated
             elif command_arguments[0]=='program':
                 from .programs import main as delegated
@@ -225,11 +227,24 @@ def main(argv=None):
     coin.add_argument("--address")
     mail_p = sub.add_parser("mail", help="unified multi-channel mail bridging Corium, ETP, and Community with ZDNS & Content Fabric")
     mail_actions = mail_p.add_subparsers(dest="mail_action", required=True)
+    mail_p.add_argument('--config',type=Path,help='private persistent mail and SMTP/IMAP configuration')
+    for internet_action in ('internet-flush','internet-poll','internet-status'):
+        internet_parser=mail_actions.add_parser(internet_action,help='durable TLS internet mail bridge')
+        if internet_action!='internet-status':internet_parser.add_argument('--limit',type=int,default=10)
+    internet_resolve=mail_actions.add_parser('internet-resolve',help='explicitly resolve an uncertain SMTP DATA result')
+    internet_resolve.add_argument('message_id')
+    internet_resolve.add_argument('--decision',choices=['sent','retry'],required=True)
     m_res = mail_actions.add_parser("resolve", help="resolve ZDNS mail address")
+    m_send=mail_actions.add_parser('send',help='sign and enqueue native or internet mail')
+    m_send.add_argument('--key',type=Path,required=True)
+    m_send.add_argument('--from-address',required=True)
+    m_send.add_argument('--to',required=True)
+    m_send.add_argument('--subject',required=True)
+    m_send.add_argument('--body-file',type=Path,required=True)
     m_res.add_argument("address", help="<user>@<domain> address")
     m_inbox = mail_actions.add_parser("inbox", help="query mail inbox")
     m_inbox.add_argument("recipient", help="recipient identifier")
-    m_inbox.add_argument("--channel", choices=["corium", "etp", "community"])
+    m_inbox.add_argument("--channel", choices=["corium", "etp", "community", "internet"])
     m_read = mail_actions.add_parser("read", help="read mail by tx hash")
     m_read.add_argument("tx_hash", help="transaction hash")
     m_relay = mail_actions.add_parser("relay", help="forward a signed mail envelope through the public relay")

@@ -1,4 +1,5 @@
 """Permissioned topology projections over native stores and adapter snapshots."""
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import json
@@ -17,13 +18,13 @@ from .explorer_networks import readonly
 from .protocol import ProtocolError,secure_read,strict_json
 from ._verified_guards import detail_permitted
 
-SCOPES={'topology:read','topology:addresses','topology:identities','cbb:read','cbb:content'}
+SCOPES={'topology:read','topology:addresses','topology:identities','cbb:read','cbb:content','topology:collect'}
 ID=re.compile('[A-Za-z0-9_.:/@-]{1,160}\\Z')
 
 
 class P2PExplorer:
     def __init__(self,config):
-        if (not isinstance(config,dict) or set(config)-{'sources','token_file','viewers','public'}
+        if (not isinstance(config,dict) or set(config)-{'sources','token_file','viewers','public','observation_db','observation_export'}
                 or not isinstance(config.get('sources'),list) or len(config['sources'])>24
                 or type(config.get('public',False)) is not bool):
             raise ProtocolError('INVALID_CONFIG','bounded explicit P2P explorer configuration required')
@@ -35,16 +36,30 @@ class P2PExplorer:
                     or not isinstance(viewer['token_file'],str) or not isinstance(viewer['scopes'],list)
                     or any(scope not in SCOPES for scope in viewer['scopes'])):
                 raise ProtocolError('INVALID_CONFIG','exact viewer token file and scopes required')
+        from .topology_observations import ObservationStore
+        self.observations=ObservationStore(config['observation_db']) if config.get('observation_db') else None
+        if config.get('observation_export') and not self.observations:
+            raise ProtocolError('INVALID_CONFIG','durable observation database required for export')
         names=set()
         for source in config['sources']:
             if (not isinstance(source,dict) or not {'id','component','kind'}<=set(source)
-                    or set(source)-{'id','component','kind','path','state_root','network_id','local_id'}
-                    or source['kind'] not in {'corium','discovery','snapshot','shadow6','content_fabric'}
+                    or set(source)-{'id','component','kind','path','state_root','network_id','local_id','public_key','url','token_file'}
+                    or source['kind'] not in {'corium','discovery','snapshot','shadow6','content_fabric','signed'}
                     or not isinstance(source['id'],str) or not ID.fullmatch(source['id'])
                     or source['id'] in names or not isinstance(source['component'],str) or not ID.fullmatch(source['component'])):
                 raise ProtocolError('INVALID_CONFIG','exact native or adapter topology source required')
             names.add(source['id'])
-            if source['kind']=='corium':
+            if source['kind']=='signed':
+                if (not self.observations or not re.fullmatch('[a-f0-9]{64}',str(source.get('public_key',''))) or
+                        not re.fullmatch('[A-Za-z0-9_-]{1,64}',str(source.get('network_id',''))) or
+                        bool(source.get('path')) == bool(source.get('url'))):
+                    raise ProtocolError('INVALID_CONFIG','pinned observer, network and durable state required')
+                if source.get('url'):
+                    parsed=urlsplit(source['url'])
+                    if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                        raise ProtocolError('INVALID_CONFIG','explicit HTTPS collector required')
+                elif not Path(source['path']).is_absolute():raise ProtocolError('INVALID_CONFIG','absolute observation path required')
+            elif source['kind']=='corium':
                 if not isinstance(source.get('state_root'),str) or not Path(source['state_root']).is_absolute() or not re.fullmatch('[A-Za-z0-9_-]{1,64}',str(source.get('network_id',''))):
                     raise ProtocolError('INVALID_CONFIG','explicit Corium state root and network required')
             elif source['kind']=='shadow6':
@@ -78,6 +93,24 @@ class P2PExplorer:
         route=urlsplit(url);args=parse_qs(route.query,keep_blank_values=True)
         if len(url)>2048 or route.scheme or route.netloc or route.fragment or any(len(v)!=1 for v in args.values()):
             raise ProtocolError('INVALID_REQUEST','exact bounded topology query required')
+        if route.path=='/api/p2p/observation' and set(args)=={'challenge'}:
+            scopes=self.permissions(authorization)
+            if 'topology:collect' not in scopes:raise ProtocolError('POLICY_DENIED','explicit collection permission required')
+            export=self.config.get('observation_export')
+            if not isinstance(export,dict) or set(export)!={'source_id','key_file'} or not self.observations:
+                raise ProtocolError('POLICY_DENIED','observation export is not configured')
+            source=next((item for item in self.config['sources'] if item['id']==export['source_id'] and item['kind']!='signed'),None)
+            if source is None or not source.get('network_id'):raise ProtocolError('INVALID_CONFIG','export requires explicit local source network')
+            snapshot=self.read(source,{'addresses':False,'identities':True,'cbb':False,'content':False})
+            if source['kind']=='snapshot' and type(snapshot.get('observed_at')) is not int:
+                raise ProtocolError('OBSERVATION_STALE','adapter export requires actual sample time')
+            return self.observations.export(source,snapshot,secure_read(Path(export['key_file']),32),args['challenge'][0])
+        if route.path=='/api/p2p/evidence' and set(args)=={'source'}:
+            scopes=self.permissions(authorization)
+            if not {'topology:collect','topology:identities'}&scopes:raise ProtocolError('POLICY_DENIED','evidence contains native identities')
+            source=next((item for item in self.config['sources'] if item['id']==args['source'][0] and item['kind']=='signed'),None)
+            if source is None or self.observations is None:raise ProtocolError('INVALID_REQUEST','configured observer required')
+            return self.observations.evidence(source)
         if route.path=='/api/p2p/config' and not args:
             return {'schema':'ziokt.p2p-browser.v1','authentication_required':not self.config.get('public',False),
                     'components':sorted(COMPONENTS),'adapter_contract':'ziokt.p2p-snapshot.v1',
@@ -91,16 +124,29 @@ class P2PExplorer:
         if selected['content'] and not selected['cbb']:raise ProtocolError('INVALID_REQUEST','CBB content requires the CBB view')
         viewer=self.tag('viewer',authorization or 'public')
         nodes=[];edges=[];messages=[];sources=[]
+        remote=[source for source in self.config['sources'] if source['kind']=='signed']
+        collected={}
+        if remote:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures={source['id']:pool.submit(self.read,source,selected) for source in remote}
+                for identity,future in futures.items():
+                    try:collected[identity]=future.result()
+                    except (OSError,ValueError,KeyError,TypeError,ProtocolError):collected[identity]=None
         for source in self.config['sources']:
             try:
-                snapshot=self.read(source,selected)
+                snapshot=collected.get(source['id']) if source['kind']=='signed' else self.read(source,selected)
+                if snapshot is None:raise ValueError('observer unavailable')
                 projected,mapped={},{}
                 for node in snapshot['nodes'][:128]:
-                    raw=node['id'];ident=raw if selected['identities'] else self.tag(source['id']+viewer,raw)
-                    mapped[raw]=source['id']+':'+ident
+                    raw=node['id']
+                    domain=source['component']+':'+source['network_id'] if source['kind']=='signed' else source['id']
+                    identity=domain+':'+raw
+                    ident=identity if selected['identities'] else self.tag(viewer,identity)
+                    mapped[raw]=ident
                     item={'id':mapped[raw],'component':source['component'],'kind':node.get('kind','peer'),
                           'label':node.get('label',raw) if selected['identities'] else node.get('kind','peer')+' '+ident[:10],
-                          'state':node.get('state','observed'),'source':source['id']}
+                          'state':node.get('state','observed'),'source':source['id'],'observed_by':[source['id']]}
+                    if snapshot.get('evidence'):item['sampled_at_ms']=snapshot['evidence']['sampled_at_ms']
                     if selected['addresses'] and node.get('address'):item['address']=node['address']
                     if type(node.get('seen_at')) is int:item['seen_at']=node['seen_at']
                     projected[raw]=item
@@ -109,7 +155,7 @@ class P2PExplorer:
                     if edge['source'] in mapped and edge['target'] in mapped:
                         edges.append({'source':mapped[edge['source']],'target':mapped[edge['target']],
                                       'relation':edge.get('relation','peer'),'state':edge.get('state','observed'),
-                                      'component':source['component']})
+                                      'component':source['component'],'observed_by':[source['id']]})
                 for message in snapshot.get('cbb',[]):
                     item={k:v for k,v in message.items() if k not in {'author','message'}}
                     item['author']=message['author'] if selected['identities'] else self.tag(source['id']+viewer,message['author'])
@@ -119,17 +165,41 @@ class P2PExplorer:
                     messages.append(item)
                 sources.append({'id':source['id'],'component':source['component'],'state':'available',
                                 'nodes':len(projected),'adapter':source['kind']})
+                if snapshot.get('evidence'):
+                    evidence=dict(snapshot['evidence'])
+                    if not selected['identities']:evidence.pop('observer',None)
+                    sources[-1].update(evidence=evidence,collection_state=snapshot.get('collection_state','fresh'))
             except (OSError,ValueError,KeyError,TypeError,ProtocolError):
                 sources.append({'id':source['id'],'component':source['component'],'state':'unavailable','adapter':source['kind']})
+        # Native identities are merged only within a signed observer's explicit network domain.
+        unique={}
+        for node in nodes:
+            previous=unique.get(node['id'])
+            if previous:
+                observers=sorted(set(previous['observed_by']+node['observed_by']))
+                if node.get('sampled_at_ms',0)>previous.get('sampled_at_ms',0):previous.update(node)
+                previous['observed_by']=observers
+            else:unique[node['id']]=node
+        nodes=sorted(unique.values(),key=lambda node:node['id'])
+        unique_edges={}
+        for edge in edges:
+            key=(edge['source'],edge['target'],edge['relation'],edge['component'])
+            if key in unique_edges:unique_edges[key]['observed_by']=sorted(set(unique_edges[key]['observed_by']+edge['observed_by']))
+            else:unique_edges[key]=edge
+        edges=list(unique_edges.values())
         visible={node['id'] for node in nodes[:256]}
         bounded_edges=[edge for edge in edges if edge['source'] in visible and edge['target'] in visible][:512]
         return {'schema':'ziokt.p2p-topology.v1','nodes':nodes[:256],'edges':bounded_edges,'cbb':messages[:32],
                 'sources':sources,'truncated':len(nodes)>256 or len(edges)>512 or len(messages)>32,
                 'privacy':{'addresses_visible':selected['addresses'],'identities_visible':selected['identities'],
                            'cbb_content_visible':selected['content'],'identity_scope':'configured-source' if selected['identities'] else 'viewer-session'},
+                'coverage':{'configured_observers':sum(source['kind']=='signed' for source in self.config['sources']),
+                            'verified_observers':sum('evidence' in source for source in sources),'global_completeness':'unknown',
+                            'observation_ttl_seconds':300,'refresh_seconds':15},
                 'observed_at':int(time.time())}
 
     def read(self,source,selected):
+        if source['kind']=='signed':return self.observations.collect(source)
         if source['kind']=='snapshot':
             value=strict_json(secure_read(Path(source['path']),1024*1024,private=None),1024*1024)
             if not isinstance(value,dict) or set(value)-{'schema','component','nodes','edges','observed_at'} or value.get('schema')!='ziokt.p2p-snapshot.v1' or value.get('component')!=source['component']:
@@ -174,8 +244,7 @@ class P2PExplorer:
                     elif isinstance(data,list):
                         routes=[r for r in data if isinstance(r,dict)]
                 except Exception:pass
-            if not routes:
-                routes=[{'core':'go','transport':'kcp','port':14433,'status':'active'},{'core':'rust','transport':'quic','port':14434,'status':'active'},{'core':'gleam','transport':'s6epe','port':14435,'status':'active'},{'core':'nim','transport':'webrtc','port':14437,'status':'active'}]
+            if not cfg_path.is_file():raise OSError('Shadow6 observation configuration unavailable')
             for r in routes[:127]:
                 t_name=str(r.get('transport','carrier')).lower()
                 core=str(r.get('core','core')).lower()
@@ -184,8 +253,8 @@ class P2PExplorer:
                 node_id=f"s6-{core}-{t_name}" if port is None else f"s6-{core}-{t_name}-{port}"
                 if not ID.fullmatch(node_id):node_id=f"s6-{t_name}-{hashlib.sha256(node_id.encode()).hexdigest()[:10]}"
                 addr=f"{host}:{port}" if port else host
-                nodes.append({'id':node_id,'label':f"S6/{core.upper()} ({t_name.upper()})",'kind':'transport','state':'active','address':addr,'seen_at':now})
-                edges.append({'source':local,'target':node_id,'relation':f"transport-{t_name}",'state':'active'})
+                nodes.append({'id':node_id,'label':f"S6/{core.upper()} ({t_name.upper()})",'kind':'transport','state':'configured','address':addr,'seen_at':now})
+                edges.append({'source':local,'target':node_id,'relation':f"transport-{t_name}",'state':'configured'})
             return {'nodes':nodes,'edges':edges}
         if source['kind']=='content_fabric':
             now=int(time.time())

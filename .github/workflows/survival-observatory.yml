@@ -1,0 +1,43 @@
+name: Verified topology, TLS mail and offline survival
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ziokt/**'
+      - 'tests/test_*mail*.py'
+      - 'tests/test_topology_observations.py'
+      - 'tests/test_doomsday.py'
+      - 'tools/p2p_browser_smoke.cjs'
+      - '.github/workflows/survival-observatory.yml'
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  local-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - run: "python -m pip install --only-binary=:all: -r requirements.txt"
+      - name: Signed multi-observer data, real TLS SMTP/IMAP and WAL cold recovery
+        run: |
+          set -o pipefail
+          PYTHONPATH=tests:. python -m unittest -v test_topology_observations test_mail_internet test_mail_survival test_doomsday test_unified_mail test_browser_networks test_package_lifecycle test_dcpm_strata test_mcp test_resilient_transport test_content_sovereign_survival 2>&1 | tee survival-acceptance.log
+      - name: Browser graph, automatic updates and corrected navigation
+        run: |
+          npm ci --prefix ci/browser --ignore-scripts --no-audit --no-fund
+          node ci/browser/node_modules/playwright/cli.js install --with-deps chromium --only-shell
+          node tools/p2p_browser_smoke.cjs
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: survival-observatory-evidence
+          path: survival-acceptance.log

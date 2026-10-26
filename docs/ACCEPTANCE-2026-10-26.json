@@ -1,0 +1,49 @@
+{
+  "schema": "ziokt.acceptance.v1",
+  "recorded_at": "2026-10-26T08:01:19.630494+00:00",
+  "scope": "signed configured-observer topology, native/internet mail persistence and encrypted offline recovery",
+  "local": {
+    "feature_tests": 75,
+    "release_tests": 18,
+    "browsers": [
+      "Chromium mobile 390px",
+      "Chromium desktop 1280px"
+    ],
+    "browser_cases": [
+      "70 nodes",
+      "correct contribution URL",
+      "15 second refresh",
+      "pause",
+      "observer coverage"
+    ],
+    "formal_gate": {
+      "Ziokt": "passed; 54 abstract theorems",
+      "Shadow6": "passed; 17 abstract theorems",
+      "Corium": "kernel, exact inventory, axiom audit, formula comparisons and source mapping passed",
+      "Ziokt-Releases": "passed; 11 abstract theorems"
+    },
+    "portable_zipapp": "passed"
+  },
+  "log_sha256": {
+    "browser.log": "2e17712ef9016e37da1c83cc53fff2c339cd797cf115c9391bb37ec7a706d628",
+    "corium-formal.log": "abd902b1a108321d62e6fa2258f86969dc82501bdc0190d58fedc0622e8ef01a",
+    "features.log": "71979aeaef4ca55af687342e91be3aaa4610c2af1b7116bc7c65026925e93e69",
+    "portable-build.log": "26ab36a9127e7b21f6e89ce47ff205d10661a72686e9861f304ecd053a0af473",
+    "release-tests.log": "5a5ee59b3754cc6e71e49e4d6916a180e68c77e9d93c7d37a008f5a237c23aea",
+    "releases-formal.log": "e98eeca05f774b6a4fa394e226d7cb15866af5f327d7a3950a1d65781d2a3b26",
+    "shadow6-formal.log": "5c8f18659186603aa11dba41b5dd282578dbabfe7270fdc490bf581e7840884b",
+    "ziokt-formal.log": "dfa64c21a55ffc7e4e920bdca9f7d4994e90ff3ee2757588193357b1138fc9b1"
+  },
+  "limits": [
+    "Only configured observers are aggregated; global completeness is unknown; 256 visible nodes/512 edges, truncation reported.",
+    "Observer signatures authenticate reports, not observer honesty.",
+    "Public SMTP/IMAP provider account activation and independent VPS acceptance were not performed.",
+    "Lean gates do not prove full Python, FFI, operating systems or dependencies.",
+    "Cold restore requires explicit native chain replay and service activation.",
+    "Shadow6 native compilation and its complete optional core matrix were not repeated in this acceptance run."
+  ],
+  "ci": {
+    "prior_failure": "Pinned Shadow6 revision was local-only; pushed 0c57f0ac to fix checkout.",
+    "standalone_workflow": "survival-observatory.yml; results recorded separately after push"
+  }
+}

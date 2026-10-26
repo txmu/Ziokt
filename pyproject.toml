@@ -20,4 +20,4 @@ dcpm = "ziokt.dcpm_strata:main"
 packages = ["ziokt", "openci"]
 
 [tool.setuptools.package-data]
-ziokt = ["web/*.html", "web/*.css", "web/*.js", "effort/*", "explorer/*", "ecosystem.json"]
+ziokt = ["web/*.html", "web/*.css", "web/*.js", "effort/*", "explorer/*", "p2p/*", "ecosystem.json"]

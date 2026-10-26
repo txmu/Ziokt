@@ -2,15 +2,17 @@
 cycle detection, authorization, isolated slots, atomic upgrades, rollbacks, uninstalls, and auto-repair.
 """
 import hashlib
+import secrets
 from pathlib import Path
 import tempfile
 import unittest
 
 from ziokt.package_lifecycle import (
     parse_semver, compare_semver, matches_constraint, resolve_dependencies,
-    PackageManager
+    PackageManager, PACKAGE_DOMAIN
 )
 from ziokt.protocol import ProtocolError
+from ziokt.security import sign
 
 
 class PackageLifecycleTests(unittest.TestCase):
@@ -18,8 +20,13 @@ class PackageLifecycleTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.allowlist = {'trusted-pub-key-1', 'trusted-pub-key-2'}
+        self.key=secrets.token_bytes(32)
+        self.public=sign({},self.key,PACKAGE_DOMAIN)['public_key']
+        self.allowlist={self.public}
         self.mgr = PackageManager(self.root, allowlist=self.allowlist)
+
+    def signed(self, manifest):
+        return sign(manifest,self.key,PACKAGE_DOMAIN)
 
     def test_semver_parsing_and_matching(self):
         self.assertEqual(parse_semver('1.2.3'), (1, 2, 3, ''))
@@ -83,18 +90,18 @@ class PackageLifecycleTests(unittest.TestCase):
 
         # Untrusted publisher rejected
         with self.assertRaises(ProtocolError) as ctx:
-            self.mgr.authorize_package(manifest, files, publisher='untrusted-pub')
+            self.mgr.authorize_package(self.signed(manifest), files, publisher='untrusted-pub')
         self.assertEqual(ctx.exception.code, 'UNAUTHORIZED_PUBLISHER')
 
         # File hash mismatch rejected
-        manifest['publisher'] = 'trusted-pub-key-1'
+        manifest['publisher'] = self.public
         bad_files = {'main.py': b'corrupted data'}
         with self.assertRaises(ProtocolError) as ctx:
-            self.mgr.authorize_package(manifest, bad_files, publisher='trusted-pub-key-1')
+            self.mgr.authorize_package(self.signed(manifest), bad_files, publisher=self.public)
         self.assertEqual(ctx.exception.code, 'PACKAGE_INTEGRITY')
 
         # Authorized successfully
-        auth = self.mgr.authorize_package(manifest, files, publisher='trusted-pub-key-1')
+        auth = self.mgr.authorize_package(self.signed(manifest), files, publisher=self.public)
         self.assertTrue(auth['authorized'])
 
     def test_install_upgrade_and_rollback_lifecycle(self):
@@ -104,13 +111,13 @@ class PackageLifecycleTests(unittest.TestCase):
             'schema': 'ziokt.package.v1',
             'name': 'webapp',
             'version': '1.0.0',
-            'publisher': 'trusted-pub-key-1',
+            'publisher': self.public,
             'files': {'index.js': f1_hash}
         }
         files_v1 = {'index.js': f1_data}
 
         # 1. Install v1.0.0
-        rec1 = self.mgr.install(m1, files_v1, publisher='trusted-pub-key-1')
+        rec1 = self.mgr.install(self.signed(m1), files_v1, publisher=self.public)
         self.assertEqual(rec1['action'], 'install')
         self.assertEqual(rec1['version'], '1.0.0')
         active1 = self.mgr.get('webapp')
@@ -124,12 +131,12 @@ class PackageLifecycleTests(unittest.TestCase):
             'schema': 'ziokt.package.v1',
             'name': 'webapp',
             'version': '1.1.0',
-            'publisher': 'trusted-pub-key-1',
+            'publisher': self.public,
             'files': {'index.js': f2_hash}
         }
         files_v2 = {'index.js': f2_data}
 
-        rec2 = self.mgr.upgrade(m2, files_v2, publisher='trusted-pub-key-1')
+        rec2 = self.mgr.upgrade(self.signed(m2), files_v2, publisher=self.public)
         self.assertEqual(rec2['action'], 'upgrade')
         self.assertEqual(rec2['version'], '1.1.0')
         self.assertEqual(rec2['previous_version'], '1.0.0')
@@ -149,14 +156,15 @@ class PackageLifecycleTests(unittest.TestCase):
 
         active3 = self.mgr.get('webapp')
         self.assertEqual(active3['version'], '1.0.0')
+        self.assertTrue(self.mgr.verify_integrity('webapp')['healthy'])
         rolled_content = (Path(active3['slot_path']) / 'index.js').read_bytes()
         self.assertEqual(rolled_content, f1_data)
 
     def test_uninstall_with_reverse_dependency_guard(self):
         # Install libA
         fA = b'# libA\n'
-        mA = {'schema': 'ziokt.package.v1', 'name': 'libA', 'version': '1.0.0', 'publisher': 'trusted-pub-key-1', 'files': {'lib.js': hashlib.sha256(fA).hexdigest()}}
-        self.mgr.install(mA, {'lib.js': fA}, publisher='trusted-pub-key-1')
+        mA = {'schema': 'ziokt.package.v1', 'name': 'libA', 'version': '1.0.0', 'publisher': self.public, 'files': {'lib.js': hashlib.sha256(fA).hexdigest()}}
+        self.mgr.install(self.signed(mA), {'lib.js': fA}, publisher=self.public)
 
         # Install appB depending on libA
         fB = b'# appB\n'
@@ -164,11 +172,11 @@ class PackageLifecycleTests(unittest.TestCase):
             'schema': 'ziokt.package.v1',
             'name': 'appB',
             'version': '1.0.0',
-            'publisher': 'trusted-pub-key-1',
+            'publisher': self.public,
             'dependencies': {'libA': '^1.0.0'},
             'files': {'app.js': hashlib.sha256(fB).hexdigest()}
         }
-        self.mgr.install(mB, {'app.js': fB}, publisher='trusted-pub-key-1')
+        self.mgr.install(self.signed(mB), {'app.js': fB}, publisher=self.public)
 
         # Cannot uninstall libA while appB is active
         with self.assertRaises(ProtocolError) as ctx:
@@ -186,8 +194,8 @@ class PackageLifecycleTests(unittest.TestCase):
     def test_fault_detection_and_auto_repair(self):
         f_data = b'# perfect pristine file\n'
         f_hash = hashlib.sha256(f_data).hexdigest()
-        m = {'schema': 'ziokt.package.v1', 'name': 'fragile', 'version': '1.0.0', 'publisher': 'trusted-pub-key-1', 'files': {'core.bin': f_hash}}
-        self.mgr.install(m, {'core.bin': f_data}, publisher='trusted-pub-key-1')
+        m = {'schema': 'ziokt.package.v1', 'name': 'fragile', 'version': '1.0.0', 'publisher': self.public, 'files': {'core.bin': f_hash}}
+        self.mgr.install(self.signed(m), {'core.bin': f_data}, publisher=self.public)
 
         # Integrity passes initially
         audit1 = self.mgr.verify_integrity('fragile')

@@ -1,9 +1,12 @@
 """Tests for dCPM Strata backend: resolution, identity, rollback, permissions."""
 import json
+import secrets
 from pathlib import Path
 import tempfile
 import unittest
 
+from ziokt.security import sign
+from ziokt.protocol import ProtocolError
 from ziokt.dcpm_strata import DCPMStrataManager, parse_package_spec
 
 
@@ -12,7 +15,8 @@ class DCPMStrataTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.mgr = DCPMStrataManager(self.root)
-        self.pubkey = "a" * 64
+        self.key=secrets.token_bytes(32)
+        self.pubkey=sign({},self.key,'test')['public_key']
         self.mgr.authorize_publisher(self.pubkey)
 
     def tearDown(self):
@@ -42,7 +46,7 @@ class DCPMStrataTests(unittest.TestCase):
             "bin/editor": b"#!/bin/sh\necho 'editor v1.0.0'\n",
             "etc/editor.conf": b"key=value\n"
         }
-        res = self.mgr.stage_package("app/editor:0#1.0.0", files, self.pubkey)
+        res = self.mgr.stage_package("app/editor:0#1.0.0", files, self.pubkey, private_key=self.key)
         self.assertEqual(res['status'], 'staged')
 
         # File exists in slot
@@ -62,12 +66,12 @@ class DCPMStrataTests(unittest.TestCase):
     def test_atomic_rollback(self):
         # Version 1.0.0
         files_v1 = {"bin/editor": b"version 1.0.0"}
-        self.mgr.stage_package("app/editor:0#1.0.0", files_v1, self.pubkey)
+        self.mgr.stage_package("app/editor:0#1.0.0", files_v1, self.pubkey, private_key=self.key)
         self.mgr.commit("editor", "0")
 
         # Upgrade to 2.0.0
         files_v2 = {"bin/editor": b"version 2.0.0"}
-        self.mgr.stage_package("app/editor:0#2.0.0", files_v2, self.pubkey)
+        self.mgr.stage_package("app/editor:0#2.0.0", files_v2, self.pubkey, private_key=self.key)
         self.mgr.commit("editor", "0")
         self.assertEqual((self.root / "bin/editor").read_bytes(), b"version 2.0.0")
 
@@ -78,7 +82,7 @@ class DCPMStrataTests(unittest.TestCase):
 
     def test_strata_list_export_format(self):
         files = {"bin/editor": b"editor binary"}
-        self.mgr.stage_package("app/editor:0#1.0.0", files, self.pubkey)
+        self.mgr.stage_package("app/editor:0#1.0.0", files, self.pubkey, private_key=self.key)
         self.mgr.commit("editor", "0")
 
         export_quiet = self.mgr.list_packages(quiet=True)
