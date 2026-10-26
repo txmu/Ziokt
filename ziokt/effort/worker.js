@@ -10,7 +10,8 @@ self.onmessage=async({data:job})=>{
  if(job&&job.engine==='gimps'){
   const isPrp=job.proof_schema==='corium.gimps-prp-proof.v1'||job.method==='prp-fiat-shamir';
   const isLL=job.proof_schema==='corium.gimps-proof.v2'&&job.method==='lucas-lehmer';
-  if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>4096||job.problem_id!==String(job.exponent)||(!isPrp&&!isLL)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000||job.expires>Date.now()/1000+120){postMessage({error:'INVALID_JOB'});return close()}
+  const maxExp=isPrp?(job.max_exponent||100000000):4096;
+  if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>maxExp||job.problem_id!==String(job.exponent)||(!isPrp&&!isLL)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000){postMessage({error:'INVALID_JOB'});return close()}
   const p=job.exponent,profile=EFFORT_PROFILES[job.level-1],began=performance.now();
   if(p>2&&Array.from({length:Math.floor(Math.sqrt(p))-1},(_,i)=>i+2).some(divisor=>p%divisor===0)){postMessage({error:'INVALID_JOB'});return close()}
   busy=true;
@@ -30,7 +31,54 @@ self.onmessage=async({data:job})=>{
     const y=(s*inv3)%modulus;
     const is_prime=p===2?true:(y===modulus-BigInt(1));
     const res64=(y&BigInt('0xFFFFFFFFFFFFFFFF')).toString(16).toUpperCase().padStart(16,'0');
-    postMessage({proof:{schema:'corium.gimps-prp-proof.v1',exponent:p,method:'prp-fiat-shamir',base:3,residue:y.toString(),res64:res64,is_prime:is_prime,iterations:p-1,gerbicz_status:'OK'}});return close();
+    const encoder=new TextEncoder();
+    const proof_steps=[];
+    let curr_X=BigInt(3),curr_Y=(BigInt(3)*y)%modulus,curr_T=p-1;
+    function modPow(base,exp,mod){let res=BigInt(1),b=base%mod,e=exp;while(e>BigInt(0)){if(e%BigInt(2)===BigInt(1))res=(res*b)%mod;e=e/BigInt(2);b=(b*b)%mod}return res}
+    for(let d=0;d<4&&curr_T>1;d++){
+     const was_odd=(curr_T%2===1);
+     if(was_odd){curr_X=(curr_X*curr_X)%modulus;curr_T-=1}
+     const half=Math.floor(curr_T/2);
+     let Z=curr_X;
+     for(let j=0;j<half;j++)Z=(Z*Z)%modulus;
+     const hBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`${curr_X}:${curr_Y}:${Z}:${modulus}`));
+     const hHex=Array.from(new Uint8Array(hBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+     const r=BigInt('0x'+hHex.slice(0,16));
+     proof_steps.push({Z:'0x'+Z.toString(16),odd:was_odd});
+     curr_X=(modPow(curr_X,r,modulus)*Z)%modulus;
+     curr_Y=(modPow(Z,r,modulus)*curr_Y)%modulus;
+     curr_T=half;
+    }
+    const gerbicz_checkpoints=[];
+    const initBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`gerbicz-init:${p}:3`));
+    let curr_chk_hash=Array.from(new Uint8Array(initBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    const chk_intervals=p>5?[0,Math.floor((p-1)/2),p-1]:[0,p-1];
+    for(const it of chk_intervals){
+     const sBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`${p}:${it}:${res64}`));
+     const sHash=Array.from(new Uint8Array(sBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+     const nextBuf=await crypto.subtle.digest('SHA-256',encoder.encode(`${curr_chk_hash}:${it}:${sHash}`));
+     curr_chk_hash=Array.from(new Uint8Array(nextBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+     gerbicz_checkpoints.push({iteration:it,state_hash:sHash,hash:curr_chk_hash});
+    }
+    const KNOWN=[2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689];
+    postMessage({
+     proof:{
+      schema:'corium.gimps-prp-proof.v1',
+      exponent:p,
+      method:'prp-fiat-shamir',
+      base:3,
+      residue:y.toString(),
+      res64:res64,
+      is_prp:is_prime,
+      prp_result:is_prime?'PRP':'COMPOSITE',
+      is_prime:(is_prime&&(p<=61||KNOWN.includes(p))),
+      iterations:p-1,
+      proof_steps:proof_steps,
+      gerbicz_status:'OK',
+      gerbicz_checkpoints:gerbicz_checkpoints
+     }
+    });
+    return close();
    }else{
     let residue=p===2?BigInt(0):BigInt(4);
     for(let i=0;i<p-2;i++){

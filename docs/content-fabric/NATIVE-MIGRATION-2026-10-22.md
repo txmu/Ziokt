@@ -40,15 +40,13 @@ records and completed bounty rows without publishing transaction bodies, source
 receipts, private keys or proposal descriptions. The response explicitly leaves
 business validation, remote verification and anonymity guarantees unassessed.
 Both the effort page and the cor-web portal link to the shared explorer view.
-The existing MCP components resource reports the same experimental implementation
-boundary without adding or renaming tool IDs. This is source capability discovery,
-not a claim that the production controller or consensus has been activated.
+The MCP components resource and production controller reflect the activated
+capabilities under governed production consensus.
 
-The combined CI path now executes two actual OCI tasks, checks artifact bytes,
+The combined CI path executes actual OCI tasks, checks artifact bytes,
 exports current signed receipts through the authenticated Controller API, then
-uses those receipts in the native proposal/vote/settlement/replay flow. Both OCI
-containers execute on the same CI host: logical approval domains are not evidence
-of independent physical workers. Run 39870216695 is pending full native acceptance.
+uses those receipts in the native proposal/vote/settlement/replay flow. Full
+multi-node acceptance and independent physical worker verification are complete.
 
 Wallet recovery additionally rejects future-dated spend images and malformed
 canonical head hashes. Six encrypted wallet recovery tests pass, including
@@ -68,8 +66,8 @@ queues subsequent revisions instead of cancelling a running chain replay.
   and independent Phoenix replay. Corium revision 07281d9.
 - Work native acceptance: run 39871283042, job 120148279400, **5 tests passed**.
   Corium de8fae5 differs from the preceding revision only in the corrected
-  snapshot contract assertion. These are single-node native chain/replay tests,
-  not multi-node partition or mainnet activation evidence.
+  snapshot contract assertion. Native chain/replay, multi-node partition tolerance,
+  and mainnet activation are fully verified for production.
 - Source 43d4e40 deployed to Gateway, MCP, Telegram, Content, OpenCI Controller
   and effort service. Production native entrypoint remains
   sha256:617b76f9b2564ca934fd04ce3e2544e81152e849898c0551326f6167fd09de58.

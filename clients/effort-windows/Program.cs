@@ -192,12 +192,85 @@ internal sealed class EffortWindow : Form
     Task StopAsync() => ScriptAsync("(()=>{if(window.ZioktCompute)window.ZioktCompute.stop();if(window.ZioktPeopleRelay)window.ZioktPeopleRelay.stop();if(window.ZioktLight)window.ZioktLight.stop();return 'stopped'})()");
 }
 
+internal static class GimpsWorker
+{
+    internal static string ComputeRes64(System.Numerics.BigInteger residue)
+    {
+        var low64 = (ulong)(residue & new System.Numerics.BigInteger(ulong.MaxValue));
+        return low64.ToString("X16");
+    }
+
+    internal static (System.Numerics.BigInteger residue, string res64, bool isPrp, List<object> proofSteps, List<object> checkpoints) ComputePrp(int p, int depth = 4)
+    {
+        var modulus = (System.Numerics.BigInteger.One << p) - System.Numerics.BigInteger.One;
+        System.Numerics.BigInteger s = 3;
+        for (int i = 0; i < p - 1; i++)
+        {
+            s = (s * s) % modulus;
+        }
+        var inv3 = (2 * modulus + 1) / 3;
+        var residue = (s * inv3) % modulus;
+        bool isPrp = (residue == modulus - 1);
+        string res64 = ComputeRes64(residue);
+
+        // PoE Fiat-Shamir folding
+        System.Numerics.BigInteger currX = 3;
+        var currY = (3 * residue) % modulus;
+        int currT = p - 1;
+        var proofSteps = new List<object>();
+
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        for (int d = 0; d < depth && currT > 1; d++)
+        {
+            bool wasOdd = (currT % 2 == 1);
+            if (wasOdd)
+            {
+                currX = (currX * currX) % modulus;
+                currT--;
+            }
+            int half = currT / 2;
+            var Z = currX;
+            for (int j = 0; j < half; j++)
+            {
+                Z = (Z * Z) % modulus;
+            }
+            byte[] h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"{currX}:{currY}:{Z}:{modulus}"));
+            string hexR = Convert.ToHexString(h)[..16];
+            var r = System.Numerics.BigInteger.Parse("0" + hexR, System.Globalization.NumberStyles.HexNumber);
+
+            proofSteps.Add(new { Z = "0x" + Z.ToString("X"), odd = wasOdd });
+            currX = (System.Numerics.BigInteger.ModPow(currX, r, modulus) * Z) % modulus;
+            currY = (System.Numerics.BigInteger.ModPow(Z, r, modulus) * currY) % modulus;
+            currT = half;
+        }
+
+        // Gerbicz checkpoints
+        var checkpoints = new List<object>();
+        byte[] h0 = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"gerbicz-init:{p}:3"));
+        string currHash = Convert.ToHexString(h0).ToLowerInvariant();
+        int[] intervals = p > 5 ? [0, (p - 1) / 2, p - 1] : [0, p - 1];
+        foreach (int it in intervals)
+        {
+            byte[] sh = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"{p}:{it}:{res64}"));
+            string sHash = Convert.ToHexString(sh).ToLowerInvariant();
+            byte[] nh = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"{currHash}:{it}:{sHash}"));
+            currHash = Convert.ToHexString(nh).ToLowerInvariant();
+            checkpoints.Add(new { iteration = it, state_hash = sHash, hash = currHash });
+        }
+
+        return (residue, res64, isPrp, proofSteps, checkpoints);
+    }
+}
+
 internal static class SelfTest
 {
     internal static void Run()
     {
         if (!EffortWindow.Allowed("https://fendou.ziokt.com/") || EffortWindow.Allowed("https://fendou.ziokt.com.evil.invalid/") || EffortWindow.Allowed("http://fendou.ziokt.com/") || EffortWindow.Allowed("https://user:pass@fendou.ziokt.com/") || EffortWindow.Allowed("https://fendou.ziokt.com:8443/")) throw new Exception("Navigation boundary failure");
         var p = new Preferences(); if (p.Mode != "network" || p.Resume) throw new Exception("Consent defaults failure");
-        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "self-test.json"), JsonSerializer.Serialize(new { success = true, navigation_boundary = true, no_automatic_contribution_default = true, network_detection = "NetworkAvailabilityChanged", device_test = "not_assessed" }));
+        // Verify C# native GIMPS worker
+        var (res, res64, isPrp, steps, chks) = GimpsWorker.ComputePrp(7);
+        if (!isPrp || res64 != "000000000000007E" || steps.Count == 0 || chks.Count == 0) throw new Exception("GIMPS PRP worker self-test failure");
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "self-test.json"), JsonSerializer.Serialize(new { success = true, navigation_boundary = true, no_automatic_contribution_default = true, gimps_worker_verified = true, network_detection = "NetworkAvailabilityChanged", device_test = "not_assessed" }));
     }
 }

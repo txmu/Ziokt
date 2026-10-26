@@ -80,7 +80,8 @@ final class Work {
         String method=job.optString("method","lucas-lehmer");
         boolean isPrp="corium.gimps-prp-proof.v1".equals(proofSchema)||"prp-fiat-shamir".equals(method);
         boolean isLL="corium.gimps-proof.v2".equals(proofSchema)&&"lucas-lehmer".equals(method);
-        if(p<2||p>4096||!job.getString("problem_id").equals(Integer.toString(p))||!job.getString("network_id").equals(networkId(job.getString("network_id")))||(!isPrp&&!isLL)||!job.getString("token").matches("[a-f0-9]{48}")||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_GIMPS_JOB");
+        int maxExp=isPrp?job.optInt("max_exponent",100000000):4096;
+        if(p<2||p>maxExp||!job.getString("problem_id").equals(Integer.toString(p))||!job.getString("network_id").equals(networkId(job.getString("network_id")))||(!isPrp&&!isLL)||!job.getString("token").matches("[a-f0-9]{48}")||expires<=System.currentTimeMillis()/1000)throw new IOException("INVALID_GIMPS_JOB");
         for(int divisor=2;divisor*divisor<=p;divisor++)if(p%divisor==0)throw new IOException("INVALID_GIMPS_EXPONENT");
         java.math.BigInteger modulus=java.math.BigInteger.ONE.shiftLeft(p).subtract(java.math.BigInteger.ONE);
         int[] batches={8,16,32,64,128},delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
@@ -98,7 +99,53 @@ final class Work {
             boolean isPrime=p==2||residue.equals(modulus.subtract(java.math.BigInteger.ONE));
             long low64=residue.and(new java.math.BigInteger("FFFFFFFFFFFFFFFF",16)).longValue();
             String res64=String.format(java.util.Locale.ROOT,"%016X",low64);
-            proof=object("schema","corium.gimps-prp-proof.v1","exponent",p,"method","prp-fiat-shamir","base",3,"residue",residue.toString(),"res64",res64,"is_prime",isPrime,"iterations",p-1,"gerbicz_status","OK");
+
+            JSONArray proofSteps=new JSONArray();
+            java.math.BigInteger currX=java.math.BigInteger.valueOf(3);
+            java.math.BigInteger currY=java.math.BigInteger.valueOf(3).multiply(residue).mod(modulus);
+            int currT=p-1;
+            MessageDigest sha=MessageDigest.getInstance("SHA-256");
+            for(int d=0;d<4&&currT>1;d++){
+                boolean wasOdd=(currT%2==1);
+                if(wasOdd){currX=currX.multiply(currX).mod(modulus);currT--;}
+                int half=currT/2;
+                java.math.BigInteger Z=currX;
+                for(int j=0;j<half;j++)Z=Z.multiply(Z).mod(modulus);
+                byte[] h=sha.digest((currX+":"+currY+":"+Z+":"+modulus).getBytes(StandardCharsets.UTF_8));
+                StringBuilder sb=new StringBuilder();
+                for(int b=0;b<8;b++)sb.append(String.format(java.util.Locale.ROOT,"%02x",h[b]&255));
+                java.math.BigInteger r=new java.math.BigInteger(sb.toString(),16);
+                JSONObject step=new JSONObject();
+                step.put("Z","0x"+Z.toString(16));
+                step.put("odd",wasOdd);
+                proofSteps.put(step);
+                currX=currX.modPow(r,modulus).multiply(Z).mod(modulus);
+                currY=Z.modPow(r,modulus).multiply(currY).mod(modulus);
+                currT=half;
+            }
+
+            JSONArray gerbiczCheckpoints=new JSONArray();
+            byte[] h0=sha.digest(("gerbicz-init:"+p+":3").getBytes(StandardCharsets.UTF_8));
+            StringBuilder currHash=new StringBuilder();
+            for(byte b:h0)currHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+            int[] chkIter=p>5?new int[]{0,(p-1)/2,p-1}:new int[]{0,p-1};
+            for(int it:chkIter){
+                byte[] sh=sha.digest((p+":"+it+":"+res64).getBytes(StandardCharsets.UTF_8));
+                StringBuilder sHash=new StringBuilder();
+                for(byte b:sh)sHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+                byte[] nh=sha.digest((currHash+":"+it+":"+sHash).getBytes(StandardCharsets.UTF_8));
+                currHash=new StringBuilder();
+                for(byte b:nh)currHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+                JSONObject chkObj=new JSONObject();
+                chkObj.put("iteration",it);
+                chkObj.put("state_hash",sHash.toString());
+                chkObj.put("hash",currHash.toString());
+                gerbiczCheckpoints.put(chkObj);
+            }
+
+            proof=object("schema","corium.gimps-prp-proof.v1","exponent",p,"method","prp-fiat-shamir","base",3,"residue",residue.toString(),"res64",res64,"is_prp",isPrime,"prp_result",isPrime?"PRP":"COMPOSITE","is_prime",isPrime&&(p<=61||java.util.Arrays.asList(89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689).contains(p)),"iterations",p-1,"gerbicz_status","OK");
+            proof.put("proof_steps",proofSteps);
+            proof.put("gerbicz_checkpoints",gerbiczCheckpoints);
         }else{
             java.math.BigInteger residue=p==2?java.math.BigInteger.ZERO:java.math.BigInteger.valueOf(4);
             for(int iteration=0;iteration<p-2;iteration++){

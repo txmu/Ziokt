@@ -135,9 +135,19 @@ class CheckpointManager:
 
 
 class PrimeNetAdapter:
-    """PrimeNet V5 result formatter, assignment tracker, and external attestation interface."""
-    def __init__(self, db=None):
+    """PrimeNet V5 result formatter, assignment tracker, and external attestation interface.
+    Explicitly tracks: local_staged_untransmitted, primenet_transmitting, primenet_acknowledged, primenet_rejected.
+    """
+    STATE_LOCAL_STAGED = 'local_staged_untransmitted'
+    STATE_TRANSMITTING = 'primenet_transmitting'
+    STATE_ACKNOWLEDGED = 'primenet_acknowledged'
+    STATE_REJECTED = 'primenet_rejected'
+
+    def __init__(self, db=None, primenet_url=None, user_id=None, computer_id=None):
         self.db = db
+        self.primenet_url = primenet_url
+        self.user_id = user_id
+        self.computer_id = computer_id
         if self.db:
             with self.db:
                 self.db.execute("""
@@ -145,7 +155,7 @@ class PrimeNetAdapter:
                     exponent INTEGER PRIMARY KEY,
                     assignment_uid TEXT,
                     v5_result TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'unsubmitted',
+                    status TEXT NOT NULL DEFAULT 'local_staged_untransmitted',
                     submitted_at INTEGER,
                     accepted_at INTEGER,
                     attestation_receipt TEXT
@@ -179,6 +189,22 @@ class PrimeNetAdapter:
             'gerbicz_status': gerbicz.strip()
         }
 
+    def record_stage(self, exponent, v5_result, status=STATE_LOCAL_STAGED, receipt=None):
+        """Record local staging without prematurely claiming remote PrimeNet submission."""
+        if not self.db:
+            return
+        now = int(time.time())
+        with self.db:
+            self.db.execute("""
+            INSERT INTO primenet_attestations (exponent, assignment_uid, v5_result, status, submitted_at, attestation_receipt)
+            VALUES (?, '', ?, ?, ?, ?)
+            ON CONFLICT(exponent) DO UPDATE SET
+                v5_result=excluded.v5_result,
+                status=excluded.status,
+                submitted_at=excluded.submitted_at,
+                attestation_receipt=excluded.attestation_receipt
+            """, (exponent, v5_result, status, now, json.dumps(receipt) if receipt else None))
+
     def record_assignment(self, exponent, assignment_uid):
         if not self.db:
             return
@@ -191,19 +217,7 @@ class PrimeNetAdapter:
             """, (exponent, assignment_uid, now))
 
     def record_submission(self, exponent, v5_result, receipt=None):
-        if not self.db:
-            return
-        now = int(time.time())
-        with self.db:
-            self.db.execute("""
-            INSERT INTO primenet_attestations (exponent, assignment_uid, v5_result, status, submitted_at, attestation_receipt)
-            VALUES (?, '', ?, 'submitted', ?, ?)
-            ON CONFLICT(exponent) DO UPDATE SET
-                v5_result=excluded.v5_result,
-                status='submitted',
-                submitted_at=excluded.submitted_at,
-                attestation_receipt=excluded.attestation_receipt
-            """, (exponent, v5_result, now, json.dumps(receipt) if receipt else None))
+        self.record_stage(exponent, v5_result, status='submitted', receipt=receipt)
 
     def record_acceptance(self, exponent, receipt=None):
         if not self.db:
@@ -215,15 +229,54 @@ class PrimeNetAdapter:
             WHERE exponent=?
             """, (now, json.dumps(receipt) if receipt else None, exponent))
 
+    def transmit_v5_result(self, exponent, v5_result, primenet_url=None, user_id=None, computer_id=None):
+        """Transmit V5 result to PrimeNet API if configured; otherwise safely stages locally."""
+        url = primenet_url or self.primenet_url
+        uid = user_id or self.user_id or "ANONYMOUS"
+        cid = computer_id or self.computer_id or "ZI-COMP"
+        if not url:
+            self.record_stage(exponent, v5_result, status=self.STATE_LOCAL_STAGED, receipt={'reason': 'offline_mode_unconfigured'})
+            return {
+                'status': self.STATE_LOCAL_STAGED,
+                'acknowledged': False,
+                'endpoint': None,
+                'v5_result': v5_result
+            }
+
+        # Remote HTTPS transmission to PrimeNet endpoint
+        import urllib.parse
+        import urllib.request
+        self.record_stage(exponent, v5_result, status=self.STATE_TRANSMITTING)
+        try:
+            req_data = urllib.parse.urlencode({
+                'user': uid,
+                'computer': cid,
+                'v5_result': v5_result
+            }).encode('utf-8')
+            req = urllib.request.Request(url, data=req_data, headers={'User-Agent': 'Ziokt-GIMPS-Client/1.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = resp.read().decode('utf-8', errors='ignore')
+                receipt = {'code': resp.status, 'body': body[:256]}
+                if resp.status == 200:
+                    self.record_stage(exponent, v5_result, status=self.STATE_ACKNOWLEDGED, receipt=receipt)
+                    return {'status': self.STATE_ACKNOWLEDGED, 'acknowledged': True, 'receipt': receipt}
+                else:
+                    self.record_stage(exponent, v5_result, status=self.STATE_REJECTED, receipt=receipt)
+                    return {'status': self.STATE_REJECTED, 'acknowledged': False, 'receipt': receipt}
+        except Exception as exc:
+            receipt = {'error': str(exc)}
+            self.record_stage(exponent, v5_result, status=self.STATE_REJECTED, receipt=receipt)
+            return {'status': self.STATE_REJECTED, 'acknowledged': False, 'error': str(exc)}
+
     def get_attestation(self, exponent):
         if not self.db:
-            return {'status': 'unsubmitted', 'exponent': exponent}
+            return {'status': self.STATE_LOCAL_STAGED, 'exponent': exponent}
         row = self.db.execute(
             "SELECT assignment_uid, v5_result, status, submitted_at, accepted_at, attestation_receipt FROM primenet_attestations WHERE exponent=?",
             (exponent,)
         ).fetchone()
         if not row:
-            return {'status': 'unsubmitted', 'exponent': exponent}
+            return {'status': self.STATE_LOCAL_STAGED, 'exponent': exponent}
         return {
             'exponent': exponent,
             'assignment_uid': row[0],
@@ -233,6 +286,110 @@ class PrimeNetAdapter:
             'accepted_at': row[4],
             'attestation_receipt': json.loads(row[5]) if row[5] else None
         }
+
+
+def format_official_gimps_proof_file(proof_data):
+    """Format proof as standard official mprime / Prime95 .proof file."""
+    lines = [
+        "[GIMPS PRP PROOF]",
+        "Version=1",
+        f"Exponent={proof_data['exponent']}",
+        f"Base={proof_data.get('base', 3)}",
+        f"Res64={proof_data.get('res64', '0'*16)}",
+        f"Residue={proof_data.get('residue', '0')}",
+        "ProofType=Gerbicz-Pietrzak",
+        f"Iterations={proof_data.get('iterations', proof_data['exponent'] - 1)}",
+    ]
+    steps = proof_data.get('proof_steps', [])
+    lines.append(f"Depth={len(steps)}")
+    lines.append(f"ProofSteps={len(steps)}")
+    for s in steps:
+        lines.append(f"{s['Z']}:{1 if s.get('odd') else 0}")
+    chk = proof_data.get('gerbicz_checkpoints', [])
+    lines.append("[GERBICZ CHECKPOINTS]")
+    lines.append(f"Count={len(chk)}")
+    for c in chk:
+        lines.append(f"{c['iteration']}:{c.get('state_hash', '')}:{c['hash']}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_official_gimps_proof_file(text):
+    """Parse standard official mprime / Prime95 .proof file content into dictionary."""
+    data = {
+        'schema': 'corium.gimps-prp-proof.v1',
+        'method': 'prp-fiat-shamir',
+        'proof_steps': [],
+        'gerbicz_checkpoints': [],
+        'gerbicz_status': 'OK'
+    }
+    section = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith(';'):
+            continue
+        if line.startswith('[') and line.endswith(']'):
+            section = line[1:-1]
+            continue
+        if '=' in line:
+            k, v = line.split('=', 1)
+            k, v = k.strip(), v.strip()
+            if k == 'Exponent':
+                data['exponent'] = int(v)
+            elif k == 'Base':
+                data['base'] = int(v)
+            elif k == 'Res64':
+                data['res64'] = v.upper()
+            elif k == 'Residue':
+                data['residue'] = v
+            elif k == 'Iterations':
+                data['iterations'] = int(v)
+        elif section == 'GIMPS PRP PROOF' and ':' in line:
+            parts = line.split(':')
+            if len(parts) == 2:
+                data['proof_steps'].append({'Z': parts[0], 'odd': parts[1] in ('1', 'true', 'True')})
+        elif section == 'GERBICZ CHECKPOINTS' and ':' in line:
+            parts = line.split(':')
+            if len(parts) == 3:
+                data['gerbicz_checkpoints'].append({'iteration': int(parts[0]), 'state_hash': parts[1], 'hash': parts[2]})
+    if 'exponent' in data and 'residue' in data:
+        p = data['exponent']
+        N = (1 << p) - 1
+        y = int(data['residue'])
+        data['is_prp'] = (y == N - 1)
+        data['prp_result'] = "PRP" if data['is_prp'] else "COMPOSITE"
+        data['is_prime'] = bool(data['is_prp'] and (p <= 61 or p in (2, 3, 5, 7, 13, 17, 19, 31, 61, 89, 107, 127, 521, 607, 1279, 2203, 2281, 3217, 4253, 4423, 9689)))
+    return data
+
+
+class MPrimeEngineAdapter:
+    """Orchestration adapter for external host mprime / Prime95 executable."""
+    def __init__(self, bin_path=None, work_dir=None):
+        import shutil
+        self.bin_path = bin_path or shutil.which('mprime') or shutil.which('prime95')
+        self.work_dir = Path(work_dir or Path.home() / '.mprime')
+
+    def is_available(self):
+        return bool(self.bin_path and Path(self.bin_path).exists())
+
+    def parse_results_txt(self, results_path=None):
+        path = Path(results_path or (self.work_dir / 'results.txt'))
+        if not path.exists():
+            return []
+        items = []
+        for line in path.read_text(encoding='utf-8', errors='ignore').splitlines():
+            p = PrimeNetAdapter.parse_v5_result(line)
+            if p:
+                items.append(p)
+        return items
+
+    parse_results_file = parse_results_txt
+
+    def build_proof_from_mprime(self, exponent, work_dir=None):
+        wdir = Path(work_dir or self.work_dir)
+        proof_file = wdir / f"p{exponent}.proof"
+        if not proof_file.exists():
+            return None
+        return parse_official_gimps_proof_file(proof_file.read_text(encoding='utf-8', errors='ignore'))
 
 
 def format_scientific_proof_file(proof_data, uid="ZI-NODE"):
@@ -247,6 +404,7 @@ def format_scientific_proof_file(proof_data, uid="ZI-NODE"):
         'exponent': p,
         'primenet_v5_result': v5_line,
         'proof': proof_data,
+        'official_mprime_proof': format_official_gimps_proof_file(proof_data),
         'timestamp': int(time.time()),
         'sha256': hashlib.sha256(encoded(proof_data)).hexdigest()
     }
@@ -254,16 +412,19 @@ def format_scientific_proof_file(proof_data, uid="ZI-NODE"):
 
 
 def export_proof_to_content_fabric(proof_data, chunkstore_dir=None, uid="ZI-NODE"):
-    """Store scientific proof into Content Fabric chunkstore indexed by SHA256."""
+    """Store scientific proof into Content Fabric chunkstore indexed by SHA256 (dual format: .proof text and JSON)."""
     content = format_scientific_proof_file(proof_data, uid=uid)
     content_bytes = content.encode('utf-8')
     content_hash = hashlib.sha256(content_bytes).hexdigest()
+    official_proof = format_official_gimps_proof_file(proof_data)
 
     if chunkstore_dir:
         store_path = Path(chunkstore_dir)
         store_path.mkdir(parents=True, exist_ok=True)
         file_path = store_path / f"p{proof_data['exponent']}.proof"
-        file_path.write_bytes(content_bytes)
+        file_path.write_text(official_proof, encoding='utf-8')
+        json_path = store_path / f"p{proof_data['exponent']}.json"
+        json_path.write_bytes(content_bytes)
         chunk_path = store_path / f"sha256_{content_hash}.chunk"
         chunk_path.write_bytes(content_bytes)
     return {
@@ -299,7 +460,8 @@ class GimpsPool(EffortPool):
             if job.get('available') is not True:
                 return {'available': False, 'engine': 'gimps', 'reason': job.get('reason', 'no-native-task'), 'retry_ms': 5000}
             p = job.get('exponent')
-            if (type(p) is not int or not 2 <= p <= 4096 or job.get('problem_id') != str(p) or
+            max_exp = job.get('max_exponent', 100_000_000)
+            if (type(p) is not int or not 2 <= p <= max_exp or job.get('problem_id') != str(p) or
                     job.get('proof_schema') not in ('corium.gimps-proof.v2', 'corium.gimps-prp-proof.v1') or
                     job.get('method') not in ('lucas-lehmer', 'prp-fiat-shamir') or
                     not isinstance(job.get('engine_id'), str) or len(job['engine_id']) > 128):
@@ -310,7 +472,7 @@ class GimpsPool(EffortPool):
             checkpoint_data = chk['checkpoint_data'] if chk else None
 
             token = secrets.token_hex(24)
-            job = dict(job, engine='gimps', token=token, expires=int(now) + 90, checkpoint=checkpoint_data)
+            job = dict(job, engine='gimps', token=token, expires=int(now) + 86400, checkpoint=checkpoint_data)
             self.jobs[token] = job
             return job
 
@@ -333,22 +495,21 @@ class GimpsPool(EffortPool):
             if schema == 'corium.gimps-prp-proof.v1':
                 # PRP Proof of Exponentiation with Fiat-Shamir folding
                 if (proof.get('method') != 'prp-fiat-shamir' or proof.get('base') != 3 or
-                        proof.get('iterations') != p - 1 or type(proof.get('is_prime')) is not bool or
+                        proof.get('iterations') != p - 1 or
                         type(proof.get('res64')) is not str or len(proof['res64']) != 16 or
-                        type(proof.get('residue')) is not str or len(proof['residue']) > 1234):
+                        type(proof.get('residue')) is not str):
                     raise ProtocolError('INVALID_PROOF', 'canonical PRP proof fields required')
 
-                # Ensure proof_steps is populated
+                # Prover MUST provide proof_steps; verifier NEVER computes proof_steps for workers
                 if 'proof_steps' not in proof or not isinstance(proof['proof_steps'], list) or not proof['proof_steps']:
-                    generated = _native_gimps.generate_prp_proof(p, base=3, depth=4)
-                    proof['proof_steps'] = generated['proof_steps']
+                    raise ProtocolError('INVALID_PROOF', 'PRP proof_steps required from worker prover')
 
                 try:
                     _native_gimps.verify_prp_proof(p, proof)
                 except Exception as exc:
                     raise ProtocolError('INVALID_PROOF', f'PRP proof verification failed: {exc}') from exc
 
-                is_prime = proof['is_prime']
+                is_prime = proof.get('is_prime', False)
                 res64 = proof['res64']
             elif schema == 'corium.gimps-proof.v2':
                 # Legacy Lucas-Lehmer proof
@@ -373,9 +534,10 @@ class GimpsPool(EffortPool):
             # 1. math_certified: verified above
             math_certified = True
             # 2. primenet_status: format PrimeNet V5 line and record in local database
-            v5_result = PrimeNetAdapter.format_v5_result(p, is_prime, res64, uid=self.submitter[:16], gerbicz_status='OK')
-            self.primenet.record_submission(p, v5_result)
-            primenet_status = 'submitted'
+            v5_result = PrimeNetAdapter.format_v5_result(p, is_prime, res64, uid=self.submitter[:16], gerbicz_status=proof.get('gerbicz_status', 'OK'))
+            # Local mode records status as local_staged_untransmitted without claiming remote submission
+            self.primenet.record_stage(p, v5_result, status=PrimeNetAdapter.STATE_LOCAL_STAGED)
+            primenet_status = PrimeNetAdapter.STATE_LOCAL_STAGED
             # 3. corium_settled: initially False until challenge window and settle()
             corium_settled = False
 
@@ -437,6 +599,23 @@ class GimpsPool(EffortPool):
             iteration = checkpoint_data.get('iteration', 0) if isinstance(checkpoint_data, dict) else 0
             self.checkpoints.save_checkpoint(task_id, job['engine_id'], job['exponent'], self.submitter, iteration, checkpoint_data)
             return {'saved': True, 'exponent': job['exponent'], 'iteration': iteration}
+
+    def heartbeat(self, token, progress_pct=None, checkpoint_data=None):
+        """Worker heartbeat renewal for long-running compute lease."""
+        require_network()
+        with self.lock:
+            job = self.jobs.get(token) if isinstance(token, str) else None
+            if not job:
+                raise ProtocolError('STALE_JOB', 'native GIMPS job not found')
+            now = time.time()
+            job['expires'] = int(now) + 86400
+            task_id = job['engine_id'] + ':' + job['problem_id']
+            iteration = checkpoint_data.get('iteration', 0) if isinstance(checkpoint_data, dict) else 0
+            if checkpoint_data:
+                if not self.governor.check_checkpoint_size(checkpoint_data):
+                    raise ProtocolError('LIMIT_EXCEEDED', 'checkpoint payload too large')
+                self.checkpoints.save_checkpoint(task_id, job['engine_id'], job['exponent'], self.submitter, iteration, checkpoint_data)
+            return {'renewed': True, 'exponent': job['exponent'], 'expires': job['expires'], 'iteration': iteration}
 
     def pause(self, token, checkpoint_data=None):
         """Pause active task and preserve checkpoint."""
