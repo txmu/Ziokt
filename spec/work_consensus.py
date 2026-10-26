@@ -195,25 +195,35 @@ def cooperative_state_at(db,network,height):
     declaration=Recovery.declaration(network)
     require(declaration is not None and height>declaration['checkpoint']['height'],
             'cooperative protocol not active')
-    state=Cooperative.empty(Recovery.identity(declaration))
-    blocks=db.execute('SELECT height,transactions FROM blocks WHERE height>? AND height<? ORDER BY height',
-                      (declaration['checkpoint']['height'],height)).fetchall()
-    commands=db.execute("SELECT hash,data,block_height FROM transactions WHERE type='cooperative_command' AND block_height>? AND block_height<?",
-                        (declaration['checkpoint']['height'],height)).fetchall()
-    require(len(blocks)<=1_000_000 and len(commands)<=1_000_000,'cooperative history budget')
-    by_hash={row[0]:row for row in commands}
-    for block_height,raw_hashes in blocks:
-        hashes=json.loads(raw_hashes)
-        require(type(hashes) is list and len(hashes)<=200,'canonical transaction list')
-        for txhash in hashes:
-            row=by_hash.get(txhash)
-            if row is None:
-                continue
-            require(row[2]==block_height,'canonical cooperative transaction body')
-            envelope=loads(row[1])
-            require(type(envelope) is dict and set(envelope)=={'command','endorsements'},
-                    'cooperative envelope')
-            state=Cooperative.apply(state,envelope['command'],envelope['endorsements'])
+    chain=Recovery.identity(declaration);state=Cooperative.empty(chain);start=declaration['checkpoint']['height']
+    # Use a materialized checkpoint only when its recorded block remains in the
+    # canonical chain and its deterministic root matches. Legacy/unanchored rows
+    # and orphaned checkpoints are ignored and reconstructed from history.
+    table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_registry'").fetchone()
+    if table:
+        columns={row[1] for row in db.execute('PRAGMA table_info(cooperative_registry)').fetchall()}
+        if {'state','height','block_hash','state_root'}<=columns:
+            cached=db.execute('SELECT state,height,block_hash,state_root FROM cooperative_registry WHERE id=1').fetchone()
+            if cached:
+                try:
+                    candidate=json.loads(cached[0]);anchor=db.execute('SELECT hash FROM blocks WHERE height=?',(cached[1],)).fetchone()
+                    if (type(cached[1])is int and start<=cached[1]<height and anchor and anchor[0]==cached[2]
+                        and type(candidate)is dict and candidate.get('chain')==chain
+                        and Cooperative.state_root(candidate)==cached[3]):
+                        state=candidate;start=cached[1]
+                except (ValueError,TypeError,KeyError):
+                    pass
+    commands=db.execute("SELECT hash,data,block_height FROM transactions WHERE type='cooperative_command' AND block_height>? AND block_height<? ORDER BY block_height,hash",
+                        (start,height)).fetchall()
+    require(len(commands)<=1_000_000,'cooperative history budget')
+    for txhash,raw,block_height in commands:
+        block=db.execute('SELECT transactions FROM blocks WHERE height=?',(block_height,)).fetchone()
+        require(block is not None,'cooperative transaction block missing')
+        hashes=json.loads(block[0]);require(type(hashes)is list and len(hashes)<=200,'canonical transaction list')
+        require(hashes.count(txhash)==1,'cooperative transaction absent from canonical block')
+        envelope=loads(raw)
+        require(type(envelope)is dict and set(envelope)=={'command','endorsements'},'cooperative envelope')
+        state=Cooperative.apply(state,envelope['command'],envelope['endorsements'])
     return state
 
 
@@ -233,8 +243,14 @@ def main(args):
             payload=DNA.loads(args[4]);require(type(payload)is dict and set(payload)=={'command','endorsements'},'cooperative envelope')
             changed=Cooperative.apply(state,payload['command'],payload['endorsements'])
             if action=='cooperative-apply':
-                db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL)')
-                db.execute('INSERT OR REPLACE INTO cooperative_registry VALUES(1,?)',(DNA.encoded(changed).decode(),))
+                db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL,height INTEGER,block_hash TEXT,state_root TEXT)')
+                columns={row[1] for row in db.execute('PRAGMA table_info(cooperative_registry)').fetchall()}
+                for name in ('height INTEGER','block_hash TEXT','state_root TEXT'):
+                    if name.split()[0] not in columns:db.execute('ALTER TABLE cooperative_registry ADD COLUMN '+name)
+                block=db.execute('SELECT hash FROM blocks WHERE height=?',(height,)).fetchone()
+                require(block is not None,'cooperative application requires committed block')
+                db.execute('INSERT OR REPLACE INTO cooperative_registry(id,state,height,block_hash,state_root) VALUES(1,?,?,?,?)',
+                           (DNA.encoded(changed).decode(),height,block[0],Cooperative.state_root(changed)))
             result={'state_root':Cooperative.state_root(changed),'native_application':True}
         elif action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
         elif action=='preactivate':
