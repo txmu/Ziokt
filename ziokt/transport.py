@@ -8,6 +8,11 @@ class NativeTransport:
         # hidden path creation takes place in application networking.
         self.sdk = sdk
 
+    @staticmethod
+    def discover_stun(stream, server, *, timeout=3, privacy='standard'):
+        from .nat import stun_binding
+        return stun_binding(stream,server,timeout=timeout,privacy=privacy)
+
     def open(self, service, *, kind=None, reliable=None, ordered=None,
              timeout=10, cancellation=None):
         from .runtime_policy import require_network

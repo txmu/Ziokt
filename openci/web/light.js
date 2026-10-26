@@ -66,7 +66,7 @@ async function next(epoch){if(!active||epoch!==generation)return;abort=new Abort
 async function start(){try{if(!token||!key)throw Error(document.documentElement.lang==='en'?'Please join as a worker or import dedicated Worker credentials first.':'请先接入节点或导入专用 Worker 凭证。');if(navigator.onLine===false)throw Error('Offline');await loadConfig();active=true;$('light-start').textContent=document.documentElement.lang==='en'?'Stop Lightweight Build':'停止轻量编译';$('light-start').setAttribute('aria-pressed','true');next(++generation)}catch(error){status(error.message)}}
 $('light-start').addEventListener('click',()=>active?stop():start());
 const mode=$('help-mode'),shared=$('start');if(mode&&shared){shared.addEventListener('click',event=>{if(mode.value!=='openci')return;event.stopImmediatePropagation();event.preventDefault();active?stop():start()},true);mode.addEventListener('change',()=>{if(mode.value!=='openci')stop();panel.hidden=mode.value!=='openci'})}
-addEventListener('offline',()=>{if(active)stop()});addEventListener('pagehide',logout);document.addEventListener('visibilitychange',()=>{if(document.hidden&&!$('background')?.checked)stop()});
+addEventListener('offline',()=>{if(active)stop()});addEventListener('pagehide',logout);document.addEventListener('visibilitychange',()=>{if(document.hidden&&(mode?.value==='openci'||!$('background')?.checked))stop()});
 document.addEventListener('languagechange',()=>{
  if(config&&hostArchitecture){
    $('light-architecture').textContent=document.documentElement.lang==='en'?('Device '+hostArchitecture+' / Node '+config.node_arch+' / Targets '+Object.keys(config.targets).join(', ')):('设备 '+hostArchitecture+' / 节点 '+config.node_arch+' / 目标 '+Object.keys(config.targets).join(', '));

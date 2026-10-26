@@ -96,11 +96,13 @@ def main(argv=None):
     import sys
     arguments=list(sys.argv[1:] if argv is None else argv)
     command_arguments=arguments[1:] if arguments[:1]==['--airgap'] else arguments
-    if command_arguments and command_arguments[0] in {'bundle','program','networks','doomsday'}:
+    if command_arguments and command_arguments[0] in {'bundle','program','networks','doomsday','ipfs'}:
         from .runtime_policy import activate_airgap
         if arguments[:1]==['--airgap']:activate_airgap()
         try:
-            if command_arguments[0]=='doomsday':
+            if command_arguments[0]=='ipfs':
+                from .ipfs import main as delegated
+            elif command_arguments[0]=='doomsday':
                 from .doomsday import main as delegated
             elif command_arguments[0]=='bundle':
                 from .bundle import main as delegated

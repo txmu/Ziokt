@@ -173,6 +173,11 @@ def main():
     runtime += '\n' + (ROOT / "spec/recovery_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/governance_runtime.py").read_text()
     runtime += '\n' + (ROOT / "spec/compute_runtime.py").read_text()
+    # Corium owns the GIMPS algorithm. The specification is a generated mirror.
+    gimps_runtime=(args.corium/'gimps_consensus.py').read_text()
+    gimps_library=gimps_runtime.split("\nif __name__ == '__main__':",1)[0]
+    runtime+='\ndef _load_native_gimps():\n'+textwrap.indent(gimps_library,'    ')+'\n    return locals()\n_native_gimps=__import__("types").SimpleNamespace(**_load_native_gimps())\n'
+
     shielded_runtime=(ROOT / 'spec/shielded_runtime.py').read_text()
     shielded_target=args.corium/'shielded_ownership.py'
     runtime += '\n' + shielded_runtime
@@ -329,8 +334,14 @@ PY_CORIUM_WORK_CONSENSUS
         anchor='_validate_single_transaction() {'
         if updated.count(anchor)!=1:raise SystemExit('native work validation anchor ambiguous')
         updated=updated.replace(anchor,work_block+'\n'+anchor,1)
+    # Keep standalone monolith verification identical to the authoritative module.
+    anchor="<<'PY_CORIUM_GIMPS_CONSENSUS'\n"
+    if updated.count(anchor)!=1:raise SystemExit('native GIMPS source anchor ambiguous')
+    before,tail=updated.split(anchor,1);_,after=tail.split('\nPY_CORIUM_GIMPS_CONSENSUS',1)
+    updated=before+anchor+gimps_runtime.rstrip()+'\nPY_CORIUM_GIMPS_CONSENSUS'+after
     if args.check:
         mismatches = []
+        if (ROOT/'spec/gimps_consensus.py').read_text()!=gimps_runtime:mismatches.append('spec/gimps_consensus.py')
         for name,expected in extra_work_sources.items():
             path=args.corium/name
             if not path.is_file()or path.read_text()!=expected:mismatches.append(str(path))
@@ -343,6 +354,7 @@ PY_CORIUM_WORK_CONSENSUS
                              "; verify native-sources.lock.json against the published protocol copies")
         print("Native protocol copies match Ziokt specification")
     else:
+        (ROOT/'spec/gimps_consensus.py').write_text(gimps_runtime)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(runtime)
         shielded_target.write_text(shielded_runtime)

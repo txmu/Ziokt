@@ -34,7 +34,7 @@ internal sealed class Preferences
     internal static string FileName => Path.Combine(Folder, "preferences.json");
     internal static Preferences Load()
     {
-        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode is "compute" or "openci" ? p.Mode : "network"; if (!EffortWindow.ValidOrigin(p.NodeOrigin)) p.NodeOrigin = "https://fendou.ziokt.com"; return p; }
+        try { var p = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FileName)) ?? new(); p.Mode = p.Mode is "compute" or "openci" or "gimps" ? p.Mode : "network"; if (!EffortWindow.ValidOrigin(p.NodeOrigin)) p.NodeOrigin = "https://fendou.ziokt.com"; return p; }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
     }
     internal void Save()
@@ -64,7 +64,7 @@ internal sealed class EffortWindow : Form
     {
         this.background = background; this.smoke = smoke;
         Text = "Ziokt 助力 · Windows"; Width = 1020; Height = 780; MinimumSize = new Size(540, 480);
-        mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作", "OpenCI 轻量编译"]); mode.SelectedIndex = prefs.Mode == "openci" ? 2 : prefs.Mode == "compute" ? 1 : 0;
+        mode.Items.AddRange(["轻量网络协作（主网直连）", "计算协作", "OpenCI 轻量编译", "GIMPS 梅森数计算"]); mode.SelectedIndex = prefs.Mode == "gimps" ? 3 : prefs.Mode == "openci" ? 2 : prefs.Mode == "compute" ? 1 : 0;
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(8) };
         var node = new TextBox { Width=260, Text=prefs.NodeOrigin, AccessibleName="所连接节点的 HTTPS Origin" };
         var connect = new Button { Text="连接节点", AutoSize=true };
@@ -72,9 +72,9 @@ internal sealed class EffortWindow : Form
         top.Controls.AddRange([new Label { Text="节点 HTTPS", AutoSize=true },node,connect,mode, start, stop, startup, state]); Controls.Add(web); Controls.Add(top);
         using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key?.GetValue("ZioktEffort") is string;
         startup.CheckedChanged += (_, _) => SetStartup();
-        start.Click += async (_, _) => { prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = true; Save(); await StartAsync(); };
+        start.Click += async (_, _) => { prefs.Mode = mode.SelectedIndex == 3 ? "gimps" : mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = true; Save(); await StartAsync(); };
         stop.Click += async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); state.Text = "已停止；不会自动恢复"; };
-        mode.SelectedIndexChanged += async (_, _) => { prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = false; Save(); await StopAsync(); };
+        mode.SelectedIndexChanged += async (_, _) => { prefs.Mode = mode.SelectedIndex == 3 ? "gimps" : mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; prefs.Resume = false; Save(); await StopAsync(); };
         var menu = new ContextMenuStrip(); menu.Items.Add("打开奋斗页", null, (_, _) => ShowWindow());
         menu.Items.Add("停止助力", null, async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); });
         menu.Items.Add("退出", null, async (_, _) => { prefs.Resume = false; Save(); await StopAsync(); exiting = true; Close(); });
@@ -115,7 +115,7 @@ internal sealed class EffortWindow : Form
                     using var message = JsonDocument.Parse(e.WebMessageAsJson);
                     var value = message.RootElement;
                     if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("kind", out var kind) || kind.GetString() != "effort-intent" || !value.TryGetProperty("active", out var active) || active.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return;
-                    prefs.Resume = active.GetBoolean(); prefs.Mode = mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; Save();
+                    prefs.Resume = active.GetBoolean(); prefs.Mode = mode.SelectedIndex == 3 ? "gimps" : mode.SelectedIndex == 2 ? "openci" : mode.SelectedIndex == 1 ? "compute" : "network"; Save();
                 }
                 catch (JsonException) { }
             };

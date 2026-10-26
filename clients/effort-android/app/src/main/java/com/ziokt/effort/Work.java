@@ -26,7 +26,7 @@ final class Work {
     void check() { if(cancelled||Thread.currentThread().isInterrupted())throw new CancellationException(); }
     void pause(long ms) throws InterruptedException { check();Thread.sleep(ms);check(); }
     JSONObject post(String path,JSONObject value,String token) throws Exception {
-        check();if(!path.matches("/api/(job|proof|people/config|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
+        check();if(!path.matches("/api/(job|proof|gimps/(job|proof)|people/config|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
         byte[] body=value.toString().getBytes(StandardCharsets.UTF_8);if(body.length>8192)throw new IOException("REQUEST_LIMIT");
         HttpsURLConnection c=(HttpsURLConnection)new URL(origin+path).openConnection();request=c;
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setUseCaches(false);boolean config=path.equals("/api/people/config");c.setRequestMethod(config?"GET":"POST");if(!config){c.setDoOutput(true);c.setFixedLengthStreamingMode(body.length);}
@@ -71,6 +71,26 @@ final class Work {
             if(raw[0]==0&&(raw[1]&240)==0){JSONObject receipt=post("/api/proof",object("token",token,"nonce",nonce),null);if(!receipt.optBoolean("accepted",false))throw new IOException("PROOF_UNCONFIRMED");status.accept("证明已提交，等待原生共识；不保证奖励");pause(5000);return;}
             if(offset%batches[selected]==batches[selected]-1)pause(delays[selected]);
         }
+    }
+    void gimps(int level) throws Exception {
+        JSONObject job=post("/api/gimps/job",object(),null);
+        if(!job.getBoolean("available")){status.accept("等待 Corium 原生 GIMPS 任务，不切换到零号引擎");pause(5000);return;}
+        int p=job.getInt("exponent");long expires=job.getLong("expires");
+        if(p<2||p>4096||!job.getString("problem_id").equals(Integer.toString(p))||!job.getString("network_id").equals(networkId(job.getString("network_id")))||!job.getString("proof_schema").equals("corium.gimps-proof.v2")||!job.getString("method").equals("lucas-lehmer")||!job.getString("token").matches("[a-f0-9]{48}")||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_GIMPS_JOB");
+        for(int divisor=2;divisor*divisor<=p;divisor++)if(p%divisor==0)throw new IOException("INVALID_GIMPS_EXPONENT");
+        java.math.BigInteger modulus=java.math.BigInteger.ONE.shiftLeft(p).subtract(java.math.BigInteger.ONE);
+        java.math.BigInteger residue=p==2?java.math.BigInteger.ZERO:java.math.BigInteger.valueOf(4);
+        int[] batches={8,16,32,64,128},delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
+        status.accept("GIMPS 梅森数 2^"+p+"-1 · Corium 原生证明");
+        for(int iteration=0;iteration<p-2;iteration++){
+            check();if(System.currentTimeMillis()/1000>=expires)throw new IOException("GIMPS_JOB_EXPIRED");
+            residue=residue.multiply(residue).subtract(java.math.BigInteger.valueOf(2)).mod(modulus);
+            if((iteration+1)%batches[selected]==0)pause(delays[selected]);
+        }
+        JSONObject proof=object("schema","corium.gimps-proof.v2","exponent",p,"method","lucas-lehmer","residue",residue.toString(),"is_prime",residue.signum()==0,"iterations",p-2);
+        JSONObject receipt=post("/api/gimps/proof",object("token",job.getString("token"),"proof",proof),null);
+        if(!receipt.optBoolean("accepted",false))throw new IOException("GIMPS_PROOF_UNCONFIRMED");
+        status.accept("GIMPS 证明已提交，等待原生共识与挑战期结算");pause(5000);
     }
     JSONObject relay(String side,String op,JSONObject args,String token) throws Exception {
         JSONObject wire=object("arguments",args,"padding","");

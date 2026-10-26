@@ -165,6 +165,7 @@ def server(fabric, config):
     tokens=config.get('tokens',[])
     peers=config.get('peers',{})
     fabric.remote_peers=peers
+    fabric.ipfs_gateways=config.get('ipfs_gateways',{})
     fabric.native_etp=None
     if config.get('native_etp') is not None:
         from .content_etp_application import EtpApplications

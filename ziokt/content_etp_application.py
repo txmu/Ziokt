@@ -59,6 +59,33 @@ class EtpApplications:
             if operation=='library.etp.step':return intake.step(owner,args['job'],args.get('max_chunks',8))
             raise ValueError('unknown Library native operation')
         if policy is None:raise PermissionError('native account delegation not configured')
+        if operation.startswith('content.ipfs.etp.'):
+            from .ipfs import IpfsBridge,fetch_car,import_car,MAX_FILE
+            from .protocol import encoded
+            import base64,hashlib
+            bridge=IpfsBridge(fabric)
+            if operation=='content.ipfs.etp.publish':
+                if args['public'] is not True or args['alias'] not in policy['aliases'] or args['topic'] not in policy['topics']:
+                    raise PermissionError('explicit public CID and native signer/topic delegation required')
+                exported=bridge.export(owner,args['id']);info=fabric.object_info(owner,args['id']);metadata=json.loads(info['metadata'])
+                document={'schema':'ziokt.etp-ipfs-source.v1','cid':exported['cid'],'digest':metadata['digest'],'size':metadata['size'],'mime':metadata['mime'],'topic':args['topic'],'public':True}
+                author=self.call('etp.forum.identity',{'name':args['alias']})['author_id']
+                publication=self.call('etp.forum.publish',{'topic':args['topic'],'content':encoded(document).decode(),'author':args['alias'],'parent_id':None,'timestamp':int(__import__('time').time())})
+                post=self.call('etp.forum.get',{'id':publication['id']})['post']
+                if not post or post['author_id']!=author or b''.join(base64.b64decode(part,validate=True) for part in post['content_base64'])!=encoded(document):
+                    raise ProtocolError('ETP_IPFS_READBACK','native signed CID announcement readback failed')
+                return dict(exported,native_id=publication['id'],native_stored=True,publicly_pinned=False)
+            post=self.call('etp.forum.get',{'id':args['native_id']})['post']
+            if not post or post.get('author_id') not in policy['remote_authors']:raise PermissionError('native source author not delegated')
+            document=strict_json(b''.join(base64.b64decode(part,validate=True) for part in post['content_base64']),8192)
+            if (not isinstance(document,dict) or set(document)!={'schema','cid','digest','size','mime','topic','public'} or
+                    document['schema']!='ziokt.etp-ipfs-source.v1' or document['public'] is not True or document.get('topic') not in policy['topics'] or
+                    type(document['size']) is not int or not 0<=document['size']<=MAX_FILE):raise ProtocolError('ETP_IPFS_SOURCE','public CID-bound source required')
+            binding=self.call('etp.forum.subscribe',{'topic':document['topic']})
+            if post.get('topic_hash')!=binding['topic_hash']:raise PermissionError('native source topic binding mismatch')
+            archive=fetch_car(getattr(fabric,'ipfs_gateways',{}),args['source'],document['cid']);payload=import_car(document['cid'],archive)
+            if len(payload)!=document['size'] or 'sha256:'+hashlib.sha256(payload).hexdigest()!=document['digest']:raise ProtocolError('ETP_IPFS_SOURCE','native source digest/size mismatch')
+            return dict(bridge.ingest(owner,document['cid'],archive,mime=document['mime']),native_id=args['native_id'],native_author=post['author_id'])
         bridge=EtpNews(fabric,self)
         if operation=='content.etp.status':
             with fabric.lock:

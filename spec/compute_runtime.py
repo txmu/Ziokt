@@ -101,8 +101,12 @@ def compute_receipt(root, network, plan):
     return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
 
 
-def compute_challenge(root, network):
-    """The accepted native head and configured signer define an Engine Zero job."""
+def compute_challenge(root, network, engine=None):
+    """Select an explicit independent native engine; no cross-engine fallback."""
+    if engine=='gimps':
+        with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            try:return _native_gimps.native_challenge(db,network,corium_identity(root,network))
+            except (ValueError,TypeError,KeyError) as exc:fail('NATIVE_STATE_CONFLICT',str(exc))
     with closing(corium_db(root,network,'blockchain/chain.db')) as db:
         cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
         if not cached or not isinstance(cached[0],str):fail('NATIVE_STATE_UNAVAILABLE','accepted native chain head required')
@@ -121,6 +125,7 @@ def compute_challenge(root, network):
 
 def compute_submit_preflight(root,network,params,config):
     args=params['arguments']
+    if 'engine_id' in args:return gimps_submit_preflight(root,network,params,config)
     if params['resource']!='compute:corium/internal-engine-zero-v1' or params['expected_revision'] is not None or set(args)!={'problem_id','nonce'} or not isinstance(args['problem_id'],str) or not re.fullmatch('[a-f0-9]{64}',args['problem_id']) or not isinstance(args['nonce'],str) or not re.fullmatch('0|[1-9][0-9]{0,19}',args['nonce']):fail('INVALID_PARAMS','bounded native Engine Zero proof required')
     job=compute_challenge(root,network)
     if args['problem_id']!=job['problem_id']:fail('STALE_PLAN','native Engine Zero head changed')
@@ -133,3 +138,22 @@ def compute_submit_preflight(root,network,params,config):
             same=any(strict_json(raw.encode())==payload for (raw,) in db.execute("SELECT data FROM transactions WHERE type='submit_math_proof' LIMIT 4096"))
         if not same:fail('TASK_UNAVAILABLE','native challenge is already claimed')
     return {'transaction_type':'submit_math_proof','payload':payload,'issuer':job['submitter_id']}
+
+
+def gimps_submit_preflight(root,network,params,config):
+    args=params['arguments']
+    if (set(args)!={'engine_id','problem_id','proof_data'} or params['resource']!='compute:'+str(args['engine_id']) or
+            params['expected_revision'] is not None or not isinstance(args['engine_id'],str) or not re.fullmatch('[A-Za-z0-9_./:-]{1,128}',args['engine_id'])):
+        fail('INVALID_PARAMS','exact native GIMPS proof and engine scope required')
+    sender=corium_identity(root,network)
+    with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+        head=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+        if not head or not re.fullmatch(r'[a-f0-9]{64}\|[0-9]+',head[0]):fail('NATIVE_STATE_UNAVAILABLE','accepted head required')
+        height=int(head[0].split('|')[1])
+        row=db.execute('SELECT pkg_id,compute_program_hash,verifier_script_hash FROM compute_engines WHERE engine_id=?',(args['engine_id'],)).fetchone()
+        if not row or row[0]!=_native_gimps.PACKAGE:fail('POLICY_DENIED','explicit native GIMPS engine required')
+        payload={'engine_id':args['engine_id'],'problem_id':args['problem_id'],'proof_data':args['proof_data'],'engine_hash':row[1],'verifier_hash':row[2]}
+        prior=db.execute("SELECT hash FROM transactions WHERE type='submit_math_proof' AND data=? LIMIT 1",(encoded(payload).decode(),)).fetchone()
+        try:_native_gimps.validate_gimps_proof(db,network,payload,sender,height,accepted_tx=prior[0] if prior else None)
+        except (ValueError,TypeError,KeyError) as exc:fail('INVALID_PROOF',str(exc))
+    return {'transaction_type':'submit_math_proof','payload':payload,'issuer':sender}

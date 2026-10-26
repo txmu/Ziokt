@@ -4,6 +4,24 @@ let busy=false;
 const supported=()=>self.crypto&&self.crypto.subtle&&typeof self.crypto.subtle.digest==='function'&&typeof TextEncoder==='function'&&typeof BigInt==='function';
 self.onmessage=async({data:job})=>{
  if(busy)return;
+ if(job&&job.type==='probe'&&job.engine==='gimps'){
+  postMessage(typeof BigInt==='function'?{type:'ready'}:{error:'UNSUPPORTED_BROWSER'});return;
+ }
+ if(job&&job.engine==='gimps'){
+  if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>4096||job.problem_id!==String(job.exponent)||job.proof_schema!=='corium.gimps-proof.v2'||job.method!=='lucas-lehmer'||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000||job.expires>Date.now()/1000+120){postMessage({error:'INVALID_JOB'});return close()}
+  const p=job.exponent,profile=EFFORT_PROFILES[job.level-1],began=performance.now();
+  if(p>2&&Array.from({length:Math.floor(Math.sqrt(p))-1},(_,i)=>i+2).some(divisor=>p%divisor===0)){postMessage({error:'INVALID_JOB'});return close()}
+  busy=true;
+  try{
+   const modulus=(BigInt(1)<<BigInt(p))-BigInt(1);let residue=p===2?BigInt(0):BigInt(4);
+   for(let i=0;i<p-2;i++){
+    if(Date.now()/1000>=job.expires||performance.now()-began>90000){postMessage({exhausted:true});return close()}
+    residue=(residue*residue-BigInt(2))%modulus;
+    if((i+1)%profile.batch===0){postMessage({type:'progress',iterations:i+1,total:p-2,elapsed:performance.now()-began});await new Promise(resolve=>setTimeout(resolve,profile.pause))}
+   }
+   postMessage({proof:{schema:job.proof_schema,exponent:p,method:'lucas-lehmer',residue:residue.toString(),is_prime:residue===BigInt(0),iterations:p-2}});return close();
+  }catch(_){postMessage({error:'INVALID_JOB'});return close()}
+ }
  if(!supported()){postMessage({error:'UNSUPPORTED_BROWSER'});return close()}
  if(job&&job.type==='probe'){try{await crypto.subtle.digest('SHA-256',new Uint8Array());postMessage({type:'ready'})}catch(_){postMessage({error:'UNSUPPORTED_BROWSER'});close()}return}
  if(!job||job.difficulty!==3||typeof job.start!=='string'||!/^\d{1,20}$/.test(job.start)||!Number.isInteger(job.limit)||job.limit<1||job.limit>1000000||!Number.isFinite(job.expires)||job.expires<=0||typeof job.network_id!=='string'||!job.network_id||job.network_id.length>128||typeof job.submitter_id!=='string'||!/^[a-f0-9]{64}$/.test(job.submitter_id)||typeof job.problem_id!=='string'||!/^[a-f0-9]{64}$/.test(job.problem_id)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isInteger(job.parts)||job.parts<1||job.parts>8||!Number.isInteger(job.part)||job.part<0||job.part>=job.parts){postMessage({error:'INVALID_JOB'});return close()}

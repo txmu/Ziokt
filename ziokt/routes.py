@@ -1,17 +1,19 @@
 """Explicit route choices; Core requirements never silently change privacy intent."""
 from .protocol import ProtocolError
 
-MODES = {'direct', 'anonymous', 'relay', 'approved-paths', 'peer-multihop', 'discovered-peers'}
+MODES = {'direct', 'anonymous', 'relay', 'approved-paths', 'peer-multihop', 'discovered-peers', 'shadow6'}
 
 
 def validate_route(policy, endpoint):
     if policy is None:
         kind = endpoint.get('carrier', {}).get('kind') if isinstance(endpoint.get('carrier'), dict) else None
-        return {'mode': 'peer-multihop' if kind == 'peer-multihop' else 'relay' if endpoint.get('rendezvous') is not None else 'anonymous' if endpoint.get('carrier') is not None else 'direct', 'allow_direct_fallback': False}
+        return {'mode': 'shadow6' if kind == 'shadow6-stream' else 'peer-multihop' if kind == 'peer-multihop' else 'relay' if endpoint.get('rendezvous') is not None else 'anonymous' if endpoint.get('carrier') is not None else 'direct', 'allow_direct_fallback': False}
     if not isinstance(policy, dict) or set(policy) != {'mode', 'allow_direct_fallback'} or not isinstance(policy['mode'], str) or policy['mode'] not in MODES or type(policy['allow_direct_fallback']) is not bool:
         raise ProtocolError('INVALID_CONFIG', 'explicit route mode and fallback permission required')
     if policy['mode'] == 'direct' and endpoint.get('carrier') is not None:
         raise ProtocolError('INVALID_CONFIG', 'direct mode cannot silently use an anonymous carrier')
+    if policy['mode']=='shadow6' and ((endpoint.get('carrier') or {}).get('kind')!='shadow6-stream' or policy['allow_direct_fallback']):
+        raise ProtocolError('NO_POLICY_COMPLIANT_PATH','existing Shadow6 service requires its pinned carrier without silent fallback')
     if policy['mode'] == 'anonymous' and (endpoint.get('carrier') is None or policy['allow_direct_fallback']):
         raise ProtocolError('NO_POLICY_COMPLIANT_PATH', 'anonymous mode requires its carrier and excludes direct fallback')
     if policy['mode'] == 'anonymous' and (not isinstance(endpoint.get('carrier'), dict) or endpoint['carrier'].get('kind') not in {'tor-socks5', 'i2p-sam'}):

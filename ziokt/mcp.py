@@ -492,6 +492,7 @@ class Service:
             if not owner:raise PermissionError('explicit content account mapping required')
             fabric=Fabric(settings['root'],quota=settings.get('quota',2*1024**3),peers={p['public_key']:{'groups':p.get('groups',[])} for p in settings.get('peers',{}).values()})
             fabric.remote_peers=settings.get('peers',{})
+            fabric.ipfs_gateways=settings.get('ipfs_gateways',{})
             fabric.community_config=settings.get('community',{})
             fabric.native_etp=native_etp
             try:return invoke(fabric,owner,route[1],args)

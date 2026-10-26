@@ -461,7 +461,7 @@ def validate_request(value, config):
             try:zs_hex(params['cursor'])
             except ValueError:fail('INVALID_PARAMS','bounded privacy cursor required')
     elif method=='compute.challenge':
-        if params:fail('INVALID_PARAMS','Engine Zero challenge takes no client configuration')
+        if params not in ({},{'engine':'gimps'}):fail('INVALID_PARAMS','fixed zero or native GIMPS challenge selector required')
     elif method=='service.binding':
         if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
             fail('INVALID_PARAMS','fixed named Broker binding required')
@@ -734,7 +734,7 @@ def rpc(provider, root, network, config, stream):
             result = operation_dispatch(provider, root, network, config, method, request["params"])
         elif method == "compute.challenge":
             if provider != "corium":fail("METHOD_UNSUPPORTED","Engine Zero belongs to Corium")
-            result=compute_challenge(root,network)
+            result=compute_challenge(root,network,request['params'].get('engine'))
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])

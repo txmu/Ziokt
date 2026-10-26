@@ -64,7 +64,7 @@ public final class EffortService extends Service {
         String mode=getSharedPreferences("effort",0).getString("mode","network");int level=getSharedPreferences("effort",0).getInt("level",1);
         future=executor.submit(()->{
             while(!task.cancelled){
-                try{if("compute".equals(mode))task.compute(level);else task.network();}
+                try{if("gimps".equals(mode))task.gimps(level);else if("compute".equals(mode))task.compute(level);else task.network();}
                 catch(CancellationException|InterruptedException stopped){return;}
                 catch(Exception error){handler.post(()->{if(work==task)status("业务暂不可用，稍后重试；不是已结算贡献");});try{task.pause(10000);}catch(InterruptedException|CancellationException stopped){return;}}
             }

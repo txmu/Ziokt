@@ -26,6 +26,7 @@ import time
 EMBEDDED_SOURCE_DIGEST = None
 PACKAGE = 'corium/built-in-gimps'
 SCHEMA = 'corium.gimps-proof.v1'
+PORTABLE_SCHEMA = 'corium.gimps-proof.v2'
 MAX_INTEGER = 2**63 - 1
 DEFAULT_LEASE_SECONDS = 600
 MAX_VERIFIED_EXPONENT = 4096
@@ -79,11 +80,47 @@ def init_schema(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_gimps_tasks_state ON gimps_tasks(engine_id, state)")
 
 
+def candidates(metadata):
+    """Bound native verification work and search prime exponents only."""
+    if isinstance(metadata,str):metadata=json.loads(metadata)
+    require(type(metadata) is dict,'problem set metadata required')
+    start=integer(metadata.get('start_exponent'),2,MAX_VERIFIED_EXPONENT)
+    end=integer(metadata.get('end_exponent'),start,MAX_VERIFIED_EXPONENT)
+    return (p for p in range(start,end+1) if all(p%d for d in range(2,int(p**0.5)+1)))
+
+
+def native_challenge(db, network, submitter):
+    """Read-only native GIMPS selection; never falls back to another engine."""
+    row=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+    require(row and type(row[0]) is str,'accepted native head required')
+    head=row[0].split('|')
+    require(len(head)==2 and re.fullmatch('[a-f0-9]{64}',head[0]) and head[1].isdigit(),'canonical native head required')
+    height=int(head[1]);require(db.execute('SELECT 1 FROM blocks WHERE hash=? AND height=?',(head[0],height)).fetchone(),'accepted head must exist')
+    base={'schema':'corium.gimps-challenge.v1','network_id':network,'submitter_id':submitter,'height':height,
+          'block_hash':head[0],'proof_schema':PORTABLE_SCHEMA,'method':'lucas-lehmer','max_exponent':MAX_VERIFIED_EXPONENT}
+    engines=db.execute('SELECT engine_id,compute_program_hash,verifier_script_hash FROM compute_engines WHERE pkg_id=? AND is_active=1 ORDER BY engine_id',(PACKAGE,)).fetchall()
+    for engine,program,verifier in engines:
+        problem=db.execute('SELECT set_id,metadata FROM problem_sets WHERE engine_id=? AND activation_height<=? ORDER BY activation_height DESC,set_id LIMIT 1',(engine,height)).fetchone()
+        if not problem:continue
+        blocked={str(row[0]) for row in db.execute('SELECT problem_id FROM completed_compute_tasks WHERE engine_id=?',(engine,))}
+        blocked.update(str(row[0]) for row in db.execute("SELECT json_extract(data,'$.problem_id') FROM transactions WHERE type='submit_math_proof' AND block_height IS NULL AND json_extract(data,'$.engine_id')=?",(engine,)))
+        blocked.update(str(row[0]) for row in db.execute("SELECT p.problem_id FROM pending_proofs p JOIN transactions t ON t.hash=p.proof_tx_hash WHERE json_extract(t.data,'$.engine_id')=?",(engine,)))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gimps_tasks'").fetchone():
+            blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='assigned' AND lease_timeout>?",(engine,int(time.time()))))
+        for exponent in candidates(problem[1]):
+            if str(exponent) not in blocked:
+                return dict(base,available=True,engine_id=engine,problem_set_id=problem[0],problem_id=str(exponent),
+                            exponent=exponent,engine_hash=program,verifier_hash=verifier)
+    return dict(base,available=False,reason='no-active-gimps-engine' if not engines else 'no-available-gimps-task')
+
+
 def reconcile_task_states(db, engine_id, set_id, start_exp, end_exp, current_time=None):
     """Reconcile task state machine from the blockchain tables."""
     init_schema(db)
     if current_time is None:
         current_time = int(time.time())
+    # Derived states must follow the canonical tables after replay/reorganization.
+    db.execute("UPDATE gimps_tasks SET state='retry',proof_tx_hash=NULL WHERE engine_id=? AND state IN ('settled','verified','submitted','failed')",(engine_id,))
 
     # 1. Settled tasks from completed_compute_tasks
     completed_rows = db.execute(
@@ -194,7 +231,7 @@ def generate_next_gimps_task(db, engine_id, set_id, metadata, current_time=None)
     reconcile_task_states(db, engine_id, set_id, start_exp, end_exp, current_time)
 
     # Find the next available exponent in [start_exp, end_exp]
-    for p in range(start_exp, end_exp + 1):
+    for p in candidates({'start_exponent':start_exp,'end_exponent':end_exp}):
         row = db.execute(
             "SELECT state, lease_timeout FROM gimps_tasks WHERE engine_id=? AND exponent=?",
             (engine_id, p)
@@ -273,7 +310,7 @@ def validate_gimps_proof(db, network, payload, sender, height, accepted_tx=None)
     versioned = 'schema' in proof_data
     if versioned:
         exact(proof_data, {'schema','exponent','method','residue','is_prime','iterations'})
-        require(proof_data['schema'] == SCHEMA, 'supported proof schema required')
+        require(proof_data['schema'] in {SCHEMA,PORTABLE_SCHEMA}, 'supported proof schema required')
         require(type(proof_data['exponent']) is int and proof_data['exponent'] == p, 'proof exponent mismatch')
         require(proof_data['method'] == 'lucas-lehmer', 'unimplemented proof method rejected')
         require(type(proof_data['iterations']) is int and proof_data['iterations'] == p - 2, 'exact iteration count required')
@@ -281,6 +318,9 @@ def validate_gimps_proof(db, network, payload, sender, height, accepted_tx=None)
     else:
         exact(proof_data, {'residue'})
     residue = proof_data['residue']
+    if proof_data.get('schema') == PORTABLE_SCHEMA:
+        require(type(residue) is str and re.fullmatch(r'0|[1-9][0-9]{0,1233}',residue),'canonical decimal residue required')
+        residue=int(residue)
     require(type(residue) is int and 0 <= residue < (1 << p)-1, 'bounded integer residue required')
     valid, expected = lucas_lehmer_verify(p, residue)
     require(valid, 'invalid Lucas-Lehmer residue')
@@ -407,6 +447,19 @@ def main(args):
                 print(res)
             else:
                 sys.exit(1)
+        elif action == 'challenge':
+            network,submitter=args[2:4]
+            print(json.dumps(native_challenge(db,network,submitter),sort_keys=True))
+        elif action == 'solve':
+            network,engine,problem,sender=args[2:6]
+            exponent=integer(int(problem),2,MAX_VERIFIED_EXPONENT)
+            require(exponent in candidates({'start_exponent':exponent,'end_exponent':exponent}),'prime exponent required')
+            _,residue=lucas_lehmer_verify(exponent,0)
+            payload={'engine_id':engine,'problem_id':str(exponent),'proof_data':{'schema':PORTABLE_SCHEMA,'exponent':exponent,'method':'lucas-lehmer','residue':str(residue),'is_prime':residue==0,'iterations':exponent-2}}
+            head=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+            require(head is not None,'native accepted head required')
+            validate_gimps_proof(db,network,payload,sender,int(head[0].split('|')[1]))
+            print(json.dumps(payload,sort_keys=True))
         elif action == 'validate':
             network, payload_raw, sender, height = args[2:6]
             accepted_tx = args[6] if len(args) > 6 else None

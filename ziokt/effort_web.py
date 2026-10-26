@@ -107,7 +107,7 @@ class EffortPool:
             return {**receipt,'duplicate':False}
 
 
-def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None,downloads=None,openci_endpoint=None,p2p=None,browser_origins=()):
+def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_origins=(),direct_relay=None,downloads=None,openci_endpoint=None,p2p=None,browser_origins=(),gimps_pool=None):
     require_network()
     origins = [origin] if isinstance(origin, str) else list(origin)
     for o in origins:
@@ -209,7 +209,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 if explorer is not None and self.path in {'/explorer','/explorer/','/explorer/app.js','/explorer/style.css'}:
                     name,kind=('index.html','text/html; charset=utf-8') if self.path in {'/explorer','/explorer/'} else ('app.js','text/javascript') if self.path.endswith('app.js') else ('style.css','text/css')
                     return self.send_value(200,files_resource('ziokt').joinpath('explorer',name).read_bytes(),kind)
-                files={'/':('index.html','text/html; charset=utf-8'),'/relay.js':('relay.js','text/javascript'),'/geography.js':('geography.js','text/javascript'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
+                files={'/modes.js':('modes.js','text/javascript'),'/':('index.html','text/html; charset=utf-8'),'/relay.js':('relay.js','text/javascript'),'/geography.js':('geography.js','text/javascript'),'/app.js':('app.js','text/javascript'),'/worker.js':('worker.js','text/javascript'),'/profiles.js':('profiles.js','text/javascript'),'/style.css':('style.css','text/css')}
                 if self.path not in files:return self.send_value(404,{'error':'NOT_FOUND'})
                 name,kind=files[self.path];self.send_value(200,assets.joinpath(name).read_bytes(),kind)
             except ProtocolError as exc:self.send_value(404 if exc.code=='NOT_FOUND' else 429 if exc.code=='BACKPRESSURE' else 503 if exc.code=='CHAIN_UNAVAILABLE' else 401 if exc.code=='AUTH_REQUIRED' else 403 if exc.code in {'ORIGIN_REJECTED','POLICY_DENIED'} else 400,{'error':exc.code})
@@ -238,6 +238,8 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                     if tail==['open']:result=direct_relay.call(None,'open',value)
                     elif len(tail)==2:result=direct_relay.call(tail[0],tail[1],value,self.headers.get('Authorization'))
                     else:raise ProtocolError('NOT_FOUND','fixed direct relay operation required')
+                elif self.path=='/api/gimps/job' and value=={}:result=gimps_pool.issue() if gimps_pool else {'available':False,'engine':'gimps','reason':'not-configured','retry_ms':5000}
+                elif self.path=='/api/gimps/proof' and gimps_pool is not None and isinstance(value,dict) and set(value)=={'token','proof'}:result=gimps_pool.submit(value['token'],value['proof'])
                 elif self.path=='/api/job' and value=={}:result=pool.issue()
                 elif self.path=='/api/proof' and isinstance(value,dict) and set(value)=={'token','nonce'}:result=pool.submit(value['token'],value['nonce'])
                 else:raise ProtocolError('INVALID_REQUEST','fixed worker endpoint required')
@@ -274,7 +276,7 @@ def main(argv=None):
     provider=next((p for p in federation['providers'] if p['native_project']=='corium' and p['provider_id']==config['provider']),None)
     if not federation['enabled'] or provider is None or provider.get('network_id')!=config['network_id']:raise ProtocolError('NETWORK_MISMATCH','enabled Corium provider must match the explicitly configured mainnet')
     client=NativeClient(federation['federation_id'],provider);client.health();pool=EffortPool(client,config['submitter'],config['state_root'],expected_network=config['network_id'])
-    direct_relay=None
+    direct_relay=None;gimps_pool=None
     try:
         # Refuse to open the web listener until the configured native chain is ready.
         from .explorer_networks import ExplorerNetworks
@@ -286,7 +288,9 @@ def main(argv=None):
         if 'relay_rewards' in config and 'direct_relay' not in config:raise ProtocolError('INVALID_CONFIG','native direct relay required for reward observations')
         rewards=RelayRewards(config['relay_rewards'],config['network_id']) if 'relay_rewards' in config else None
         direct_relay=DirectRelay(config['direct_relay'],config['network_id'],rewards=rewards) if 'direct_relay' in config else None
-        pool.issue();server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'),p2p=p2p,browser_origins=config.get('browser_origins',[]))
+        from .effort_gimps import GimpsPool
+        gimps_pool=GimpsPool(client,config['submitter'],Path(config['state_root'])/'gimps',expected_network=config['network_id'])
+        server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'),p2p=p2p,browser_origins=config.get('browser_origins',[]),gimps_pool=gimps_pool)
         try:
             if tls:
                 if not {'certificate','private_key'}<=set(config) or urlsplit(config['origin']).scheme!='https':raise ProtocolError('INVALID_CONFIG','complete HTTPS credentials required')
@@ -299,6 +303,7 @@ def main(argv=None):
             server.server_close()
     finally:
         if direct_relay is not None:direct_relay.close()
+        if gimps_pool is not None:gimps_pool.close()
         pool.close()
 
 if __name__=='__main__':main()
