@@ -196,6 +196,12 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 if explorer is not None and self.path.startswith('/api/explorer/'):
                     self.rate('explorer',600)
                     return self.send_value(200,explorer.query(self.path))
+                if gimps_pool is not None and self.path.startswith('/api/gimps/status'):
+                    query=urlsplit(self.path).query;exp=None
+                    if 'exponent=' in query:
+                        try:exp=int(query.split('exponent=')[1].split('&')[0])
+                        except Exception:pass
+                    return self.send_value(200,gimps_pool.get_status(exp))
                 if p2p is not None and self.path.startswith('/api/p2p/'):
                     self.rate('p2p-explorer',120)
                     return self.send_value(200,p2p.query(self.path,self.headers.get('Authorization')))
@@ -220,7 +226,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 if self.path.startswith('/openci/') and openci is not None:return openci.forward(self)
                 if self.headers.get('Transfer-Encoding') is not None or self.headers.get('Content-Type')!='application/json':raise ProtocolError('INVALID_REQUEST','bounded JSON required')
                 length=self.headers.get('Content-Length','')
-                limit=65536 if self.path=='/api/people/rewards/settle' else 8192 if self.path.startswith('/api/people/direct/') else 2048
+                limit=65536 if self.path=='/api/people/rewards/settle' else 32768 if self.path in {'/api/gimps/proof','/api/gimps/checkpoint'} else 8192 if self.path.startswith('/api/people/direct/') else 2048
                 if not length.isdecimal() or not 1<=int(length)<=limit:raise ProtocolError('REQUEST_LIMIT','worker request exceeds budget')
                 self.rate('direct' if self.path.startswith('/api/people/direct/') else 'worker',1200 if self.path.startswith('/api/people/direct/') else 120)
                 value=strict_json(self.rfile.read(int(length)),limit)
@@ -239,7 +245,11 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                     elif len(tail)==2:result=direct_relay.call(tail[0],tail[1],value,self.headers.get('Authorization'))
                     else:raise ProtocolError('NOT_FOUND','fixed direct relay operation required')
                 elif self.path=='/api/gimps/job' and value=={}:result=gimps_pool.issue() if gimps_pool else {'available':False,'engine':'gimps','reason':'not-configured','retry_ms':5000}
-                elif self.path=='/api/gimps/proof' and gimps_pool is not None and isinstance(value,dict) and set(value)=={'token','proof'}:result=gimps_pool.submit(value['token'],value['proof'])
+                elif self.path=='/api/gimps/proof' and gimps_pool is not None and isinstance(value,dict) and {'token','proof'}<=set(value):result=gimps_pool.submit(value['token'],value['proof'])
+                elif self.path=='/api/gimps/checkpoint' and gimps_pool is not None and isinstance(value,dict) and {'token','checkpoint'}<=set(value):result=gimps_pool.save_checkpoint(value['token'],value['checkpoint'])
+                elif self.path=='/api/gimps/pause' and gimps_pool is not None and isinstance(value,dict) and 'token' in value:result=gimps_pool.pause(value['token'],value.get('checkpoint'))
+                elif self.path=='/api/gimps/resume' and gimps_pool is not None and isinstance(value,dict) and 'exponent' in value:result=gimps_pool.resume(value['exponent'],value.get('worker_id'))
+                elif self.path=='/api/gimps/status' and gimps_pool is not None and isinstance(value,dict):result=gimps_pool.get_status(value.get('exponent'))
                 elif self.path=='/api/job' and value=={}:result=pool.issue()
                 elif self.path=='/api/proof' and isinstance(value,dict) and set(value)=={'token','nonce'}:result=pool.submit(value['token'],value['nonce'])
                 else:raise ProtocolError('INVALID_REQUEST','fixed worker endpoint required')

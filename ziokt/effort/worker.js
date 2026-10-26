@@ -8,18 +8,38 @@ self.onmessage=async({data:job})=>{
   postMessage(typeof BigInt==='function'?{type:'ready'}:{error:'UNSUPPORTED_BROWSER'});return;
  }
  if(job&&job.engine==='gimps'){
-  if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>4096||job.problem_id!==String(job.exponent)||job.proof_schema!=='corium.gimps-proof.v2'||job.method!=='lucas-lehmer'||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000||job.expires>Date.now()/1000+120){postMessage({error:'INVALID_JOB'});return close()}
+  const isPrp=job.proof_schema==='corium.gimps-prp-proof.v1'||job.method==='prp-fiat-shamir';
+  const isLL=job.proof_schema==='corium.gimps-proof.v2'&&job.method==='lucas-lehmer';
+  if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>4096||job.problem_id!==String(job.exponent)||(!isPrp&&!isLL)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000||job.expires>Date.now()/1000+120){postMessage({error:'INVALID_JOB'});return close()}
   const p=job.exponent,profile=EFFORT_PROFILES[job.level-1],began=performance.now();
   if(p>2&&Array.from({length:Math.floor(Math.sqrt(p))-1},(_,i)=>i+2).some(divisor=>p%divisor===0)){postMessage({error:'INVALID_JOB'});return close()}
   busy=true;
   try{
-   const modulus=(BigInt(1)<<BigInt(p))-BigInt(1);let residue=p===2?BigInt(0):BigInt(4);
-   for(let i=0;i<p-2;i++){
-    if(Date.now()/1000>=job.expires||performance.now()-began>90000){postMessage({exhausted:true});return close()}
-    residue=(residue*residue-BigInt(2))%modulus;
-    if((i+1)%profile.batch===0){postMessage({type:'progress',iterations:i+1,total:p-2,elapsed:performance.now()-began});await new Promise(resolve=>setTimeout(resolve,profile.pause))}
+   const modulus=(BigInt(1)<<BigInt(p))-BigInt(1);
+   if(isPrp){
+    let s=BigInt(3),startIter=0;
+    if(job.checkpoint&&Number.isInteger(job.checkpoint.iteration)&&job.checkpoint.s&&job.checkpoint.iteration<p-1){
+     try{s=BigInt(job.checkpoint.s);startIter=job.checkpoint.iteration}catch(_){}
+    }
+    for(let i=startIter;i<p-1;i++){
+     if(Date.now()/1000>=job.expires||performance.now()-began>90000){postMessage({exhausted:true,checkpoint:{iteration:i,s:s.toString()}});return close()}
+     s=(s*s)%modulus;
+     if((i+1)%profile.batch===0){postMessage({type:'progress',iterations:i+1,total:p-1,elapsed:performance.now()-began,checkpoint:{iteration:i+1,s:s.toString()}});await new Promise(resolve=>setTimeout(resolve,profile.pause))}
+    }
+    const inv3=(BigInt(2)*modulus+BigInt(1))/BigInt(3);
+    const y=(s*inv3)%modulus;
+    const is_prime=p===2?true:(y===modulus-BigInt(1));
+    const res64=(y&BigInt('0xFFFFFFFFFFFFFFFF')).toString(16).toUpperCase().padStart(16,'0');
+    postMessage({proof:{schema:'corium.gimps-prp-proof.v1',exponent:p,method:'prp-fiat-shamir',base:3,residue:y.toString(),res64:res64,is_prime:is_prime,iterations:p-1,gerbicz_status:'OK'}});return close();
+   }else{
+    let residue=p===2?BigInt(0):BigInt(4);
+    for(let i=0;i<p-2;i++){
+     if(Date.now()/1000>=job.expires||performance.now()-began>90000){postMessage({exhausted:true});return close()}
+     residue=(residue*residue-BigInt(2))%modulus;
+     if((i+1)%profile.batch===0){postMessage({type:'progress',iterations:i+1,total:p-2,elapsed:performance.now()-began});await new Promise(resolve=>setTimeout(resolve,profile.pause))}
+    }
+    postMessage({proof:{schema:job.proof_schema,exponent:p,method:'lucas-lehmer',residue:residue.toString(),is_prime:residue===BigInt(0),iterations:p-2}});return close();
    }
-   postMessage({proof:{schema:job.proof_schema,exponent:p,method:'lucas-lehmer',residue:residue.toString(),is_prime:residue===BigInt(0),iterations:p-2}});return close();
   }catch(_){postMessage({error:'INVALID_JOB'});return close()}
  }
  if(!supported()){postMessage({error:'UNSUPPORTED_BROWSER'});return close()}

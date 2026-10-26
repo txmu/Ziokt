@@ -15,7 +15,7 @@ def deploy(root,corix):
  config=json.loads((root/'config/gateway.json').read_text())
  units=config.get('service_units')
  roles={'p2p','consensus','relayer','gateway','mcp','telegram'}
- if not isinstance(units,dict) or set(units)!=roles or len(set(units.values()))!=len(roles) or any(not isinstance(v,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',v) for v in units.values()):raise ValueError('explicit distinct service_units required for all native roles')
+ if not isinstance(units,dict) or not roles.issubset(set(units)) or set(units)-roles-{'effort'} or len(set(units.values()))!=len(units) or any(not isinstance(v,str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}',v) for v in units.values()):raise ValueError('explicit distinct service_units required for native roles')
  # Validate before copying sources or changing digest pins. Malformed hold
  # evidence must fail deployment, rather than implicitly resume consensus.
  from ziokt.assurance import public_hold
@@ -32,6 +32,7 @@ def deploy(root,corix):
  services=[units[role] for role in ('p2p','consensus','relayer','gateway')]
  if (root/'mcp/mcp.json').is_file():services.append(units['mcp'])
  if subprocess.run(['systemctl','is-active','--quiet',units['telegram']],capture_output=True).returncode==0:services.append(units['telegram'])
+ if 'effort' in units and subprocess.run(['systemctl','is-active','--quiet',units['effort']],capture_output=True).returncode==0:services.append(units['effort'])
  control=['systemctl'] if os.geteuid()==0 else ['sudo','-n','systemctl']
  if os.geteuid()!=0:
   # Fail before changing source/configuration when this account cannot restart

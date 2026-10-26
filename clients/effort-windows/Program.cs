@@ -131,7 +131,7 @@ internal sealed class EffortWindow : Form
                 await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired())||(window.ZioktLight&&window.ZioktLight.desired()))}))},true);'intent-listener-installed'");
                 await ScriptAsync("window.ZioktHostArchitecture=" + JsonSerializer.Serialize(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.X64 ? "x86_64" : System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "aarch64" : "unsupported") + ";'architecture-detected'");
                 await PublishNetworkAsync();
-                state.Text = connected ? "就绪 · 三种助力方式；编译须先准入，可随时停止" : "网络已断开，已暂停";
+                state.Text = connected ? "就绪 · 四种助力方式；编译须先准入，可随时停止" : "网络已断开，已暂停";
                 if (smoke)
                 {
                     var controls = await ScriptAsync("!!(document.getElementById('help-mode')&&document.getElementById('start')&&window.ZioktCompute&&window.ZioktPeopleRelay)");
