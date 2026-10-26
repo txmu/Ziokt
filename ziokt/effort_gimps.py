@@ -357,7 +357,7 @@ def parse_official_gimps_proof_file(text):
         y = int(data['residue'])
         data['is_prp'] = (y == N - 1)
         data['prp_result'] = "PRP" if data['is_prp'] else "COMPOSITE"
-        data['is_prime'] = bool(data['is_prp'] and (p <= 61 or p in (2, 3, 5, 7, 13, 17, 19, 31, 61, 89, 107, 127, 521, 607, 1279, 2203, 2281, 3217, 4253, 4423, 9689)))
+        data['is_prime'] = bool(data['is_prp'] and (p <= 61 or p in (2, 3, 5, 7, 13, 17, 19, 31, 61, 89, 107, 127, 521, 607, 1279, 2203, 2281, 3217, 4253, 4423, 9689, 136279841)))
     return data
 
 
@@ -460,7 +460,7 @@ class GimpsPool(EffortPool):
             if job.get('available') is not True:
                 return {'available': False, 'engine': 'gimps', 'reason': job.get('reason', 'no-native-task'), 'retry_ms': 5000}
             p = job.get('exponent')
-            max_exp = job.get('max_exponent', 100_000_000)
+            max_exp = job.get('max_exponent', 2_000_000_000)
             if (type(p) is not int or not 2 <= p <= max_exp or job.get('problem_id') != str(p) or
                     job.get('proof_schema') not in ('corium.gimps-proof.v2', 'corium.gimps-prp-proof.v1') or
                     job.get('method') not in ('lucas-lehmer', 'prp-fiat-shamir') or

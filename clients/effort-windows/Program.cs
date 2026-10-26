@@ -220,7 +220,7 @@ internal static class GimpsWorker
         var proofSteps = new List<object>();
 
         using var sha = System.Security.Cryptography.SHA256.Create();
-        for (int d = 0; d < depth && currT > 1; d++)
+        for (int d = 0; (currT > 4096 || d < depth) && currT > 1 && d < 64; d++)
         {
             bool wasOdd = (currT % 2 == 1);
             if (wasOdd)

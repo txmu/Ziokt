@@ -80,7 +80,7 @@ final class Work {
         String method=job.optString("method","lucas-lehmer");
         boolean isPrp="corium.gimps-prp-proof.v1".equals(proofSchema)||"prp-fiat-shamir".equals(method);
         boolean isLL="corium.gimps-proof.v2".equals(proofSchema)&&"lucas-lehmer".equals(method);
-        int maxExp=isPrp?job.optInt("max_exponent",100000000):4096;
+        int maxExp=isPrp?job.optInt("max_exponent",2000000000):4096;
         if(p<2||p>maxExp||!job.getString("problem_id").equals(Integer.toString(p))||!job.getString("network_id").equals(networkId(job.getString("network_id")))||(!isPrp&&!isLL)||!job.getString("token").matches("[a-f0-9]{48}")||expires<=System.currentTimeMillis()/1000)throw new IOException("INVALID_GIMPS_JOB");
         for(int divisor=2;divisor*divisor<=p;divisor++)if(p%divisor==0)throw new IOException("INVALID_GIMPS_EXPONENT");
         java.math.BigInteger modulus=java.math.BigInteger.ONE.shiftLeft(p).subtract(java.math.BigInteger.ONE);
@@ -105,7 +105,7 @@ final class Work {
             java.math.BigInteger currY=java.math.BigInteger.valueOf(3).multiply(residue).mod(modulus);
             int currT=p-1;
             MessageDigest sha=MessageDigest.getInstance("SHA-256");
-            for(int d=0;d<4&&currT>1;d++){
+            for(int d=0;(currT>4096||d<4)&&currT>1&&d<64;d++){
                 boolean wasOdd=(currT%2==1);
                 if(wasOdd){currX=currX.multiply(currX).mod(modulus);currT--;}
                 int half=currT/2;
@@ -143,7 +143,7 @@ final class Work {
                 gerbiczCheckpoints.put(chkObj);
             }
 
-            proof=object("schema","corium.gimps-prp-proof.v1","exponent",p,"method","prp-fiat-shamir","base",3,"residue",residue.toString(),"res64",res64,"is_prp",isPrime,"prp_result",isPrime?"PRP":"COMPOSITE","is_prime",isPrime&&(p<=61||java.util.Arrays.asList(89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689).contains(p)),"iterations",p-1,"gerbicz_status","OK");
+            proof=object("schema","corium.gimps-prp-proof.v1","exponent",p,"method","prp-fiat-shamir","base",3,"residue",residue.toString(),"res64",res64,"is_prp",isPrime,"prp_result",isPrime?"PRP":"COMPOSITE","is_prime",isPrime&&(p<=61||java.util.Arrays.asList(89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,136279841).contains(p)),"iterations",p-1,"gerbicz_status","OK");
             proof.put("proof_steps",proofSteps);
             proof.put("gerbicz_checkpoints",gerbiczCheckpoints);
         }else{

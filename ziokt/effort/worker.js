@@ -10,7 +10,7 @@ self.onmessage=async({data:job})=>{
  if(job&&job.engine==='gimps'){
   const isPrp=job.proof_schema==='corium.gimps-prp-proof.v1'||job.method==='prp-fiat-shamir';
   const isLL=job.proof_schema==='corium.gimps-proof.v2'&&job.method==='lucas-lehmer';
-  const maxExp=isPrp?(job.max_exponent||100000000):4096;
+  const maxExp=isPrp?(job.max_exponent||2000000000):4096;
   if(typeof BigInt!=='function'||!Number.isInteger(job.exponent)||job.exponent<2||job.exponent>maxExp||job.problem_id!==String(job.exponent)||(!isPrp&&!isLL)||!Number.isInteger(job.level)||job.level<1||job.level>5||!Number.isFinite(job.expires)||job.expires<=Date.now()/1000){postMessage({error:'INVALID_JOB'});return close()}
   const p=job.exponent,profile=EFFORT_PROFILES[job.level-1],began=performance.now();
   if(p>2&&Array.from({length:Math.floor(Math.sqrt(p))-1},(_,i)=>i+2).some(divisor=>p%divisor===0)){postMessage({error:'INVALID_JOB'});return close()}
@@ -35,7 +35,7 @@ self.onmessage=async({data:job})=>{
     const proof_steps=[];
     let curr_X=BigInt(3),curr_Y=(BigInt(3)*y)%modulus,curr_T=p-1;
     function modPow(base,exp,mod){let res=BigInt(1),b=base%mod,e=exp;while(e>BigInt(0)){if(e%BigInt(2)===BigInt(1))res=(res*b)%mod;e=e/BigInt(2);b=(b*b)%mod}return res}
-    for(let d=0;d<4&&curr_T>1;d++){
+    for(let d=0;(curr_T>4096||d<4)&&curr_T>1&&d<64;d++){
      const was_odd=(curr_T%2===1);
      if(was_odd){curr_X=(curr_X*curr_X)%modulus;curr_T-=1}
      const half=Math.floor(curr_T/2);
@@ -60,7 +60,7 @@ self.onmessage=async({data:job})=>{
      curr_chk_hash=Array.from(new Uint8Array(nextBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
      gerbicz_checkpoints.push({iteration:it,state_hash:sHash,hash:curr_chk_hash});
     }
-    const KNOWN=[2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689];
+    const KNOWN=[2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,136279841];
     postMessage({
      proof:{
       schema:'corium.gimps-prp-proof.v1',
