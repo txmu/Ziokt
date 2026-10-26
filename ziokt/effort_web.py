@@ -276,7 +276,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--config',type=Path,required=True);args=parser.parse_args(argv)
     require_network();config=strict_json(secure_read(args.config))
     required={'schema','origin','listen','port','federation_config','provider','network_id','submitter','state_root'}
-    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','explorer_networks','browser_origins','p2p_explorer','relay_origins','direct_relay','relay_rewards','downloads','openci_endpoint'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
+    if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'certificate','private_key','explorer','explorer_networks','browser_origins','p2p_explorer','relay_origins','direct_relay','relay_rewards','downloads','openci_endpoint','max_native_exponent','max_memory_mb'} or config['schema']!='ziokt.effort-web.v1' or type(config['port']) is not int or not 1<=config['port']<=65535:raise ProtocolError('INVALID_CONFIG','exact effort web configuration required')
     if not isinstance(config['network_id'],str) or not config['network_id'] or len(config['network_id'])>64 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in config['network_id']):raise ProtocolError('INVALID_CONFIG','explicit Corium mainnet identifier required')
     if type(config.get('explorer',False)) is not bool:raise ProtocolError('INVALID_CONFIG','boolean explorer setting required')
     if not isinstance(config['listen'],str):raise ProtocolError('INVALID_CONFIG','literal listening address required')
@@ -299,8 +299,9 @@ def main(argv=None):
         if 'relay_rewards' in config and 'direct_relay' not in config:raise ProtocolError('INVALID_CONFIG','native direct relay required for reward observations')
         rewards=RelayRewards(config['relay_rewards'],config['network_id']) if 'relay_rewards' in config else None
         direct_relay=DirectRelay(config['direct_relay'],config['network_id'],rewards=rewards) if 'direct_relay' in config else None
-        from .effort_gimps import GimpsPool
-        gimps_pool=GimpsPool(client,config['submitter'],Path(config['state_root'])/'gimps',expected_network=config['network_id'])
+        from .effort_gimps import GimpsPool, ResourceGovernor
+        governor = ResourceGovernor(max_native_exponent=config.get('max_native_exponent'), max_memory_mb=config.get('max_memory_mb'))
+        gimps_pool=GimpsPool(client,config['submitter'],Path(config['state_root'])/'gimps',expected_network=config['network_id'],governor=governor)
         server=effort_server(pool,config['origin'],host=config['listen'],port=config['port'],explorer=explorer,relay_origins=config.get('relay_origins',[]),direct_relay=direct_relay,downloads=config.get('downloads'),openci_endpoint=config.get('openci_endpoint'),p2p=p2p,browser_origins=config.get('browser_origins',[]),gimps_pool=gimps_pool)
         try:
             if tls:

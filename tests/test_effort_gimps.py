@@ -200,3 +200,116 @@ class GimpsEffortTests(unittest.TestCase):
             parsed_list = adapter.parse_results_file(res_txt)
             self.assertEqual(len(parsed_list), 1)
             self.assertEqual(parsed_list[0]['exponent'], 127)
+
+    def test_official_gimps_results_and_proof_fixtures(self):
+        from ziokt.effort_gimps import MPrimeEngineAdapter, parse_official_gimps_proof_file
+        fixture_dir = Path(__file__).parent / 'fixtures' / 'gimps'
+        results_file = fixture_dir / 'official_results.txt'
+        self.assertTrue(results_file.exists())
+
+        adapter = MPrimeEngineAdapter()
+        parsed = adapter.parse_results_file(results_file)
+        self.assertEqual(len(parsed), 11)
+
+        # M(7) prime
+        self.assertEqual(parsed[0]['exponent'], 7)
+        self.assertTrue(parsed[0]['is_prime'])
+        self.assertEqual(parsed[0]['res64'], '000000000000007E')
+
+        # M(67) composite
+        m67 = next(p for p in parsed if p['exponent'] == 67)
+        self.assertFalse(m67['is_prime'])
+        self.assertEqual(m67['res64'], '908373768E1CDE07')
+
+        # M(127) prime
+        m127 = next(p for p in parsed if p['exponent'] == 127)
+        self.assertTrue(m127['is_prime'])
+
+        # Verify parsing and mathematical verification of official p127_official.proof
+        proof_file = fixture_dir / 'p127_official.proof'
+        self.assertTrue(proof_file.exists())
+        proof_data = parse_official_gimps_proof_file(proof_file.read_text())
+        self.assertEqual(proof_data['exponent'], 127)
+        self.assertTrue(proof_data['is_prime'])
+        self.assertTrue(proof_data['is_prp'])
+
+        from ziokt._runtime import _native_gimps
+        self.assertTrue(_native_gimps.verify_prp_proof(127, proof_data))
+
+    def test_lease_persistence_and_node_restart(self):
+        sys.path.insert(0, str(C))
+        from test_core import Fixture
+        fixture = Fixture()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        for path in fixture.root.rglob('*'):
+            if path.is_dir():
+                path.chmod(0o700)
+        (fixture.etc / 'identity.key').chmod(0o600)
+        config = fixture.etc / 'corix.conf'
+        config.write_text('[ziokt]\nenabled=TRUE\nfederation_id=effort\nprovider_id=corium-local\nallow_mutations=TRUE\nallowed_operations=compute.submit\nallowed_resources=compute:gimps-effort\n')
+        config.chmod(0o600)
+        with sqlite3.connect(fixture.chain) as db:
+            head, height = db.execute('SELECT hash,height FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
+            db.execute("INSERT OR REPLACE INTO chain_state VALUES ('chain_info',?)", (head + '|' + str(height),))
+            db.execute("INSERT INTO compute_engines(engine_id,pkg_id,description,compute_program_hash,verifier_script_hash,is_active) VALUES ('gimps-effort','corium/built-in-gimps','native','BUILT_IN','BUILT_IN',1)")
+            db.execute("INSERT INTO problem_sets(set_id,engine_id,metadata,activation_height) VALUES ('effort-set','gimps-effort',?,0)", (json.dumps({'start_exponent': 13, 'end_exponent': 13}),))
+
+        client = NativeClient('effort', {'native_project': 'corium', 'provider_id': 'corium-local', 'root': str(C), 'native_config': str(config), 'entrypoint_digest': fingerprint(C / 'corix_v108.sh'), 'network_id': 'default', 'state_root': str(fixture.root)})
+        state_dir = fixture.root / 'effort-gimps'
+        pool1 = GimpsPool(client, fixture.identity, state_dir, expected_network='default')
+
+        # 1. Issue task and verify lease in DB
+        job = pool1.issue()
+        token = job['token']
+        self.assertEqual(job['exponent'], 13)
+
+        row = pool1.db.execute("SELECT exponent, expires FROM gimps_leases WHERE token=?", (token,)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], 13)
+        pool1.close()
+
+        # 2. Simulate Node / Gateway restart: new GimpsPool instance restores active lease from SQLite
+        pool2 = GimpsPool(client, fixture.identity, state_dir, expected_network='default')
+        self.addCleanup(pool2.close)
+        self.assertIn(token, pool2.jobs)
+        self.assertEqual(pool2.jobs[token]['exponent'], 13)
+
+        # 3. Heartbeat succeeds on restarted node
+        hb = pool2.heartbeat(token, progress_pct=50, checkpoint_data={'iteration': 6, 'val': 'test'})
+        self.assertTrue(hb['renewed'])
+        self.assertEqual(hb['exponent'], 13)
+
+        # 4. Submit proof succeeds on restarted node
+        import gimps_consensus as G
+        proof_13 = G.generate_prp_proof(13, base=3, depth=3)
+        receipt = pool2.submit(token, proof_13)
+        self.assertTrue(receipt['accepted'])
+        self.assertTrue(receipt['math_certified'])
+
+        # Lease deleted after submission
+        row = pool2.db.execute("SELECT 1 FROM gimps_leases WHERE token=?", (token,)).fetchone()
+        self.assertIsNone(row)
+
+    def test_primenet_response_verification(self):
+        from ziokt.effort_gimps import PrimeNetAdapter
+        # 1. Official JSON with pnErrorResult = 0 -> accepted
+        resp_json_ok = json.dumps({'pnErrorResult': 0, 'pnErrorDetail': 'Result accepted', 'assignment_uid': 'UID-999'})
+        ack, rej, receipt = PrimeNetAdapter.parse_primenet_response(resp_json_ok, 200)
+        self.assertTrue(ack)
+        self.assertFalse(rej)
+        self.assertEqual(receipt['assignment_uid'], 'UID-999')
+
+        # 2. Official JSON with pnErrorResult = 1 -> rejected
+        resp_json_err = json.dumps({'pnErrorResult': 1, 'pnErrorDetail': 'Assignment expired or unknown'})
+        ack, rej, receipt = PrimeNetAdapter.parse_primenet_response(resp_json_err, 200)
+        self.assertFalse(ack)
+        self.assertTrue(rej)
+        self.assertEqual(receipt['reason'], 'Assignment expired or unknown')
+
+        # 3. Ambiguous HTTP 200 HTML page -> NOT accepted
+        resp_html = "<html><body>Welcome to nginx!</body></html>"
+        ack, rej, receipt = PrimeNetAdapter.parse_primenet_response(resp_html, 200)
+        self.assertFalse(ack)
+        self.assertFalse(rej)
+        self.assertEqual(receipt['status'], 'unrecognized')

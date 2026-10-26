@@ -21,11 +21,23 @@ from .runtime_policy import require_network
 
 
 class ResourceGovernor:
-    """Safeguards worker execution with CPU duty-cycle throttling, memory ceiling, and storage bounds."""
-    def __init__(self, max_memory_mb=2048, max_checkpoint_bytes=65536, max_proof_bytes=65536):
-        self.max_memory_bytes = max_memory_mb * 1024 * 1024
+    """Safeguards worker execution with CPU duty-cycle throttling, memory ceiling, and storage bounds.
+    Configurable per local host capacity to protect hardware while supporting external engines.
+    """
+    DEFAULT_MAX_NATIVE_EXPONENT = 100_000
+
+    def __init__(self, max_memory_mb=2048, max_checkpoint_bytes=65536, max_proof_bytes=65536, max_native_exponent=None):
+        import os
+        self.max_memory_mb = int(max_memory_mb) if max_memory_mb is not None else 2048
+        self.max_memory_bytes = self.max_memory_mb * 1024 * 1024
         self.max_checkpoint_bytes = max_checkpoint_bytes
         self.max_proof_bytes = max_proof_bytes
+        if max_native_exponent is not None:
+            self.max_native_exponent = int(max_native_exponent)
+        else:
+            env_val = os.environ.get('ZIOKT_GIMPS_MAX_EXPONENT')
+            self.max_native_exponent = int(env_val) if env_val and env_val.isdigit() else self.DEFAULT_MAX_NATIVE_EXPONENT
+
         self.throttling_profile = {
             1: {'batch': 16, 'pause_ms': 100},  # Quiet
             2: {'batch': 32, 'pause_ms': 50},   # Balanced
@@ -45,6 +57,15 @@ class ResourceGovernor:
         except Exception:
             pass
         return True
+
+    def check_exponent_capacity(self, exponent, is_external_engine=False):
+        """Check whether exponent can be safely computed/verified on this node."""
+        if is_external_engine:
+            return True
+        if exponent > self.max_native_exponent:
+            return False
+        est_mem_bytes = (exponent // 8) * 32
+        return est_mem_bytes <= self.max_memory_bytes
 
     def check_checkpoint_size(self, data):
         if data is None:
@@ -229,6 +250,68 @@ class PrimeNetAdapter:
             WHERE exponent=?
             """, (now, json.dumps(receipt) if receipt else None, exponent))
 
+    @staticmethod
+    def parse_primenet_response(body_str, http_status=200):
+        """Parse PrimeNet v5 API response body for official business status.
+        Returns: (is_acknowledged: bool, is_rejected: bool, receipt_data: dict)
+        """
+        receipt = {'http_status': http_status, 'raw_body': body_str[:512]}
+        if http_status != 200:
+            receipt['error'] = f'HTTP error {http_status}'
+            return False, True, receipt
+
+        body_trimmed = body_str.strip()
+        # 1. Try parsing JSON (official PrimeNet v5 API)
+        try:
+            data = json.loads(body_trimmed)
+            if isinstance(data, dict):
+                error_result = data.get('pnErrorResult')
+                error_detail = data.get('pnErrorDetail', '')
+                receipt['pnErrorResult'] = error_result
+                receipt['pnErrorDetail'] = error_detail
+                receipt['pnResult'] = data.get('pnResult')
+                receipt['assignment_uid'] = data.get('assignment_uid') or data.get('assignment_id')
+                if error_result is not None:
+                    if int(error_result) == 0:
+                        receipt['status'] = 'accepted'
+                        return True, False, receipt
+                    else:
+                        receipt['status'] = 'rejected'
+                        receipt['reason'] = error_detail or f"pnErrorResult={error_result}"
+                        return False, True, receipt
+                status_val = str(data.get('status', '')).lower()
+                if status_val in ('ok', 'accepted', 'success', 'acknowledged'):
+                    receipt['status'] = 'accepted'
+                    return True, False, receipt
+                elif status_val in ('error', 'rejected', 'failed', 'invalid'):
+                    receipt['status'] = 'rejected'
+                    receipt['reason'] = data.get('message') or data.get('error') or status_val
+                    return False, True, receipt
+        except Exception:
+            pass
+
+        # 2. Text / key-value format (traditional PrimeNet manual result submission)
+        lower_body = body_trimmed.lower()
+        accepted_tokens = ['accepted', 'result accepted', 'status=0', 'registration id', 'proof received', 'success:']
+        rejected_tokens = ['error:', 'rejected', 'invalid syntax', 'assignment not found', 'already completed', 'unknown user']
+
+        for rej in rejected_tokens:
+            if rej in lower_body:
+                receipt['status'] = 'rejected'
+                receipt['reason'] = body_trimmed[:128]
+                return False, True, receipt
+
+        for acc in accepted_tokens:
+            if acc in lower_body:
+                receipt['status'] = 'accepted'
+                receipt['confirmation'] = body_trimmed[:128]
+                return True, False, receipt
+
+        # 3. Unrecognized body (e.g. proxy default page, gateway HTML):
+        receipt['status'] = 'unrecognized'
+        receipt['reason'] = 'Server returned HTTP 200 but body lacked official PrimeNet acceptance tokens'
+        return False, False, receipt
+
     def transmit_v5_result(self, exponent, v5_result, primenet_url=None, user_id=None, computer_id=None):
         """Transmit V5 result to PrimeNet API if configured; otherwise safely stages locally."""
         url = primenet_url or self.primenet_url
@@ -256,13 +339,16 @@ class PrimeNetAdapter:
             req = urllib.request.Request(url, data=req_data, headers={'User-Agent': 'Ziokt-GIMPS-Client/1.0'})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = resp.read().decode('utf-8', errors='ignore')
-                receipt = {'code': resp.status, 'body': body[:256]}
-                if resp.status == 200:
+                ack, rej, receipt = self.parse_primenet_response(body, resp.status)
+                if ack:
                     self.record_stage(exponent, v5_result, status=self.STATE_ACKNOWLEDGED, receipt=receipt)
                     return {'status': self.STATE_ACKNOWLEDGED, 'acknowledged': True, 'receipt': receipt}
-                else:
+                elif rej:
                     self.record_stage(exponent, v5_result, status=self.STATE_REJECTED, receipt=receipt)
                     return {'status': self.STATE_REJECTED, 'acknowledged': False, 'receipt': receipt}
+                else:
+                    self.record_stage(exponent, v5_result, status=self.STATE_LOCAL_STAGED, receipt=receipt)
+                    return {'status': self.STATE_LOCAL_STAGED, 'acknowledged': False, 'receipt': receipt}
         except Exception as exc:
             receipt = {'error': str(exc)}
             self.record_stage(exponent, v5_result, status=self.STATE_REJECTED, receipt=receipt)
@@ -309,7 +395,10 @@ def format_official_gimps_proof_file(proof_data):
     lines.append("[GERBICZ CHECKPOINTS]")
     lines.append(f"Count={len(chk)}")
     for c in chk:
-        lines.append(f"{c['iteration']}:{c.get('state_hash', '')}:{c['hash']}")
+        if 'math_residue_q' in c:
+            lines.append(f"{c['iteration']}:{c.get('state_hash', '')}:{c['hash']}:{c.get('res64', '')}:{c['math_residue_q']}")
+        else:
+            lines.append(f"{c['iteration']}:{c.get('state_hash', '')}:{c['hash']}")
     return "\n".join(lines) + "\n"
 
 
@@ -349,8 +438,20 @@ def parse_official_gimps_proof_file(text):
                 data['proof_steps'].append({'Z': parts[0], 'odd': parts[1] in ('1', 'true', 'True')})
         elif section == 'GERBICZ CHECKPOINTS' and ':' in line:
             parts = line.split(':')
-            if len(parts) == 3:
-                data['gerbicz_checkpoints'].append({'iteration': int(parts[0]), 'state_hash': parts[1], 'hash': parts[2]})
+            if len(parts) >= 5:
+                data['gerbicz_checkpoints'].append({
+                    'iteration': int(parts[0]),
+                    'state_hash': parts[1],
+                    'hash': parts[2],
+                    'res64': parts[3],
+                    'math_residue_q': int(parts[4])
+                })
+            elif len(parts) >= 3:
+                data['gerbicz_checkpoints'].append({
+                    'iteration': int(parts[0]),
+                    'state_hash': parts[1],
+                    'hash': parts[2]
+                })
     if 'exponent' in data and 'residue' in data:
         p = data['exponent']
         N = (1 << p) - 1
@@ -362,7 +463,7 @@ def parse_official_gimps_proof_file(text):
 
 
 class MPrimeEngineAdapter:
-    """Orchestration adapter for external host mprime / Prime95 executable."""
+    """Orchestration adapter for external host mprime / Prime95 executable and official results."""
     def __init__(self, bin_path=None, work_dir=None):
         import shutil
         self.bin_path = bin_path or shutil.which('mprime') or shutil.which('prime95')
@@ -371,18 +472,61 @@ class MPrimeEngineAdapter:
     def is_available(self):
         return bool(self.bin_path and Path(self.bin_path).exists())
 
+    @staticmethod
+    def parse_official_prime95_line(line):
+        """Parse official Prime95 results.txt line (both timestamped Prime95 and V5 format)."""
+        line = line.strip()
+        if not line or line.startswith('#'):
+            return None
+        v5 = PrimeNetAdapter.parse_v5_result(line)
+        if v5:
+            return v5
+        ts_match = re.match(r'^\[([^\]]+)\]\s*(.*)$', line)
+        ts_str = ts_match.group(1) if ts_match else None
+        rest = ts_match.group(2) if ts_match else line
+        uid = "OFFICIAL"
+        if 'UID:' in rest:
+            parts = re.split(r'[,;]', rest, maxsplit=1)
+            uid = parts[0].replace('UID:', '').strip()
+            rest = parts[1] if len(parts) > 1 else rest
+
+        pattern = r'M\(?(\d+)\)?\s+is\s+([^.!]+)[.!]\s*Res64:\s*([0-9A-Fa-f]{16})'
+        match = re.search(pattern, rest, re.IGNORECASE)
+        if not match:
+            return None
+        exp_str, verdict, res64 = match.groups()
+        is_prime = 'not' not in verdict.lower()
+        return {
+            'uid': uid,
+            'exponent': int(exp_str),
+            'is_prime': is_prime,
+            'res64': res64.upper(),
+            'timestamp': ts_str,
+            'gerbicz_status': 'OK' if is_prime else 'N/A'
+        }
+
     def parse_results_txt(self, results_path=None):
         path = Path(results_path or (self.work_dir / 'results.txt'))
         if not path.exists():
             return []
         items = []
         for line in path.read_text(encoding='utf-8', errors='ignore').splitlines():
-            p = PrimeNetAdapter.parse_v5_result(line)
+            p = self.parse_official_prime95_line(line)
             if p:
                 items.append(p)
         return items
 
     parse_results_file = parse_results_txt
+
+    @staticmethod
+    def generate_worktodo_ini(work_dir, exponent, prp=True, base=3):
+        """Generate official Prime95 worktodo.ini directive to drive mprime/prime95 tasks."""
+        wdir = Path(work_dir)
+        wdir.mkdir(parents=True, exist_ok=True)
+        ini_path = wdir / 'worktodo.ini'
+        line = f"PRP={exponent},{base}\n" if prp else f"Test={exponent}\n"
+        ini_path.write_text(line, encoding='utf-8')
+        return ini_path
 
     def build_proof_from_mprime(self, exponent, work_dir=None):
         wdir = Path(work_dir or self.work_dir)
@@ -435,13 +579,84 @@ def export_proof_to_content_fabric(proof_data, chunkstore_dir=None, uid="ZI-NODE
 
 
 class GimpsPool(EffortPool):
-    def __init__(self, client, submitter, state, *, expected_network=None, chunkstore_dir=None):
+    def __init__(self, client, submitter, state, *, expected_network=None, chunkstore_dir=None, governor=None):
         super().__init__(client, submitter, state, expected_network=expected_network)
-        self.governor = ResourceGovernor()
+        self.governor = governor or ResourceGovernor()
         self.checkpoints = CheckpointManager(self.db, self.governor)
         self.primenet = PrimeNetAdapter(self.db)
         self.chunkstore_dir = chunkstore_dir or (Path(state) / 'chunkstore')
         Path(self.chunkstore_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
+        with self.db:
+            self.db.execute("""
+            CREATE TABLE IF NOT EXISTS gimps_leases (
+                token TEXT PRIMARY KEY,
+                engine_id TEXT NOT NULL,
+                problem_id TEXT NOT NULL,
+                exponent INTEGER NOT NULL,
+                submitter TEXT NOT NULL,
+                network_id TEXT NOT NULL,
+                proof_schema TEXT NOT NULL,
+                method TEXT NOT NULL,
+                max_exponent INTEGER NOT NULL,
+                expires INTEGER NOT NULL,
+                checkpoint TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """)
+        self._load_active_leases()
+
+    def _load_active_leases(self):
+        now = int(time.time())
+        rows = self.db.execute(
+            "SELECT token, engine_id, problem_id, exponent, submitter, network_id, proof_schema, method, max_exponent, expires, checkpoint FROM gimps_leases WHERE expires > ?",
+            (now,)
+        ).fetchall()
+        for r in rows:
+            self.jobs[r[0]] = {
+                'token': r[0],
+                'engine': 'gimps',
+                'engine_id': r[1],
+                'problem_id': r[2],
+                'exponent': r[3],
+                'submitter_id': r[4],
+                'network_id': r[5],
+                'proof_schema': r[6],
+                'method': r[7],
+                'max_exponent': r[8],
+                'expires': r[9],
+                'checkpoint': json.loads(r[10]) if r[10] else None
+            }
+
+    def _get_active_job(self, token):
+        if not isinstance(token, str):
+            return None
+        now = int(time.time())
+        job = self.jobs.get(token)
+        if job and job['expires'] > now:
+            return job
+        row = self.db.execute(
+            "SELECT engine_id, problem_id, exponent, submitter, network_id, proof_schema, method, max_exponent, expires, checkpoint FROM gimps_leases WHERE token=? AND expires > ?",
+            (token, now)
+        ).fetchone()
+        if not row:
+            return None
+        job = {
+            'token': token,
+            'engine': 'gimps',
+            'engine_id': row[0],
+            'problem_id': row[1],
+            'exponent': row[2],
+            'submitter_id': row[3],
+            'network_id': row[4],
+            'proof_schema': row[5],
+            'method': row[6],
+            'max_exponent': row[7],
+            'expires': row[8],
+            'checkpoint': json.loads(row[9]) if row[9] else None
+        }
+        self.jobs[token] = job
+        return job
 
     def issue(self):
         require_network()
@@ -467,6 +682,9 @@ class GimpsPool(EffortPool):
                     not isinstance(job.get('engine_id'), str) or len(job['engine_id']) > 128):
                 raise ProtocolError('INVALID_JOB', 'bounded native GIMPS task required')
 
+            if not self.governor.check_exponent_capacity(p):
+                return {'available': False, 'engine': 'gimps', 'reason': f'exponent-{p}-exceeds-node-capacity', 'retry_ms': 10000}
+
             # Look up any existing checkpoint for this exponent
             chk = self.checkpoints.load_checkpoint_by_exponent(p)
             checkpoint_data = chk['checkpoint_data'] if chk else None
@@ -474,12 +692,17 @@ class GimpsPool(EffortPool):
             token = secrets.token_hex(24)
             job = dict(job, engine='gimps', token=token, expires=int(now) + 86400, checkpoint=checkpoint_data)
             self.jobs[token] = job
+            with self.db:
+                self.db.execute("""
+                INSERT INTO gimps_leases (token, engine_id, problem_id, exponent, submitter, network_id, proof_schema, method, max_exponent, expires, checkpoint, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (token, job['engine_id'], job['problem_id'], p, self.submitter, job['network_id'], job['proof_schema'], job['method'], job.get('max_exponent', 2_000_000_000), job['expires'], json.dumps(checkpoint_data) if checkpoint_data else None, int(now), int(now)))
             return job
 
     def submit(self, token, proof):
         require_network()
         with self.lock:
-            job = self.jobs.get(token) if isinstance(token, str) else None
+            job = self._get_active_job(token)
             if not job or job['expires'] <= time.time():
                 raise ProtocolError('STALE_JOB', 'native GIMPS job expired')
             if not isinstance(proof, dict) or not self.governor.check_proof_size(proof):
@@ -489,6 +712,10 @@ class GimpsPool(EffortPool):
             p = job['exponent']
             if proof.get('exponent') != p:
                 raise ProtocolError('INVALID_PROOF', 'exponent mismatch')
+
+            is_ext = proof.get('engine') in ('mprime', 'prime95')
+            if not self.governor.check_exponent_capacity(p, is_external_engine=is_ext):
+                raise ProtocolError('LIMIT_EXCEEDED', f'exponent {p} exceeds node native memory capacity ({self.governor.max_native_exponent})')
 
             from ._runtime import _native_gimps
 
@@ -566,8 +793,10 @@ class GimpsPool(EffortPool):
             if result.get('state') != 'committed':
                 raise ProtocolError('RESULT_UNKNOWN', 'native GIMPS submission awaits reconciliation')
 
-            # Clean up task checkpoint upon successful submission
+            # Clean up task checkpoint and active lease upon successful submission
             self.checkpoints.delete_checkpoint(problem)
+            with self.db:
+                self.db.execute("DELETE FROM gimps_leases WHERE token=?", (token,))
 
             receipt = {
                 'accepted': True,
@@ -590,7 +819,7 @@ class GimpsPool(EffortPool):
         """Worker periodic checkpoint saver."""
         require_network()
         with self.lock:
-            job = self.jobs.get(token) if isinstance(token, str) else None
+            job = self._get_active_job(token)
             if not job or job['expires'] <= time.time():
                 raise ProtocolError('STALE_JOB', 'native GIMPS job expired')
             if not self.governor.check_checkpoint_size(checkpoint_data):
@@ -598,13 +827,16 @@ class GimpsPool(EffortPool):
             task_id = job['engine_id'] + ':' + job['problem_id']
             iteration = checkpoint_data.get('iteration', 0) if isinstance(checkpoint_data, dict) else 0
             self.checkpoints.save_checkpoint(task_id, job['engine_id'], job['exponent'], self.submitter, iteration, checkpoint_data)
+            with self.db:
+                self.db.execute("UPDATE gimps_leases SET checkpoint=?, updated_at=? WHERE token=?",
+                               (json.dumps(checkpoint_data), int(time.time()), token))
             return {'saved': True, 'exponent': job['exponent'], 'iteration': iteration}
 
     def heartbeat(self, token, progress_pct=None, checkpoint_data=None):
         """Worker heartbeat renewal for long-running compute lease."""
         require_network()
         with self.lock:
-            job = self.jobs.get(token) if isinstance(token, str) else None
+            job = self._get_active_job(token)
             if not job:
                 raise ProtocolError('STALE_JOB', 'native GIMPS job not found')
             now = time.time()
@@ -615,19 +847,25 @@ class GimpsPool(EffortPool):
                 if not self.governor.check_checkpoint_size(checkpoint_data):
                     raise ProtocolError('LIMIT_EXCEEDED', 'checkpoint payload too large')
                 self.checkpoints.save_checkpoint(task_id, job['engine_id'], job['exponent'], self.submitter, iteration, checkpoint_data)
+            with self.db:
+                self.db.execute("UPDATE gimps_leases SET expires=?, checkpoint=?, updated_at=? WHERE token=?",
+                               (job['expires'], json.dumps(checkpoint_data) if checkpoint_data else None, int(now), token))
             return {'renewed': True, 'exponent': job['exponent'], 'expires': job['expires'], 'iteration': iteration}
 
     def pause(self, token, checkpoint_data=None):
         """Pause active task and preserve checkpoint."""
         require_network()
         with self.lock:
-            job = self.jobs.get(token) if isinstance(token, str) else None
+            job = self._get_active_job(token)
             if not job:
                 raise ProtocolError('STALE_JOB', 'native GIMPS job not found')
             task_id = job['engine_id'] + ':' + job['problem_id']
             if checkpoint_data:
                 iteration = checkpoint_data.get('iteration', 0) if isinstance(checkpoint_data, dict) else 0
                 self.checkpoints.save_checkpoint(task_id, job['engine_id'], job['exponent'], self.submitter, iteration, checkpoint_data)
+                with self.db:
+                    self.db.execute("UPDATE gimps_leases SET checkpoint=?, updated_at=? WHERE token=?",
+                                   (json.dumps(checkpoint_data), int(time.time()), token))
             return {'paused': True, 'exponent': job['exponent']}
 
     def resume(self, exponent, worker_id=None):
