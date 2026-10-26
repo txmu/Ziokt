@@ -6,9 +6,11 @@ quorum, and anti-takeover checks used by block validation. Local mining,
 incoming block validation, history replay, and fork reconstruction all call
 `_validate_single_transaction`; cooperative state is rebuilt from the canonical
 block prefix through the shared `cooperative_state_at` transition function.
-The persisted `cooperative_registry` row is a cache and is not an authority
-source. At most one cooperative command is allowed in a block, preserving a
-single unambiguous pre-state for each command. `cooperative-state` reports the
+The persisted `cooperative_registry` row is a materialized checkpoint: reuse
+requires its canonical block hash and recomputed state root to match. Old,
+unanchored, or orphaned rows are discarded and rebuilt from history. At most
+one cooperative command is allowed in a block, preserving a single
+unambiguous pre-state for each command. `cooperative-state` reports the
 deterministic registry and root for a requested candidate height.
 
 The DNA explorer already exposes configured primary/DNA pairs through its
