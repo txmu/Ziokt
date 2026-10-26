@@ -21,6 +21,10 @@ PACKAGE='consensus/work-weight:2'
 SCHEMA='corium.native-work-policy.v2'
 PROOF='corium.native-block-work.v2'
 LEGACY=hashlib.sha256(b'Corium/native-pos/v108').hexdigest()
+# Recovery/work policies deployed with the prior audited verifier pin remain
+# valid across this additive state-index integration. New proposals still pin
+# the current source digest. This grandfathered digest is immutable.
+LEGACY_SOURCE_DIGESTS={'5282e14c07d4c9adad1ccc3a8eb2e9a8ee4ca7ad566c416b3f4890148b28309b'}
 EMBEDDED_SOURCE_DIGEST = None
 
 
@@ -69,8 +73,10 @@ def proposal(db,network,payload,height):
 
 def active(db,network,height,validate_previous=True):
     if not (network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'} or network in Recovery.NETWORKS):return None
-    baseline=Recovery.active(db,network,height,source_digest(),check_policy,LEGACY)
     recovery=Recovery.declaration(network)
+    accepted_sources=LEGACY_SOURCE_DIGESTS|{source_digest()}
+    recovery_source=recovery['verifier_source_sha256'] if recovery and recovery['verifier_source_sha256'] in accepted_sources else source_digest()
+    baseline=Recovery.active(db,network,height,recovery_source,check_policy,LEGACY)
     rows=db.execute("SELECT e.compute_program_hash,e.verifier_script_hash,t.data,t.block_height,t.hash,b.transactions FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id LEFT JOIN blocks b ON b.height=t.block_height WHERE e.pkg_id=? AND e.is_active=1 AND t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL ORDER BY t.block_height,t.hash",(PACKAGE,)).fetchall()
     genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone();require(genesis is not None,'native genesis required')
     accepted=[];previous=policy_hash(baseline) if baseline else LEGACY
@@ -87,7 +93,7 @@ def active(db,network,height,validate_previous=True):
         require(type(included) is list and included.count(row[4])==1,
                 'WORK_GOVERNANCE_NOT_COMMITTED: active proposal absent from canonical block')
         require(row['block_height']<height,'work proposal must precede candidate block')
-        require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash']==source_digest() and activation>=(row['block_height']+110 if row['block_height']>1 else 0),'active native governance commitment')
+        require(row['compute_program_hash']==policy_hash(value) and row['verifier_script_hash'] in accepted_sources and activation>=(row['block_height']+110 if row['block_height']>1 else 0),'active native governance commitment')
         if validate_previous:require(value['previous_policy']==previous and (not accepted or activation>accepted[-1]['work_policy']['activation_height']),'native activation sequence')
         checkpoint=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(checkpoint['height'],)).fetchone();require(known is not None and known[0]==checkpoint['hash'],'governed checkpoint differs from native prefix')
         accepted.append(value);previous=policy_hash(value)
@@ -179,6 +185,38 @@ def stored(db,identity):
     return value
 
 
+def cooperative_state_at(db,network,height):
+    """Rebuild cooperative state from the canonical prefix before height.
+
+    The materialized cooperative_registry table is only a cache: fork rollback
+    can leave it stale. Every admission/replay therefore derives authority from
+    canonical block order and runs the same pure transition function.
+    """
+    declaration=Recovery.declaration(network)
+    require(declaration is not None and height>declaration['checkpoint']['height'],
+            'cooperative protocol not active')
+    state=Cooperative.empty(Recovery.identity(declaration))
+    blocks=db.execute('SELECT height,transactions FROM blocks WHERE height>? AND height<? ORDER BY height',
+                      (declaration['checkpoint']['height'],height)).fetchall()
+    commands=db.execute("SELECT hash,data,block_height FROM transactions WHERE type='cooperative_command' AND block_height>? AND block_height<?",
+                        (declaration['checkpoint']['height'],height)).fetchall()
+    require(len(blocks)<=1_000_000 and len(commands)<=1_000_000,'cooperative history budget')
+    by_hash={row[0]:row for row in commands}
+    for block_height,raw_hashes in blocks:
+        hashes=json.loads(raw_hashes)
+        require(type(hashes) is list and len(hashes)<=200,'canonical transaction list')
+        for txhash in hashes:
+            row=by_hash.get(txhash)
+            if row is None:
+                continue
+            require(row[2]==block_height,'canonical cooperative transaction body')
+            envelope=loads(row[1])
+            require(type(envelope) is dict and set(envelope)=={'command','endorsements'},
+                    'cooperative envelope')
+            state=Cooperative.apply(state,envelope['command'],envelope['endorsements'])
+    return state
+
+
 def main(args):
     action,path,network=args[:3]
     with sqlite3.connect(path) as db:
@@ -187,12 +225,12 @@ def main(args):
             value=Recovery.declaration(network)
             print(Recovery.transaction_bytes(value,network,args[3],args[4],int(args[5]),args[6],int(args[7])))
             return
-        elif action=='cooperative-validate' or action=='cooperative-apply':
-            value=Recovery.declaration(network);require(value is not None and int(args[3])>value['checkpoint']['height'],'cooperative protocol not active')
+        elif action in {'cooperative-validate','cooperative-apply','cooperative-state'}:
+            height=int(args[3]);state=cooperative_state_at(db,network,height)
+            if action=='cooperative-state':
+                result={'state':state,'state_root':Cooperative.state_root(state),'height':height}
+                print(json.dumps(result,separators=(',',':')));return
             payload=DNA.loads(args[4]);require(type(payload)is dict and set(payload)=={'command','endorsements'},'cooperative envelope')
-            exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_registry'").fetchone()
-            row=db.execute('SELECT state FROM cooperative_registry WHERE id=1').fetchone()if exists else None
-            state=DNA.loads(row[0])if row else Cooperative.empty(Recovery.identity(value))
             changed=Cooperative.apply(state,payload['command'],payload['endorsements'])
             if action=='cooperative-apply':
                 db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL)')

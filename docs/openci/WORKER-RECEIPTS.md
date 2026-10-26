@@ -15,4 +15,4 @@
 
 数据库新增`worker_receipt_keys`和`receipt_attestations`，不删除旧表、历史任务或结果。没有注册签名密钥的旧Worker仍能完成普通CI，但不形成签名贡献凭证。对已要求签名的Worker，旧未签名任务不能用于新发布，需真实重建。旧发布结果的幂等重试不改变历史。
 
-当前签名不是硬件远程证明，两个公钥不证明两个物理主机，也不能排除串谋。operator故障域证据和不同物理主机需要独立核查。CI双次OCI执行仍在同一CI主机，记录`distinct_hosts:false`。确定且有界的原生贡献准入、链上去重、治理批准、结算与回滚尚未完成，`corium_settled:false`保持不变，主网规则未修改。
+当前签名不是硬件远程证明，两个公钥不证明两个物理主机，也不能排除串谋。operator故障域证据和不同物理主机需要独立核查。CI双次OCI执行仍在同一CI主机，记录`distinct_hosts:false`。本文件只记录Worker回执边界；`corium_settled:false`表示该回执本身不产生结算，主网规则未修改。
