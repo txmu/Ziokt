@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -673,6 +674,9 @@ struct ProcessingContext {
     metrics: Arc<NodeMetrics>,
     incoming_slots: Arc<tokio::sync::Semaphore>,
     handshakes: Arc<parking_lot::Mutex<HashMap<(SocketAddr, [u8; 32]), (Instant, Vec<u8>)>>>,
+    // Bounded lock stripes serialize session replacement against explicit
+    // reconnects, including simultaneous IK flights from both owners.
+    session_transitions: Arc<Vec<tokio::sync::Mutex<()>>>,
     /// Random per Engine instance; transmitted only inside Noise-authenticated payloads.
     boot_id: [u8; 16],
 
@@ -851,6 +855,7 @@ impl EtpEngine {
             metrics,
             incoming_slots: Arc::new(tokio::sync::Semaphore::new(128)),
             handshakes: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            session_transitions: Arc::new((0..64).map(|_| tokio::sync::Mutex::new(())).collect()),
             boot_id: rand::random(),
             default_handler: None,
             fallback_handler: None,
@@ -1256,6 +1261,12 @@ impl EtpEngine {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    fn transition_slot(peer: SocketAddr) -> usize {
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        peer.hash(&mut hash);
+        (hash.finish() as usize) % 64
+    }
+
     async fn process_new_connection_or_fallback(
         ctx: ProcessingContext,
         data: Vec<u8>,
@@ -1264,6 +1275,7 @@ impl EtpEngine {
         if !ctx.config.trusted_peers.contains_key(&src) {
             return;
         }
+        let _transition = ctx.session_transitions[Self::transition_slot(src)].lock().await;
         let mut handled = false;
 
         // Dynamic dialect probing
@@ -1770,6 +1782,7 @@ impl EtpEngine {
     }
 
     async fn initiate_handshake(&self, target: SocketAddr, remote_pub: &[u8]) -> Result<()> {
+        let _transition = self.ctx.session_transitions[Self::transition_slot(target)].lock().await;
         let d_dial = self
             .ctx
             .plugins

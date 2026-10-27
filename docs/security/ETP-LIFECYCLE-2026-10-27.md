@@ -1,0 +1,7 @@
+# ETP database reopen and simultaneous reconnect review
+
+The integrated native CI exposed two lifecycle failures. sled 0.34.7 wraps an underlying `WouldBlock` file lock in `ErrorKind::Other`, so the previous reopen test rejected a genuinely transient lock. `ChatStore::open` now retries only native lock contention for at most two seconds; permission, corruption and other I/O failures still fail immediately. The lossless quarantine migration runs after a successful open. A focused classifier regression covers the wrapped lock and unrelated errors.
+
+Inbound authenticated handshake replacement and an explicit outbound reconnect previously could both inspect an old session and then overwrite each other's replacement. Sixty-four bounded async lock stripes now serialize those transitions for each peer. Existing session locks continue to protect reliability state and offset transfer. Authentication, incarnation binding, simultaneous-flight arbitration and obsolete-handshake rejection remain mandatory.
+
+The existing real UDP regression covers a new Engine on the same socket, stream-offset reset, same-incarnation rekey, obsolete IK3 rejection and three simultaneous reconnects. The quarantine test exercises real sled files and verifies retained bytes. These Rust tests and native builds run in CI. Local verification for this change parses both files with rustfmt and does not compile native code. A green CI run is required before accepting the resulting binaries.

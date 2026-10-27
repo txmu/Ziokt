@@ -123,13 +123,36 @@ pub struct ChatStore {
 
 impl ChatStore {
     pub fn open(path: &str) -> Result<Self> {
-        let db = sled::open(path).context("Failed to open Chat DB")?;
+        // sled 0.34 wraps fs2's WouldBlock in an ErrorKind::Other message.
+        // Its final flush can retain the file lock after the last handle drops.
+        // Retry only that lock condition; corruption and permission errors fail.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let db = loop {
+            match sled::open(path) {
+                Ok(db) => break db,
+                Err(error) if Self::lock_pending(&error) && std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(error).context("Failed to open Chat DB"),
+            }
+        };
         let store = Self {
             db,
             mutation: parking_lot::Mutex::new(()),
         };
         store.quarantine_legacy()?;
         Ok(store)
+    }
+
+    fn lock_pending(error: &sled::Error) -> bool {
+        match error {
+            sled::Error::Io(io) if io.kind() == std::io::ErrorKind::WouldBlock => true,
+            sled::Error::Io(io) if io.kind() == std::io::ErrorKind::Other => {
+                let detail = io.to_string();
+                detail.starts_with("could not acquire lock on ") && detail.contains("kind: WouldBlock")
+            }
+            _ => false,
+        }
     }
 
     fn quarantine_legacy(&self) -> Result<()> {
@@ -748,6 +771,16 @@ mod protocol_regression_tests {
         assert!(old.verify().is_err());
     }
     #[test]
+    fn database_reopen_retries_only_native_lock_contention() {
+        let wrapped = sled::Error::Io(std::io::Error::new(std::io::ErrorKind::Other,
+            "could not acquire lock on db: Os { code: 11, kind: WouldBlock, message: busy }"));
+        assert!(ChatStore::lock_pending(&wrapped));
+        assert!(ChatStore::lock_pending(&sled::Error::Io(std::io::Error::from(std::io::ErrorKind::WouldBlock))));
+        assert!(!ChatStore::lock_pending(&sled::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "disk failure"))));
+        assert!(!ChatStore::lock_pending(&sled::Error::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied))));
+    }
+
+    #[test]
     fn old_chat_records_move_to_lossless_quarantine_on_open() {
         let path = std::env::temp_dir().join(format!(
             "etp-chat-migration-{}-{}",
@@ -769,24 +802,8 @@ mod protocol_regression_tests {
             db.flush().unwrap();
         }
         {
-            // sled's last background flush can briefly retain the OS lock after
-            // the previous handle drops. Retry only that concrete transient IO
-            // error, with a strict deadline; all other migration failures fail.
-            let deadline = std::time::Instant::now() + Duration::from_secs(2);
-            let store = loop {
-                match ChatStore::open(path.to_str().unwrap()) {
-                    Ok(store) => break store,
-                    Err(error) => {
-                        let lock_pending = error.chain().any(|cause| {
-                            matches!(cause.downcast_ref::<sled::Error>(),
-                                Some(sled::Error::Io(io)) if io.kind() == std::io::ErrorKind::WouldBlock)
-                        });
-                        assert!(lock_pending && std::time::Instant::now() < deadline,
-                            "native chat reopen/migration failed: {error:#}");
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                }
-            };
+            let store = ChatStore::open(path.to_str().unwrap())
+                .expect("native chat reopen must retry a transient sled lock");
             assert!(store.get_history(10, 0).unwrap().is_empty());
             let tree = store.db.open_tree("quarantined_chat_v2").unwrap();
             assert_eq!(tree.len(), 1);
