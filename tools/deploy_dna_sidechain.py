@@ -76,7 +76,9 @@ def deploy(root,primary,archive,corium,entrypoint,activate=False,port=7235,recov
     config['gateway']['port']='8186';config['ziokt'].update({'enabled':'TRUE','provider_id':'corium-dna','federation_id':network,'allow_mutations':'FALSE','allowed_operations':'','zkn_enabled':'FALSE'})
     import io
     buffer=io.StringIO();config.write(buffer);write(etc/'corix.conf',buffer.getvalue().encode())
-    env=dict(os.environ,CORIUM_ROOT=str(root),CORIUM_NETWORK_ID_OVERRIDE=network,PYTHON_CMD=sys.executable)
+    hold=root/'config/consensus-safety-hold.json'
+    write(hold,encoded_json({'schema':'ziokt.consensus-safety-hold.v1','active':False}))
+    env=dict(os.environ,CORIUM_ROOT=str(root),CORIUM_NETWORK_ID_OVERRIDE=network,CORIUM_CONSENSUS_HOLD_FILE=str(hold),PYTHON_CMD=sys.executable)
     command=['bash','-c','source "$1"\nload_config\nmkdir -p "$BUILD_TMP_DIR_BASE" "$INSTALLED_DB" "$P2P_DIR/objects"\n_init_dht_db\n_internal_semantic_state','dna-state',str(entrypoint)]
     result=subprocess.run(command,env=env,capture_output=True,timeout=30,check=True)
     state=json.loads(result.stdout.decode().splitlines()[-1]);initial=hashlib.sha256(dna.encoded(state)).hexdigest()
@@ -101,7 +103,7 @@ def deploy(root,primary,archive,corium,entrypoint,activate=False,port=7235,recov
     finally:
         if prior_root is None:os.environ.pop('CORIUM_ROOT',None)
         else:os.environ['CORIUM_ROOT']=prior_root
-    wrapper=root/'bin/dna-service';script='#!/bin/bash\nset -e\numask 077\nexport CORIUM_ROOT='+shlex.quote(str(root))+'\nexport CORIUM_NETWORK_ID_OVERRIDE='+network+'\nsource '+shlex.quote(str(entrypoint))+'''\nload_config
+    wrapper=root/'bin/dna-service';script='#!/bin/bash\nset -e\numask 077\nexport CORIUM_ROOT='+shlex.quote(str(root))+'\nexport CORIUM_CONSENSUS_HOLD_FILE='+shlex.quote(str(hold))+'\nexport CORIUM_NETWORK_ID_OVERRIDE='+network+'\nsource '+shlex.quote(str(entrypoint))+'''\nload_config
 mkdir -p "$BUILD_TMP_DIR_BASE" "$INSTALLED_DB" "$P2P_DIR/objects"
 case "$1" in
  p2p) dht_server_daemon; wait ;;
