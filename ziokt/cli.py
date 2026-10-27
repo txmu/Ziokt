@@ -247,6 +247,7 @@ def main(argv=None):
     m_send.add_argument('--internet-account')
     m_send.add_argument('--in-reply-to')
     m_send.add_argument('--reference',action='append',default=None)
+    m_send.add_argument('--request-read-receipt',action='store_true')
     m_send.add_argument('--attachments-file',type=Path)
     m_res.add_argument("address", help="<user>@<domain> address")
     m_inbox = mail_actions.add_parser("inbox", help="query mail inbox")

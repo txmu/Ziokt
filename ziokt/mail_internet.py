@@ -36,10 +36,11 @@ def address(value):
 
 class InternetMail:
     def __init__(self, config, state):
-        if (not isinstance(config, dict) or set(config)-{'account','from_address','local_recipient','smtp','imap','secret_file','ca_file','allowed_senders','identity_bindings','attachment_export','auth','trusted_authserv_ids','inbound_content'} or
+        if (not isinstance(config, dict) or set(config)-{'account','from_address','local_recipient','smtp','imap','secret_file','ca_file','allowed_senders','identity_bindings','attachment_export','auth','trusted_authserv_ids','inbound_content','read_receipts'} or
                 not isinstance(config.get('account'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', config['account'])):
             raise ProtocolError('INVALID_CONFIG', 'explicit internet mail account required')
         self.config = config
+        if config.get('read_receipts','deny') not in {'deny','manual'}:raise ProtocolError('INVALID_CONFIG','receipt policy')
         if config.get('auth','password') not in {'password','oauth2'}:raise ProtocolError('INVALID_CONFIG','mail auth method')
         authserv=config.get('trusted_authserv_ids',[])
         if not isinstance(authserv,list) or len(authserv)>16 or any(not isinstance(x,str) or not re.fullmatch(r'[A-Za-z0-9.-]{1,253}',x) for x in authserv):raise ProtocolError('INVALID_CONFIG','trusted receiving MTA ids')
@@ -108,7 +109,7 @@ class InternetMail:
     def context(self):
         return ssl.create_default_context(cafile=self.config.get('ca_file'))
 
-    def send(self, sender_key, recipient, subject, body, attachments=None, timestamp=None, message_id=None, *, native_address=None, internet_from=None, native_verified=False, in_reply_to=None, references=None, internet_account=None):
+    def send(self, sender_key, recipient, subject, body, attachments=None, timestamp=None, message_id=None, *, native_address=None, internet_from=None, native_verified=False, in_reply_to=None, references=None, internet_account=None, request_read_receipt=False, receipt_for=None):
         if internet_account is not None and internet_account!=self.config['account']:raise ProtocolError('POLICY_DENIED','internet account is not assigned')
         if sender_key not in self.config.get('allowed_senders',[]):
             raise ProtocolError('POLICY_DENIED','sender is not authorized for this SMTP account')
@@ -130,6 +131,8 @@ class InternetMail:
         from email.utils import formataddr
         message['From']=formataddr((binding.get('display_name',''),sender)) if binding else sender
         message['To']=recipient;message['Subject']=subject
+        if type(request_read_receipt)is not bool:raise ProtocolError('INVALID_REQUEST','boolean receipt request required')
+        if request_read_receipt:message['Disposition-Notification-To']=sender
         if binding and binding.get('reply_to'):message['Reply-To']=binding['reply_to']
         from .mail_receive import thread_id
         if in_reply_to is not None:message['In-Reply-To']=thread_id(in_reply_to)
@@ -140,9 +143,16 @@ class InternetMail:
         timestamp=timestamp if timestamp is not None else time.time_ns()
         message['Date']=formatdate(timestamp/1e9 if timestamp>2**40 else timestamp,usegmt=True)
         # Include the body digest so two distinct messages in the same second remain distinct.
-        identity=hashlib.sha256((self.config['account']+'\0'+sender+'\0'+str(sender_key)+'\0'+recipient+'\0'+str(message_id or timestamp)+'\0'+subject+'\0'+body+'\0'+json.dumps([attachments,in_reply_to,references],sort_keys=True)).encode()).hexdigest()
+        identity=hashlib.sha256((self.config['account']+'\0'+sender+'\0'+str(sender_key)+'\0'+recipient+'\0'+str(message_id or timestamp)+'\0'+subject+'\0'+body+'\0'+json.dumps([attachments,in_reply_to,references,request_read_receipt,receipt_for],sort_keys=True)).encode()).hexdigest()
         message['Message-ID']='<'+identity+'@'+sender.rsplit('@',1)[1]+'>'
         message.set_content(body)
+        if receipt_for is not None:
+            from .mail_receive import thread_id
+            original=thread_id(receipt_for)
+            message.make_mixed();message.set_type('multipart/report');message.set_param('report-type','disposition-notification')
+            report=EmailMessage(policy=policy.SMTP);report.set_type('message/disposition-notification')
+            fields=EmailMessage(policy=policy.SMTP);fields['Final-Recipient']='rfc822; '+sender;fields['Original-Message-ID']=original;fields['Disposition']='manual-action/MDN-sent-manually; displayed'
+            report.set_payload([fields]);message.attach(report)
         for descriptor,data in exported:
             major,minor=descriptor['mime'].split('/')
             message.add_attachment(data,maintype=major,subtype=minor,filename=descriptor['name'])
@@ -292,10 +302,11 @@ class InternetMail:
         return results
 
     def status(self):
+        from .mail_receipts import preference
         with closing(sqlite3.connect(self.db)) as db:
             counts=dict(db.execute('SELECT status,count(*) FROM outbox GROUP BY status'))
             incoming=db.execute('SELECT count(*) FROM inbox').fetchone()[0]
-        return {'account':self.config['account'],'outbox':counts,'inbox_count':incoming,'offline_storage':True,'attachment_mode':self.exporter.mode,'identity_bindings':[{'native_key':key,'native_address':b['native_address'],'addresses':b['addresses'],'email_verification':b.get('email_verification','unverified'),'email_ownership_verified':False} for key,b in self.bindings.items()]}
+        return {'account':self.config['account'],'outbox':counts,'inbox_count':incoming,'offline_storage':True,'read_receipts':preference(self),'attachment_mode':self.exporter.mode,'identity_bindings':[{'native_key':key,'native_address':b['native_address'],'addresses':b['addresses'],'email_verification':b.get('email_verification','unverified'),'email_ownership_verified':False} for key,b in self.bindings.items()]}
 
     def start(self):
         if getattr(self,'scheduler',None):return

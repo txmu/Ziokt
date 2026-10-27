@@ -101,3 +101,24 @@ class MailClientTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):import_attachment(channel,identity)
         with closing(sqlite3.connect(channel.db)) as db:self.assertEqual(db.execute('SELECT status FROM attachments').fetchone()[0],'quarantined')
         self.assertFalse((self.root/'never-published').exists())
+    def test_read_receipts_default_deny_explicit_send_and_persistent_block(self):
+        from ziokt.mail_receipts import preference,respond
+        channel=self.channel();message=EmailMessage();message['From']='bob@example.net';message['Message-ID']='<original@example.net>';message['Disposition-Notification-To']='bob@example.net';message.set_content('external mail')
+        with closing(sqlite3.connect(channel.db)) as db,db:
+            for uid in (1,2):db.execute('INSERT INTO inbox VALUES(?,?,?,?,?,?)',('a','7',uid,'alice',message.as_bytes(),1234))
+        self.assertEqual(preference(channel)['policy'],'deny')
+        with self.assertRaises(ProtocolError):respond(channel,self.pub,'alice@node.ziokt','7:1','send')
+        self.assertEqual(respond(channel,self.pub,'alice@node.ziokt','7:2','block')['status'],'blocked')
+        preference(channel,'manual');result=respond(channel,self.pub,'alice@node.ziokt','7:1','send')
+        self.assertEqual(result['status'],'queued');self.assertEqual(respond(channel,self.pub,'alice@node.ziokt','7:1','send')['message_id'],result['message_id'])
+        self.assertEqual(respond(channel,self.pub,'alice@node.ziokt','7:2','send')['status'],'blocked')
+        with closing(sqlite3.connect(channel.db)) as db:raw=db.execute('SELECT raw FROM outbox').fetchone()[0]
+        parsed,item=describe(raw);self.assertEqual(parsed.get_content_type(),'multipart/report');self.assertEqual(item['receipt_reports'][0]['original_message_id'],'<original@example.net>');self.assertFalse(item['receipt_reports'][0]['trusted'])
+        self.assertEqual(channel.status()['outbox'],{'queued':1})
+    def test_outgoing_read_receipt_request_is_opt_in_and_cannot_be_redirected(self):
+        channel=self.channel();channel.send(self.pub,'bob@example.net','no request','body',timestamp=1)
+        channel.send(self.pub,'bob@example.net','request','body',timestamp=2,request_read_receipt=True)
+        with closing(sqlite3.connect(channel.db)) as db:messages=[BytesParser(policy=policy.default).parsebytes(r[0]) for r in db.execute('SELECT raw FROM outbox')]
+        self.assertEqual(sum(bool(m.get('Disposition-Notification-To')) for m in messages),1)
+        for message in messages:
+            if message.get('Disposition-Notification-To'):self.assertEqual(message['Disposition-Notification-To'],'alice@example.org')

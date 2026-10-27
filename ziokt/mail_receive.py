@@ -41,11 +41,15 @@ def describe(raw, authserv_ids=()):
             for method in ('spf','dkim','dmarc'):
                 found=re.search(r'(?:^|;)\s*'+method+r'=(pass|fail|softfail|neutral|none|temperror|permerror)\b',header,re.I)
                 if found:auth[method]=found[1].lower()
-    return message,{'subject':str(message.get('Subject',''))[:256],'from':str(message.get('From',''))[:320],
+    reports=[]
+    for report in message.walk():
+        if report.get_content_type()=='message/disposition-notification' and isinstance(report.get_payload(),list):
+            for fields in report.get_payload():reports.append({'original_message_id':str(fields.get('Original-Message-ID',''))[:254],'disposition':str(fields.get('Disposition',''))[:256],'trusted':False})
+    return message,{'receipt_reports':reports[:4],'subject':str(message.get('Subject',''))[:256],'from':str(message.get('From',''))[:320],
                     'to':str(message.get('To',''))[:2048],'cc':str(message.get('Cc',''))[:2048],'date':str(message.get('Date',''))[:128],'reply_to':str(message.get('Reply-To',''))[:320],'body':text[:65536],'body_format':'text/plain',
                     'rfc_message_id':str(message.get('Message-ID',''))[:254],'in_reply_to':str(message.get('In-Reply-To',''))[:254],
                     'references':str(message.get('References',''))[:4096],'authentication_results':auth,
-                    'external_origin':True,'sender_signature_verified':False,'internet_authentication_verified':False}
+                    'read_receipt_requested':bool(message.get('Disposition-Notification-To')),'read_receipt_sent_automatically':False,'reported_mdn':message.get_content_type()=='multipart/report' and message.get_param('report-type')=='disposition-notification','external_origin':True,'sender_signature_verified':False,'internet_authentication_verified':False}
 
 def quarantine(channel,validity,uid,raw):
     message,_=describe(raw);attachments=[];total=0
