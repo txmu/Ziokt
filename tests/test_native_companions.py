@@ -46,7 +46,10 @@ class NativeCompanionCalls(unittest.TestCase):
                         cwd=directory, capture_output=True, text=True, timeout=15)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                     if args[0] == 'catalog':
-                        self.assertEqual(len(json.loads(result.stdout)['components']),11)
+                        manifest=json.loads((ROOT/'ziokt/ecosystem.json').read_text())
+                        components={item['id'] for item in json.loads(result.stdout)['components']}
+                        self.assertEqual(components,{item['id'] for item in manifest['components']+manifest['additional_components']})
+                        self.assertIn('retroshare',components)
                     elif args[0] == 'tc16':
                         state=json.loads(result.stdout);self.assertTrue(state['halted']);self.assertEqual(state['registers'][0],1)
                     elif args[0] == 'ano':
