@@ -71,4 +71,21 @@ theorem cross_network_object_rejected (objectOwner objectNetwork owner network :
   intro accepted
   exact h accepted.2
 
+def privateReadable (revoked : Bool) (now expires keyEpoch grantEpoch : Nat) : Prop :=
+  revoked = false ∧ now < expires ∧ keyEpoch = grantEpoch
+
+theorem revoked_private_grant_rejected (now expires keyEpoch grantEpoch : Nat) :
+    ¬ privateReadable true now expires keyEpoch grantEpoch := by
+  simp [privateReadable]
+
+theorem rotated_private_key_requires_new_grant (now expires keyEpoch grantEpoch : Nat)
+    (h : keyEpoch ≠ grantEpoch) : ¬ privateReadable false now expires keyEpoch grantEpoch := by
+  intro readable
+  exact h readable.2.2
+
+theorem expired_private_grant_rejected (now expires keyEpoch grantEpoch : Nat)
+    (h : expires ≤ now) : ¬ privateReadable false now expires keyEpoch grantEpoch := by
+  intro readable
+  exact Nat.not_lt.mpr h readable.2.1
+
 end Ziokt.Content

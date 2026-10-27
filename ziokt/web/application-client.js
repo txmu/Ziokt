@@ -120,6 +120,7 @@ globalThis.ZioktPersonalViews={
     container.append(el('h3',label('我的笔记、书签与藏书','My notes, bookmarks and collections')));
     const metadataPanel=el('details');container.append(metadataPanel);ZioktMetadataEditor.mount(metadataPanel,{call,id:book.id,language,status});
     const indexPanel=el('details');container.append(indexPanel);ZioktDocumentIndex.mount(indexPanel,{call,id:book.id,language,status});
+    const sharingPanel=el('details');container.append(sharingPanel);ZioktPrivateSharing.mount(sharingPanel,{call,id:book.id,language,status});
     const editor=field(label('私人笔记','Private note'),'textarea');editor.maxLength=8192;editor.rows=3;
     let editing=null,noteOffset=0,bookmarkOffset=0,collectionOffset=0,selectedCollection=null,collectionRequest=0;
     let pendingNoteId=crypto.randomUUID();
@@ -248,5 +249,32 @@ globalThis.ZioktDocumentIndex={
       if(!job)return;epoch++;cancel.disabled=true;
       try{job=await call('library.index.cancel',{job:job.id});show();}catch(error){status(error.message);}finally{cancel.disabled=false;}
     };
+  }
+};
+
+/* Public identities only are exchanged here; private keys stay in account vaults. */
+globalThis.ZioktPrivateSharing={
+  mount(container,{call,id,language='zh',status=()=>{}}){
+    const label=(zh,en)=>language==='en'?en:zh;
+    const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
+    container.append(el('summary',label('私人分享与阅读同步','Private sharing and reading sync')));
+    const field=(title,tag='input')=>{const l=el('label',title),n=el(tag);n.style.cssText='display:block;min-height:44px;width:100%;box-sizing:border-box';l.append(n);container.append(l);return n;};
+    const action=(title,fn)=>{const b=el('button',title);b.type='button';b.style.minHeight='44px';b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){status(e.message);}finally{b.disabled=false;}};container.append(b);return b;};
+    const identity=field(label('公开分享身份（可复制给对方）','Public sharing identity (safe to exchange)'),'textarea');identity.readOnly=true;
+    action(label('显示我的公开身份','Show my public identity'),async()=>{identity.value=JSON.stringify(await call('content.private.identity',{}));});
+    action(label('轮换分享密钥','Rotate sharing key'),async()=>{identity.value=JSON.stringify(await call('content.private.rotate',{}));status(label('密钥已轮换；发送端恢复连接后会为有效分享重发。','Key rotated; connected senders can rekey active shares.'));});
+    const alias=field(label('联系人别名','Contact alias')),peer=field(label('已配置节点别名（同一节点留空）','Configured peer alias (empty for this node)')),publicIdentity=field(label('对方的公开身份 JSON','Recipient public identity JSON'),'textarea');
+    const syncLabel=el('label',label('允许与此联系人同步阅读进度（双方都需开启）','Synchronize reading progress with this contact (mutual consent)')),sync=el('input');sync.type='checkbox';syncLabel.prepend(sync);container.append(syncLabel);
+    action(label('保存联系人','Save contact'),async()=>{await call('content.private.contact',{alias:alias.value,identity:JSON.parse(publicIdentity.value),peer:peer.value,sync:sync.checked});status(label('联系人已保存','Contact saved'));});
+    const days=field(label('分享有效天数（1—90）','Share lifetime in days (1–90)'));days.type='number';days.min='1';days.max='90';days.value='7';
+    const grant=field(label('分享编号','Share ID'));
+    action(label('加密分享这本书','Share this book privately'),async()=>{const d=Number(days.value);if(!Number.isInteger(d)||d<1||d>90)throw Error(label('请输入 1—90 天','Choose 1–90 days'));const result=await call('content.private.share',{source:id,contact:alias.value,expires:Math.floor(Date.now()/1000)+d*86400});grant.value=result.id;const step=await call('content.private.step',{id:result.id});status(label('分享已保存，后台会继续加密和分发：','Share saved; background delivery continues: ')+step.state);});
+    action(label('继续加密','Continue encryption'),async()=>{const result=await call('content.private.step',{id:grant.value});status(result.state);});
+    action(label('撤销分享','Revoke share'),async()=>{await call('content.private.revoke',{id:grant.value});status(label('分享已撤销','Share revoked'));});
+    action(label('重新加密并分发','Rekey and deliver'),async()=>{await call('content.private.rekey',{id:grant.value});status(label('已安排重新加密','Rekey scheduled'));});
+    const inbox=el('section');container.append(inbox);
+    action(label('刷新收到的分享','Refresh received shares'),async()=>{const result=await call('content.private.inbox',{});inbox.replaceChildren();for(const item of result.items){const row=el('div',item.id+' · '+item.sender+' · '+item.state);if(item.state==='ready'){const b=el('button',label('校验并下载','Verify and download'));b.type='button';b.style.minHeight='44px';b.onclick=async()=>{b.disabled=true;try{const meta=await call('content.private.read',{id:item.id,position:-1});if(meta.kind!=='object'||meta.object.size>16*1024*1024)throw Error(label('浏览器下载上限 16 MiB；较大文件请使用分块 API','Browser limit is 16 MiB; use the chunk API for larger files'));const parts=[];for(let p=0;p<Math.ceil(meta.object.size/16384);p++){const chunk=await call('content.private.read',{id:item.id,position:p});parts.push(Uint8Array.from(atob(chunk.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts,{type:'application/octet-stream'});if(await ZioktApplicationClient.digest(await blob.arrayBuffer())!==meta.object.digest)throw Error('OBJECT_INTEGRITY');const a=el('a',label('保存文件','Save file')),url=URL.createObjectURL(blob);a.href=url;a.download=meta.record?.title||'private-content.bin';row.append(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},60000);}catch(e){status(e.message);}finally{b.disabled=false;}};row.append(b);}inbox.append(row);}});
+    action(label('回收已撤销的密文缓存','Collect revoked ciphertext'),async()=>{const result=await call('content.private.gc',{grace:14*86400});status(label('已删除密文文件：','Ciphertext files removed: ')+result.ciphertext_files_removed);});
+    container.append(el('p',label('本节点与接收节点是加密端点。撤销阻止后续读取，已由接收方保存的内容无法远程收回。','This node and the recipient node are encryption endpoints. Revocation stops future reads; copies already saved by a recipient cannot be recalled.')));
   }
 };

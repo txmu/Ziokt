@@ -94,6 +94,8 @@ class PersonalLibrary:
         nonce = secrets.token_bytes(12)
         sealed = nonce + AESGCM(self._key(owner)).encrypt(nonce, plain, self._aad(owner, kind, id, book, version))
         self.db.execute('INSERT OR REPLACE INTO library_personal VALUES(?,?,?,?,?,?,?)', (owner, kind, id, book, version, 0, sealed))
+        from .content_private import PrivateFabric
+        PrivateFabric(self.fabric).record_reading(owner,'personal.'+kind,id,{'book':book,'body':body,'deleted':False})
         self.fabric._audit(owner, 'library.' + kind + '.save', id)
         return {'id': id, 'book': book, 'revision': version, **body}
 
@@ -129,6 +131,8 @@ class PersonalLibrary:
                 raise ValueError('personal revision conflict')
             # Own notes can be removed even after access to their source is revoked.
             self.db.execute('UPDATE library_personal SET revision=?,deleted=1,body=? WHERE owner=? AND kind=? AND id=?', (revision+1, b'', owner, kind, id))
+            from .content_private import PrivateFabric
+            PrivateFabric(self.fabric).record_reading(owner,'personal.'+kind,id,{'book':row['book'],'body':{},'deleted':True})
             if kind == 'collection':
                 self.db.execute('DELETE FROM library_collection_members WHERE owner=? AND collection=?', (owner,id))
             self.fabric._audit(owner, 'library.' + kind + '.delete', id)
@@ -187,4 +191,8 @@ class PersonalLibrary:
                 self.db.execute('INSERT INTO library_collection_members VALUES(?,?,?)',(owner,id,book))
             elif action=='remove':
                 self.db.execute('DELETE FROM library_collection_members WHERE owner=? AND collection=? AND book=?',(owner,id,book))
+            from .content_private import PrivateFabric
+            import hashlib
+            target=hashlib.sha256((id+'\0'+book).encode()).hexdigest()
+            PrivateFabric(self.fabric).record_reading(owner,'collection.member',target,{'collection':id,'book':book,'present':action=='add'})
             return self._save(owner,'collection',id,'',body,revision)

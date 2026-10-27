@@ -44,6 +44,10 @@ def endorse(command,key):
 
 
 def endorsements(command,proofs):
+    return verify_endorsements(command_bytes(command),proofs)
+
+
+def verify_endorsements(message,proofs):
     require(type(proofs) is list and 0<len(proofs)<=512,'bounded endorsements')
     voters={}
     for proof in proofs:
@@ -51,7 +55,7 @@ def endorsements(command,proofs):
         pem=proof['public_key'];member=identity(pem)
         require(member not in voters,'duplicate member vote')
         require(type(proof['signature'])is str and 16<=len(proof['signature'])<=144,'bounded signature')
-        serialization.load_pem_public_key(pem.encode()).verify(bytes.fromhex(proof['signature']),command_bytes(command),ec.ECDSA(hashes.SHA256()))
+        serialization.load_pem_public_key(pem.encode()).verify(bytes.fromhex(proof['signature']),message,ec.ECDSA(hashes.SHA256()))
         voters[member]=pem
     return voters
 
@@ -73,10 +77,11 @@ def apply(state,command,proofs):
     require(len(coops)<=10000,'cooperative registry budget')
     if action=='create':
         require(cid not in coops and len(coops)<10000 and command['sequence']==1 and set(args)=={'members'},'new cooperative')
-        require(type(args['members'])is list and 1<=len(args['members'])<=256,'founding member budget')
+        require(type(args['members'])is list and 1<=len(args['members'])<=128,'founding member budget')
         members={identity(pem):pem for pem in args['members']}
         require(len(members)==len(args['members']) and members==voters,'all founding members must consent')
         coops[cid]={'charter':copy.deepcopy(CHARTER),'members':members,'sequence':1,'federations':[]}
+        require(len(encoded(result))<=4*1024*1024,'cooperative state byte budget')
         return result
     require(cid in coops,'known cooperative');coop=coops[cid]
     require(coop['charter']==CHARTER and command['sequence']==coop['sequence']+1,'charter or sequence mismatch')
@@ -88,7 +93,7 @@ def apply(state,command,proofs):
         quorum(coop['members'],voters)
         if action=='admit':
             require(set(args)=={'public_key'},'admission fields');new=identity(args['public_key'])
-            require(new not in coop['members'] and new in voters and len(coop['members'])<256,'new member consent/budget')
+            require(new not in coop['members'] and new in voters and len(coop['members'])<128,'new member consent/budget')
             coop['members'][new]=args['public_key']
         else:
             require(set(args)=={'partner'} and type(args['partner'])is str and args['partner'] in coops
@@ -106,4 +111,5 @@ def apply(state,command,proofs):
             # Federation never combines member lists, identities or authority.
         coop['federations'].sort()
     coop['sequence']=command['sequence']
+    require(len(encoded(result))<=4*1024*1024,'cooperative state byte budget')
     return result

@@ -167,7 +167,10 @@ class Fabric:
         os.chmod(path,0o600)
 
     def close(self):
-        with self.lock:self.db.close()
+        with self.lock:
+            scanner=getattr(self,'_private_gc_scan',None)
+            if scanner is not None:scanner.close()
+            self.db.close()
 
     @contextmanager
     def transaction(self):
@@ -595,6 +598,10 @@ class Fabric:
             row=self.db.execute('SELECT * FROM records WHERE id=?',(record,)).fetchone()
             if row is None or row['owner']!=owner or row['origin']!=self.public:raise PermissionError('withdrawal authority')
             if row['deleted']:return {'id':record,'deleted':True,'duplicate':True}
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cf_private_shares'").fetchone():
+                from .content_private import PrivateFabric
+                private=PrivateFabric(self)
+                for grant in self.db.execute("SELECT id FROM cf_private_shares WHERE owner=? AND source=? AND state<>'revoked'",(owner,record)).fetchall():private.revoke(owner,grant[0])
             result=self._event(owner,row['kind'],record,{},row['visibility'],True)
             return {**result,'deleted':True}
 
@@ -672,6 +679,8 @@ class Fabric:
                 if not row and self.db.execute('SELECT count(*) FROM news_readstate WHERE owner=?',(owner,)).fetchone()[0]>=100000:raise ValueError('readstate quota')
                 version+=1;current=is_read
                 self.db.execute('INSERT OR REPLACE INTO news_readstate VALUES(?,?,?,?)',(owner,article,int(current),version))
+                from .content_private import PrivateFabric
+                PrivateFabric(self).record_reading(owner,'news',article,{'is_read':current})
             return {'article':article,'is_read':current,'revision':version}
 
     def state(self, owner, kind, target, settings=None):
@@ -682,6 +691,9 @@ class Fabric:
             if settings is not None:
                 if not isinstance(settings,dict) or len(encoded(settings))>8192:raise ValueError('settings budget')
                 self.db.execute('INSERT OR REPLACE INTO subscriptions VALUES(?,?,?,?)',(owner,kind,target,encoded(settings)))
+                if kind=='reader':
+                    from .content_private import PrivateFabric
+                    PrivateFabric(self).record_reading(owner,'reader',target,settings)
             row=self.db.execute('SELECT settings FROM subscriptions WHERE owner=? AND kind=? AND target=?',(owner,kind,target)).fetchone()
             return {'kind':kind,'target':target,'settings':json.loads(row[0]) if row else {}}
 
@@ -723,12 +735,12 @@ class Fabric:
             candidates = self.db.execute("""
                 SELECT o.id, o.owner, o.metadata 
                 FROM objects o
-                WHERE NOT EXISTS (
+                WHERE EXISTS(SELECT 1 FROM locations l WHERE l.local=o.id AND l.verified<?) AND NOT EXISTS (
                     SELECT 1 FROM content_references c JOIN records r ON r.id=c.record
                     WHERE c.object=o.id AND r.deleted=0 AND (r.expires=0 OR r.expires>?) AND c.role NOT IN ('build-cache')
                 )
                 ORDER BY o.rowid ASC
-            """, (now,)).fetchall()
+            """, (now-86400,now)).fetchall()
             for cand in candidates:
                 if reclaimed_bytes >= needed_bytes:
                     break
@@ -748,25 +760,18 @@ class Fabric:
         }
 
     def prune(self, owner=None, target_bytes=None, max_age_days=14):
+        if owner is None:raise PermissionError('account-scoped garbage collection required')
+        ident(owner)
+        if type(max_age_days)is not int or not 0<=max_age_days<=365 or (target_bytes is not None and (type(target_bytes)is not int or target_bytes<0)):raise ValueError('garbage collection budget')
+        from .content_private import PrivateFabric
+        expired=self.collect_uploads(owner)
+        collected=PrivateFabric(self).collect(owner,max_age_days*86400)
         with self.lock:
-            result = self._auto_prune(needed_bytes=target_bytes or 0)
-            now = int(time.time())
-            cutoff = now - (max_age_days * 86400)
-            self.db.execute('DELETE FROM audit WHERE at < ?', (cutoff,))
-            self.db.execute('DELETE FROM rates WHERE window < ?', (cutoff,))
-            free = shutil.disk_usage(self.root).free
-            used = self.db.execute("SELECT coalesce(sum(((json_extract(metadata,'$.size')+16383)/16384)*32768),0) FROM uploads").fetchone()[0]
-            return {
-                'schema': 'ziokt.content-prune.v1',
-                'pruned_uploads': result['pruned_uploads'],
-                'expired_records': result['expired_records'],
-                'cleaned_downloads': result['cleaned_downloads'],
-                'evicted_objects': result['evicted_objects'],
-                'reclaimed_bytes': result['reclaimed_bytes'],
-                'disk_free': free,
-                'reserved_upload_bytes': used,
-                'quota_bytes': self.quota
-            }
+            used=self.db.execute("SELECT coalesce(sum(json_extract(metadata,'$.size')),0) FROM uploads WHERE owner=?",(owner,)).fetchone()[0]
+        return {'schema':'ziokt.content-prune.v1','pruned_uploads':expired['expired_uploads'],
+                'expired_records':0,'cleaned_downloads':0,'evicted_objects':collected['objects_released'],
+                'reclaimed_bytes':None,'disk_free':shutil.disk_usage(self.root).free,
+                'reserved_upload_bytes':used,'quota_bytes':self.quota,**collected}
 
     def replica_health(self, owner='@anonymous'):
         with self.lock:
@@ -779,7 +784,11 @@ class Fabric:
             }
             locations_count = self.db.execute('SELECT count(*) FROM locations').fetchone()[0]
             objects_count = self.db.execute('SELECT count(*) FROM objects').fetchone()[0]
-            healthy = (replication_stats['failed'] == 0)
+            checked=degraded=0
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cf_replica_checks'").fetchone():
+                checked=self.db.execute("SELECT count(*) FROM cf_replica_checks WHERE state='healthy'").fetchone()[0]
+                degraded=self.db.execute("SELECT count(*) FROM cf_replica_checks WHERE state='degraded'").fetchone()[0]
+            healthy = (replication_stats['failed'] == 0 and degraded==0 and checked==objects_count)
             return {
                 'schema': 'ziokt.content-replica-health.v1',
                 'peers_configured': peers_count,
@@ -787,42 +796,28 @@ class Fabric:
                 'replication': replication_stats,
                 'locations_mapped': locations_count,
                 'total_objects': objects_count,
+                'verified_replica_objects':checked,'degraded_replica_objects':degraded,
+                'objects_pending_verification':max(0,objects_count-checked-degraded),
                 'healthy': healthy
             }
 
     def auto_repair(self, owner='@anonymous'):
+        ident(owner)
+        from .content_maintenance import ContentMaintenance
+        worker=ContentMaintenance(self,{})
         with self.lock:
-            retried_replications = self.db.execute("UPDATE replication SET state='pending', error='' WHERE state='failed'").rowcount
-            retried_downloads = self.db.execute("UPDATE downloads SET state='pending', error='' WHERE state='failed'").rowcount
-            cleaned_refs = self.db.execute("""
-                DELETE FROM content_references 
-                WHERE record NOT IN (SELECT id FROM records) 
-                   OR object NOT IN (SELECT id FROM objects UNION SELECT remote FROM locations)
-            """).rowcount
-            verified_objects = 0
-            corrupted_objects = []
-            objects_to_check = self.db.execute("SELECT id, owner, metadata FROM objects ORDER BY rowid DESC LIMIT 128").fetchall()
-            for obj in objects_to_check:
-                try:
-                    res = self.verify_object(obj['owner'], obj['id'])
-                    if res.get('verified'):
-                        verified_objects += 1
-                    else:
-                        corrupted_objects.append(obj['id'])
-                except Exception as exc:
-                    corrupted_objects.append({'id': obj['id'], 'error': str(exc)})
-            db_check = self.db.execute('PRAGMA quick_check').fetchone()[0]
-            status = 'repaired' if len(corrupted_objects) == 0 and db_check == 'ok' else 'degraded'
-            return {
-                'schema': 'ziokt.content-auto-repair.v1',
-                'retried_replications': retried_replications,
-                'retried_downloads': retried_downloads,
-                'cleaned_orphaned_references': cleaned_refs,
-                'verified_objects': verified_objects,
-                'corrupted_objects': len(corrupted_objects),
-                'database_check': db_check,
-                'status': status
-            }
+            rows=self.db.execute('SELECT * FROM objects WHERE owner=? ORDER BY rowid LIMIT 8',(owner,)).fetchall()
+        verified=corrupt=0
+        for row in rows:
+            try:
+                result=worker._verify_replica(row)
+                if result['state']=='healthy':verified+=1
+            except (ValueError,OSError,PermissionError):corrupt+=1
+        with self.lock:integrity=self.db.execute('PRAGMA quick_check').fetchone()[0]
+        return {'schema':'ziokt.content-auto-repair.v1','verified_objects':verified,
+                'corrupted_objects':corrupt,'database_check':integrity,
+                'status':'repaired' if corrupt==0 and integrity=='ok' and verified==len(rows) else 'degraded' if corrupt else 'checking',
+                'retried_replications':0,'retried_downloads':0,'cleaned_orphaned_references':0}
 
     def objects(self,owner,limit=30,offset=0):
         if type(limit) is not int or not 1<=limit<=100 or type(offset) is not int or not 0<=offset<=100000:raise ValueError('object pagination')
@@ -862,8 +857,11 @@ class Fabric:
         with self.transaction():
             row=self.db.execute('SELECT * FROM objects WHERE id=? AND owner=?',(oid,owner)).fetchone()
             if row is None:raise PermissionError('owned object required')
-            retained=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE c.object=? AND r.owner=? AND r.origin=? AND r.deleted=0 AND (r.expires=0 OR r.expires>?) LIMIT 1",(oid,owner,self.public,int(time.time()))).fetchone()
+            retained=self.db.execute("SELECT 1 FROM content_references c JOIN records r ON r.id=c.record WHERE (c.object=? OR c.object IN(SELECT remote FROM locations WHERE local=?)) AND r.deleted=0 AND (r.expires=0 OR r.expires>?) LIMIT 1",(oid,oid,int(time.time()))).fetchone()
             if retained:raise ValueError('withdraw local application references before releasing object')
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cf_private_share_objects'").fetchone():
+                grant=self.db.execute("SELECT 1 FROM cf_private_share_objects o JOIN cf_private_shares s ON s.id=o.id WHERE o.object=? AND s.state<>'revoked' AND s.expires>?",(oid,int(time.time()))).fetchone()
+                if grant:raise ValueError('revoke private grants before releasing object')
             with self.store(owner) as store:
                 if store.db.execute('SELECT 1 FROM pins WHERE object=?',(row['reference'],)).fetchone():raise ValueError('other application retains object')
                 leases=[entry[0] for entry in store.db.execute("SELECT id FROM uploads WHERE object=? AND state='complete'",(row['reference'],))]

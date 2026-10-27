@@ -1,36 +1,38 @@
-# Cooperative consensus integration (2026-10-26)
+# 合作社共识与资产授权
 
-**Release audit status: not cleared for production activation.** The registry
-consensus paths below are integrated, but cooperative asset authorization and
-production DNA/mainnet activation remain release blockers.
+合作社命令、交易准入、区块验证、历史重放、分叉重组和本地出块共享
+`cooperative_consensus.py` 的状态转换。`cooperative_registry` 的检查点必须匹配
+规范链区块哈希和状态根；被重组移除的检查点重新从规范历史构建。重放会初始化
+并重建合作社资产序号、票据控制域和 ZKC 持有人表，清除孤块派生权限。
 
-`cooperative_command` now enters the native transaction pool only after the
-same signature, chain identity, previous state root, sequence, membership,
-quorum, and anti-takeover checks used by block validation. Local mining,
-incoming block validation, history replay, and fork reconstruction all call
-`_validate_single_transaction`; cooperative state is rebuilt from the canonical
-block prefix through the shared `cooperative_state_at` transition function.
-The persisted `cooperative_registry` row is a materialized checkpoint: reuse
-requires its canonical block hash and recomputed state root to match. Old,
-unanchored, or orphaned rows are discarded and rebuilt from history. At most
-one cooperative command is allowed in a block, preserving a single
-unambiguous pre-state for each command. `cooperative-state` reports the
-deterministic registry and root for a requested candidate height.
+合作社命令与合作社资产操作合计每块最多一个，所有执行路径使用相同限制。
+本地出块跳过对当前候选状态无效的待确认交易；不会因一个过期授权使交易池永久
+阻塞。主网/测试网的合作社身份绑定网络和 genesis，恢复网络绑定签署的恢复声明。
 
-The DNA explorer already exposes configured primary/DNA pairs through its
-read-only block, transaction, and RNA endpoints. An operator must configure
-both independent database paths and genesis pins in `explorer_networks`; source
-support alone does not activate a DNA chain or make the production browser show
-one.
+成员身份是一把规范公钥，不代表独立自然人。规则保留一身份一票、严格超过三分之二
+门槛、重复签名拒绝、禁止控制权出售/合并/成员资格转让/资本加权投票、独立结盟与
+单方退出。最多 128 名成员，以保持完整授权在原生交易的字节预算内。
 
-## Release boundary
+## 真实资产路径
 
-This integration does **not** authorize cooperative ownership or movement of
-ZKN/ZKC, shielded assets, or other ledger assets. Those existing asset paths
-still use their own owner/signature rules; the registry is not an asset lock.
-Do not describe cooperative asset protection as implemented until each asset
-creation, transfer, recovery, and replay path consumes cooperative authority
-inside the same native state transition. Likewise, a valid recovery declaration
-and synchronized primary/DNA databases are required before claiming mainnet DNA
-activation. This code change does not alter either production chain history or
-activation policy.
+每个合作社有由链身份和合作社 ID 派生的保管账户地址。普通持有人可以通过正常
+签名转账把 ZKN/ZKC 赠与该账户。之后转出、发行 ZKC、存入屏蔽池等操作须提供
+`cooperative_authorization`，绑定完整操作摘要、链身份、合作社状态根和递增资产序号。
+代发交易者的单一签名不能替代成员法定多数。原有持有人签名、铸造来源、nonce、
+守恒证明和 nullifier 校验继续执行。
+
+- ZKN 可在原始打包者签名与成员授权共同验证后直接铸入合作社账户。
+- ZKC 发行保存真正持有人；`zkc_transfer` 验证持有人和下一序号。重复发行不会重置
+  已有版本的持有人。
+- 合作社屏蔽票据在存入和后续转移时保留控制域。签名环中的票据必须属于同一控制域，
+  不能混入个人票据绕开合作社授权。转移/提现仍须实际 Ristretto 所有权与守恒证明。
+- 合作社票据的自愿披露同时要求成员授权和原有票据持有人同意，不提供万能解密钥匙。
+
+`cooperative.state` 返回登记状态根、资产状态根、保管地址和下一序号。
+`cooperative.asset.prepare` 产生待成员签署的精确命令；成员在自己的密钥保管端使用
+`asset_endorse` 签署。`cooperative.submit` 经显式原生操作权限提交完整签名交易，
+也可使用原生命令 `blockchain_create_transaction`。这些方法通过统一 MCP 目录公开。
+
+最新原生内核须在各验证节点同步部署。模型定理验证了明确写出的门槛、nonce、域和
+证明前提，不构成整个实现或密码学的完整形式化证明。最后一位成员退出后不会自动
+转让资产控制权；没有有效成员法定多数的合作社账户保持不可支出。

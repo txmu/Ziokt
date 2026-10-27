@@ -8,6 +8,16 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'content.private.identity':({},True),
+ 'content.private.rotate':({},True),
+ 'content.private.contact':({'alias':str,'identity':dict,'peer':str,'sync':bool},True),
+ 'content.private.share':({'source':str,'contact':str,'expires':int},True),
+ 'content.private.step':({'id':str},True),
+ 'content.private.revoke':({'id':str},True),
+ 'content.private.rekey':({'id':str},True),
+ 'content.private.read':({'id':str,'position':int},False),
+ 'content.private.inbox':({},False),
+ 'content.private.gc':({'grace':int},True),
  'content.ipfs.export':({'id':str},True),
  'content.ipfs.import':({'cid':str,'archive':str},True),
  'content.ipfs.fetch':({'cid':str,'source':str},True),
@@ -125,6 +135,21 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-optional_fields(operation))-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation.startswith('content.private.'):
+        from .content_private import PrivateFabric
+        private=PrivateFabric(fabric);action=operation.rsplit('.',1)[-1]
+        if action in {'identity','rotate'}:return private.identity(owner,action=='rotate')
+        if action=='contact':return private.contact(owner,args['alias'],args['identity'],args['peer'],args['sync'])
+        if action=='share':return private.create(owner,args['source'],args['contact'],args['expires'])
+        if action=='step':return private.step(owner,args['id'])
+        if action=='revoke':return private.revoke(owner,args['id'])
+        if action=='rekey':return private.rotate_share(owner,args['id'])
+        if action=='read':return private.read(owner,args['id'],args['position'])
+        if action=='gc':
+            if not 0<=args['grace']<=365*86400:raise ValueError('garbage collection grace')
+            return private.collect(owner,args['grace'])
+        if action=='inbox':
+            with fabric.lock:return {'items':[dict(r) for r in fabric.db.execute('SELECT id,node,sender,revision,state,expires FROM cf_private_inbox WHERE owner=? ORDER BY rowid DESC LIMIT 100',(owner,))]}
     if operation.startswith('content.ipfs.etp.'):
         adapter=getattr(fabric,'native_etp',None)
         if adapter is None:raise PermissionError('explicit native ETP adapter required')

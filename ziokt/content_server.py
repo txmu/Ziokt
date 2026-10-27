@@ -308,7 +308,21 @@ def server(fabric, config):
                 op,args=payload['operation'],payload['arguments']
                 scopes=principal['scopes'];owner=principal['account']
                 if principal.get('public') and op not in PUBLIC_READ_OPERATIONS:raise PermissionError('public identity is read-only')
-                if op=='federation.export':
+                if op.startswith('private.'):
+                    if 'content:replicate' not in scopes:raise PermissionError('private peer transport grant')
+                    from .content_private import PrivateFabric
+                    private=PrivateFabric(fabric)
+                    expected={'private.identity':{'account'},'private.status':{'id','challenge'},'private.packet':{'id','revision','position'},'private.deliver':{'envelope'}}
+                    if op not in expected or type(args)is not dict or set(args)!=expected[op]:raise ValueError('private transport fields')
+                    if op=='private.identity':
+                        if args['account'] not in {t['account'] for t in tokens}:raise PermissionError('local account identity unavailable')
+                        result=private.identity(args['account'])
+                    elif op=='private.status':result=private.status(args['id'],args['challenge'])
+                    elif op=='private.packet':result=private.packet(args['id'],args['revision'],args['position'])
+                    else:
+                        if args['envelope'].get('payload',{}).get('recipient') not in {t['account'] for t in tokens}:raise PermissionError('local recipient unavailable')
+                        result=private.deliver(args['envelope'])
+                elif op=='federation.export':
                     if 'content:replicate' not in scopes:raise PermissionError('peer grant')
                     if not isinstance(args,dict) or set(args)!={'after','challenge'}:raise ValueError('export fields')
                     ident(args['challenge'])
@@ -360,6 +374,8 @@ def main():
         if not isinstance(token['token'],str) or len(token['token'])<32:raise ValueError('strong application credential required')
     fabric=Fabric(config['root'],quota=config.get('quota',2*1024**3),peers={p['public_key']:{'groups':p.get('groups',[])} for p in peers.values()})
     http=server(fabric,config)
+    from .content_maintenance import ContentMaintenance
+    maintenance=ContentMaintenance(fabric,config.get('maintenance',{})).start() if config.get('maintenance',{}).get('enabled',True) else None
     nntp=[]
     if config.get('nntp_tls_bridge',{}).get('enabled'):
         bridge=config['nntp_tls_bridge']
@@ -373,6 +389,7 @@ def main():
     try:http.serve_forever()
     except KeyboardInterrupt:pass
     finally:
+        if maintenance:maintenance.close()
         http.server_close()
         for listener in nntp:listener.shutdown();listener.server_close()
         fabric.close()

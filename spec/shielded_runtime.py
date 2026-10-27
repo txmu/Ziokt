@@ -216,11 +216,12 @@ def zs_height(db): return int(db.execute('SELECT COALESCE(MAX(height),0) FROM bl
 
 
 def zs_testnet(network):
-    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'})):
+    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'})):
         raise ValueError('shielded consensus requires testnet or enabled mainnet activation')
 
 
-def zs_validate(db, network, kind, value, sender):
+def zs_validate(db, network, kind, value, sender, height=None):
+    parent_height=zs_height(db) if height is None else height-1
     zs_json(value)
     if kind not in ZS_TYPES: raise ValueError('unknown privacy transaction')
     if kind.startswith('zkn_shield_'):
@@ -241,7 +242,7 @@ def zs_validate(db, network, kind, value, sender):
             if not zs_exists(db, 'zkn_shield_notes') or not zs_exists(db, 'zkn_shield_images'):
                 raise ValueError('shielded pool not initialized')
             anchor = db.execute('SELECT height FROM blocks WHERE hash=?', (value['anchor'],)).fetchone()
-            if not anchor or not 1 <= zs_height(db)-anchor[0] <= 128: raise ValueError('mature canonical anchor required')
+            if not anchor or not 1 <= parent_height-anchor[0] <= 128: raise ValueError('mature canonical anchor required')
             ring = []
             for identifier in value['ring']:
                 zs_hex(identifier)
@@ -259,7 +260,7 @@ def zs_validate(db, network, kind, value, sender):
         if 'note' in value and zs_exists(db, 'zkn_shield_notes'):
             if db.execute('SELECT 1 FROM zkn_shield_notes WHERE note_id=? OR public_key=? OR commitment=?', (zs_note_id(value['note']), value['note']['public_key'],value['note']['commitment'])).fetchone(): raise ValueError('one-time note key reused')
         return
-    height = zs_height(db)
+    height = parent_height
     if kind == 'privacy_review_request':
         zs_exact(value, {'network_id', 'case_commitment', 'legal_basis_commitment', 'recipient_key', 'scope', 'expires_height', 'nonce'})
         if value['network_id'] != network: raise ValueError('review network mismatch')
@@ -287,7 +288,7 @@ def zs_validate(db, network, kind, value, sender):
         if not db.execute('SELECT 1 FROM privacy_electorate WHERE request_id=? AND voter=?', (value['request_id'], sender)).fetchone(): raise ValueError('only request-height electorate can vote')
         if db.execute('SELECT 1 FROM privacy_votes WHERE request_id=? AND voter=?', (value['request_id'], sender)).fetchone(): raise ValueError('review vote already cast')
     else:
-        if not zs_review_status(db, value['request_id'])['approved']: raise ValueError('review has no supermajority approval')
+        if not zs_review_status(db, value['request_id'],height)['approved']: raise ValueError('review has no supermajority approval')
         body = _zs_json.loads(row[1]); zs_hex(value['note_id'])
         if value['note_id'] not in body['scope']: raise ValueError('disclosure outside approved scope')
         if not zs_exists(db, 'zkn_shield_notes'): raise ValueError('unknown disclosure note')
@@ -312,18 +313,19 @@ def zs_schnorr_verify(public, value, proof, network):
     if zs_base(s) != zs_add(r,zs_mul(c,p)): raise ValueError('holder did not authorize disclosure')
 
 
-def zs_review_status(db, request_id):
+def zs_review_status(db, request_id, height=None):
+    height=zs_height(db) if height is None else height
     zs_hex(request_id)
     row = db.execute('SELECT expires,revoked FROM privacy_requests WHERE request_id=?',(request_id,)).fetchone()
     if not row: raise ValueError('unknown review request')
     total = db.execute('SELECT COALESCE(SUM(weight),0) FROM privacy_electorate WHERE request_id=?',(request_id,)).fetchone()[0]
     yes = db.execute("SELECT COALESCE(SUM(e.weight),0) FROM privacy_electorate e JOIN privacy_votes v USING(request_id,voter) WHERE e.request_id=? AND v.decision='approve'",(request_id,)).fetchone()[0]
-    live = not row[1] and zs_height(db) <= row[0]
-    return {'request_id':request_id,'approved':bool(live and total>0 and 3*yes>2*total),'expired':zs_height(db)>row[0], 'revoked':bool(row[1]),'approved_weight':yes,'total_weight':total,'automatic_decryption':False,'holder_consent_required':True}
+    live = not row[1] and height <= row[0]
+    return {'request_id':request_id,'approved':bool(live and total>0 and 3*yes>2*total),'expired':height>row[0], 'revoked':bool(row[1]),'approved_weight':yes,'total_weight':total,'automatic_decryption':False,'holder_consent_required':True}
 
 
-def zs_apply(db, network, kind, value, sender, tx_hash, height):
-    zs_validate(db,network,kind,value,sender); zs_tables(db)
+def zs_apply(db, network, kind, value, sender, tx_hash, height, validation_height=None):
+    zs_validate(db,network,kind,value,sender,validation_height); zs_tables(db)
     if kind == 'zkn_shield_deposit':
         db.execute('UPDATE zkn_tokens SET owner=? WHERE token_id=?', ('shielded-pool:v1',value['token_id']))
     if kind in {'zkn_shield_deposit','zkn_shield_transfer'}:
@@ -353,8 +355,8 @@ def zs_query(db, network, method, params):
                 'independently_audited':ZS_AUDITED,'mainnet_feature_enabled':ZS_MAINNET_ENABLED,
                 'self_review_report':ZS_SELF_REVIEW_REPORT,'third_party_audit_status':'not_evidenced',
                 'mainnet_governance_approval':'not_verified','cryptographic_security_verified':False,
-                'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),
-                'production_shielding_enabled':bool(ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),'universal_decryption_key':False,
+                'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}),
+                'production_shielding_enabled':bool(ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}),'universal_decryption_key':False,
                 'review_requires_supermajority':True,'disclosure_requires_holder_consent':True,
                 'transparent_entry_exit_observable':True,'authenticated_relayer_knows_caller':True,
                 'global_observer_resistance_guaranteed':False}

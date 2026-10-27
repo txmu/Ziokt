@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "health.challenge", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes", "zkn.shield.images")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes", "zkn.shield.images", "cooperative.state", "cooperative.asset.prepare")
 
 
 class ProtocolError(ValueError):
@@ -359,7 +359,7 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "cooperative.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
@@ -460,6 +460,12 @@ def validate_request(value, config):
         if 'cursor' in params and params['cursor']:
             try:zs_hex(params['cursor'])
             except ValueError:fail('INVALID_PARAMS','bounded privacy cursor required')
+    elif method.startswith('cooperative.'):
+        fields={'cursor','limit'} if method=='cooperative.state' else {'cooperative','type','payload'}
+        if (set(params)-fields if method=='cooperative.state' else set(params)!=fields):fail('INVALID_PARAMS','exact cooperative query fields required')
+        if method=='cooperative.state':
+            if type(params.get('cursor',''))is not str or len(params.get('cursor',''))>64 or type(params.get('limit',4))is not int or not 1<=params.get('limit',4)<=4:fail('INVALID_PARAMS','bounded cooperative state page required')
+        if method!='cooperative.state' and (type(params['cooperative'])is not str or type(params['type'])is not str or type(params['payload'])is not dict):fail('INVALID_PARAMS','cooperative operation types')
     elif method=='compute.challenge':
         if params not in ({},{'engine':'gimps'}):fail('INVALID_PARAMS','fixed zero or native GIMPS challenge selector required')
     elif method=='service.binding':
@@ -674,7 +680,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if (provider == "corium" and method != "service.binding") or (provider == "shadow6" and not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get"})],
+                              for method in METHODS if (provider == "corium" and method != "service.binding") or (provider == "shadow6" and not method.startswith(("zkt.","zkn.","zkc.","cooperative.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -738,6 +744,17 @@ def rpc(provider, root, network, config, stream):
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
+        elif method.startswith('cooperative.'):
+            if provider!='corium':fail('METHOD_UNSUPPORTED','cooperative authority belongs to Corium')
+            with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+                height=zs_height(db)+1;cc=_native_cooperative_consensus
+                if method=='cooperative.asset.prepare':
+                    params=request['params'];result=cc.asset_command(db,network,params['type'],params['payload'],params['cooperative'],height)
+                else:
+                    state=cc.state_at(db,network,height)
+                    params=request['params'];ids=[cid for cid in sorted(state['cooperatives']) if cid>params.get('cursor','')];page=ids[:params.get('limit',4)]
+                    result={'state':{**state,'cooperatives':{cid:state['cooperatives'][cid] for cid in page}},'state_root':_native_cooperative.state_root(state),'asset_state_root':cc.asset_state_root(db),
+                            'accounts':{cid:cc.account(state['chain'],cid) for cid in page},'next_nonces':{cid:cc.next_nonce(db,cid) for cid in page},'next_cursor':page[-1] if len(ids)>len(page) else None,'root_scope':'complete canonical registry; state is paginated'}
         elif method in {'identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact'}:
             if provider!='corium': fail('METHOD_UNSUPPORTED','native chain assets belong to Corium')
             result=asset_query(root,network,method,request['params'])

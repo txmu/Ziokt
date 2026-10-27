@@ -17,7 +17,9 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--artifacts',type=Path,required=True);p.add_argument('--output',type=Path,required=True);args=p.parse_args();out=args.output;out.mkdir(parents=True,exist_ok=True)
     package='com.ziokt.effort';checks=[]
     def nodes():
-        adb('shell','uiautomator','dump','/sdcard/effort-ui.xml');raw=adb('shell','cat','/sdcard/effort-ui.xml');(out/'last-ui.xml').write_text(raw);return list(ET.fromstring(raw).iter('node'))
+        adb('shell','uiautomator','dump','/sdcard/effort-ui.xml');raw=adb('shell','cat','/sdcard/effort-ui.xml')
+        if len(raw)>1024*1024 or '<!DOCTYPE' in raw.upper() or '<!ENTITY' in raw.upper():raise ValueError('bounded entity-free UI XML required')
+        (out/'last-ui.xml').write_text(raw);return list(ET.fromstring(raw).iter('node'))
     def tap(text):
         # Settings can scroll on smaller/large-font devices; start/stop stay pinned.
         width,height=map(int,re.findall(r'(\d+)x(\d+)',adb('shell','wm','size'))[-1])

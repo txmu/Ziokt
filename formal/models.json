@@ -37,18 +37,22 @@
     "Content.lean": {
       "namespace": "Ziokt.Content",
       "source_sha256": {
-        "ziokt/chunkstore.py": "9cddc14d4868669a2be600a5ba8d61ce832ef626eda5fc4f8dc4dbd56fca8aff",
-        "ziokt/content_fabric.py": "330d02e5c0098d5f6ae55061c4cf2ffe9bbf6f86536417b881e4f670d1b7eb74",
+        "ziokt/chunkstore.py": "a08a740242cd6a70970053787be7fc536f9d92782c3d524a3a4129244c2d849e",
+        "ziokt/content_fabric.py": "4975d41c74e023d08cf4cbdb9d26e10a5a9e1307447a1626a04f0aad1d3fd8c6",
         "ziokt/content_rights.py": "0613d4a707da3e897941e5936eee3892d38a08b6fbd2b6b26d65c76857021fb2",
         "formal/contracts.json": "04f2b025d48296a69e1aceb17998e12a2eabf7de8b6bf97e37c337ce7de27fef",
         "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
         "ziokt/_verified_guards.py": "bee12530372896fb029389b2c93a117a16af6e19c3dac71b1832c9e8f13b331f",
-        "ziokt/naming_community.py": "04bd0d145af60df505a1d72c4100b6ea6c16b71a5212630f467f5ff85052e2d7"
+        "ziokt/naming_community.py": "04bd0d145af60df505a1d72c4100b6ea6c16b71a5212630f467f5ff85052e2d7",
+        "ziokt/content_private.py": "a65e8ba6669720e44e5a45dafa703d240e5b6959a928e1db146d5c2a6e44bffa",
+        "ziokt/content_maintenance.py": "2183e0ae923b2d4160ccd3a2ef286a374e2e9a369e125a9262da6e3a1deca002"
       },
       "regressions": [
         "tests/test_chunkstore.py",
         "tests/test_content_fabric.py",
-        "tests/test_content_rights.py"
+        "tests/test_content_rights.py",
+        "tests/test_content_private.py",
+        "tests/test_cooperative_assets.py"
       ]
     },
     "Release.lean": {

@@ -167,6 +167,11 @@ def main():
     parser.add_argument("--corium", type=Path, default=ROOT.parent / "Corium")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    def namespace(name,source):
+        source=source.replace('import dna_protocol as DNA','DNA=_native_dna')
+        source=source.replace('from dna_protocol import encoded, require, integer, public_key','encoded,require,integer,public_key=_native_dna.encoded,_native_dna.require,_native_dna.integer,_native_dna.public_key')
+        source=source.replace('import cooperative_protocol as Cooperative','Cooperative=_native_cooperative').replace('import recovery_consensus as Recovery','Recovery=_native_recovery')
+        return 'def _load_'+name+'():\n'+textwrap.indent(source,'    ')+'\n    return locals()\n'+name+'=__import__("types").SimpleNamespace(**_load_'+name+'())\n'
     runtime = (ROOT / "spec/provider_runtime.py").read_text()
     operations = (ROOT / "spec/operation_runtime.py").read_text()
     runtime += '\n' + operations
@@ -178,6 +183,10 @@ def main():
     gimps_library=gimps_runtime.split("\nif __name__ == '__main__':",1)[0]
     runtime+='\ndef _load_native_gimps():\n'+textwrap.indent(gimps_library,'    ')+'\n    return locals()\n_native_gimps=__import__("types").SimpleNamespace(**_load_native_gimps())\n'
 
+    cooperative_sources={name:(ROOT/'spec'/name).read_text() for name in ('dna_protocol.py','cooperative_protocol.py','recovery_consensus.py','cooperative_consensus.py')}
+    cooperative_embedded=''.join(namespace(name,cooperative_sources[file]) for name,file in
+        (('_native_dna','dna_protocol.py'),('_native_cooperative','cooperative_protocol.py'),('_native_recovery','recovery_consensus.py'),('_native_cooperative_consensus','cooperative_consensus.py')))
+    runtime += '\n'+cooperative_embedded
     shielded_runtime=(ROOT / 'spec/shielded_runtime.py').read_text()
     shielded_target=args.corium/'shielded_ownership.py'
     runtime += '\n' + shielded_runtime
@@ -244,10 +253,10 @@ def main():
         updated=updated.replace(mint_anchor,mint_anchor+mint_hook,1)
     privacy_admission_anchor = '    # Store the complete transaction details in the local database.\n'
     updated = updated.replace('zkn_shield_*|privacy_review_*) tx_data=$(jq -cS .',
-                              'zkn_shield_*|privacy_review_*|zkn_transfer|zkn_private_transfer|zkc_issue) tx_data=$(jq -cS .')
+                              'zkn_shield_*|privacy_review_*|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkc_transfer|cooperative_command) tx_data=$(jq -cS .')
     privacy_admission_hook = '''    # Native signed assets use the same atomic admission as MCP/native plans.
     case "$tx_type" in
-        zkn_shield_*|privacy_review_*|zkn_transfer|zkn_private_transfer|zkc_issue)
+        zkn_shield_*|privacy_review_*|zkn_mint|zkn_transfer|zkn_private_transfer|zkc_issue|zkc_transfer|cooperative_command)
             local privacy_tx
             privacy_tx=$(jq -cn --arg type "$tx_type" --argjson data "$tx_data" --argjson ts "$timestamp" --arg pk "$public_key" --arg sig "$signature" '{type:$type,data:$data,timestamp:$ts,public_key:$pk,signature:$sig}') || return 1
             _ziokt_asset_engine submit-asset "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$CORIUM_ROOT" "$privacy_tx" || return 1
@@ -299,17 +308,14 @@ PY_CORIUM_OPENCI_CONSENSUS
     dna_runtime=(ROOT/'spec/dna_protocol.py').read_text()
     cooperative_runtime=(ROOT/'spec/cooperative_protocol.py').read_text()
     recovery_runtime=(ROOT/'spec/recovery_consensus.py').read_text()
-    extra_work_sources={'dna_protocol.py':dna_runtime,'cooperative_protocol.py':cooperative_runtime,'recovery_consensus.py':recovery_runtime}
-    def namespace(name,source):
-        source=source.replace('import dna_protocol as DNA','DNA=_native_dna')
-        source=source.replace('from dna_protocol import encoded, require, integer, public_key','encoded,require,integer,public_key=_native_dna.encoded,_native_dna.require,_native_dna.integer,_native_dna.public_key')
-        return 'def _load_'+name+'():\n'+textwrap.indent(source,'    ')+'\n    return locals()\n'+name+'=__import__("types").SimpleNamespace(**_load_'+name+'())\n'
-    recovery_embedded=namespace('_native_dna',dna_runtime)+namespace('_native_cooperative',cooperative_runtime)+namespace('_native_recovery',recovery_runtime)
-    recovery_embedded+='DNA,Cooperative,Recovery=_native_dna,_native_cooperative,_native_recovery\n'
+    extra_work_sources=cooperative_sources
+    cooperative_consensus_runtime=cooperative_sources['cooperative_consensus.py']
+    recovery_embedded=cooperative_embedded
+    recovery_embedded+='DNA,Cooperative,Recovery,CooperativeConsensus=_native_dna,_native_cooperative,_native_recovery,_native_cooperative_consensus\n'
     work_target=args.corium/'work_consensus.py';work_policy_target=args.corium/'work_weight_policy.py'
-    work_digest=hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(value.encode()for value in (work_runtime,work_policy,dna_runtime,recovery_runtime,cooperative_runtime))).hexdigest()
+    work_digest=hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(value.encode()for value in (work_runtime,work_policy,dna_runtime,recovery_runtime,cooperative_runtime,cooperative_consensus_runtime))).hexdigest()
     work_embedded=work_runtime.replace('EMBEDDED_SOURCE_DIGEST = None','EMBEDDED_SOURCE_DIGEST = '+repr(work_digest),1)
-    for line in ('import dna_protocol as DNA','import recovery_consensus as Recovery','import cooperative_protocol as Cooperative'):
+    for line in ('import dna_protocol as DNA','import recovery_consensus as Recovery','import cooperative_protocol as Cooperative','import cooperative_consensus as CooperativeConsensus'):
         work_embedded=work_embedded.replace(line,'')
     work_embedded=work_embedded.replace('from work_weight_policy import validate,commitment,verify_work,work_digest,integer,encoded,MAX_WEIGHT','')
     work_embedded=work_embedded.replace("if __name__=='__main__':main(__import__('sys').argv[1:])",'')
@@ -342,6 +348,9 @@ PY_CORIUM_WORK_CONSENSUS
     if args.check:
         mismatches = []
         if (ROOT/'spec/gimps_consensus.py').read_text()!=gimps_runtime:mismatches.append('spec/gimps_consensus.py')
+        for name,expected in extra_work_sources.items():
+            target_source=args.corium/name
+            if not target_source.is_file() or target_source.read_text()!=expected:mismatches.append(str(target_source))
         for name,expected in extra_work_sources.items():
             path=args.corium/name
             if not path.is_file()or path.read_text()!=expected:mismatches.append(str(path))

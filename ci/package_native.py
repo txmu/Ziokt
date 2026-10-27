@@ -27,18 +27,32 @@ with tarfile.open(dist / "shadow6-ziokt.tar.gz", "w:gz") as archive:
 # its build admission, not a claim that the script became a compiled executable.
 (dist / "corix-ziokt.sh").write_bytes((c / "corix_v108.sh").read_bytes())
 (dist / "corix-ziokt.sh").chmod(0o755)
+(dist / 'corix_v108.sh').write_bytes((c/'corix_v108.sh').read_bytes())
+(dist / 'corix_v108.sh').chmod(0o755)
 # Public verification/hold tools must accompany the native single-file runtime.
 # A node cannot review and release its history hold using an absent sidecar.
 runtime=dist/'corium-runtime';runtime.mkdir(exist_ok=True)
 for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
              'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
              'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
-             'dna_protocol.py','cooperative_protocol.py','shielded_ownership.py','gimps_consensus.py'):
+             'dna_protocol.py','cooperative_protocol.py','cooperative_consensus.py','shielded_ownership.py','gimps_consensus.py'):
     source=c/name
     if source.is_symlink() or not source.is_file():raise ValueError('native verification source missing: '+name)
     (runtime/name).write_bytes(source.read_bytes())
+(runtime/'deploy_dna_sidechain.py').write_bytes((root/'tools/deploy_dna_sidechain.py').read_bytes())
 def digest(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 manifest = {str(p.relative_to(dist)): {"bytes": p.stat().st_size, "sha256": digest(p)}
             for p in dist.rglob('*') if p.is_file() and p != dist/'manifest.json'}
 (dist / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+required=['ziokt.pyz','openci.pyz','corix_v108.sh','corium-runtime/gimps_consensus.py',
+          'corium-runtime/cooperative_consensus.py','corium-runtime/cooperative_protocol.py']
+if any(not (dist/name).is_file() for name in required):raise ValueError('incomplete independent node release')
+(dist/'native-release.json').write_text(json.dumps({'schema':'ziokt.native-release.v1',
+    'source_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+    'native_sources':json.loads((root/'native-sources.lock.json').read_text()),
+    'required_files':{name:manifest[name] for name in required},
+    'publication_requires':'all exact-revision CI workflows and all three formal workflows passed'},indent=2)+'\n')
+manifest = {str(p.relative_to(dist)): {'bytes':p.stat().st_size,'sha256':digest(p)}
+            for p in dist.rglob('*') if p.is_file() and p!=dist/'manifest.json'}
+(dist/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

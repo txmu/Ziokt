@@ -154,6 +154,28 @@ class ChunkStore:
             raise ProtocolError('CHUNK_INTEGRITY','stored chunk failed verification')
         return data
 
+    def repair_chunk(self, obj, position, data):
+        """Replace a damaged ciphertext using its existing committed digest."""
+        if type(position)is not int or position<0 or not isinstance(data,bytes) or not 1<=len(data)<=CHUNK_BYTES:
+            raise ProtocolError('INVALID_CHUNK','bounded repair chunk required')
+        with self.db:
+            self._lock()
+            row=self.db.execute('SELECT c.tag,c.digest,c.size,c.sealed_size FROM members m JOIN chunks c ON c.tag=m.tag WHERE m.object=? AND m.position=?',(obj,position)).fetchone()
+            if not row or row[1]!='sha256:'+hashlib.sha256(data).hexdigest() or row[2]!=len(data):
+                raise ProtocolError('CHUNK_INTEGRITY','repair differs from the committed local chunk')
+            sealed=self.vault.seal('chunk',data)
+            used=self.db.execute('SELECT total FROM usage WHERE id=1').fetchone()[0]
+            if used-row[3]+len(sealed)>self.disk_bytes:raise ProtocolError('STORAGE_QUOTA','repair storage quota')
+            import secrets
+            temp=self.data/(row[0]+'.repair-'+secrets.token_hex(8))
+            try:
+                write_binary_exclusive(temp,sealed);os.replace(temp,self.data/row[0]);self._sync_data()
+            finally:
+                if temp.exists():temp.unlink()
+            self.db.execute('UPDATE chunks SET sealed_size=? WHERE tag=?',(len(sealed),row[0]))
+            self.db.execute('UPDATE usage SET total=total+? WHERE id=1',(len(sealed)-row[3],))
+        return {'repaired':True,'position':position}
+
     def finish(self, upload):
         with self.db:
             self._lock()

@@ -24,7 +24,7 @@ LATEST='2026-07-28'
 VERSIONS=(LATEST,'2025-11-25','2025-06-18','2025-03-26')
 BRIDGE_READ={'package.verify.references','object.status','object.reference','object.chunk.get','component.status','component.health','ano.laws','ano.calculate','ano.defence','ano.evaluate','vault.get','tri.get','package.verify','sim.reminders.pull','chat.pull'}
 BRIDGE_WRITE={'naming.publish','package.release.references','package.build.references','object.begin','object.chunk.put','object.finish','object.abort','object.release','object.gc','file.read','safefs.read','tc16.run','vault.put','vault.publish','tri.put','tri.publish','package.build','package.publish','sim.reminders.replace','component.send','component.receive','file.publish','safefs.publish','chat.append','chat.ack'}
-READ_NATIVE={'privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
+READ_NATIVE={'cooperative.state','cooperative.asset.prepare','privacy.status','privacy.review.list','privacy.review.get','zkn.shield.notes','zkn.shield.images','capabilities.get','status.get','objects.list','events.list','content.get','governance.fact','zkt.status','zkt.account','identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact','service.binding','compute.challenge','operation.status'}
 log=logging.getLogger(__name__)
 
 
@@ -153,7 +153,7 @@ class Service:
                 project=provider['native_project'];pid=provider['provider_id']
                 for method in sorted(READ_NATIVE):
                     if method=='health.challenge':continue
-                    if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge','privacy.status','privacy.review.list','privacy.review.get'}):continue
+                    if project=='shadow6' and (method.startswith(('zkt.','zkn.','zkc.','cooperative.')) or method in {'content.get','governance.fact','identity.fact','compute.challenge','privacy.status','privacy.review.list','privacy.review.get'}):continue
                     if project=='corium' and method=='service.binding':continue
                     native_params = PARAMS
                     if method in {'privacy.review.list', 'zkn.shield.notes', 'zkn.shield.images'}:

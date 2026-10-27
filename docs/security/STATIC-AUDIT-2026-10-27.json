@@ -1,0 +1,476 @@
+{
+  "schema": "ziokt.reviewed-static-audit.v1",
+  "date": "2026-10-27",
+  "tools": {
+    "semgrep": "1.182.1",
+    "bandit": "1.9.4"
+  },
+  "scope": "Ziokt active Python/JS source, native protocol specifications, deployment and CI tools; generated source is byte-matched to the audited specs.",
+  "reviewed_active_findings": [
+    {
+      "scanner": "semgrep",
+      "path": "ci/etp_content_bridge_smoke.py",
+      "line": 89,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "9f66cb4c0e72875f102f3538a5458132119027a8b4e371c62e1ee18dcbb51f63",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ci/feed_clients.py",
+      "line": 26,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "9ae240efbe4cb5d4f5a7923ac9e506055d5a542a83f4a5f2bf91ea6b55e1082c",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ci/gateway_browser_fixture.py",
+      "line": 39,
+      "rule": "python.lang.security.audit.exec-detected.exec-detected",
+      "severity": "WARNING",
+      "fingerprint": "b581fee3f3c5e29dedb67d07fbe9a16b28f08a33db4d056ef5903cd9d75ac94b",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ci/gimps_official_smoke.py",
+      "line": 30,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "6f8e03993b8cf7cde855fc2c1d7428e33d385bbca4f954b4c443ddea24f1f516",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ci/openci/controller_runner_e2e.py",
+      "line": 66,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "6bd7d9c5158d47f54833be12f99c84233ff4fffcfc3dcada8ba518f81529e57b",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "spec/data_runtime.py",
+      "line": 329,
+      "rule": "python.lang.security.audit.exec-detected.exec-detected",
+      "severity": "WARNING",
+      "fingerprint": "ff4fd5ed2626dc296ee728e27e67ea679c1dc185a4e003537993ceba507f4cc6",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/audit_mcp_registry.py",
+      "line": 27,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "cc5be01ba34d5fd0c06ee08e5762dc4394216f229c29a9ce33330686b3f95594",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/audit_mcp_registry.py",
+      "line": 151,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "0be4902c5530c5574d298c44a8119ba6628f5c4cc1a20eb6626fddbe754c6249",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 151,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "989674edbcaf7c663af47f04b5dcb63d816ebe9b7352cf8760bae1e34618e2f9",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 153,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "553b0d4c8c94b3575a0f01c901775412d96cd41f2d79bc451b0095637240145a",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 156,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "42bf6b9795c1689c58c6360032381ecaf4561194208b34a3a66a8fec024b932b",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/deploy_native_gateway.py",
+      "line": 108,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "177c39936a0ec0384d5d78ee32ccbc275aeb12c08bc3d8a30523013e00e13445",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/effort_android_smoke.py",
+      "line": 9,
+      "rule": "python.lang.security.use-defused-xml.use-defused-xml",
+      "severity": "ERROR",
+      "fingerprint": "15aee9a771b03c88c2804e3777055e8ab6e01b740c394f50eeae30fe6f2ede4a",
+      "review": "XML input is bounded and DOCTYPE/ENTITY declarations are rejected before ElementTree parsing; no external resolver is enabled."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/content_feeds.py",
+      "line": 5,
+      "rule": "python.lang.security.use-defused-xml.use-defused-xml",
+      "severity": "ERROR",
+      "fingerprint": "44a2aca7cf8d3d6b9f269de33127e3c4bf03b87faaa12531ad85a568400aa2f9",
+      "review": "XML output construction only"
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/library_formats.py",
+      "line": 6,
+      "rule": "python.lang.security.use-defused-xml.use-defused-xml",
+      "severity": "ERROR",
+      "fingerprint": "c3739d08d31fc6cd71682b15574a456b383da7bf7ee935c042594b5bed370679",
+      "review": "XML input is bounded and DOCTYPE/ENTITY declarations are rejected before ElementTree parsing; no external resolver is enabled."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/package_handoff.py",
+      "line": 179,
+      "rule": "python.lang.security.audit.exec-detected.exec-detected",
+      "severity": "WARNING",
+      "fingerprint": "3f9c4f5313464999360a2b42fcafae7dea1c4120f028bf011d89442dd3e278c1",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/remote.py",
+      "line": 271,
+      "rule": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+      "severity": "WARNING",
+      "fingerprint": "08cfebf151196fc116e5457b09d9b85fb2abe1d60c88ea53295697b52bd1e5db",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/etp_content_bridge_smoke.py",
+      "line": 89,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "da622cdb6146d5065c590b5db6cf006956c91d6f283d728dddd2628111732552",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/feed_clients.py",
+      "line": 26,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "ec63658abbd84dec3db502f3fff7538e60dff975bff19513da3aff362cbe7319",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/feed_clients.py",
+      "line": 57,
+      "rule": "B108",
+      "severity": "MEDIUM",
+      "fingerprint": "496fb93aa52aeed6e0002f30624c8644308fe024ca4df524195e2b0cddc4ea27",
+      "review": "The path is inside an isolated OCI tmpfs or an explicitly created CI fixture; no host-wide mutable /tmp file is used as authority."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/feed_clients.py",
+      "line": 59,
+      "rule": "B108",
+      "severity": "MEDIUM",
+      "fingerprint": "6d26d68a5ef684ae89d56cb568d6956b64ef6c63a9ab2d28126cf7099bad62f1",
+      "review": "The path is inside an isolated OCI tmpfs or an explicitly created CI fixture; no host-wide mutable /tmp file is used as authority."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/feed_clients.py",
+      "line": 65,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "c8080a1ecb359649b985c00846f76d613d34232f8dabab6278194cfe972172e2",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/gateway_browser_fixture.py",
+      "line": 39,
+      "rule": "B102",
+      "severity": "MEDIUM",
+      "fingerprint": "39286ea351d63843e12d71e121a9fd7a99901462fcc6fc383221de7812eb7cef",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/gimps_official_smoke.py",
+      "line": 30,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "01192db86688cf0a9969f47697fe3891924fcc0545b46c05a9303a4b8df65ea1",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ci/openci/controller_runner_e2e.py",
+      "line": 66,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "7e7d1b217e0a6f04dce242dd4197459e14cd7c4a001ef2aee8217b93670ae799",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "openci/runner.py",
+      "line": 199,
+      "rule": "B108",
+      "severity": "MEDIUM",
+      "fingerprint": "f20cdd6e4d66ac247dc247bca2cfd58932ba727f99fe03f3bf3ab31b823f320f",
+      "review": "The path is inside an isolated OCI tmpfs or an explicitly created CI fixture; no host-wide mutable /tmp file is used as authority."
+    },
+    {
+      "scanner": "bandit",
+      "path": "spec/asset_runtime.py",
+      "line": 77,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "40da8adf2ff57942376e3a9be085747d6dce3cca70b0cd088174111db0269bdf",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "spec/cooperative_consensus.py",
+      "line": 146,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "cc5372d2a21f1701fb1b13421b0149e11f3122986eee6f6ae14e3b04d8ed59ec",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "spec/data_runtime.py",
+      "line": 329,
+      "rule": "B102",
+      "severity": "MEDIUM",
+      "fingerprint": "282786345cb2c3989581b0fb2918921735bd75629b5d8e36452ac82cc7a12ac9",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/audit_mcp_registry.py",
+      "line": 27,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "9d3c72e0405775ea34ed03b8c52cf1db123a89794f76cbb75a6ba1cf58c0a6e2",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/audit_mcp_registry.py",
+      "line": 151,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "480dd90f8ffe7ea43b2ed12c5677dc16570d7f209a11cee311dd0f99f8319de7",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 151,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "103bd713ea13344c8868de688fafd72f5a166bb52623d6325f52f0c4d039855d",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 153,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "b62eab72537f461872f268a8c09394c268238b2f41ef5a86a09697d608225e78",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/deploy_frozen_services.py",
+      "line": 156,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "607e7d47621cf86935ade0740267bad8b5ae33eeb97ec23be1f77ca080b574a8",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/deploy_native_gateway.py",
+      "line": 108,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "83995142bc11c857c662712f244650025568c4efc7fa6bdf6d233224cc515d8e",
+      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/effort_android_smoke.py",
+      "line": 22,
+      "rule": "B314",
+      "severity": "MEDIUM",
+      "fingerprint": "c1b31d51231eb0e3f294b1d10c35bd84c19589fb451e0ead2bb8216d4ce8f13b",
+      "review": "XML input is bounded and DOCTYPE/ENTITY declarations are rejected before ElementTree parsing; no external resolver is enabled."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/_runtime.py",
+      "line": 3418,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "c0bb123d65f3754768341ec4dd7de704c5f5951bea960bd70b0c27cabccde28d",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/_runtime.py",
+      "line": 3883,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "e60ad2d55ee1e293501468fe08d9060e90ec416d5900ffe1f4ca4d293244b3fd",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/_runtime.py",
+      "line": 4754,
+      "rule": "B102",
+      "severity": "MEDIUM",
+      "fingerprint": "420329d97115d672ffac54c34bb10ea1a4c2b6c5900755335fdf15b4cca4f379",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/content_fabric.py",
+      "line": 488,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "94ee7234724b3a8a05cfe4ecd21ca2e79c5b69d7c3295efc544ba9ac1fd82c57",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/content_fabric.py",
+      "line": 492,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "6d2643292ed0d140033dce31c0aca34e9baf67cc57e73198eb7c47219fa885a6",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/content_private.py",
+      "line": 391,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "d8450157e7e9a28dfea5978fd7cf24b23998ae6dadbb6758a4c63025c397a3bb",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/content_private.py",
+      "line": 414,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "a931dc48464671e508f274377ee83973a95348b426c06db2786cc1342936419f",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/content_private.py",
+      "line": 415,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "2633fcf030285468742463232c7377f73f0f634cd0f5f21e5afdb071a6ecd023",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/explorer.py",
+      "line": 70,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "3d9822d0ac15e10a75779b7e19d0204057f7cce2ee7a01fd2676bf42eba4e521",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/explorer.py",
+      "line": 80,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "e6673fb8bb038a6700576d89d9d66155a8c8b9fd1ae69a78e75d0e2aa903cf45",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/library_formats.py",
+      "line": 277,
+      "rule": "B314",
+      "severity": "MEDIUM",
+      "fingerprint": "7c9d330f746dfed57935cca7c4e39c5887d933a035e6d75774da86e33301f4fd",
+      "review": "XML input is bounded and DOCTYPE/ENTITY declarations are rejected before ElementTree parsing; no external resolver is enabled."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/package_handoff.py",
+      "line": 179,
+      "rule": "B102",
+      "severity": "MEDIUM",
+      "fingerprint": "8471eaedeb64f9014a3762a435a1829f4f47e16dfdb4a822ce3a35713a9fccc3",
+      "review": "Execution is limited to the explicitly pinned native module or the AST declarations from the trusted Corium monolith; input data is not compiled as source."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/peer_directory.py",
+      "line": 60,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "faac62478cb64dfaf45e953eaa3c1fac71eb4ac02d8b1e08ebbfe7f0b16955fc",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/registry.py",
+      "line": 47,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "7e8f170b38a9bfd6400c6fffe2ebaf73c6a627623a27b9911e4c6437fa0117c9",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    }
+  ],
+  "whole_source_scan": {
+    "semgrep_findings": 41,
+    "bandit_findings": 619,
+    "bandit_high": 30
+  },
+  "archival_findings": "Legacy originals include unsafe eval/pickle/shell and obsolete algorithms. They remain historical text source and are absent from ziokt.pyz/openci.pyz and activated application profiles. Active compatibility readers use restricted deserialization; this report does not certify historical originals for execution.",
+  "fixes": [
+    "Canonical cooperative command and asset authorization across admission/mining/replay/reorg",
+    "Current-member quorum and nonces for ZKN/ZKC and controlled shielded notes",
+    "Account-pinned encrypted private sharing with epoch rotation/revocation",
+    "Bounded persisted replica repair and reference-safe physical GC",
+    "Cross-node encrypted reader, notes, bookmarks and collection state",
+    "Complete binary closure with exact CI/native/formal evidence gates"
+  ],
+  "formal_scope": "Lean checks explicit abstract predicates and reviewed source correspondence; full production refinement and cryptographic security are not proved."
+}

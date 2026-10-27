@@ -1,6 +1,6 @@
 """Native signed registration receipts and transferable block-snapshot ZKN assets."""
 
-ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'} | ZS_TYPES
+ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue', 'zkc_transfer', 'cooperative_command'} | ZS_TYPES
 
 
 def asset_tables(db):
@@ -18,9 +18,9 @@ def asset_token_id(network, block_hash):
     return hashlib.sha256(('Ziokt/ZKN/v1\n'+network+'\n'+block_hash).encode()).hexdigest()
 
 
-def asset_transaction_bytes(tx):
+def asset_transaction_bytes(tx, network=None):
     # Recovery networks bind native wallet signatures to chain namespace and actor.
-    network=tx['data'].get('network_id')
+    network=network or tx['data'].get('network_id')
     if network in {'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}:
         return encoded({'schema':'corium.chain-transaction.v3','network':network,'public_key':tx['public_key'],
                         'type':tx['type'],'data':tx['data'],'timestamp':tx['timestamp']})
@@ -34,13 +34,13 @@ def zkc_edition_id(payload):
 
 def asset_signed_gift(tx, network, kind='zkn_private_transfer'):
     if (not isinstance(tx,dict) or set(tx)!={'type','data','timestamp','public_key','signature'} or
-            kind not in ({'zkn_transfer','zkn_private_transfer','zkc_issue'}|ZS_TYPES) or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
-            not isinstance(tx['data'],dict) or (kind != 'zkn_transfer' and tx['data'].get('network_id')!=network) or
+            kind not in ({'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','cooperative_command'}|ZS_TYPES) or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
+            not isinstance(tx['data'],dict) or (kind not in {'zkn_mint','zkn_transfer','cooperative_command'} and tx['data'].get('network_id')!=network) or
             not isinstance(tx['public_key'],str) or len(tx['public_key'])>1024 or
             not isinstance(tx['signature'],str) or len(tx['signature'])>160):
         fail('INVALID_ZKN','scoped signed private gift transaction required')
-    raw=asset_transaction_bytes(tx)
-    if len(raw)>(65536 if kind in ZS_TYPES else 8192): fail('RESPONSE_LIMIT','gift transaction exceeds budget')
+    raw=asset_transaction_bytes(tx,network)
+    if len(raw)>(65536 if kind in ZS_TYPES or kind=='cooperative_command' or 'cooperative_authorization' in tx['data'] else 8192): fail('RESPONSE_LIMIT','gift transaction exceeds budget')
     native_ec_verify(tx['public_key'],tx['signature'],raw)
     return tx,hashlib.sha256(raw).hexdigest(),hashlib.sha256(tx['public_key'].rstrip('\n').encode()).hexdigest()
 
@@ -126,6 +126,11 @@ def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):
                 if db.execute('SELECT COUNT(*) FROM transactions WHERE block_height IS NULL').fetchone()[0]>=4096:
                     fail('BACKPRESSURE','pending transaction budget exhausted')
                 asset_validate(db,network,tx['type'],tx['data'],sender)
+                if kind=='cooperative_command' or 'cooperative_authorization' in tx['data']:
+                    pending=db.execute("SELECT 1 FROM transactions WHERE block_height IS NULL AND (type='cooperative_command' OR json_type(data,'$.cooperative_authorization') IS NOT NULL) LIMIT 1").fetchone()
+                    if pending:fail('COOPERATIVE_PENDING','a cooperative operation is already pending; confirm or remove it first')
+                if kind=='zkc_transfer' and db.execute("SELECT 1 FROM transactions WHERE block_height IS NULL AND type='zkc_transfer' AND json_extract(data,'$.edition_id')=?",(tx['data']['edition_id'],)).fetchone():
+                    fail('EDITION_PENDING','edition transfer already pending')
                 if kind in ZS_TYPES or kind in {'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'}:
                     asset_privacy_pending(db, network, kind, tx['data'], sender)
                 for (raw,) in db.execute("SELECT data FROM transactions WHERE type IN ('zkn_transfer','zkn_private_transfer','zkc_issue') AND block_height IS NULL LIMIT 4097"):
@@ -188,9 +193,72 @@ def asset_manifest(envelope, network, db):
     return value
 
 
-def asset_validate(db, network, tx_type, payload, sender):
+def asset_cooperative_guard(db, network, kind, payload, sender, height):
+    if type(payload)is not dict:fail('INVALID_PARAMS','asset payload object required')
+    plain=dict(payload);authorization=plain.pop('cooperative_authorization',None)
+    if 'cooperative_authorization' in payload and authorization is None:fail('COOPERATIVE_REJECTED','authorization must be an object')
+    supported={'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer',
+               'zkn_shield_deposit','zkn_shield_transfer','zkn_shield_withdraw','privacy_review_disclose'}
+    if authorization is not None and kind not in supported:fail('COOPERATIVE_REJECTED','cooperative authorization is not supported for this operation')
+    required=None;owner=None;cc=_native_cooperative_consensus
+    if kind in {'zkn_transfer','zkn_private_transfer','zkc_issue','zkn_shield_deposit'} and zs_exists(db,'zkn_tokens'):
+        row=db.execute('SELECT owner FROM zkn_tokens WHERE token_id=?',(plain.get('token_id'),)).fetchone()
+        if row:owner=row[0]
+    elif kind=='zkc_transfer' and zs_exists(db,'zkc_editions'):
+        row=asset_edition_owner(db,plain.get('edition_id'))
+        if row:owner=row[0]
+    if owner:required=cc.owner_cooperative(db,network,owner,height)
+    if kind in {'zkn_shield_transfer','zkn_shield_withdraw'}:
+        ring=plain.get('ring')
+        if type(ring)is not list or len(ring) not in (16,32,64) or any(type(n)is not str for n in ring):
+            fail('PRIVACY_REJECTED','bounded shielded ring required')
+        labels=set()
+        for note in ring:
+            row=db.execute('SELECT cooperative FROM cooperative_note_controls WHERE note_id=?',(note,)).fetchone() if zs_exists(db,'cooperative_note_controls') else None
+            labels.add(row[0] if row else None)
+        if len(labels)!=1:fail('COOPERATIVE_REJECTED','shielded ring mixes cooperative authorization domains')
+        required=next(iter(labels))
+    if kind=='privacy_review_disclose' and zs_exists(db,'cooperative_note_controls'):
+        row=db.execute('SELECT cooperative FROM cooperative_note_controls WHERE note_id=?',(plain.get('note_id'),)).fetchone()
+        if row:required=row[0]
+    if required and authorization is None:fail('COOPERATIVE_REJECTED','current cooperative members must authorize this asset operation')
+    info=None
+    if authorization is not None:
+        try:info=cc.authorize(db,network,kind,plain,authorization,height)
+        except Exception as error:
+            from cryptography.exceptions import InvalidSignature
+            if isinstance(error,(ValueError,KeyError,TypeError,InvalidSignature)):fail('COOPERATIVE_REJECTED',str(error) or 'invalid cooperative endorsement')
+            raise
+        if required and required!=info['cooperative']:fail('COOPERATIVE_REJECTED','asset belongs to another cooperative')
+        if required and kind in {'zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','zkn_shield_deposit'}:sender=info['account']
+    return plain,sender,info
+
+
+def asset_edition_owner(db,edition):
+    if zs_exists(db,'zkc_owners'):
+        row=db.execute('SELECT owner,nonce FROM zkc_owners WHERE edition_id=?',(edition,)).fetchone()
+        if row:return row
+    if zs_exists(db,'zkc_editions'):
+        row=db.execute('SELECT issuer FROM zkc_editions WHERE edition_id=?',(edition,)).fetchone()
+        if row:return (row[0],0)
+    return None
+
+
+def asset_validate(db, network, tx_type, payload, sender, height=None):
+    height=zs_height(db)+1 if height is None else height
+    if tx_type=='cooperative_command':
+        try:return _native_cooperative_consensus.apply_command(db,network,payload,height)
+        except Exception as error:
+            from cryptography.exceptions import InvalidSignature
+            if isinstance(error,(ValueError,TypeError,KeyError,InvalidSignature)):fail('COOPERATIVE_REJECTED',str(error) or 'invalid cooperative command')
+            raise
+    plain,effective,_=asset_cooperative_guard(db,network,tx_type,payload,sender,height)
+    return _asset_validate_base(db,network,tx_type,plain,effective,height)
+
+
+def _asset_validate_base(db, network, tx_type, payload, sender, height=None):
     if tx_type in ZS_TYPES:
-        try:return zs_validate(db,network,tx_type,payload,sender)
+        try:return zs_validate(db,network,tx_type,payload,sender,height)
         except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
     if tx_type=='zkc_issue':
         fields={'network_id','token_id','kind','serial','contents_digest'}
@@ -207,6 +275,13 @@ def asset_validate(db, network, tx_type, payload, sender):
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkc_editions'").fetchone():
             prior=db.execute('SELECT contents_digest FROM zkc_editions WHERE edition_id=?',(zkc_edition_id(payload),)).fetchone()
             if prior and (payload['kind']=='unique' or prior[0]!=payload['contents_digest']): fail('EDITION_CONFLICT','edition serial or repeat content already assigned')
+        return payload
+    if tx_type=='zkc_transfer':
+        if (type(payload)is not dict or set(payload)!={'network_id','edition_id','recipient','nonce'} or payload['network_id']!=network
+            or any(type(payload[k])is not str or not re.fullmatch('[a-f0-9]{64}',payload[k]) for k in ('edition_id','recipient'))
+            or type(payload['nonce'])is not int or not 1<=payload['nonce']<2**53):fail('INVALID_ZKC','exact edition transfer required')
+        row=asset_edition_owner(db,payload['edition_id'])
+        if not row or row[0]!=sender or row[1]+1!=payload['nonce']:fail('POLICY_DENIED','current edition owner and next nonce required')
         return payload
     if tx_type=='ziokt_content':
         if not isinstance(payload,dict) or set(payload)!={'text','data_base64','content_type'} or any(not isinstance(v,str) for v in payload.values()) or len(payload['text'].encode())>8192 or not re.fullmatch('[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+',payload['content_type']):
@@ -259,10 +334,24 @@ def asset_validate(db, network, tx_type, payload, sender):
 
 
 def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
+    if tx_type=='cooperative_command':
+        return _native_cooperative_consensus.apply_command(db,network,payload,height,True)
+    plain,effective,info=asset_cooperative_guard(db,network,tx_type,payload,sender,height)
+    _asset_apply_base(db,network,tx_hash,tx_type,plain,effective,height)
+    if info:
+        cc=_native_cooperative_consensus;cc.tables(db)
+        db.execute('INSERT OR REPLACE INTO cooperative_asset_nonces VALUES(?,?)',(info['cooperative'],info['nonce']))
+        if tx_type=='zkn_mint':
+            db.execute('UPDATE zkn_tokens SET owner=? WHERE token_id=?',(info['account'],plain['snapshot']['manifest']['token_id']))
+        if tx_type in {'zkn_shield_deposit','zkn_shield_transfer'}:
+            db.execute('INSERT INTO cooperative_note_controls VALUES(?,?)',(zs_note_id(plain['note']),info['cooperative']))
+
+
+def _asset_apply_base(db, network, tx_hash, tx_type, payload, sender, height):
     if tx_type in ZS_TYPES:
-        try:return zs_apply(db,network,tx_type,payload,sender,tx_hash,height)
+        try:return zs_apply(db,network,tx_type,payload,sender,tx_hash,height,validation_height=height)
         except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
-    value=asset_validate(db,network,tx_type,payload,sender)
+    value=_asset_validate_base(db,network,tx_type,payload,sender,height)
     if tx_type=='ziokt_content': return
     asset_tables(db)
     if tx_type=='ziokt_identity_register':
@@ -274,6 +363,12 @@ def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
     elif tx_type=='zkc_issue':
         db.execute('INSERT OR IGNORE INTO zkc_editions VALUES (?,?,?,?,?,?,?,?)',
             (zkc_edition_id(payload),payload['token_id'],payload['kind'],payload['serial'],payload['contents_digest'],sender,tx_hash,height))
+        _native_cooperative_consensus.tables(db)
+        issuer=db.execute('SELECT issuer FROM zkc_editions WHERE edition_id=?',(zkc_edition_id(payload),)).fetchone()[0]
+        db.execute('INSERT OR IGNORE INTO zkc_owners VALUES(?,?,0)',(zkc_edition_id(payload),issuer))
+    elif tx_type=='zkc_transfer':
+        _native_cooperative_consensus.tables(db)
+        db.execute('INSERT OR REPLACE INTO zkc_owners VALUES(?,?,?)',(payload['edition_id'],payload['recipient'],payload['nonce']))
     else:
         db.execute('UPDATE zkn_tokens SET owner=?,nonce=? WHERE token_id=?',
             (payload['recipient'],payload['nonce'],payload['token_id']))
@@ -289,7 +384,7 @@ def asset_engine_main(args):
         if db_path != root/'var/lib/corix/networks'/network/'blockchain/chain.db':
             fail('SCOPE_MISMATCH', 'native privacy database belongs to another root')
         tx = strict_json(args[4].encode())
-        if type(tx) is not dict or tx.get('type') not in ZS_TYPES | {'zkn_transfer','zkn_private_transfer','zkc_issue'}:
+        if type(tx) is not dict or tx.get('type') not in ZS_TYPES | {'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','cooperative_command'}:
             fail('INVALID_PARAMS', 'admitted native asset transaction required')
         result = asset_submit_gift(root, network, tx, tx['type'])
         print(result['transaction_hash'])
@@ -303,7 +398,7 @@ def asset_engine_main(args):
         payload=strict_json(raw.encode())
         db=sqlite3.connect(db_path,timeout=5)
         try:
-            if action=='validate': asset_validate(db,network,tx_type,payload,sender)
+            if action=='validate': asset_validate(db,network,tx_type,payload,sender,int(args[6]) if len(args)>6 else None)
             else:
                 with db: asset_apply(db,network,args[6],tx_type,payload,sender,int(args[7]))
         finally: db.close()
@@ -367,10 +462,10 @@ def asset_engine_main(args):
 def asset_preflight(root,network,params,config):
     action=params['action'];resource=params['resource'];arguments=params['arguments']
     if params['expected_revision'] is not None: fail('INVALID_PARAMS','native asset submit requires null revision')
-    if action=='privacy.submit':
-        if resource!='privacy:'+network or set(arguments)!={'transaction'}:fail('INVALID_PARAMS','exact signed privacy transaction required')
+    if action in {'privacy.submit','cooperative.submit'}:
+        if resource!=('privacy:' if action=='privacy.submit' else 'cooperative:')+network or set(arguments)!={'transaction'}:fail('INVALID_PARAMS','exact signed privacy transaction required')
         transaction=arguments['transaction']
-        if not isinstance(transaction,dict) or transaction.get('type') not in ZS_TYPES:fail('INVALID_PARAMS','known signed privacy transaction required')
+        if not isinstance(transaction,dict) or transaction.get('type') not in (ZS_TYPES if action=='privacy.submit' else ASSET_TYPES-{'ziokt_content','ziokt_identity_register'}):fail('INVALID_PARAMS','known signed privacy transaction required')
         tx,tx_hash,sender=asset_signed_gift(transaction,network,transaction['type'])
         with closing(corium_db(root,network,'blockchain/chain.db')) as db:
             existing=db.execute('SELECT type,data,signature,public_key,timestamp FROM transactions WHERE hash=?',(tx_hash,)).fetchone()

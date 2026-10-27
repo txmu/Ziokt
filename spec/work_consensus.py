@@ -12,6 +12,7 @@ import sqlite3
 import dna_protocol as DNA
 import recovery_consensus as Recovery
 import cooperative_protocol as Cooperative
+import cooperative_consensus as CooperativeConsensus
 from cryptography.hazmat.primitives import hashes,serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
@@ -24,7 +25,7 @@ LEGACY=hashlib.sha256(b'Corium/native-pos/v108').hexdigest()
 # Recovery/work policies deployed with the prior audited verifier pin remain
 # valid across this additive state-index integration. New proposals still pin
 # the current source digest. This grandfathered digest is immutable.
-LEGACY_SOURCE_DIGESTS={'5282e14c07d4c9adad1ccc3a8eb2e9a8ee4ca7ad566c416b3f4890148b28309b'}
+LEGACY_SOURCE_DIGESTS={'5282e14c07d4c9adad1ccc3a8eb2e9a8ee4ca7ad566c416b3f4890148b28309b','66896a0359a91226ffa81235ec05cb2e287848e79e63e8fabb9d84b91be4f441'}
 EMBEDDED_SOURCE_DIGEST = None
 
 
@@ -33,7 +34,7 @@ def require(test,message):
 
 
 def source_digest():
-    return EMBEDDED_SOURCE_DIGEST or hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(Path(__file__).with_name(name).read_bytes() for name in ('work_consensus.py','work_weight_policy.py','dna_protocol.py','recovery_consensus.py','cooperative_protocol.py'))).hexdigest()
+    return EMBEDDED_SOURCE_DIGEST or hashlib.sha256(b'Corium/NativeWorkVerifier/v3\0'+b'\0'.join(Path(__file__).with_name(name).read_bytes() for name in ('work_consensus.py','work_weight_policy.py','dna_protocol.py','recovery_consensus.py','cooperative_protocol.py','cooperative_consensus.py'))).hexdigest()
 def policy_hash(value):return hashlib.sha256(b'Corium/NativeConsensusPolicy/v2\0'+encoded(value)).hexdigest()
 
 def loads(raw):
@@ -186,45 +187,7 @@ def stored(db,identity):
 
 
 def cooperative_state_at(db,network,height):
-    """Rebuild cooperative state from the canonical prefix before height.
-
-    The materialized cooperative_registry table is only a cache: fork rollback
-    can leave it stale. Every admission/replay therefore derives authority from
-    canonical block order and runs the same pure transition function.
-    """
-    declaration=Recovery.declaration(network)
-    require(declaration is not None and height>declaration['checkpoint']['height'],
-            'cooperative protocol not active')
-    chain=Recovery.identity(declaration);state=Cooperative.empty(chain);start=declaration['checkpoint']['height']
-    # Use a materialized checkpoint only when its recorded block remains in the
-    # canonical chain and its deterministic root matches. Legacy/unanchored rows
-    # and orphaned checkpoints are ignored and reconstructed from history.
-    table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_registry'").fetchone()
-    if table:
-        columns={row[1] for row in db.execute('PRAGMA table_info(cooperative_registry)').fetchall()}
-        if {'state','height','block_hash','state_root'}<=columns:
-            cached=db.execute('SELECT state,height,block_hash,state_root FROM cooperative_registry WHERE id=1').fetchone()
-            if cached:
-                try:
-                    candidate=json.loads(cached[0]);anchor=db.execute('SELECT hash FROM blocks WHERE height=?',(cached[1],)).fetchone()
-                    if (type(cached[1])is int and start<=cached[1]<height and anchor and anchor[0]==cached[2]
-                        and type(candidate)is dict and candidate.get('chain')==chain
-                        and Cooperative.state_root(candidate)==cached[3]):
-                        state=candidate;start=cached[1]
-                except (ValueError,TypeError,KeyError):
-                    pass
-    commands=db.execute("SELECT hash,data,block_height FROM transactions WHERE type='cooperative_command' AND block_height>? AND block_height<? ORDER BY block_height,hash",
-                        (start,height)).fetchall()
-    require(len(commands)<=1_000_000,'cooperative history budget')
-    for txhash,raw,block_height in commands:
-        block=db.execute('SELECT transactions FROM blocks WHERE height=?',(block_height,)).fetchone()
-        require(block is not None,'cooperative transaction block missing')
-        hashes=json.loads(block[0]);require(type(hashes)is list and len(hashes)<=200,'canonical transaction list')
-        require(hashes.count(txhash)==1,'cooperative transaction absent from canonical block')
-        envelope=loads(raw)
-        require(type(envelope)is dict and set(envelope)=={'command','endorsements'},'cooperative envelope')
-        state=Cooperative.apply(state,envelope['command'],envelope['endorsements'])
-    return state
+    return CooperativeConsensus.state_at(db,network,height)
 
 
 def main(args):
@@ -236,22 +199,15 @@ def main(args):
             print(Recovery.transaction_bytes(value,network,args[3],args[4],int(args[5]),args[6],int(args[7])))
             return
         elif action in {'cooperative-validate','cooperative-apply','cooperative-state'}:
-            height=int(args[3]);state=cooperative_state_at(db,network,height)
+            height=int(args[3])
             if action=='cooperative-state':
-                result={'state':state,'state_root':Cooperative.state_root(state),'height':height}
-                print(json.dumps(result,separators=(',',':')));return
-            payload=DNA.loads(args[4]);require(type(payload)is dict and set(payload)=={'command','endorsements'},'cooperative envelope')
-            changed=Cooperative.apply(state,payload['command'],payload['endorsements'])
-            if action=='cooperative-apply':
-                db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL,height INTEGER,block_hash TEXT,state_root TEXT)')
-                columns={row[1] for row in db.execute('PRAGMA table_info(cooperative_registry)').fetchall()}
-                for name in ('height INTEGER','block_hash TEXT','state_root TEXT'):
-                    if name.split()[0] not in columns:db.execute('ALTER TABLE cooperative_registry ADD COLUMN '+name)
-                block=db.execute('SELECT hash FROM blocks WHERE height=?',(height,)).fetchone()
-                require(block is not None,'cooperative application requires committed block')
-                db.execute('INSERT OR REPLACE INTO cooperative_registry(id,state,height,block_hash,state_root) VALUES(1,?,?,?,?)',
-                           (DNA.encoded(changed).decode(),height,block[0],Cooperative.state_root(changed)))
-            result={'state_root':Cooperative.state_root(changed),'native_application':True}
+                state=cooperative_state_at(db,network,height)
+                result={'state':state,'state_root':Cooperative.state_root(state),'height':height,
+                        'asset_state_root':CooperativeConsensus.asset_state_root(db),
+                        'accounts':{cid:CooperativeConsensus.account(state['chain'],cid) for cid in state['cooperatives']}}
+            else:
+                changed=CooperativeConsensus.apply_command(db,network,DNA.loads(args[4]),height,action=='cooperative-apply')
+                result={'state_root':Cooperative.state_root(changed),'native_application':action=='cooperative-apply'}
         elif action=='proposal':result=proposal(db,network,loads(args[3]),int(args[4]))
         elif action=='preactivate':
             enabled=network.startswith('test-') or network.startswith('ziokt-test-') or network in {'ziokt-main','mainnet'} or network in Recovery.NETWORKS
