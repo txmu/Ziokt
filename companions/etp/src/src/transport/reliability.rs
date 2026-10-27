@@ -390,19 +390,17 @@ impl ReliabilityLayer {
     pub fn get_lost_frames(&mut self) -> Vec<Frame> {
         let expired_pns = self.timer_wheel.tick();
         let mut lost_frames = Vec::new();
-        let mut has_loss = false;
+        let mut lost_packets = 0;
 
         for pn in expired_pns {
-            if let Some(pkt) = self.sent_queue.get_mut(&pn) {
-                has_loss = true;
-                lost_frames.extend(pkt.frames.clone());
-                pkt.retransmitted = true;
+            if let Some(pkt) = self.sent_queue.remove(&pn) {
+                lost_packets += 1;
+                lost_frames.extend(pkt.frames);
             }
-            self.sent_queue.remove(&pn);
         }
 
-        if has_loss {
-            self.congestion.on_packet_lost();
+        if lost_packets > 0 {
+            self.congestion.on_packets_lost(lost_packets);
         }
 
         lost_frames

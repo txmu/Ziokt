@@ -17,6 +17,12 @@ pub trait CongestionControlAlgo: Send + Sync + Debug {
     
     /// 事件：检测到丢包
     fn on_packet_lost(&mut self);
+
+    /// Retire expired packets before applying congestion loss policy.
+    /// The default preserves existing strategy/FFI implementations.
+    fn on_packets_lost(&mut self, packet_count: usize) {
+        if packet_count > 0 { self.on_packet_lost(); }
+    }
     
     /// 检查是否允许发送 (基于拥塞窗口)
     /// bytes_in_flight: 当前在途未确认的字节数 (部分算法可能需要此参数)
@@ -58,7 +64,7 @@ pub struct NewReno {
     // --- 标准参数 ---
     pub cwnd: u64,
     pub ssthresh: u64,
-    pub bytes_in_flight: u64, // 内部追踪 In-Flight
+    pub bytes_in_flight: u64, // In-flight packet credits (legacy field name)
     state: State,
     
     // --- 辅助计算 ---
@@ -209,6 +215,14 @@ impl CongestionControlAlgo for NewReno {
         }
     }
 
+    fn on_packets_lost(&mut self, packet_count: usize) {
+        if packet_count == 0 { return; }
+        // Expiry removes packets from the reliability queue. Their credits
+        // must be released even when loss-window reduction is debounced.
+        self.bytes_in_flight = self.bytes_in_flight.saturating_sub(packet_count as u64);
+        self.on_packet_lost();
+    }
+
     fn can_send(&self, _external_inflight: u64) -> bool {
         // NewReno 信任内部计数，也可扩展为校验 external_inflight
         self.bytes_in_flight < self.cwnd
@@ -240,5 +254,38 @@ impl CongestionControlAlgo for NewReno {
 
     fn get_mss(&self) -> u64 {
         self.mss
+    }
+}
+#[cfg(test)]
+mod loss_accounting_regressions {
+    use super::*;
+
+    #[test]
+    fn expired_batches_release_exact_packet_credits_without_ack_growth() {
+        let mut control = NewReno::new();
+        control.on_packet_sent(3, 300);
+        let initial_window = control.cwnd;
+        control.on_packets_lost(2);
+        assert_eq!(control.bytes_in_flight, 1);
+        assert!(control.cwnd < initial_window);
+        let reduced_window = control.cwnd;
+        control.on_packets_lost(1);
+        assert_eq!(control.bytes_in_flight, 0);
+        assert_eq!(control.cwnd, reduced_window);
+        assert!(control.can_send(0));
+    }
+
+    #[test]
+    fn a_full_timeout_allows_retransmission_without_a_synthetic_ack() {
+        let mut control = NewReno::new();
+        control.cwnd = MIN_WINDOW;
+        control.on_packet_sent(MIN_WINDOW as usize, 100);
+        assert!(!control.can_send(100));
+        control.on_packets_lost(MIN_WINDOW as usize);
+        assert_eq!(control.bytes_in_flight, 0);
+        assert_eq!(control.cwnd, MIN_WINDOW);
+        assert!(control.can_send(0));
+        control.on_packet_sent(1, 50);
+        assert!(control.can_send(50));
     }
 }
