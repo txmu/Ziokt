@@ -137,7 +137,7 @@ jobs:
             if [ "$test_name" = "$lifecycle: test" ]; then lifecycle_found=true; fi
           done < "$RUNNER_TEMP/etp-lifecycle-$ETP_PROFILE.txt"
           test "$lifecycle_found" = true
-          for repetition in {1..8}; do
+          for repetition in {1..32}; do
             timeout 25s cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact
           done
           cargo build --locked "${profile_flags[@]}" --example ziokt_gateway

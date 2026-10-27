@@ -2353,6 +2353,21 @@ mod runtime_regression_tests {
         }
     }
 
+    fn session_diagnostic(ctx: &ProcessingContext, peer: SocketAddr) -> String {
+        let session = ctx.sessions.get(&peer).map(|entry| entry.value().clone());
+        match session {
+            Some(session) => {
+                let detail = match session.try_lock() {
+                    Ok(state) => format!("handshake={}, offset={:?}, queued={}, crypto=[{}], reliability=[{}]",
+                        state.handshake_completed, state.stream_offsets, state.pending_queue.len(), state.crypto.diagnostic_state(), state.reliability.diagnostic_state()),
+                    Err(_) => "session lock held".into(),
+                };
+                detail
+            }
+            None => "no current session".into(),
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn actual_udp_same_port_new_engine_resets_streams_but_same_boot_rekey_preserves_them() {
         let a_socket=Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
@@ -2368,6 +2383,7 @@ mod runtime_regression_tests {
         let mut a_task=tokio::spawn(a.run());let mut b_task=tokio::spawn(b.run());let mut restarted_task=None;
         let mut stage = "initial bidirectional exchange";
         let mut reconnect_round = 0;
+        let mut fresh_debug_ctx = None;
         let exchange=async {
             a_handle.send_data(b_addr,b"old outbound offsets".to_vec()).await.unwrap();
             assert_eq!(b_received.recv().await.unwrap().1,b"old outbound offsets");
@@ -2381,6 +2397,7 @@ mod runtime_regression_tests {
             // Native gateway smoke additionally closes/rebinds an actual process.
             let (restarted,new_handle,mut fresh_received)=EtpEngine::new_with_transport(b_config.clone(),Arc::new(PluginRegistry::new()),Arc::new(UdpTransport(b_socket.clone()))).await.unwrap();
             let fresh_ctx=restarted.ctx.clone();assert_ne!(fresh_ctx.boot_id,old_b_boot);
+            fresh_debug_ctx = Some(fresh_ctx.clone());
             restarted_task=Some(tokio::spawn(restarted.run()));
             stage = "new incarnation handshake";
             new_handle.connect(a_addr,a_public.clone()).await.unwrap();
@@ -2433,7 +2450,8 @@ mod runtime_regression_tests {
         };
         let result=tokio::time::timeout(Duration::from_secs(15),exchange).await;
         a_task.abort();b_task.abort();if let Some(task)=restarted_task { task.abort(); }
-        result.unwrap_or_else(|error| panic!("actual UDP exchange timed out at {stage}, reconnect round {reconnect_round}: {error}"));
+        result.unwrap_or_else(|error| panic!("actual UDP exchange timed out at {stage}, reconnect round {reconnect_round}: {error}; A=[{}]; B=[{}]",
+            session_diagnostic(&a_ctx, b_addr), fresh_debug_ctx.as_ref().map(|ctx| session_diagnostic(ctx, a_addr)).unwrap_or_else(|| "not restarted".into())));
     }
     #[tokio::test]
     async fn real_udp_noise_stream_offsets_and_authenticated_dht_work_together() {

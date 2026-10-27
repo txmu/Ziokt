@@ -58,7 +58,10 @@ impl TimerWheel {
     }
 
     fn tick(&mut self) -> Vec<PacketNumber> {
-        let now = Instant::now();
+        self.tick_at(Instant::now())
+    }
+
+    fn tick_at(&mut self, now: Instant) -> Vec<PacketNumber> {
         let elapsed_ms = now.duration_since(self.start_time).as_millis() as u64;
         let target_tick = (elapsed_ms / TIMER_TICK_MS) as usize;
 
@@ -85,14 +88,12 @@ impl TimerWheel {
 
     fn schedule(&mut self, pn: PacketNumber, expiry: Instant) {
         self.cancel(pn);
-        let now = Instant::now();
-        let delay = if expiry > now {
-            expiry - now
-        } else {
-            Duration::ZERO
-        };
-        let delay_ticks = (delay.as_millis() as u64 / TIMER_TICK_MS) as usize;
-        let target_tick = self.current_tick + delay_ticks;
+        // Deadlines belong to the wheel's absolute epoch. Rounding a relative
+        // delay down can reinsert into a slot already drained by tick().
+        let nanos = expiry.saturating_duration_since(self.start_time).as_nanos();
+        let tick_nanos = u128::from(TIMER_TICK_MS) * 1_000_000;
+        let absolute_tick = (nanos + tick_nanos - 1) / tick_nanos;
+        let target_tick = self.current_tick.max(absolute_tick as usize);
         let slot_idx = target_tick % TIMER_WHEEL_SLOTS;
         self.slots[slot_idx].insert(pn);
         self.lookup.insert(pn, (target_tick, expiry));
@@ -250,6 +251,16 @@ impl ReliabilityLayer {
         let pn = self.next_packet_num;
         self.next_packet_num += 1;
         pn
+    }
+
+    #[cfg(test)]
+    pub(crate) fn diagnostic_state(&self) -> String {
+        let streams = match &self.stream_manager {
+            StreamManager::Single(stream) => vec![(0, stream.next_expected_offset, stream.buffer.len())],
+            StreamManager::Multi(streams) => streams.iter().map(|(id, stream)| (*id, stream.next_expected_offset, stream.buffer.len())).collect(),
+        };
+        format!("next_pn={}, pending_packets={}, timers={}, recv_pn={}, streams={:?}, congestion={:?}",
+            self.next_packet_num, self.sent_queue.len(), self.timer_wheel.lookup.len(), self.largest_received, streams, self.congestion)
     }
 
     pub fn can_send(&self) -> bool {
@@ -452,5 +463,32 @@ impl ReliabilityLayer {
             merged.pop_front();
         }
         self.received_ranges = merged;
+    }
+}
+
+#[cfg(test)]
+mod timer_deadline_regressions {
+    use super::*;
+
+    #[test]
+    fn sub_tick_deadline_is_rounded_up_from_the_wheel_epoch() {
+        let mut wheel = TimerWheel::new();
+        wheel.current_tick = 4;
+        let deadline = wheel.start_time + Duration::from_millis(4 * TIMER_TICK_MS + 1);
+        wheel.schedule(71, deadline);
+        assert_eq!(wheel.lookup.get(&71).unwrap().0, 5);
+    }
+
+    #[test]
+    fn a_future_deadline_never_rearms_into_an_already_drained_slot() {
+        let mut wheel = TimerWheel::new();
+        let start = wheel.start_time;
+        wheel.current_tick = 4;
+        wheel.slots[4].insert(72);
+        wheel.lookup.insert(72, (4, start + Duration::from_millis(4 * TIMER_TICK_MS + 1)));
+        assert!(wheel.tick_at(start + Duration::from_millis(4 * TIMER_TICK_MS)).is_empty());
+        assert_eq!(wheel.lookup.get(&72).unwrap().0, 5);
+        assert_eq!(wheel.tick_at(start + Duration::from_millis(5 * TIMER_TICK_MS)), vec![72]);
+        assert!(wheel.lookup.is_empty());
     }
 }

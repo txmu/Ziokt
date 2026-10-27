@@ -31,6 +31,8 @@ pub enum NoiseSession {
         state: TransportState,
         highest: Option<u64>,
         seen: u128,
+        #[cfg(test)]
+        binding: Vec<u8>,
     },
     Failed,
 }
@@ -60,7 +62,11 @@ impl NoiseSession {
         let Self::Handshaking(state) = old else {
             return Err(anyhow!("handshake not active"));
         };
+        #[cfg(test)]
+        let binding = state.get_handshake_hash().to_vec();
         *self = Self::Transport {
+            #[cfg(test)]
+            binding,
             state: state.into_transport_mode()?,
             highest: None,
             seen: 0,
@@ -97,6 +103,15 @@ impl NoiseSession {
         }
         Ok((len, done))
     }
+    #[cfg(test)]
+    pub(crate) fn diagnostic_state(&self) -> String {
+        match self {
+            Self::Transport { state, highest, binding, .. } => format!("binding={:02x?}, send_nonce={}, recv_nonce={:?}", &binding[..binding.len().min(8)], state.sending_nonce(), highest),
+            Self::Handshaking(_) => "handshaking".into(),
+            Self::Failed => "failed".into(),
+        }
+    }
+
     pub fn encrypt(&mut self, plaintext: &[u8], out: &mut [u8]) -> Result<usize> {
         let Self::Transport { state, .. } = self else {
             return Err(anyhow!("handshake incomplete"));
@@ -119,6 +134,7 @@ impl NoiseSession {
             state,
             highest,
             seen,
+            ..
         } = self
         else {
             return Err(anyhow!("handshake incomplete"));
