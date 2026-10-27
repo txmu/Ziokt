@@ -125,12 +125,17 @@ jobs:
           ETP_PROFILE: ${{ matrix.profile }}
         run: |
           if [ "$ETP_PROFILE" = minimal ]; then
-            timeout 8m cargo test --locked --no-default-features --lib
-            cargo build --locked --no-default-features --example ziokt_gateway
+            profile_flags=(--no-default-features)
           else
-            timeout 8m cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --lib
-            cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway
+            profile_flags=(--features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs)
           fi
+          timeout 8m cargo test --locked "${profile_flags[@]}" --lib
+          lifecycle=network::node::runtime_regression_tests::actual_udp_same_port_new_engine_resets_streams_but_same_boot_rekey_preserves_them
+          cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact --list | rg -F -- "$lifecycle: test"
+          for repetition in {1..8}; do
+            timeout 25s cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact
+          done
+          cargo build --locked "${profile_flags[@]}" --example ziokt_gateway
           strip target/debug/examples/ziokt_gateway
           sha256sum target/debug/examples/ziokt_gateway
       - uses: actions/setup-python@v7.0.0
