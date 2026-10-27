@@ -326,6 +326,9 @@ struct SessionContext {
     pending_queue: VecDeque<Frame>,
     stream_offsets: HashMap<u32, u64>,
     handshake_flight: Vec<u8>,
+    /// Monotonic within the authenticated pair of Engine incarnations.
+    handshake_generation: u64,
+    responder_fingerprint: Option<[u8; 32]>,
     handshake_sent: Instant,
     handshake_attempts: u8,
 
@@ -365,6 +368,8 @@ impl SessionContext {
             pending_queue: VecDeque::new(),
             stream_offsets: HashMap::new(),
             handshake_flight: Vec::new(),
+            handshake_generation: 0,
+            responder_fingerprint: None,
             handshake_sent: Instant::now(),
             handshake_attempts: 0,
             interceptors,
@@ -1058,15 +1063,9 @@ impl EtpEngine {
         if session.dialect.probe(&data) {
             if let Ok(plain_data) = session.dialect.open(&data) {
                 if !session.handshake_completed {
-                    if plain_data.len() == 128 {
-                        let remote = ctx.config.trusted_peers.get(&src);
-                        if remote
-                            .map(|k| ctx.config.keypair.public.as_slice() > k.as_slice())
-                            .unwrap_or(false)
-                        {
-                            drop(session);
-                            Self::process_new_connection_or_fallback(ctx, data, src).await;
-                        }
+                    if plain_data.len() == 136 {
+                        drop(session);
+                        Self::process_new_connection_or_fallback(ctx, data, src).await;
                         return;
                     }
                     // Handshake processing...
@@ -1076,8 +1075,9 @@ impl EtpEngine {
                     let res = session.crypto.read_handshake_message(&plain_data, &mut out);
                     match res {
                         Ok((payload_len, fin)) => {
-                            // IK4 response authenticates the responder incarnation.
-                            if payload_len != 24 || &out[..8] != b"ETPR4\0\0\0" {
+                            // IK5 binds both the responder incarnation and selected generation.
+                            if payload_len != 32 || &out[..8] != b"ETPR5\0\0\0"
+                                || u64::from_be_bytes(out[24..32].try_into().unwrap()) != session.handshake_generation {
                                 release_buffer(out);
                                 return;
                             }
@@ -1151,7 +1151,7 @@ impl EtpEngine {
                 plaintext_buf.resize(plain_data.len(), 0);
 
                 let decrypted = session.crypto.decrypt(&plain_data, &mut plaintext_buf);
-                if decrypted.is_err() && plain_data.len() == 128 {
+                if decrypted.is_err() && plain_data.len() == 136 {
                     release_buffer(plaintext_buf);
                     drop(session);
                     Self::process_new_connection_or_fallback(ctx, data, src).await;
@@ -1265,6 +1265,10 @@ impl EtpEngine {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    fn incoming_handshake_wins(current: u64, local_initiated: bool, incoming: u64, local_key_first: bool) -> bool {
+        incoming > current || (incoming == current && local_initiated && !local_key_first)
+    }
+
     fn transition_slot(peer: SocketAddr) -> usize {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         peer.hash(&mut hash);
@@ -1294,7 +1298,7 @@ impl EtpEngine {
                 Err(_) => continue,
             };
 
-            if plain_data.len() != 128 {
+            if plain_data.len() != 136 {
                 continue;
             }
             let fingerprint = *blake3::hash(&plain_data).as_bytes();
@@ -1306,7 +1310,15 @@ impl EtpEngine {
                     .map(|(_, reply)| reply.clone())
             };
             if let Some(reply) = cached {
-                let _ = ctx.transport.send_to(&reply, src).await;
+                // A replay may only retransmit the response for the CURRENT
+                // responder session. Never revive a superseded Noise flight.
+                let current = ctx.sessions.get(&src).map(|s| s.value().clone());
+                if let Some(current) = current {
+                    let state = current.lock().await;
+                    if state.responder_fingerprint == Some(fingerprint) {
+                        let _ = ctx.transport.send_to(&reply, src).await;
+                    }
+                }
                 return;
             }
             if ctx.sessions.len() >= ctx.config.max_sessions && !ctx.sessions.contains_key(&src) {
@@ -1339,13 +1351,17 @@ impl EtpEngine {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                if payload_len != 32 || &out[..8] != b"ETPIK4\0\0" {
+                if payload_len != 40 || &out[..8] != b"ETPIK5\0\0" {
                     release_buffer(out);
                     continue;
                 }
                 let issued = u64::from_be_bytes(out[8..16].try_into().unwrap());
                 let remote_boot: [u8; 16] = out[16..32].try_into().unwrap();
                 session.remote_boot_id = Some(remote_boot);
+                let generation = u64::from_be_bytes(out[32..40].try_into().unwrap());
+                if generation == 0 { release_buffer(out); continue; }
+                session.handshake_generation = generation;
+                session.responder_fingerprint = Some(fingerprint);
                 if issued > now.saturating_add(5) || now > issued.saturating_add(30) {
                     release_buffer(out);
                     continue;
@@ -1368,21 +1384,25 @@ impl EtpEngine {
                         return;
                     }
                 }
-                // Simultaneous IK initiations must select one flight. Without
-                // arbitration both sides can replace their initiator with a
-                // responder and then keep incompatible transport keys.
+                // Compare generations even AFTER completion: a delayed losing
+                // initiation must not overwrite the winning transport keys.
+                // A new authenticated Engine incarnation starts a fresh sequence.
                 if let Some(previous) = ctx.sessions.get(&src).map(|s| s.value().clone()) {
                     let previous = previous.lock().await;
-                    if !previous.handshake_completed && !previous.handshake_flight.is_empty()
-                        && ctx.config.keypair.public.as_slice()
-                            < ctx.config.trusted_peers.get(&src).unwrap().as_slice()
-                    {
+                    let same_incarnation = previous.remote_boot_id.is_none()
+                        || previous.remote_boot_id == Some(remote_boot);
+                    if same_incarnation && !Self::incoming_handshake_wins(
+                        previous.handshake_generation, !previous.handshake_flight.is_empty(),
+                        generation, ctx.config.keypair.public.as_slice()
+                            < ctx.config.trusted_peers.get(&src).unwrap().as_slice(),
+                    ) {
                         release_buffer(out);
                         return;
                     }
                 }
-                let mut response_payload = b"ETPR4\0\0\0".to_vec();
+                let mut response_payload = b"ETPR5\0\0\0".to_vec();
                 response_payload.extend_from_slice(&ctx.boot_id);
+                response_payload.extend_from_slice(&generation.to_be_bytes());
                 if let Ok((wlen, wfin)) = session.crypto.write_handshake_message(&response_payload, &mut out) {
                     let mut response = out[..wlen].to_vec();
                     dialect.seal(&mut response);
@@ -1822,13 +1842,16 @@ impl EtpEngine {
         if let Some(previous) = self.ctx.sessions.get(&target).map(|s| s.value().clone()) {
             let mut previous = previous.lock().await;
             session.remote_boot_id = previous.remote_boot_id;
+            session.handshake_generation = previous.handshake_generation.checked_add(1)
+                .ok_or_else(|| anyhow!("handshake generation exhausted"))?;
             session.pending_queue = std::mem::take(&mut previous.pending_queue);
             session.stream_offsets = std::mem::take(&mut previous.stream_offsets);
             std::mem::swap(&mut session.reliability, &mut previous.reliability);
         }
         let mut buf = acquire_buffer();
         buf.resize(1024, 0);
-        let mut hello = b"ETPIK4\0\0".to_vec();
+        if session.handshake_generation == 0 { session.handshake_generation = 1; }
+        let mut hello = b"ETPIK5\0\0".to_vec();
         hello.extend_from_slice(
             &std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
@@ -1838,6 +1861,7 @@ impl EtpEngine {
         // Noise generates a fresh ephemeral key for every handshake; this field
         // identifies whether reliable streams belong to the same Engine runtime.
         hello.extend_from_slice(&self.ctx.boot_id);
+        hello.extend_from_slice(&session.handshake_generation.to_be_bytes());
         let (len, _) = session.crypto.write_handshake_message(&hello, &mut buf)?;
 
         let mut message = buf[..len].to_vec();
@@ -2358,14 +2382,24 @@ mod runtime_regression_tests {
         match session {
             Some(session) => {
                 let detail = match session.try_lock() {
-                    Ok(state) => format!("handshake={}, offset={:?}, queued={}, crypto=[{}], reliability=[{}]",
-                        state.handshake_completed, state.stream_offsets, state.pending_queue.len(), state.crypto.diagnostic_state(), state.reliability.diagnostic_state()),
+                    Ok(state) => format!("handshake={}, generation={}, local_initiated={}, offset={:?}, queued={}, crypto=[{}], reliability=[{}]",
+                        state.handshake_completed, state.handshake_generation, !state.handshake_flight.is_empty(), state.stream_offsets, state.pending_queue.len(), state.crypto.diagnostic_state(), state.reliability.diagnostic_state()),
                     Err(_) => "session lock held".into(),
                 };
                 detail
             }
             None => "no current session".into(),
         }
+    }
+
+    #[test]
+    fn completed_handshake_keeps_winning_generation_and_rejects_delayed_loser() {
+        assert!(!EtpEngine::incoming_handshake_wins(7, true, 7, true));
+        assert!(EtpEngine::incoming_handshake_wins(7, true, 7, false));
+        assert!(!EtpEngine::incoming_handshake_wins(7, false, 7, false));
+        assert!(!EtpEngine::incoming_handshake_wins(7, true, 6, false));
+        assert!(EtpEngine::incoming_handshake_wins(7, false, 8, true));
+        assert!(EtpEngine::incoming_handshake_wins(7, true, 8, true));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2409,7 +2443,7 @@ mod runtime_regression_tests {
             a_handle.send_data(b_addr,b"return after peer restart".to_vec()).await.unwrap();
             assert_eq!(fresh_received.recv().await.unwrap().1,b"return after peer restart");
             // A cryptographically valid but explicitly obsolete IK3 hello must
-            // not replace an established IK4 session or reset its receive offsets.
+            // not replace an established IK5 session or reset its receive offsets.
             stage = "obsolete handshake rejection";
             let live=a_ctx.sessions.get(&b_addr).unwrap().value().clone();
             let mut legacy=NoiseSession::new_initiator(&b_config.keypair,&a_public).unwrap();
@@ -2445,6 +2479,27 @@ mod runtime_regression_tests {
                 stage = "simultaneous rekey return stream";
                 new_handle.send_data(a_addr,b"simultaneous rekey return".to_vec()).await.unwrap();
                 assert_eq!(a_received.recv().await.unwrap().1,b"simultaneous rekey return");
+                // Deliver a valid but delayed losing initiation AFTER completion.
+                // This deterministically exercises the previous split-key race.
+                stage = "delayed losing handshake rejection";
+                let (winner, loser, loser_addr) = if a_public < b_public {
+                    (&a_ctx, &fresh_ctx, b_addr)
+                } else {
+                    (&fresh_ctx, &a_ctx, a_addr)
+                };
+                let live = winner.sessions.get(&loser_addr).unwrap().value().clone();
+                let generation = live.lock().await.handshake_generation;
+                let mut delayed = NoiseSession::new_initiator(&loser.config.keypair, &winner.config.keypair.public).unwrap();
+                let mut payload = b"ETPIK5\0\0".to_vec();
+                payload.extend_from_slice(&std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_be_bytes());
+                payload.extend_from_slice(&loser.boot_id);
+                payload.extend_from_slice(&generation.to_be_bytes());
+                let mut wire = vec![0; 1024];
+                let (size, _) = delayed.write_handshake_message(&payload, &mut wire).unwrap();
+                wire.truncate(size);
+                crate::plugin::StandardDialect.seal(&mut wire);
+                EtpEngine::process_new_connection_or_fallback(winner.clone(), wire, loser_addr).await;
+                assert!(Arc::ptr_eq(&live, &winner.sessions.get(&loser_addr).unwrap().value().clone()));
             }
             assert_eq!(a_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);assert_eq!(fresh_ctx.metrics.active_sessions.load(Ordering::Relaxed),1);
         };
