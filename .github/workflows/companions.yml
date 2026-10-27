@@ -131,7 +131,12 @@ jobs:
           fi
           timeout 8m cargo test --locked "${profile_flags[@]}" --lib
           lifecycle=network::node::runtime_regression_tests::actual_udp_same_port_new_engine_resets_streams_but_same_boot_rekey_preserves_them
-          cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact --list | rg -F -- "$lifecycle: test"
+          cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact --list > "$RUNNER_TEMP/etp-lifecycle-$ETP_PROFILE.txt"
+          lifecycle_found=false
+          while IFS= read -r test_name; do
+            if [ "$test_name" = "$lifecycle: test" ]; then lifecycle_found=true; fi
+          done < "$RUNNER_TEMP/etp-lifecycle-$ETP_PROFILE.txt"
+          test "$lifecycle_found" = true
           for repetition in {1..8}; do
             timeout 25s cargo test --locked "${profile_flags[@]}" --lib "$lifecycle" -- --exact
           done
