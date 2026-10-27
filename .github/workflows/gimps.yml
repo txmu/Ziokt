@@ -38,6 +38,11 @@ jobs:
         env:
           PYTHONPATH: .:tests:../Corium
         run: python -m unittest -v test_effort_gimps test_gimps_boundaries test_native_deployment test_gimps_consensus test_retroshare
+      - name: Cache checksum-pinned official mprime archive
+        uses: actions/cache@v4
+        with:
+          path: Ziokt/.cache/gimps
+          key: gimps-official-4ce2377e03deb4cf189523136e26401ba08f67857a128e420dd030d00cdca601
       - name: Regenerate genuine official tiny binary proof files
         working-directory: Ziokt
         run: python ci/gimps_official_smoke.py

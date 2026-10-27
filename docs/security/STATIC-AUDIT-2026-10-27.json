@@ -37,11 +37,11 @@
     {
       "scanner": "semgrep",
       "path": "ci/gimps_official_smoke.py",
-      "line": 30,
+      "line": 38,
       "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
       "severity": "WARNING",
-      "fingerprint": "6f8e03993b8cf7cde855fc2c1d7428e33d385bbca4f954b4c443ddea24f1f516",
-      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+      "fingerprint": "c21d6807f3baeec606df9183132048bfeb8207921fb0b0ec5078a0730737b734",
+      "review": "CI-only helper uses two constant HTTPS URLs: the official mprime distribution URL and its observed official redirect target. Every cache hit and download must match the pinned SHA256 and bounded size before extraction or execution; no operator-supplied URL is accepted."
     },
     {
       "scanner": "semgrep",
@@ -217,11 +217,11 @@
     {
       "scanner": "bandit",
       "path": "ci/gimps_official_smoke.py",
-      "line": 30,
+      "line": 38,
       "rule": "B310",
       "severity": "MEDIUM",
-      "fingerprint": "01192db86688cf0a9969f47697fe3891924fcc0545b46c05a9303a4b8df65ea1",
-      "review": "Endpoint/transport is selected by a node administrator or fixed CI fixture; protocol-specific origin checks, TLS or loopback restriction, redirects and digest verification are reviewed at the consumer boundary."
+      "fingerprint": "d2ab59db21aa652bf29d3e82b0e31a3e4ef05f814c26476b68bcece5acfce26e",
+      "review": "CI-only helper uses two constant HTTPS URLs: the official mprime distribution URL and its observed official redirect target. Every cache hit and download must match the pinned SHA256 and bounded size before extraction or execution; no operator-supplied URL is accepted."
     },
     {
       "scanner": "bandit",

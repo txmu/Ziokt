@@ -13,12 +13,42 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ziokt.gimps_files import verify_proof
 
 URL = 'https://download.mersenne.ca/gimps/v30/30.19/p95v3019b20.linux64.tar.gz'
 SHA256 = '4ce2377e03deb4cf189523136e26401ba08f67857a128e420dd030d00cdca601'
+# Exact target returned by the official distribution URL (2026-10-27).
+# Every cache hit and download must still match the pinned release checksum.
+OFFICIAL_REDIRECT = 'https://drive.usercontent.google.com/download?id=16Nim-NX6BGYjcsPBkq1tDbc_8qnwghSB&export=download'
+MAX_ARCHIVE = 10 * 1024 * 1024
+
+
+def official_archive(cache):
+    if cache.is_file():
+        data = cache.read_bytes()
+        if len(data) <= MAX_ARCHIVE and hashlib.sha256(data).hexdigest() == SHA256:
+            return data
+    error = None
+    for attempt in range(3):
+        for url in (URL, OFFICIAL_REDIRECT):
+            try:
+                with urllib.request.urlopen(url, timeout=45) as response:
+                    data = response.read(MAX_ARCHIVE + 1)
+                if len(data) > MAX_ARCHIVE or hashlib.sha256(data).hexdigest() != SHA256:
+                    raise ValueError('official archive checksum or size mismatch')
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                temporary = cache.with_suffix('.part')
+                temporary.write_bytes(data)
+                temporary.replace(cache)
+                return data
+            except (OSError, urllib.error.URLError, ValueError) as caught:
+                error = caught
+        if attempt < 2:
+            time.sleep(2 ** attempt)
+    raise RuntimeError('checksum-pinned official archive unavailable after bounded retries') from error
 
 
 def main():
@@ -27,10 +57,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='gimps-official-ci-') as temporary:
         root = Path(temporary)
         archive = root / 'mprime.tar.gz'
-        with urllib.request.urlopen(URL, timeout=45) as response:
-            data = response.read(10 * 1024 * 1024)
-        if hashlib.sha256(data).hexdigest() != SHA256:
-            raise ValueError('official archive checksum mismatch')
+        data = official_archive(Path(__file__).resolve().parents[1] / '.cache/gimps' / (SHA256 + '.tar.gz'))
         archive.write_bytes(data)
         binary = root / 'binary'
         with tarfile.open(archive) as source:
