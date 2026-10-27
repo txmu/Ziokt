@@ -893,6 +893,10 @@ def execute_mail_cli(args):
     if action=='send':
         result=unified.send(secure_read(args.key,32),args.from_address,args.to,args.subject,secure_read(args.body_file,65536,private=None).decode(),attachments=strict_json(secure_read(args.attachments_file,65536,private=None),65536) if args.attachments_file else None,internet_from=args.internet_from,internet_account=args.internet_account,in_reply_to=args.in_reply_to,references=args.reference,request_read_receipt=args.request_read_receipt)
         print(json.dumps(result,ensure_ascii=False,indent=2));return
+    if action=='internet-sync':
+        if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','configure an internet mail account first')
+        from .mail_worker import run
+        print(json.dumps(run(unified.internet_channel,once=args.once),ensure_ascii=False,indent=2));return
     if action=='internet-resolve':
         if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','configure an internet mail account first')
         print(json.dumps(unified.internet_channel.resolve(args.message_id,args.decision)));return

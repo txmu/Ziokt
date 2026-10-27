@@ -233,6 +233,8 @@ def main(argv=None):
     for internet_action in ('internet-flush','internet-poll','internet-status'):
         internet_parser=mail_actions.add_parser(internet_action,help='durable TLS internet mail bridge')
         if internet_action!='internet-status':internet_parser.add_argument('--limit',type=int,default=10)
+    internet_sync=mail_actions.add_parser('internet-sync',help='supervised SMTP/IMAP synchronization from the standalone zipapp')
+    internet_sync.add_argument('--once',action='store_true',help='one bounded synchronization cycle')
     internet_resolve=mail_actions.add_parser('internet-resolve',help='explicitly resolve an uncertain SMTP DATA result')
     internet_resolve.add_argument('message_id')
     internet_resolve.add_argument('--decision',choices=['sent','retry'],required=True)

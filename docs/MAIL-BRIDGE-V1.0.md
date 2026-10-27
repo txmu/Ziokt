@@ -32,7 +32,7 @@ Provider consent, tenant permissions, IMAP enablement, SMTP AUTH policies and se
 
 MCP starts configured clients' mail workers on startup and stops them at shutdown. Revoked clients/scopes stop background access, and global write disablement prevents background submission. Durable SMTP claims preserve existing uncertain-DATA handling: uncertain delivery is never automatically resubmitted. Account errors are isolated and retried at the configured interval; no secrets appear in worker status.
 
-Standalone nodes can run `python -m ziokt.mail_worker --config /private/mail.json` as a supervised service, or `--once` for one bounded cycle. No interactive flush call is required. This worker does not provision provider accounts or change DNS.
+Standalone nodes can run `python /path/to/ziokt.pyz mail --config /private/mail.json internet-sync` as a supervised service, or `--once` for one bounded cycle. No interactive flush call is required. This worker does not provision provider accounts or change DNS.
 
 ## Bidirectional MIME and Content Fabric
 
@@ -71,3 +71,5 @@ The prior full ALFS build completed and booted its own system. Saved serial outp
 Account `read_receipts` defaults to `deny`. `mail_receipt_policy(account, policy)` accepts `deny` or `manual` and persists the choice privately. `mail_read_receipt(account, inbox_id, decision)` requires an explicit `send` or `block`. Blocking persists for that message. Sending requires manual policy, a matching request returning to the original sender, the assigned native signing identity, and the regular durable SMTP outbox. It generates a standards-shaped multipart/report MDN with Original-Message-ID and a manual displayed disposition. Duplicate decisions reuse the same queue entry; simultaneous decisions are claimed atomically. No automatic acknowledgement mode is enabled.
 
 Incoming MDNs are exposed as untrusted `receipt_reports`. Their existence is a sender assertion, not proof that a human read the message; they do not change native signature verification or automatically mark delivery/read state as authenticated. Plain-text rendering, no remote image fetch, default-denied MDNs and per-message blocking provide the anti-reading-receipt interface without pretending to control a recipient's external Gmail tracking behavior.
+
+The zipapp command works from an unrelated working directory with no source checkout or PYTHONPATH. Each node supplies its own configuration and private state; use an absolute config path in the service manager. `--once` runs one bounded cycle. The source module entry point remains available when Ziokt is installed as a Python package.

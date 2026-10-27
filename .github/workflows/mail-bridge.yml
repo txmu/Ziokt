@@ -1,7 +1,7 @@
 name: Unified Mail identity, OAuth2 and MIME bridge acceptance
 on:
   push:
-    paths: ['ziokt/mail*.py', 'ziokt/cli.py', 'ziokt/mcp.py', 'tests/test_mail*.py', 'tests/test_unified_mail.py', 'ci/openci/alfs/boot.py', '.github/workflows/mail-bridge.yml']
+    paths: ['ziokt/mail*.py', 'ziokt/cli.py', 'ziokt/mcp.py', 'tests/test_mail*.py', 'tests/test_unified_mail.py', 'tests/test_standalone_mail.py', 'ci/openci/alfs/boot.py', '.github/workflows/mail-bridge.yml']
   pull_request:
     paths: ['ziokt/mail*.py', 'ziokt/mcp.py', 'tests/test_mail*.py']
   workflow_dispatch:
@@ -21,4 +21,4 @@ jobs:
       - name: Isolated real TLS mail and Content Fabric, account and token isolation, recorded serial regression
         env:
           PYTHONPATH: 'tests:.'
-        run: python -W error::ResourceWarning -m unittest test_mail_client test_mail_internet test_unified_mail -v
+        run: python -W error::ResourceWarning -m unittest test_mail_client test_mail_internet test_unified_mail test_standalone_mail -v

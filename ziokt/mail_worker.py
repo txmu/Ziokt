@@ -11,10 +11,21 @@ def main():
     internet=config['internet']
     if 'accounts' not in internet:internet={'accounts':[internet]}
     accounts=InternetAccounts(internet,config.get('internet_state',str(config['state'])+'/internet'))
-    if args.once:accounts.sync_once();return
+    run(accounts,once=args.once)
+
+
+def run(channel, *, once=False):
+    if once:
+        if hasattr(channel,'sync_once'):channel.sync_once()
+        else:
+            if channel.config.get('smtp'):channel.flush(5)
+            if channel.config.get('imap'):channel.poll(5)
+        return channel.status()
     done=threading.Event()
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,lambda *_:done.set())
-    accounts.start()
+    channel.start()
     try:done.wait()
-    finally:accounts.close()
+    finally:channel.close()
+    return channel.status()
+
 if __name__=='__main__':main()

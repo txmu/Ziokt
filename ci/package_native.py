@@ -4,10 +4,20 @@ import json
 from pathlib import Path
 import tarfile
 import subprocess
+import zipfile
 
 root = Path(__file__).resolve().parents[1]
 dist = root / "dist"
 dist.mkdir(exist_ok=True)
+# All standalone applications must include the current optional mail runtime.
+# Validate the actual archives, not source directory presence.
+mail_runtime={'ziokt/'+name+'.py' for name in ('mail','mail_internet','mail_accounts','mail_oauth','mail_export','mail_receive','mail_receipts','mail_worker')}
+revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+for application in ('ziokt.pyz','openci.pyz'):
+    with zipfile.ZipFile(dist/application) as bundle:
+        if not mail_runtime<=set(bundle.namelist()):raise ValueError('missing standalone Mail runtime: '+application)
+        build=json.loads(bundle.read('ziokt/_build_manifest.json'))
+        if build.get('source_commit')!=revision or build.get('working_tree_dirty') is not False:raise ValueError('stale or uncommitted zipapp: '+application)
 s = root.parent / "Shadow6"
 c = root.parent / "Corium"
 with tarfile.open(dist / "shadow6-ziokt.tar.gz", "w:gz") as archive:
