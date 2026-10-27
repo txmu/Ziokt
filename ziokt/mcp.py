@@ -982,7 +982,10 @@ def http_handler(service):
         def do_GET(self):
             try:
                 self.validate_origin();path=urlsplit(self.path).path;issuer=service.config['issuer']
-                if path in {'/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'}:return self.reply(200,{'resource':issuer+'/mcp','authorization_servers':[issuer],'scopes_supported':service.scopes,'bearer_methods_supported':['header']})
+                if path in {'/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'}:
+                    browser=service.client('ziokt-browser')
+                    browser_scopes=sorted(set(browser.get('scopes',[]))&set(service.scopes)) if browser else []
+                    return self.reply(200,{'resource':issuer+'/mcp','authorization_servers':[issuer],'scopes_supported':service.scopes,'browser_scopes_supported':browser_scopes,'bearer_methods_supported':['header']})
                 if path=='/.well-known/oauth-authorization-server':return self.reply(200,{'issuer':issuer,'authorization_endpoint':issuer+'/oauth/authorize','token_endpoint':issuer+'/oauth/token','revocation_endpoint':issuer+'/oauth/revoke','response_types_supported':['code'],'grant_types_supported':['authorization_code','refresh_token'],'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],'scopes_supported':service.scopes,'authorization_response_iss_parameter_supported':True,'client_id_metadata_document_supported':service.config.get('cimd_enabled',False)})
                 if path=='/oauth/authorize':
                     q=parse_qs(urlsplit(self.path).query,strict_parsing=True)

@@ -22,6 +22,13 @@ class McpTests(unittest.TestCase):
   body={'jsonrpc':'2.0','id':1,'method':method,'params':params};headers={'Authorization':'Bearer '+self.tokens['access_token'],'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':version,'Mcp-Method':method}
   if method in {'tools/call','resources/read','prompts/get'}:headers['Mcp-Name']=params.get('name',params.get('uri'))
   headers.update(extra or {});return self.request('POST','/mcp',json.dumps(body),headers)
+ def test_browser_discovery_requests_only_registered_scopes(self):
+  self.config['clients']['ziokt-browser']={'redirect_uris':['http://127.0.0.1:8185/gateway-assets/oauth-callback.html'],'scopes':['mail:read','mail:write']}
+  status,_,raw=self.request('GET','/.well-known/oauth-protected-resource/mcp');self.assertEqual(status,200);metadata=json.loads(raw)
+  self.assertEqual(metadata['browser_scopes_supported'],['mail:read','mail:write']);self.assertNotIn('ziokt:admin',metadata['browser_scopes_supported'])
+  params={'client_id':'ziokt-browser','redirect_uri':self.config['clients']['ziokt-browser']['redirect_uris'][0],'response_type':'code','code_challenge':base64.urlsafe_b64encode(hashlib.sha256(b'x'*48).digest()).rstrip(b'=').decode(),'code_challenge_method':'S256','scope':' '.join(metadata['browser_scopes_supported']),'state':'s'*32,'resource':self.config['issuer']+'/mcp'}
+  self.assertEqual(self.request('GET','/oauth/authorize?'+urlencode(params))[0],200)
+  self.assertNotEqual(self.request('GET','/oauth/authorize?'+urlencode({**params,'scope':params['scope']+' ziokt:admin'}))[0],200)
  def test_modern_legacy_and_resources(self):
   status,_,data=self.rpc();self.assertEqual(status,200);names={t['name'] for t in json.loads(data)['result']['tools']};self.assertIn('ziokt_components',names);self.assertNotIn('ziokt_workflow_apply',names)
   self.assertEqual(self.rpc('initialize',{'protocolVersion':'2025-11-25'},version='2025-11-25')[0],200)

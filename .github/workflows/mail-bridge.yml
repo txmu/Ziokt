@@ -21,4 +21,4 @@ jobs:
       - name: Isolated real TLS mail and Content Fabric, account and token isolation, recorded serial regression
         env:
           PYTHONPATH: 'tests:.'
-        run: python -W error::ResourceWarning -m unittest test_mail_client test_mail_internet test_unified_mail test_standalone_mail -v
+        run: python -W error::ResourceWarning -m unittest test_mail_client test_mail_internet test_unified_mail test_standalone_mail test_mcp.McpTests.test_browser_discovery_requests_only_registered_scopes -v

@@ -82,7 +82,8 @@
   issuer=new URL(metadata.resource).origin;resource=issuer+'/mcp';
   if(metadata.resource!==resource||metadata.authorization_servers?.[0]!==issuer||(!issuer.startsWith('https://')&&!issuer.startsWith('http://127.0.0.1:')))throw new Error('Issuer mismatch');
   sessionStorage.setItem('ziokt_oauth_issuer',issuer);
-  location.assign(issuer+'/oauth/authorize?'+new URLSearchParams({client_id:'ziokt-browser',redirect_uri:location.origin+'/gateway-assets/oauth-callback.html',response_type:'code',code_challenge:challenge,code_challenge_method:'S256',scope:metadata.scopes_supported.join(' '),state,resource}));
+  if(!Array.isArray(metadata.browser_scopes_supported)||!metadata.browser_scopes_supported.length)throw new Error('Browser OAuth client is not configured');
+  location.assign(issuer+'/oauth/authorize?'+new URLSearchParams({client_id:'ziokt-browser',redirect_uri:location.origin+'/gateway-assets/oauth-callback.html',response_type:'code',code_challenge:challenge,code_challenge_method:'S256',scope:metadata.browser_scopes_supported.join(' '),state,resource}));
   }catch(error){output.textContent=error.message;}finally{connect.disabled=false;}
  };
  disconnect.onclick=async()=>{
