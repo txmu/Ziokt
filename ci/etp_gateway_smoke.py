@@ -141,6 +141,9 @@ def main(binary, forum_required):
                 worker = EtpGateway(binary, digest, config)
                 workers.append(worker)
                 assert worker.call('etp.stats', {})['schema'] == 'ziokt.etp-stats.v1'
+                health=worker.call('etp.health',{'challenge':secrets.token_hex(16)})
+                assert health['checks']['native_engine_stats']=='passed'
+                assert health['checks']['external_peer']=='not_assessed'
             transport_key = secrets.token_bytes(32)
             client = EtpRecordSocket(workers[0], addresses[1:], transport_key, 'native-smoke')
             server = EtpRecordSocket(workers[3], list(reversed(addresses[:3])), transport_key, 'native-smoke', server=True)

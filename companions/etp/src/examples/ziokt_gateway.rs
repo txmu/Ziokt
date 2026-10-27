@@ -185,7 +185,7 @@ async fn main() -> anyhow::Result<()> {
         let request: Request = serde_json::from_slice(&frame)?;
         anyhow::ensure!(request.id < (1u64 << 53), "correlation bound");
         let result:Result<Value,anyhow::Error>=async {match request.method.as_str(){
-   "etp.stats"=>{anyhow::ensure!(request.params==json!({}),"exact stats request");Ok(json!({"schema":"ziokt.etp-stats.v1","native":handle.get_stats().await?}))},
+   "etp.stats"=>{anyhow::ensure!(request.params==json!({}),"exact stats request");Ok(json!({"schema":"ziokt.etp-stats.v1","native":{"summary":handle.get_stats().await?}}))},
    "etp.onion.send"=>{
     let object=request.params.as_object().ok_or_else(||anyhow::anyhow!("object required"))?;anyhow::ensure!(object.len()==2,"exact onion frame");
     let hops=object.get("hops").and_then(Value::as_array).ok_or_else(||anyhow::anyhow!("hops required"))?;anyhow::ensure!((2..=4).contains(&hops.len()),"2..4 hops required");
