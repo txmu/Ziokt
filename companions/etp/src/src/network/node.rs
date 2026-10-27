@@ -1036,6 +1036,7 @@ impl EtpEngine {
     }
 
     async fn process_existing_session(ctx: ProcessingContext, data: Vec<u8>, src: SocketAddr) {
+        let transition = ctx.session_transitions[Self::transition_slot(src)].lock().await;
         let session_lock = match ctx.sessions.get(&src).map(|s| s.value().clone()) {
             Some(s) => s,
             None => return,
@@ -1043,6 +1044,7 @@ impl EtpEngine {
 
         // Note: Using RwLock write lock during processing
         let mut session = session_lock.lock().await;
+        drop(transition);
         if !ctx
             .sessions
             .get(&src)
@@ -1129,11 +1131,12 @@ impl EtpEngine {
                             // Deep Security: Zero Tolerance
                             if ctx.config.security.handshake_zero_tolerance {
                                 warn!("Zero Tolerance: Banning {} for invalid handshake", src);
-                                ctx.banned_ips
-                                    .insert(src, Instant::now() + Duration::from_secs(300));
                                 let flavor = session.flavor.clone();
                                 drop(session);
-                                if ctx.sessions.remove(&src).is_some() {
+                                let _transition = ctx.session_transitions[Self::transition_slot(src)].lock().await;
+                                if ctx.sessions.remove_if(&src, |_, current| Arc::ptr_eq(current, &session_lock)).is_some() {
+                                    ctx.banned_ips.insert(src, Instant::now() + Duration::from_secs(300));
+                                    ctx.metrics.active_sessions.fetch_sub(1, Ordering::Relaxed);
                                     flavor.on_connection_close(src);
                                 }
                             }
