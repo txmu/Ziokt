@@ -266,7 +266,7 @@ class Service:
         for action in ('internet-flush','internet-poll'):
             self.add('mail_'+action.replace('-','_'),'Process a bounded durable TLS mail batch.',schema({'limit':{'type':'integer','minimum':1,'maximum':50}},()),True,'mail:write',('mail',action))
         self.add('mail_resolve','Resolve a ZDNS address to its target network channel and recipient key.',schema({'address':STRING},('address',)),False,'mail:read',('mail','resolve'))
-        self.add('mail_send','Send a mail across Corium, ETP, or Community with optional Content Fabric attachments.',schema({'to':STRING,'subject':STRING,'body':STRING,'attachments':{'type':'array','items':{'type':'object'}}},('to','subject','body')),True,'mail:write',('mail','send'))
+        self.add('mail_send','Send a mail across Corium, ETP, or Community with optional Content Fabric attachments.',schema({'to':STRING,'subject':STRING,'body':STRING,'attachments':{'type':'array','items':{'type':'object'}},'internet_from':STRING,'internet_account':STRING,'in_reply_to':STRING,'references':{'type':'array','maxItems':20,'items':STRING}},('to','subject','body')),True,'mail:write',('mail','send'))
         self.add('mail_inbox','Retrieve inbox messages for a recipient across Corium, ETP, and Community.',schema({'recipient':STRING,'channel':{'type':'string','enum':['corium','etp','community','internet']}},('recipient',)),False,'mail:read',('mail','inbox'))
         self.add('mail_forward','Forward a signed mail envelope through the authenticated and rate-limited public relay.',schema({'envelope':{'type':'object'}},('envelope',)),True,'mail:write',('mail','forward'))
         self.add('mail_retry','Retry failed mail deliveries from the relay log.',schema({'limit':{'type':'integer','minimum':1,'maximum':50}},()),True,'mail:write',('mail','retry'))
@@ -284,7 +284,17 @@ class Service:
         self.add('site_rollback','Rollback a domain website to previous or specific historical version.',schema({'domain':STRING,'target_version':STRING},('domain',)),True,'site:write',('site','rollback'))
         self.add('site_history','View publication and rollback history for a website domain.',schema({'domain':STRING},('domain',)),False,'site:read',('site','history'))
         self.add('site_status','Check live website status, active manifest digest, and rollback availability.',schema({'domain':STRING},('domain',)),False,'site:read',('site','status'))
+        self.add('mail_attachment_import','Scan a quarantined external attachment into the configured private Content Fabric account.',schema({'account':STRING,'attachment_id':STRING},('account','attachment_id')),True,'mail:write',('mail','attachment-import'))
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
+        self.mail_services={}
+        from .mail import UnifiedMail
+        for client,settings in config.get('mail',{}).get('clients',{}).items():
+            if not settings.get('internet'):continue
+            identity=hashlib.sha256(client.encode()).hexdigest()
+            mail=UnifiedMail.configured({'state':str(self.root/'mail'),'node_id':'mcp-mail','internet':settings['internet'],'internet_state':str(self.root/'mail/internet'/identity)})
+            self.mail_services[identity]=mail
+            mail.internet_channel.authorization=lambda scope,client=client: bool(self.client(client) and scope in self.client(client).get('scopes',[]) and (scope!='mail:write' or self.current().get('writes_enabled') is True))
+            if hasattr(mail.internet_channel,'start'):mail.internet_channel.start()
         self.publication_stop=threading.Event();self.publication_thread=None
         self.etp={}
         self.content_etp=None;self.content_etp_config=None
@@ -314,6 +324,8 @@ class Service:
         return attach_shadow6_control(self,config=config,adapter=adapter)
 
     def close(self):
+        for mail in getattr(self,'mail_services',{}).values():
+            if hasattr(mail.internet_channel,'close'):mail.internet_channel.close()
         self.publication_stop.set()
         if self.publication_thread:self.publication_thread.join(timeout=30)
         with self.lock:
@@ -591,6 +603,13 @@ class Service:
                 unified=self.mail_services[identity]
             op=route[1]
             if op=='resolve':return unified.resolve(args['address'])
+            if op=='attachment-import':
+                channel=unified.internet_channel
+                if not channel:raise ProtocolError('MAIL_UNAVAILABLE','no internet account')
+                if hasattr(channel,'import_attachment'):return channel.import_attachment(args['account'],args['attachment_id'])
+                if args['account']!=channel.config['account']:raise ProtocolError('POLICY_DENIED','unknown account')
+                from .mail_receive import import_attachment
+                return import_attachment(channel,args['attachment_id'])
             key_dir=self.root/'mail/identities';key_dir.mkdir(mode=0o700,exist_ok=True)
             key_path=safe_path(key_dir,identity+'.key')
             with self.lock:
@@ -600,7 +619,7 @@ class Service:
                 key=secure_read(key_path,32)
             from .security import sign as mail_sign
             public=mail_sign({},key,'Ziokt/mail-identity/v1')['public_key']
-            if op=='identity':return {'public_key':public,'address':public+'@node.ziokt','internet_configured':bool(unified.internet_channel)}
+            if op=='identity':return {'public_key':public,'address':public+'@node.ziokt','internet_configured':bool(unified.internet_channel),'internet_bindings':unified.internet_channel.status() if unified.internet_channel else None}
             if op.startswith('internet-'):
                 if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','no internet account assigned to this client')
                 if op=='internet-status':return unified.internet_channel.status()
@@ -612,7 +631,7 @@ class Service:
                     to_address=args['to'],
                     subject=args['subject'],
                     body=args['body'],
-                    attachments=args.get('attachments')
+                    attachments=args.get('attachments'),internet_from=args.get('internet_from'),internet_account=args.get('internet_account'),in_reply_to=args.get('in_reply_to'),references=args.get('references')
                 )
             if op=='inbox':
                 if args['recipient'] not in client_config.get('recipients',[public]):raise ProtocolError('POLICY_DENIED','mailbox is not assigned to this client')

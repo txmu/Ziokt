@@ -36,14 +36,36 @@ def address(value):
 
 class InternetMail:
     def __init__(self, config, state):
-        if (not isinstance(config, dict) or set(config)-{'account','from_address','local_recipient','smtp','imap','secret_file','ca_file','allowed_senders'} or
+        if (not isinstance(config, dict) or set(config)-{'account','from_address','local_recipient','smtp','imap','secret_file','ca_file','allowed_senders','identity_bindings','attachment_export','auth','trusted_authserv_ids','inbound_content'} or
                 not isinstance(config.get('account'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', config['account'])):
             raise ProtocolError('INVALID_CONFIG', 'explicit internet mail account required')
         self.config = config
+        if config.get('auth','password') not in {'password','oauth2'}:raise ProtocolError('INVALID_CONFIG','mail auth method')
+        authserv=config.get('trusted_authserv_ids',[])
+        if not isinstance(authserv,list) or len(authserv)>16 or any(not isinstance(x,str) or not re.fullmatch(r'[A-Za-z0-9.-]{1,253}',x) for x in authserv):raise ProtocolError('INVALID_CONFIG','trusted receiving MTA ids')
+        inbound=config.get('inbound_content')
+        if inbound is not None and (not isinstance(inbound,dict) or set(inbound)!={'root','owner'} or any(not isinstance(inbound[k],str) or not inbound[k] for k in inbound)):raise ProtocolError('INVALID_CONFIG','explicit private attachment import root and owner required')
         senders=config.get('allowed_senders',[])
         if not isinstance(senders,list) or len(senders)>64 or any(not isinstance(key,str) or not re.fullmatch('[a-f0-9]{64}',key) for key in senders):
             raise ProtocolError('INVALID_CONFIG','bounded authorized internet mail senders required')
         self.sender = address(config['from_address'])
+        from .mail_export import MimeExport
+        self.exporter=MimeExport(config.get('attachment_export',{}))
+        self.bindings=config.get('identity_bindings',{})
+        if not isinstance(self.bindings,dict) or len(self.bindings)>64:raise ProtocolError('INVALID_CONFIG','bounded identity bindings required')
+        used=set()
+        for key,binding in self.bindings.items():
+            if key not in senders or not isinstance(binding,dict) or set(binding)-{'native_address','addresses','default_address','email_verification','content_token_file','display_name','reply_to'}:raise ProtocolError('INVALID_CONFIG','authorized identity binding required')
+            from .mail import parse_mail_address
+            parse_mail_address(binding.get('native_address'))
+            aliases=binding.get('addresses',[])
+            if not isinstance(aliases,list) or not 1<=len(aliases)<=16 or any(address(x)!=x for x in aliases) or len(set(aliases))!=len(aliases):raise ProtocolError('INVALID_CONFIG','canonical distinct aliases required')
+            if used.intersection(aliases):raise ProtocolError('INVALID_CONFIG','external address cannot belong to multiple native identities')
+            used.update(aliases)
+            if 'reply_to' in binding and address(binding['reply_to']) not in aliases:raise ProtocolError('INVALID_CONFIG','Reply-To must be an assigned alias')
+            name=binding.get('display_name','')
+            if not isinstance(name,str) or len(name)>128 or any(ord(c)<32 or ord(c)==127 for c in name):raise ProtocolError('INVALID_CONFIG','bounded display name required')
+            if binding.get('default_address',aliases[0]) not in aliases or binding.get('email_verification','unverified') not in {'unverified','operator_attested'}:raise ProtocolError('INVALID_CONFIG','explicit alias selection and verification status required')
         if not isinstance(config.get('local_recipient'),str) or not re.fullmatch(r'[A-Za-z0-9_.@+-]{1,160}',config['local_recipient']):
             raise ProtocolError('INVALID_CONFIG','explicit native inbox mapping required')
         for kind in ('smtp','imap'):
@@ -62,6 +84,9 @@ class InternetMail:
             db.executescript('''CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, recipient TEXT, raw BLOB, status TEXT, attempts INTEGER, next_attempt INTEGER, error TEXT);
             CREATE TABLE IF NOT EXISTS inbox (account TEXT, validity TEXT, uid INTEGER, recipient TEXT, raw BLOB, received_at INTEGER, PRIMARY KEY(account,validity,uid));
             CREATE TABLE IF NOT EXISTS cursors (account TEXT, mailbox TEXT, validity TEXT, uid INTEGER, PRIMARY KEY(account,mailbox));''')
+            if 'mail_from' not in {r[1] for r in db.execute('PRAGMA table_info(outbox)')}:db.execute('ALTER TABLE outbox ADD COLUMN mail_from TEXT')
+            if 'sender_key' not in {r[1] for r in db.execute('PRAGMA table_info(outbox)')}:db.execute('ALTER TABLE outbox ADD COLUMN sender_key TEXT')
+            db.execute('CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,validity TEXT,uid INTEGER,name TEXT,mime TEXT,data BLOB,status TEXT,descriptor TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS identity (id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT)')
             binding=json.dumps([config['account'],self.sender,config['local_recipient']])
             previous=db.execute('SELECT binding FROM identity WHERE id=1').fetchone()
@@ -71,6 +96,9 @@ class InternetMail:
         self.db.chmod(0o600)
 
     def credentials(self):
+        if self.config.get('auth')=='oauth2':
+            from .mail_oauth import credentials
+            return credentials(self.config['secret_file'])
         secret=strict_json(secure_read(Path(self.config['secret_file']),8192),8192)
         if (not isinstance(secret,dict) or set(secret)!={'username','password'} or
                 any(not isinstance(secret[k],str) or not 1<=len(secret[k])<=2048 or '\r' in secret[k] or '\n' in secret[k] for k in secret)):
@@ -80,31 +108,49 @@ class InternetMail:
     def context(self):
         return ssl.create_default_context(cafile=self.config.get('ca_file'))
 
-    def send(self, sender_key, recipient, subject, body, attachments=None, timestamp=None, message_id=None):
+    def send(self, sender_key, recipient, subject, body, attachments=None, timestamp=None, message_id=None, *, native_address=None, internet_from=None, native_verified=False, in_reply_to=None, references=None, internet_account=None):
+        if internet_account is not None and internet_account!=self.config['account']:raise ProtocolError('POLICY_DENIED','internet account is not assigned')
         if sender_key not in self.config.get('allowed_senders',[]):
             raise ProtocolError('POLICY_DENIED','sender is not authorized for this SMTP account')
+        binding=self.bindings.get(sender_key)
+        if self.bindings and (not binding or native_address!=binding['native_address']):raise ProtocolError('POLICY_DENIED','signed native address does not match the configured identity')
+        sender=internet_from or (binding.get('default_address',binding['addresses'][0]) if binding else self.sender)
+        if sender not in (binding['addresses'] if binding else [self.sender]):raise ProtocolError('POLICY_DENIED','external alias is not assigned to this identity')
         recipient=address(recipient)
         if not self.config.get('smtp'):raise ProtocolError('MAIL_UNAVAILABLE','SMTP is not configured')
         if not isinstance(subject,str) or len(subject)>256 or '\r' in subject or '\n' in subject or not isinstance(body,str) or len(body)>65536:
             raise ProtocolError('INVALID_PAYLOAD','bounded mail text required')
+        exported=[]
         if attachments:
             from .mail import validate_attachments
             attachments=validate_attachments(attachments)
-            body+='\n\nContent Fabric references (availability requires Ziokt):\n'+json.dumps(attachments,ensure_ascii=False)
+            if self.exporter.mode=='mime':exported=self.exporter.export(attachments,binding.get('content_token_file') if binding else None)
+            else:body+='\n\nContent Fabric references (availability requires Ziokt):\n'+json.dumps(attachments,ensure_ascii=False)
         message=EmailMessage(policy=policy.SMTP)
-        message['From']=self.sender;message['To']=recipient;message['Subject']=subject
+        from email.utils import formataddr
+        message['From']=formataddr((binding.get('display_name',''),sender)) if binding else sender
+        message['To']=recipient;message['Subject']=subject
+        if binding and binding.get('reply_to'):message['Reply-To']=binding['reply_to']
+        from .mail_receive import thread_id
+        if in_reply_to is not None:message['In-Reply-To']=thread_id(in_reply_to)
+        if references is not None:
+            if not isinstance(references,list) or len(references)>20:raise ProtocolError('INVALID_MAIL','bounded thread references required')
+            message['References']=' '.join(thread_id(value) for value in references)
         from email.utils import formatdate
         timestamp=timestamp if timestamp is not None else time.time_ns()
         message['Date']=formatdate(timestamp/1e9 if timestamp>2**40 else timestamp,usegmt=True)
         # Include the body digest so two distinct messages in the same second remain distinct.
-        identity=hashlib.sha256((self.config['account']+'\0'+str(sender_key)+'\0'+recipient+'\0'+str(message_id or timestamp)+'\0'+subject+'\0'+body).encode()).hexdigest()
-        message['Message-ID']='<'+identity+'@'+self.sender.rsplit('@',1)[1]+'>'
+        identity=hashlib.sha256((self.config['account']+'\0'+sender+'\0'+str(sender_key)+'\0'+recipient+'\0'+str(message_id or timestamp)+'\0'+subject+'\0'+body+'\0'+json.dumps([attachments,in_reply_to,references],sort_keys=True)).encode()).hexdigest()
+        message['Message-ID']='<'+identity+'@'+sender.rsplit('@',1)[1]+'>'
         message.set_content(body)
+        for descriptor,data in exported:
+            major,minor=descriptor['mime'].split('/')
+            message.add_attachment(data,maintype=major,subtype=minor,filename=descriptor['name'])
         raw=message.as_bytes()
         if len(raw)>MAX_MESSAGE:raise ProtocolError('MAIL_LIMIT','internet mail budget exceeded')
         with closing(sqlite3.connect(self.db)) as db,db:
-            db.execute("INSERT OR IGNORE INTO outbox VALUES (?,?,?,'queued',0,0,'')",(identity,recipient,raw))
-        return {'channel':'internet','message_id':identity,'delivery_status':'queued'}
+            db.execute("INSERT OR IGNORE INTO outbox(id,recipient,raw,status,attempts,next_attempt,error,mail_from,sender_key) VALUES (?,?,?,'queued',0,0,'',?,?)",(identity,recipient,raw,sender,sender_key))
+        return {'channel':'internet','message_id':identity,'delivery_status':'queued','rfc_message_id':str(message['Message-ID']),'internet_from':sender,'native_identity':sender_key,'native_signature_verified':bool(native_verified),'email_verification':binding.get('email_verification','unverified') if binding else 'unverified','email_ownership_verified':False,'attachment_mode':self.exporter.mode}
 
     def flush(self, limit=10):
         require_network()
@@ -116,20 +162,26 @@ class InternetMail:
             with closing(sqlite3.connect(self.db)) as db,db:
                 db.execute('BEGIN IMMEDIATE')
                 db.execute("UPDATE outbox SET status='uncertain',error='interrupted SMTP attempt' WHERE status='sending' AND next_attempt<?",(int(time.time()),))
-                row=db.execute("SELECT id,recipient,raw,attempts FROM outbox WHERE status='queued' AND next_attempt<=? AND attempts<5 ORDER BY next_attempt,id LIMIT 1",(int(time.time()),)).fetchone()
+                row=db.execute("SELECT id,recipient,raw,attempts,mail_from,sender_key FROM outbox WHERE status='queued' AND next_attempt<=? AND attempts<5 ORDER BY next_attempt,id LIMIT 1",(int(time.time()),)).fetchone()
                 if not row:break
-                identity,recipient,raw,attempts=row
+                identity,recipient,raw,attempts,mail_from,sender_key=row
                 db.execute("UPDATE outbox SET status='sending',attempts=attempts+1,next_attempt=? WHERE id=?",(int(time.time())+120,identity))
             submitted=False;status='queued';error='';client=None
             try:
+                bound=self.bindings.get(sender_key)
+                if sender_key is not None and (sender_key not in self.config.get('allowed_senders',[]) or (self.bindings and (not bound or mail_from not in bound['addresses']))):raise ProtocolError('POLICY_DENIED','queued identity or alias revoked')
+                if sender_key is None and self.bindings:raise ProtocolError('POLICY_DENIED','legacy queue requires explicit review after identity mapping')
                 username,password=self.credentials()
                 if settings['tls']=='implicit':client=smtplib.SMTP_SSL(settings['host'],settings['port'],timeout=10,context=self.context())
                 else:
                     client=smtplib.SMTP(settings['host'],settings['port'],timeout=10)
                     client.ehlo();client.starttls(context=self.context());client.ehlo()
-                client.login(username,password)
+                if self.config.get('auth')=='oauth2':
+                    from .mail_oauth import sasl
+                    client.auth('XOAUTH2',lambda challenge=None: sasl(username,password) if challenge is None else '')
+                else:client.login(username,password)
                 submitted=True
-                refused=client.sendmail(self.sender,[recipient],raw)
+                refused=client.sendmail(mail_from or self.sender,[recipient],raw)
                 if refused:raise smtplib.SMTPRecipientsRefused(refused)
                 status='sent'
             except smtplib.SMTPRecipientsRefused as exc:
@@ -137,7 +189,7 @@ class InternetMail:
             except smtplib.SMTPResponseException as exc:
                 status='queued' if 400<=exc.smtp_code<500 else 'failed';error=type(exc).__name__
             except (OSError,smtplib.SMTPException,ProtocolError) as exc:
-                status='uncertain' if submitted else 'queued';error=type(exc).__name__
+                status='failed' if isinstance(exc,ProtocolError) and exc.code=='POLICY_DENIED' else 'uncertain' if submitted else 'queued';error=type(exc).__name__
             finally:
                 if client is not None:
                     try:client.close()
@@ -167,7 +219,15 @@ class InternetMail:
             else:
                 client=imaplib.IMAP4(settings['host'],settings['port'],timeout=10)
                 client.starttls(ssl_context=self.context())
-            client.login(username,password)
+            if self.config.get('auth')=='oauth2':
+                from .mail_oauth import sasl
+                initial=True
+                def authenticate(challenge):
+                    nonlocal initial
+                    if not initial:return b''
+                    initial=False;return sasl(username,password).encode()
+                client.authenticate('XOAUTH2',authenticate)
+            else:client.login(username,password)
             mailbox=settings.get('mailbox','INBOX')
             if client.select(mailbox,readonly=True)[0]!='OK':raise ProtocolError('MAIL_UNAVAILABLE','IMAP mailbox rejected')
             validity=client.response('UIDVALIDITY')[1]
@@ -192,9 +252,15 @@ class InternetMail:
                 typ,parts=client.uid('fetch',str(uid),f'(BODY.PEEK[]<0.{MAX_MESSAGE+1}>)')
                 bodies=[item[1] for item in parts or [] if isinstance(item,tuple) and len(item)==2 and isinstance(item[1],bytes)]
                 if typ!='OK' or len(bodies)!=1 or len(bodies[0])!=int(sizes[0]) or len(bodies[0])>MAX_MESSAGE:raise ProtocolError('INVALID_MAIL','complete bounded IMAP message required')
+                from .mail_receive import quarantine,import_attachment
+                attachment_ids=quarantine(self,validity,uid,bodies[0])
                 with closing(sqlite3.connect(self.db)) as db,db:
                     db.execute('INSERT OR IGNORE INTO inbox VALUES (?,?,?,?,?,?)',(account,validity,uid,self.config['local_recipient'],bodies[0],int(time.time())))
                     db.execute('INSERT OR REPLACE INTO cursors VALUES (?,?,?,?)',(account,mailbox,validity,uid))
+                if self.config.get('inbound_content'):
+                    for attachment_id in attachment_ids:
+                        try:import_attachment(self,attachment_id)
+                        except (ProtocolError,OSError,ValueError):pass
                 imported+=1
             if not ids:
                 with closing(sqlite3.connect(self.db)) as db,db:
@@ -203,6 +269,12 @@ class InternetMail:
             if client is not None:
                 try:client.logout()
                 except (OSError,imaplib.IMAP4.error):pass
+        if self.config.get('inbound_content'):
+            from .mail_receive import import_attachment
+            with closing(sqlite3.connect(self.db)) as db:pending=db.execute("SELECT id FROM attachments WHERE status='quarantined' LIMIT 4").fetchall()
+            for pending_id, in pending:
+                try:import_attachment(self,pending_id)
+                except Exception:pass
         return {'imported':imported,'account':self.config['account']}
 
     def inbox(self, recipient):
@@ -211,16 +283,28 @@ class InternetMail:
             rows=db.execute('SELECT validity,uid,raw,received_at FROM inbox WHERE recipient=? ORDER BY received_at DESC,uid DESC LIMIT 50',(recipient,)).fetchall()
         results=[]
         for validity,uid,raw,received in rows:
-            message=BytesParser(policy=policy.default).parsebytes(raw)
-            part=message.get_body(preferencelist=('plain',))
-            try:body=part.get_content()[:65536] if part else ''
-            except (LookupError,UnicodeError):body=''
-            results.append({'id':f'{validity}:{uid}','subject':str(message.get('Subject',''))[:256],'from':str(message.get('From',''))[:320],
-                            'body':body,'received_at':received,'channel':'internet','sender_signature_verified':False})
+            from .mail_receive import describe
+            _,item=describe(raw,self.config.get('trusted_authserv_ids',[]))
+            with closing(sqlite3.connect(self.db)) as db:
+                files=db.execute('SELECT id,name,mime,status,descriptor FROM attachments WHERE validity=? AND uid=?',(validity,uid)).fetchall()
+            item.update(id=f'{validity}:{uid}',received_at=received,channel='internet',account=self.config['account'],attachments=[{'id':f[0],'name':f[1],'mime':f[2],'status':f[3],'content_fabric':json.loads(f[4]) if f[4] else None} for f in files])
+            results.append(item)
         return results
 
     def status(self):
         with closing(sqlite3.connect(self.db)) as db:
             counts=dict(db.execute('SELECT status,count(*) FROM outbox GROUP BY status'))
             incoming=db.execute('SELECT count(*) FROM inbox').fetchone()[0]
-        return {'account':self.config['account'],'outbox':counts,'inbox_count':incoming,'offline_storage':True}
+        return {'account':self.config['account'],'outbox':counts,'inbox_count':incoming,'offline_storage':True,'attachment_mode':self.exporter.mode,'identity_bindings':[{'native_key':key,'native_address':b['native_address'],'addresses':b['addresses'],'email_verification':b.get('email_verification','unverified'),'email_ownership_verified':False} for key,b in self.bindings.items()]}
+
+    def start(self):
+        if getattr(self,'scheduler',None):return
+        from .mail_accounts import InternetAccounts
+        scheduler=object.__new__(InternetAccounts)
+        import threading
+        scheduler.accounts={self.config['account']:self};scheduler.interval=60;scheduler.stop=threading.Event();scheduler.worker=None;scheduler.last_sync={};scheduler.sync_lock=threading.Lock()
+        scheduler.authorization=getattr(self,'authorization',None)
+        self.scheduler=scheduler;scheduler.start()
+
+    def close(self):
+        if getattr(self,'scheduler',None):self.scheduler.close()

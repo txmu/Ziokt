@@ -1,3 +1,4 @@
+from contextlib import closing
 import datetime
 from pathlib import Path
 import secrets
@@ -112,3 +113,56 @@ class MailInternetTests(unittest.TestCase):
         inbox=unified.inbox('alice',channel='internet')['internet']
         self.assertEqual(len(inbox),1);self.assertIn('Unicode 邮件 survives',inbox[0]['body']);self.assertFalse(inbox[0]['sender_signature_verified'])
         self.assertEqual(internet.inbox('another-user'),[])
+
+    def test_native_alias_mapping_is_signed_and_durable_and_revocable(self):
+        import json,sqlite3
+        from email.parser import BytesParser
+        from email import policy
+        self.config['identity_bindings']={self.pub:{'native_address':'alice@home.ziokt','addresses':['alice@example.org','a@example.org'],'email_verification':'operator_attested'}}
+        channel=InternetMail(self.config,self.root/'aliases')
+        unified=UnifiedMail(internet_channel=channel,mailbox_db=self.root/'mapping.db',relay_db=self.root/'mapping-relay.db')
+        result=unified.send(self.key,'alice@home.ziokt','bob@example.net','alias','hello',internet_from='a@example.org')
+        self.assertEqual(result['details']['internet_from'],'a@example.org');self.assertTrue(result['details']['native_signature_verified']);self.assertFalse(result['details']['email_ownership_verified'])
+        with closing(sqlite3.connect(channel.db)) as db:raw,mail_from=db.execute('SELECT raw,mail_from FROM outbox').fetchone()
+        self.assertEqual(BytesParser(policy=policy.default).parsebytes(raw)['From'],'a@example.org');self.assertEqual(mail_from,'a@example.org')
+        with patch('ziokt.mail_internet.smtplib.SMTP_SSL') as smtp:
+            smtp.return_value.sendmail.return_value={}
+            self.assertEqual(channel.flush()['results'][0]['status'],'sent')
+            self.assertEqual(smtp.return_value.sendmail.call_args.args[0],'a@example.org')
+        with self.assertRaises(ProtocolError):channel.send(self.pub,'bob@example.net','x','x',native_address='wrong@home.ziokt')
+        with self.assertRaises(ProtocolError):channel.send(self.pub,'bob@example.net','x','x',native_address='alice@home.ziokt',internet_from='evil@example.org')
+        channel.send(self.pub,'bob@example.net','revoke','x',native_address='alice@home.ziokt',internet_from='a@example.org')
+        self.config['identity_bindings'][self.pub]['addresses']=['alice@example.org']
+        with patch('ziokt.mail_internet.smtplib.SMTP_SSL') as smtp:
+            self.assertEqual(channel.flush()['results'][0]['status'],'failed');smtp.assert_not_called()
+
+    def test_actual_content_fabric_authorization_mime_export_and_scan_failures(self):
+        import hashlib,sqlite3,sys
+        from email.parser import BytesParser
+        from email import policy
+        from ziokt.content_fabric import Fabric
+        from ziokt.content_server import server
+        fabric=Fabric(self.root/'fabric');self.addCleanup(fabric.close)
+        data=b'Gmail-readable attachment bytes';digest='sha256:'+hashlib.sha256(data).hexdigest()
+        fabric.begin('alice','upload',len(data),digest,'text/plain');fabric.put('alice','upload',0,data);obj=fabric.finish('alice','upload')
+        http=server(fabric,{'port':0,'tokens':[{'account':'alice','token':'a'*40,'scopes':['content:read']},{'account':'bob','token':'b'*40,'scopes':['content:read']}]})
+        thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+        self.addCleanup(http.server_close);self.addCleanup(thread.join,3);self.addCleanup(http.shutdown)
+        token=self.root/'content.token';token.write_text('a'*40);token.chmod(0o600)
+        scanner=self.root/'scanner.py';scanner.write_text('import pathlib,sys\nassert pathlib.Path(sys.argv[1]).read_bytes()=='+repr(data)+'\n')
+        self.config['attachment_export']={'mode':'mime','content_url':'http://127.0.0.1:'+str(http.server_port),'scanner':[sys.executable,str(scanner)]}
+        self.config['identity_bindings']={self.pub:{'native_address':'alice@home.ziokt','addresses':['alice@example.org'],'content_token_file':str(token)}}
+        channel=InternetMail(self.config,self.root/'mime')
+        descriptor={'id':obj['id'],'size':len(data),'digest':digest,'name':'readme.txt','mime':'text/plain'}
+        channel.send(self.pub,'bob@gmail.com','attachment','hello',[descriptor],native_address='alice@home.ziokt')
+        with closing(sqlite3.connect(channel.db)) as db:raw=db.execute('SELECT raw FROM outbox').fetchone()[0]
+        message=BytesParser(policy=policy.default).parsebytes(raw);part=list(message.iter_attachments())[0]
+        self.assertEqual(part.get_filename(),'readme.txt');self.assertEqual(part.get_payload(decode=True),data)
+        token.write_text('b'*40)
+        with self.assertRaises(ProtocolError):channel.send(self.pub,'bob@gmail.com','denied','x',[descriptor],native_address='alice@home.ziokt')
+        token.write_text('a'*40)
+        for broken in [{**descriptor,'digest':'sha256:'+'0'*64},{**descriptor,'size':600000},{**descriptor,'mime':'text/plain\r\nInjected: yes'}]:
+            with self.assertRaises(ProtocolError):channel.send(self.pub,'bob@gmail.com','invalid','x',[broken],native_address='alice@home.ziokt')
+        scanner.write_text('raise SystemExit(1)\n')
+        with self.assertRaises(ProtocolError):channel.send(self.pub,'bob@gmail.com','unsafe','x',[descriptor],native_address='alice@home.ziokt')
+        self.assertEqual(channel.status()['outbox'],{'queued':1})

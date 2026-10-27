@@ -657,7 +657,7 @@ class MailRelay:
         try:
             if channel == 'internet':
                 if self.internet_channel is None:raise ProtocolError('MAIL_UNAVAILABLE','internet mail is not configured')
-                channel_result=self.internet_channel.send(sender_public,payload['to'],payload['subject'],payload['body'],validated_attachments,payload['timestamp'],message_id=payload['id'])
+                channel_result=self.internet_channel.send(sender_public,payload['to'],payload['subject'],payload['body'],validated_attachments,payload['timestamp'],message_id=payload['id'],native_address=payload['from'],internet_from=payload.get('internet_from'),native_verified=True,internet_account=payload.get('internet_account'),in_reply_to=payload.get('in_reply_to'),references=payload.get('references'))
                 delivery_status='queued'
             elif channel == 'corium':
                 channel_result = self.corium_channel.send(
@@ -826,14 +826,14 @@ class UnifiedMail:
     def configured(cls, config):
         root=Path(config['state']);root.mkdir(parents=True,mode=0o700,exist_ok=True)
         from .package_storage import safe_path
-        from .mail_internet import InternetMail
-        internet=InternetMail(config['internet'],config.get('internet_state',root/'internet')) if config.get('internet') else None
+        from .mail_accounts import configured
+        internet=configured(config['internet'],config.get('internet_state',root/'internet')) if config.get('internet') else None
         return cls(node_id=config.get('node_id','local-mail'),
                    corium_channel=CoriumMailChannel(safe_path(root,'corium.db'),safe_path(root,'objects')),
                    etp_channel=ETPMailChannel(mailbox_store_dir=safe_path(root,'etp')),
                    mailbox_db=safe_path(root,'community.db'),relay_db=safe_path(root,'relay.db'),internet_channel=internet)
 
-    def create_envelope(self, sender_private_key, from_address, to_address, subject, body, attachments=None, timestamp=None):
+    def create_envelope(self, sender_private_key, from_address, to_address, subject, body, attachments=None, timestamp=None, internet_from=None, internet_account=None, in_reply_to=None, references=None):
         """Construct and sign an envelope ready for relay forwarding."""
         msg_id = secrets.token_hex(16)
         ts = timestamp if timestamp is not None else int(time.time())
@@ -847,11 +847,13 @@ class UnifiedMail:
             'attachments': validated_attachments,
             'timestamp': ts
         }
+        for field,value in [('internet_from',internet_from),('internet_account',internet_account),('in_reply_to',in_reply_to),('references',references)]:
+            if value is not None:payload[field]=value
         return sign(payload, sender_private_key, MAIL_DOMAIN)
 
-    def send(self, sender_private_key, from_address, to_address, subject, body, attachments=None):
+    def send(self, sender_private_key, from_address, to_address, subject, body, attachments=None, internet_from=None, internet_account=None, in_reply_to=None, references=None):
         """Send a mail by creating a signed envelope and passing through relay."""
-        envelope = self.create_envelope(sender_private_key, from_address, to_address, subject, body, attachments)
+        envelope = self.create_envelope(sender_private_key, from_address, to_address, subject, body, attachments, internet_from=internet_from,internet_account=internet_account,in_reply_to=in_reply_to,references=references)
         return self.relay.forward(envelope)
 
     def inbox(self, recipient_id, channel=None):
@@ -889,7 +891,7 @@ def execute_mail_cli(args):
     else:
         unified=UnifiedMail.configured({'state':str(Path.home()/'.local/share/ziokt/mail')})
     if action=='send':
-        result=unified.send(secure_read(args.key,32),args.from_address,args.to,args.subject,secure_read(args.body_file,65536,private=None).decode())
+        result=unified.send(secure_read(args.key,32),args.from_address,args.to,args.subject,secure_read(args.body_file,65536,private=None).decode(),attachments=strict_json(secure_read(args.attachments_file,65536,private=None),65536) if args.attachments_file else None,internet_from=args.internet_from,internet_account=args.internet_account,in_reply_to=args.in_reply_to,references=args.reference)
         print(json.dumps(result,ensure_ascii=False,indent=2));return
     if action=='internet-resolve':
         if not unified.internet_channel:raise ProtocolError('MAIL_UNAVAILABLE','configure an internet mail account first')
