@@ -41,7 +41,10 @@ class EffortWebTests(unittest.TestCase):
         from importlib.resources import files
         with tempfile.TemporaryDirectory() as temporary:
             result=inventory(Path(temporary))
-        self.assertEqual(len(result['components']),11)
+        manifest=json.loads(files('ziokt').joinpath('ecosystem.json').read_text())
+        self.assertEqual({item['id'] for item in result['components']},
+                         {item['id'] for item in manifest['components']+manifest['additional_components']})
+        self.assertIn('retroshare',{item['id'] for item in result['components']})
         self.assertIn('一键人民助力',files('ziokt').joinpath('effort/index.html').read_text())
         self.assertEqual(files('ziokt').joinpath('ecosystem.json').read_bytes(),(Path(__file__).resolve().parents[1]/'companions/ecosystem.json').read_bytes())
 
