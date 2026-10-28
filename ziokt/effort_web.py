@@ -131,8 +131,14 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
     downloads=downloads or {}
     if type(downloads) is not dict or set(downloads)-{'android','windows'}:raise ProtocolError('INVALID_CONFIG','explicit download products required')
     for value in downloads.values():
-        parsed=urlsplit(value)
-        if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:raise ProtocolError('INVALID_CONFIG','HTTPS download links required')
+        if isinstance(value,dict):
+            if set(value)!={'github','server','sha256'} or not isinstance(value['sha256'],str) or not __import__('re').fullmatch('[a-f0-9]{64}',value['sha256']):raise ProtocolError('INVALID_CONFIG','exact download mirrors and SHA256 required')
+            urls=[value['github'],value['server']]
+        else:urls=[value]
+        for url in urls:
+            if not isinstance(url,str):raise ProtocolError('INVALID_CONFIG','HTTPS download links required')
+            parsed=urlsplit(url)
+            if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:raise ProtocolError('INVALID_CONFIG','HTTPS download links required')
     connect_sources=' '.join(["'self'"]+list(relay_origins))
     from .build_info import snapshot
     build=snapshot()
