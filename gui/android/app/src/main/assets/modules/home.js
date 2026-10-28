@@ -183,20 +183,7 @@ export function renderHome(container) {
         <div class="card-title" style="margin-bottom: 12px;">
           <span>${t('home.recent_activity')}</span>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">🔒 UFS 存储保险箱初始化完成，已挂载双层诱饵卷</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">刚刚</span>
-          </div>
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">🪐 Shadow6 控制中心建立安全连接 (13 Profiles 活跃)</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">2 分钟前</span>
-          </div>
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">💬 WATChat 加密通讯桥接已就绪，XChaCha20 密钥握手成功</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">5 分钟前</span>
-          </div>
-        </div>
+        <p role="status">${State.language === 'en' ? 'No verified activity receipts loaded. Inspect each native service for current connection and delivery evidence.' : '尚未加载经过验证的活动回执。请在各原生服务中核对当前连接和投递证据。'}</p>
       </div>
     </div>
   `;

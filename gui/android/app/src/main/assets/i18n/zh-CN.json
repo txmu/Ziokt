@@ -84,8 +84,11 @@
     "send": "发送",
     "input_placeholder": "输入加密消息...",
     "attach_file": "发送文件附件",
-    "encryption_badge": "XChaCha20-Poly1305 端到端保密",
-    "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧"
+    "encryption_badge": "AES-256-GCM (native WATChat)",
+    "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧",
+    "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM",
+    "ratchet_status": "会话状态：未验证",
+    "onion_route": "路由状态：未验证"
   },
   "forum": {
     "title": "Corium 去中心化社区论坛",

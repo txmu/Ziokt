@@ -450,7 +450,7 @@ const Events = {
     }
   }
 };
-const BUILTIN_I18N = {"zh": {"app": {"title": "Ziokt 统一图形客户端", "subtitle": "去中心化原生操作系统与应用生态控制中心", "version": "v1.0.0 (Core Native)", "status_online": "正常运行", "status_offline": "已断开", "status_connecting": "连接中...", "mode_local": "本地节点", "mode_remote": "远程网关", "mode_hybrid": "混合模式", "switch_lang": "语言 / Language", "theme_dark": "赛博深黑", "theme_light": "清爽明亮", "theme_contrast": "高对比度"}, "nav": {"home": "首页总览", "chat": "加密通讯", "forum": "社区论坛", "files": "安全存储", "apps": "应用中心", "network": "网络节点", "identity": "身份与贡献", "devtools": "开发工具", "settings": "系统设置", "library": "Library", "netnews": "Netnews", "ecosystem": "应用与离线"}, "common": {"confirm": "确认", "cancel": "取消", "delete": "删除", "save": "保存", "edit": "编辑", "copy": "复制", "copied": "已复制到剪贴板", "refresh": "刷新", "search": "搜索...", "loading": "加载中...", "success": "操作成功", "error": "操作失败", "details": "查看详情", "actions": "操作", "status": "状态", "name": "名称", "version": "版本", "size": "大小", "date": "时间", "upload": "上传", "download": "下载", "view_raw": "查看原始数据", "advanced": "高级选项", "close": "关闭"}, "home": {"welcome": "欢迎使用 Ziokt 统一图形客户端", "welcome_sub": "集成零知识加密通讯、去中心化包管理、多协议隧道及链上可信微架构", "quick_actions": "快捷功能入口", "system_health": "核心组件健康状态", "gateway_telemetry": "网关实时遥测", "recent_activity": "近期网络活动", "act_chat": "快速发起加密对话", "act_files": "打开原生文件保险库", "act_forum": "浏览社区最新提案", "act_apps": "管理与运行扩展包", "act_network": "查看 Shadow6 / ETP 网格", "local_offline_alert": "⚠️ 未检测到本地真实节点: 当前处于本地模式，但 http://127.0.0.1:8185 未响应。使用本地节点需要用户本地真实有节点运行。", "remote_unauth_alert": "🔒 远程节点需要身份鉴权: 当前活跃远程节点尚未配置有效的 Auth Token 凭证。", "switch_remote": "切换至远程网关", "config_auth": "前往配置凭证", "probe_local": "重新检测本地节点"}, "chat": {"title": "WATChat 端到端加密通讯", "dual_ui": "界面风格切换", "ui_minimalist": "现代简约版", "ui_classic": "经典丰富版", "ui_switch_tip": "随时切换界面布局，聊天记录与加密密钥实时同步无损保留", "contacts": "联系人 / 对话列表", "new_conversation": "新建加密对话", "enter_recipient": "输入对方 DID 或公钥地址", "send": "发送", "input_placeholder": "输入加密消息...", "attach_file": "发送文件附件", "encryption_badge": "XChaCha20-Poly1305 端到端保密", "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧", "login_title": "WATChat 密聊身份登录", "login_desc": "选择您偏好的 UI 风格并解锁端到端加密会话凭证", "login_btn": "登录并进入加密通讯", "username_placeholder": "输入用户名或 DID", "passphrase_placeholder": "输入加密私钥密码 / 会话密令", "logout_btn": "锁定会话 / 退出", "classic_telemetry": "经典版实时安全信令与拓扑遥测", "ratchet_status": "双棘轮状态: 就绪", "cipher_info": "加密套件: XChaCha20-Poly1305 / HKDF-SHA256", "onion_route": "中继节点: ETP Onion 3-Hop Multi-Path"}, "forum": {"title": "Corium 去中心化社区论坛", "new_post": "发布新帖 / 提案", "post_title": "标题", "post_category": "分类", "post_content": "正文内容 (支持 Markdown)", "sign_and_publish": "使用当前身份签名并发布", "cat_governance": "生态治理", "cat_technical": "核心技术", "cat_apps": "应用开发", "cat_general": "综合讨论", "signature_verified": "Ed25519 链上签名已验证", "replies": "条回复"}, "files": {"title": "UFS & SafeFS 安全存储保险库", "vault_type": "存储驱动", "vault_ufs": "UFS 原生文件系统", "vault_safefs": "SafeFS AEAD 加密保险箱", "upload_file": "上传文件", "create_folder": "新建目录", "stealth_mode": "双层可抵赖卷 (Outer Decoy / Inner Stealth)", "drop_tip": "拖拽文件至此处，自动执行安全分块持久化", "download": "下载文件", "delete_confirm": "确定永久删除此文件吗？此操作不可逆。"}, "apps": {"title": "dCPM 去中心化应用中心", "subtitle": "基于 UFS 与 dCPM 签名软件包体系，支持依赖审查、自动验签与安全沙箱执行", "install_pkg": "安装 / 导入 .dcpm 软件包", "installed_tab": "已安装应用", "market_tab": "生态软件包仓库", "rollback": "版本回滚", "uninstall": "卸载", "update": "检查更新", "publisher": "发布者签名", "digest": "SHA-256 校验摘要", "dependencies": "依赖组件", "dep_check_ok": "依赖项完整", "install_confirm": "确定安装此签名软件包吗？将严格在隔离沙箱中运行。", "uninstall_confirm": "确定卸载该应用及其本地缓存吗？"}, "network": {"title": "Shadow6 & ETP 网络节点网格", "subtitle": "管理 13 核心 Profile 运行集群、Virtual Broker 以及洋葱代理链路", "profiles_title": "13 语言核心 Profile 实时集群", "virtual_broker": "虚拟 Broker 代理状态", "s6p1_import": "粘贴导入自定义 S6P1 凭据信封", "etp_title": "ETP 原生洋葱多跳链路", "hops": "跳路由路径", "ping_test": "网络延迟诊断", "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥", "node_topology": "节点与网关拓扑", "local_node": "本地节点", "remote_nodes": "远程节点集群", "manage_nodes": "管理自定义节点"}, "identity": {"title": "身份管理与贡献证明 (PoUW)", "did": "去中心化身份 (DID)", "nns_domain": "NNS 绑定域名", "pouw_status": "PoUW 算力与共识贡献状态", "engine_reward": "治理奖励权重", "apply_weight": "申请加入验证者权重白名单", "export_keys": "导出加密密钥备份", "switch_account": "切换身份"}, "devtools": {"title": "原生组件全功能开发工具箱", "subtitle": "提供 Corium、Tri、ZDA、TC-16 虚拟机及 MCP 接口全功能调试与执行界面", "tab_corium": "Corium 控制台", "tab_tri": "Tri 状态机快照", "tab_zda": "ZDA / Ano 门限计算", "tab_tc16": "TC-16 虚拟机工作台", "tab_mcp": "MCP 211 工具探针", "corium_query": "查询区块与交易事实", "tri_run": "执行快照离线隔离沙箱", "zda_calc": "验证精确 ZDA 证据算术", "tc16_asm": "TC-16 汇编与字节码单步调试", "tc16_run": "运行虚拟机", "tc16_step": "单步执行 (Step)", "tc16_reset": "重置寄存器"}, "settings": {"title": "系统与组件生命周期设置", "runtime_mode": "客户端运行模式配置", "local_gateway_url": "本地/远程网关地址", "components_lifecycle": "按需组件启动管理 (On-demand Launcher)", "comp_corium": "Corium 原生区块链服务", "comp_shadow6": "Shadow6 多核心代理网络", "comp_ufs": "UFS & dCPM 安全存储引擎", "comp_watchat": "WATChat 联邦通讯桥接", "comp_etp": "ETP 洋葱网关路由", "accessibility": "无障碍与键盘导航", "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索", "local_node_title": "本地节点连接与真实状态", "local_node_desc": "使用本地节点需要用户本地真实有节点运行。若本地未启动，客户端将无法进行写操作与本地 RPC 交互。", "local_node_probe": "探测本地节点", "local_node_online": "本地真实节点在线", "local_node_offline": "未检测到本地真实节点", "local_node_checking": "检测本地节点中...", "local_node_help": "本地启动指引: 请在终端执行 systemctl start ziokt-gateway 或运行 ./tools/control_center.sh", "remote_nodes_title": "远程节点网关与鉴权管理", "remote_nodes_desc": "使用远程节点需要身份鉴权 (Auth Token)。您可以自定义添加新的远程节点并测试连接与鉴权有效性。", "add_node": "添加新远程节点", "node_name": "节点名称", "node_url": "节点地址 (URL)", "auth_token": "鉴权凭证 (Auth Token)", "auth_token_tip": "用于 Bearer / X-Ziokt-Auth 远程身份验证", "test_auth": "测试鉴权", "set_active": "设为活跃", "active_badge": "当前活跃", "auth_valid": "鉴权通过", "auth_invalid": "鉴权失败", "auth_required": "待鉴权", "delete_node": "删除节点", "cannot_delete_default": "系统默认节点不可删除", "add_node_btn": "添加并测试该节点"}}, "en": {"app": {"title": "Ziokt Unified Graphical Client", "subtitle": "Decentralized Native OS & Application Ecosystem Console", "version": "v1.0.0 (Core Native)", "status_online": "Online", "status_offline": "Disconnected", "status_connecting": "Connecting...", "mode_local": "Local Node", "mode_remote": "Remote Gateway", "mode_hybrid": "Hybrid Mode", "switch_lang": "Language / 语言", "theme_dark": "Cyber Dark", "theme_light": "Clean Light", "theme_contrast": "High Contrast"}, "nav": {"home": "Home", "chat": "WATChat", "forum": "Forum", "files": "Files & Vault", "apps": "App Store", "network": "Network Nodes", "identity": "Identity & PoUW", "devtools": "Dev Tools", "settings": "Settings", "library": "Library", "netnews": "Netnews", "ecosystem": "Applications & offline"}, "common": {"confirm": "Confirm", "cancel": "Cancel", "delete": "Delete", "save": "Save", "edit": "Edit", "copy": "Copy", "copied": "Copied to clipboard", "refresh": "Refresh", "search": "Search...", "loading": "Loading...", "success": "Success", "error": "Error", "details": "Details", "actions": "Actions", "status": "Status", "name": "Name", "version": "Version", "size": "Size", "date": "Date", "upload": "Upload", "download": "Download", "view_raw": "View Raw JSON", "advanced": "Advanced", "close": "Close"}, "home": {"welcome": "Welcome to Ziokt Unified Graphical Client", "welcome_sub": "Integrating Zero-Knowledge communications, dCPM packages, Shadow6 mesh tunnels, and verifiable native compute", "quick_actions": "Quick Actions", "system_health": "Component Health", "gateway_telemetry": "Gateway Telemetry", "recent_activity": "Recent Activity", "act_chat": "Start Encrypted Chat", "act_files": "Open Secure File Vault", "act_forum": "Browse Latest Proposals", "act_apps": "Manage dCPM Packages", "act_network": "Inspect Shadow6 & ETP Mesh", "local_offline_alert": "⚠️ No local real node detected: Currently in local mode, but http://127.0.0.1:8185 is not responding. Local mode requires an actual running Ziokt node.", "remote_unauth_alert": "🔒 Remote node requires authentication: Active remote node does not have a valid Auth Token configured.", "switch_remote": "Switch to Remote Gateway", "config_auth": "Configure Auth Credentials", "probe_local": "Probe Local Node"}, "chat": {"title": "WATChat End-to-End Encrypted Messenger", "dual_ui": "UI Switcher", "ui_minimalist": "Modern Minimalist", "ui_classic": "Classic Rich", "ui_switch_tip": "Seamlessly switch between layouts; message history and cryptographic keys are synchronized without loss", "contacts": "Contacts / Dialogs", "new_conversation": "New Secure Chat", "enter_recipient": "Enter recipient DID or public key", "send": "Send", "input_placeholder": "Type encrypted message...", "attach_file": "Attach Vault File", "encryption_badge": "XChaCha20-Poly1305 Sealed", "empty_messages": "No messages yet. Send a greeting to start secure chatting.", "login_title": "WATChat Identity Sign In", "login_desc": "Choose your preferred UI style and unlock your end-to-end encrypted session", "login_btn": "Sign In & Enter Encrypted Chat", "username_placeholder": "Enter username or DID", "passphrase_placeholder": "Enter private key passphrase / session secret", "logout_btn": "Lock Session / Sign Out", "classic_telemetry": "Classic Mode Real-Time Security Signaling & Telemetry", "ratchet_status": "Double Ratchet: Ready", "cipher_info": "Cipher Suite: XChaCha20-Poly1305 / HKDF-SHA256", "onion_route": "Relay Router: ETP Onion 3-Hop Multi-Path"}, "forum": {"title": "Corium Decentralized Community Forum", "new_post": "New Post / Proposal", "post_title": "Title", "post_category": "Category", "post_content": "Content (Markdown supported)", "sign_and_publish": "Sign with Ed25519 & Publish", "cat_governance": "Governance", "cat_technical": "Technical", "cat_apps": "App Development", "cat_general": "General Discussion", "signature_verified": "Ed25519 On-Chain Signature Verified", "replies": "replies"}, "files": {"title": "UFS & SafeFS Secure Storage Vault", "vault_type": "Storage Driver", "vault_ufs": "UFS Native Storage", "vault_safefs": "SafeFS AEAD Encrypted Vault", "upload_file": "Upload File", "create_folder": "New Folder", "stealth_mode": "Deniable Volume (Outer Decoy / Inner Stealth)", "drop_tip": "Drag and drop files here for chunked persistent storage", "download": "Download File", "delete_confirm": "Are you sure you want to permanently delete this file? This cannot be undone."}, "apps": {"title": "dCPM Decentralized App Center", "subtitle": "Built on UFS and signed dCPM package architecture with dependency verification and sandbox isolation", "install_pkg": "Install / Import .dcpm Package", "installed_tab": "Installed Applications", "market_tab": "Ecosystem Repository", "rollback": "Rollback Version", "uninstall": "Uninstall", "update": "Check Updates", "publisher": "Publisher Key", "digest": "SHA-256 Digest", "dependencies": "Dependencies", "dep_check_ok": "All Dependencies Satisfied", "install_confirm": "Confirm installation of this signed package? It will execute inside an isolated sandbox.", "uninstall_confirm": "Confirm uninstallation of this package and its local cache?"}, "network": {"title": "Shadow6 & ETP Network Mesh", "subtitle": "Manage 13 language core Profile cluster, Virtual Broker, and onion routing paths", "profiles_title": "13 Core Language Profiles Cluster", "virtual_broker": "Virtual Broker Status", "s6p1_import": "Import Custom S6P1 Credential Envelope", "etp_title": "ETP Native Onion Multi-Hop Paths", "hops": "hop route path", "ping_test": "Latency Diagnostics", "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys", "node_topology": "Node & Gateway Topology", "local_node": "Local Node", "remote_nodes": "Remote Nodes Cluster", "manage_nodes": "Manage Custom Nodes"}, "identity": {"title": "Identity & Proof of Useful Work (PoUW)", "did": "Decentralized ID (DID)", "nns_domain": "NNS Bound Domain", "pouw_status": "PoUW Compute & Consensus Contribution", "engine_reward": "Governance Reward Weight", "apply_weight": "Apply for Validator Weight Whitelist", "export_keys": "Export Encrypted Backup", "switch_account": "Switch Identity"}, "devtools": {"title": "Native Component Developer Studio", "subtitle": "Fully functional GUIs for Corium, Tri, ZDA, TC-16 Virtual Machine, and MCP diagnostics", "tab_corium": "Corium Console", "tab_tri": "Tri Snapshots", "tab_zda": "ZDA / Ano Gate", "tab_tc16": "TC-16 VM Studio", "tab_mcp": "MCP Tool Catalog", "corium_query": "Query Ledger Facts & Blocks", "tri_run": "Execute Isolated Sandbox Snapshot", "zda_calc": "Verify Exact ZDA Evidence Arithmetic", "tc16_asm": "TC-16 Assembly & Bytecode Debugger", "tc16_run": "Run Virtual Machine", "tc16_step": "Step Execution", "tc16_reset": "Reset Registers"}, "settings": {"title": "System & Component Lifecycle Settings", "runtime_mode": "Client Runtime Mode", "local_gateway_url": "Gateway Endpoint", "components_lifecycle": "On-Demand Component Launcher", "comp_corium": "Corium Native Blockchain", "comp_shadow6": "Shadow6 Multi-Core Tunnel", "comp_ufs": "UFS & dCPM Storage Engine", "comp_watchat": "WATChat Federation Bridge", "comp_etp": "ETP Onion Gateway Router", "accessibility": "Accessibility & Keyboard Navigation", "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search", "local_node_title": "Local Node Connection & Real Verification", "local_node_desc": "Using local node requires an actual Ziokt node daemon running locally. If not running, local RPC and write operations are blocked.", "local_node_probe": "Probe Local Node", "local_node_online": "Local Real Node Online", "local_node_offline": "No Local Real Node Detected", "local_node_checking": "Probing Local Node...", "local_node_help": "Start local node daemon: run 'systemctl start ziokt-gateway' or './tools/control_center.sh' in terminal.", "remote_nodes_title": "Remote Node Gateways & Auth Management", "remote_nodes_desc": "Using a remote node requires authentication (Auth Token). You can add custom remote nodes and test their connection and auth validity.", "add_node": "Add New Remote Node", "node_name": "Node Name", "node_url": "Node Endpoint (URL)", "auth_token": "Auth Token", "auth_token_tip": "Used for Bearer / X-Ziokt-Auth remote authentication", "test_auth": "Test Auth", "set_active": "Set Active", "active_badge": "Active", "auth_valid": "Auth Verified", "auth_invalid": "Auth Failed", "auth_required": "Auth Required", "delete_node": "Delete Node", "cannot_delete_default": "Default system node cannot be deleted", "add_node_btn": "Add & Verify Node"}}};
+const BUILTIN_I18N = {"zh": {"app": {"title": "Ziokt 统一图形客户端", "subtitle": "去中心化原生操作系统与应用生态控制中心", "version": "v1.0.0 (Core Native)", "status_online": "正常运行", "status_offline": "已断开", "status_connecting": "连接中...", "mode_local": "本地节点", "mode_remote": "远程网关", "mode_hybrid": "混合模式", "switch_lang": "语言 / Language", "theme_dark": "赛博深黑", "theme_light": "清爽明亮", "theme_contrast": "高对比度"}, "nav": {"home": "首页总览", "chat": "加密通讯", "forum": "社区论坛", "files": "安全存储", "apps": "应用中心", "network": "网络节点", "identity": "身份与贡献", "devtools": "开发工具", "settings": "系统设置", "library": "Library", "netnews": "Netnews", "ecosystem": "应用与离线"}, "common": {"confirm": "确认", "cancel": "取消", "delete": "删除", "save": "保存", "edit": "编辑", "copy": "复制", "copied": "已复制到剪贴板", "refresh": "刷新", "search": "搜索...", "loading": "加载中...", "success": "操作成功", "error": "操作失败", "details": "查看详情", "actions": "操作", "status": "状态", "name": "名称", "version": "版本", "size": "大小", "date": "时间", "upload": "上传", "download": "下载", "view_raw": "查看原始数据", "advanced": "高级选项", "close": "关闭"}, "home": {"welcome": "欢迎使用 Ziokt 统一图形客户端", "welcome_sub": "集成零知识加密通讯、去中心化包管理、多协议隧道及链上可信微架构", "quick_actions": "快捷功能入口", "system_health": "核心组件健康状态", "gateway_telemetry": "网关实时遥测", "recent_activity": "近期网络活动", "act_chat": "快速发起加密对话", "act_files": "打开原生文件保险库", "act_forum": "浏览社区最新提案", "act_apps": "管理与运行扩展包", "act_network": "查看 Shadow6 / ETP 网格", "local_offline_alert": "⚠️ 未检测到本地真实节点: 当前处于本地模式，但 http://127.0.0.1:8185 未响应。使用本地节点需要用户本地真实有节点运行。", "remote_unauth_alert": "🔒 远程节点需要身份鉴权: 当前活跃远程节点尚未配置有效的 Auth Token 凭证。", "switch_remote": "切换至远程网关", "config_auth": "前往配置凭证", "probe_local": "重新检测本地节点"}, "chat": {"title": "WATChat 端到端加密通讯", "dual_ui": "界面风格切换", "ui_minimalist": "现代简约版", "ui_classic": "经典丰富版", "ui_switch_tip": "随时切换界面布局，聊天记录与加密密钥实时同步无损保留", "contacts": "联系人 / 对话列表", "new_conversation": "新建加密对话", "enter_recipient": "输入对方 DID 或公钥地址", "send": "发送", "input_placeholder": "输入加密消息...", "attach_file": "发送文件附件", "encryption_badge": "AES-256-GCM (native WATChat)", "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧", "login_title": "WATChat 密聊身份登录", "login_desc": "选择您偏好的 UI 风格并解锁端到端加密会话凭证", "login_btn": "登录并进入加密通讯", "username_placeholder": "输入用户名或 DID", "passphrase_placeholder": "输入加密私钥密码 / 会话密令", "logout_btn": "锁定会话 / 退出", "classic_telemetry": "经典版实时安全信令与拓扑遥测", "ratchet_status": "会话状态：未验证", "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM", "onion_route": "路由状态：未验证"}, "forum": {"title": "Corium 去中心化社区论坛", "new_post": "发布新帖 / 提案", "post_title": "标题", "post_category": "分类", "post_content": "正文内容 (支持 Markdown)", "sign_and_publish": "使用当前身份签名并发布", "cat_governance": "生态治理", "cat_technical": "核心技术", "cat_apps": "应用开发", "cat_general": "综合讨论", "signature_verified": "Ed25519 链上签名已验证", "replies": "条回复"}, "files": {"title": "UFS & SafeFS 安全存储保险库", "vault_type": "存储驱动", "vault_ufs": "UFS 原生文件系统", "vault_safefs": "SafeFS AEAD 加密保险箱", "upload_file": "上传文件", "create_folder": "新建目录", "stealth_mode": "双层可抵赖卷 (Outer Decoy / Inner Stealth)", "drop_tip": "拖拽文件至此处，自动执行安全分块持久化", "download": "下载文件", "delete_confirm": "确定永久删除此文件吗？此操作不可逆。"}, "apps": {"title": "dCPM 去中心化应用中心", "subtitle": "基于 UFS 与 dCPM 签名软件包体系，支持依赖审查、自动验签与安全沙箱执行", "install_pkg": "安装 / 导入 .dcpm 软件包", "installed_tab": "已安装应用", "market_tab": "生态软件包仓库", "rollback": "版本回滚", "uninstall": "卸载", "update": "检查更新", "publisher": "发布者签名", "digest": "SHA-256 校验摘要", "dependencies": "依赖组件", "dep_check_ok": "依赖项完整", "install_confirm": "确定安装此签名软件包吗？将严格在隔离沙箱中运行。", "uninstall_confirm": "确定卸载该应用及其本地缓存吗？"}, "network": {"title": "Shadow6 & ETP 网络节点网格", "subtitle": "管理 13 核心 Profile 运行集群、Virtual Broker 以及洋葱代理链路", "profiles_title": "13 语言核心 Profile 实时集群", "virtual_broker": "虚拟 Broker 代理状态", "s6p1_import": "粘贴导入自定义 S6P1 凭据信封", "etp_title": "ETP 原生洋葱多跳链路", "hops": "跳路由路径", "ping_test": "网络延迟诊断", "privacy_masked": "非管理员模式已自动脱敏保护敏感 IP 与密钥", "node_topology": "节点与网关拓扑", "local_node": "本地节点", "remote_nodes": "远程节点集群", "manage_nodes": "管理自定义节点"}, "identity": {"title": "身份管理与贡献证明 (PoUW)", "did": "去中心化身份 (DID)", "nns_domain": "NNS 绑定域名", "pouw_status": "PoUW 算力与共识贡献状态", "engine_reward": "治理奖励权重", "apply_weight": "申请加入验证者权重白名单", "export_keys": "导出加密密钥备份", "switch_account": "切换身份"}, "devtools": {"title": "原生组件全功能开发工具箱", "subtitle": "提供 Corium、Tri、ZDA、TC-16 虚拟机及 MCP 接口全功能调试与执行界面", "tab_corium": "Corium 控制台", "tab_tri": "Tri 状态机快照", "tab_zda": "ZDA / Ano 门限计算", "tab_tc16": "TC-16 虚拟机工作台", "tab_mcp": "MCP 211 工具探针", "corium_query": "查询区块与交易事实", "tri_run": "执行快照离线隔离沙箱", "zda_calc": "验证精确 ZDA 证据算术", "tc16_asm": "TC-16 汇编与字节码单步调试", "tc16_run": "运行虚拟机", "tc16_step": "单步执行 (Step)", "tc16_reset": "重置寄存器"}, "settings": {"title": "系统与组件生命周期设置", "runtime_mode": "客户端运行模式配置", "local_gateway_url": "本地/远程网关地址", "components_lifecycle": "按需组件启动管理 (On-demand Launcher)", "comp_corium": "Corium 原生区块链服务", "comp_shadow6": "Shadow6 多核心代理网络", "comp_ufs": "UFS & dCPM 安全存储引擎", "comp_watchat": "WATChat 联邦通讯桥接", "comp_etp": "ETP 洋葱网关路由", "accessibility": "无障碍与键盘导航", "keyboard_shortcuts": "快捷键说明: [1-9] 切换模块，[Esc] 关闭弹窗，[Ctrl+K] 全局搜索", "local_node_title": "本地节点连接与真实状态", "local_node_desc": "使用本地节点需要用户本地真实有节点运行。若本地未启动，客户端将无法进行写操作与本地 RPC 交互。", "local_node_probe": "探测本地节点", "local_node_online": "本地真实节点在线", "local_node_offline": "未检测到本地真实节点", "local_node_checking": "检测本地节点中...", "local_node_help": "本地启动指引: 请在终端执行 systemctl start ziokt-gateway 或运行 ./tools/control_center.sh", "remote_nodes_title": "远程节点网关与鉴权管理", "remote_nodes_desc": "使用远程节点需要身份鉴权 (Auth Token)。您可以自定义添加新的远程节点并测试连接与鉴权有效性。", "add_node": "添加新远程节点", "node_name": "节点名称", "node_url": "节点地址 (URL)", "auth_token": "鉴权凭证 (Auth Token)", "auth_token_tip": "用于 Bearer / X-Ziokt-Auth 远程身份验证", "test_auth": "测试鉴权", "set_active": "设为活跃", "active_badge": "当前活跃", "auth_valid": "鉴权通过", "auth_invalid": "鉴权失败", "auth_required": "待鉴权", "delete_node": "删除节点", "cannot_delete_default": "系统默认节点不可删除", "add_node_btn": "添加并测试该节点"}}, "en": {"app": {"title": "Ziokt Unified Graphical Client", "subtitle": "Decentralized Native OS & Application Ecosystem Console", "version": "v1.0.0 (Core Native)", "status_online": "Online", "status_offline": "Disconnected", "status_connecting": "Connecting...", "mode_local": "Local Node", "mode_remote": "Remote Gateway", "mode_hybrid": "Hybrid Mode", "switch_lang": "Language / 语言", "theme_dark": "Cyber Dark", "theme_light": "Clean Light", "theme_contrast": "High Contrast"}, "nav": {"home": "Home", "chat": "WATChat", "forum": "Forum", "files": "Files & Vault", "apps": "App Store", "network": "Network Nodes", "identity": "Identity & PoUW", "devtools": "Dev Tools", "settings": "Settings", "library": "Library", "netnews": "Netnews", "ecosystem": "Applications & offline"}, "common": {"confirm": "Confirm", "cancel": "Cancel", "delete": "Delete", "save": "Save", "edit": "Edit", "copy": "Copy", "copied": "Copied to clipboard", "refresh": "Refresh", "search": "Search...", "loading": "Loading...", "success": "Success", "error": "Error", "details": "Details", "actions": "Actions", "status": "Status", "name": "Name", "version": "Version", "size": "Size", "date": "Date", "upload": "Upload", "download": "Download", "view_raw": "View Raw JSON", "advanced": "Advanced", "close": "Close"}, "home": {"welcome": "Welcome to Ziokt Unified Graphical Client", "welcome_sub": "Integrating Zero-Knowledge communications, dCPM packages, Shadow6 mesh tunnels, and verifiable native compute", "quick_actions": "Quick Actions", "system_health": "Component Health", "gateway_telemetry": "Gateway Telemetry", "recent_activity": "Recent Activity", "act_chat": "Start Encrypted Chat", "act_files": "Open Secure File Vault", "act_forum": "Browse Latest Proposals", "act_apps": "Manage dCPM Packages", "act_network": "Inspect Shadow6 & ETP Mesh", "local_offline_alert": "⚠️ No local real node detected: Currently in local mode, but http://127.0.0.1:8185 is not responding. Local mode requires an actual running Ziokt node.", "remote_unauth_alert": "🔒 Remote node requires authentication: Active remote node does not have a valid Auth Token configured.", "switch_remote": "Switch to Remote Gateway", "config_auth": "Configure Auth Credentials", "probe_local": "Probe Local Node"}, "chat": {"title": "WATChat End-to-End Encrypted Messenger", "dual_ui": "UI Switcher", "ui_minimalist": "Modern Minimalist", "ui_classic": "Classic Rich", "ui_switch_tip": "Seamlessly switch between layouts; message history and cryptographic keys are synchronized without loss", "contacts": "Contacts / Dialogs", "new_conversation": "New Secure Chat", "enter_recipient": "Enter recipient DID or public key", "send": "Send", "input_placeholder": "Type encrypted message...", "attach_file": "Attach Vault File", "encryption_badge": "AES-256-GCM (native WATChat)", "empty_messages": "No messages yet. Send a greeting to start secure chatting.", "login_title": "WATChat Identity Sign In", "login_desc": "Choose your preferred UI style and unlock your end-to-end encrypted session", "login_btn": "Sign In & Enter Encrypted Chat", "username_placeholder": "Enter username or DID", "passphrase_placeholder": "Enter private key passphrase / session secret", "logout_btn": "Lock Session / Sign Out", "classic_telemetry": "Classic Mode Real-Time Security Signaling & Telemetry", "ratchet_status": "Session: unverified", "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM", "onion_route": "Route: unverified"}, "forum": {"title": "Corium Decentralized Community Forum", "new_post": "New Post / Proposal", "post_title": "Title", "post_category": "Category", "post_content": "Content (Markdown supported)", "sign_and_publish": "Sign with Ed25519 & Publish", "cat_governance": "Governance", "cat_technical": "Technical", "cat_apps": "App Development", "cat_general": "General Discussion", "signature_verified": "Ed25519 On-Chain Signature Verified", "replies": "replies"}, "files": {"title": "UFS & SafeFS Secure Storage Vault", "vault_type": "Storage Driver", "vault_ufs": "UFS Native Storage", "vault_safefs": "SafeFS AEAD Encrypted Vault", "upload_file": "Upload File", "create_folder": "New Folder", "stealth_mode": "Deniable Volume (Outer Decoy / Inner Stealth)", "drop_tip": "Drag and drop files here for chunked persistent storage", "download": "Download File", "delete_confirm": "Are you sure you want to permanently delete this file? This cannot be undone."}, "apps": {"title": "dCPM Decentralized App Center", "subtitle": "Built on UFS and signed dCPM package architecture with dependency verification and sandbox isolation", "install_pkg": "Install / Import .dcpm Package", "installed_tab": "Installed Applications", "market_tab": "Ecosystem Repository", "rollback": "Rollback Version", "uninstall": "Uninstall", "update": "Check Updates", "publisher": "Publisher Key", "digest": "SHA-256 Digest", "dependencies": "Dependencies", "dep_check_ok": "All Dependencies Satisfied", "install_confirm": "Confirm installation of this signed package? It will execute inside an isolated sandbox.", "uninstall_confirm": "Confirm uninstallation of this package and its local cache?"}, "network": {"title": "Shadow6 & ETP Network Mesh", "subtitle": "Manage 13 language core Profile cluster, Virtual Broker, and onion routing paths", "profiles_title": "13 Core Language Profiles Cluster", "virtual_broker": "Virtual Broker Status", "s6p1_import": "Import Custom S6P1 Credential Envelope", "etp_title": "ETP Native Onion Multi-Hop Paths", "hops": "hop route path", "ping_test": "Latency Diagnostics", "privacy_masked": "Non-admin mode has automatically masked sensitive IPs and private keys", "node_topology": "Node & Gateway Topology", "local_node": "Local Node", "remote_nodes": "Remote Nodes Cluster", "manage_nodes": "Manage Custom Nodes"}, "identity": {"title": "Identity & Proof of Useful Work (PoUW)", "did": "Decentralized ID (DID)", "nns_domain": "NNS Bound Domain", "pouw_status": "PoUW Compute & Consensus Contribution", "engine_reward": "Governance Reward Weight", "apply_weight": "Apply for Validator Weight Whitelist", "export_keys": "Export Encrypted Backup", "switch_account": "Switch Identity"}, "devtools": {"title": "Native Component Developer Studio", "subtitle": "Fully functional GUIs for Corium, Tri, ZDA, TC-16 Virtual Machine, and MCP diagnostics", "tab_corium": "Corium Console", "tab_tri": "Tri Snapshots", "tab_zda": "ZDA / Ano Gate", "tab_tc16": "TC-16 VM Studio", "tab_mcp": "MCP Tool Catalog", "corium_query": "Query Ledger Facts & Blocks", "tri_run": "Execute Isolated Sandbox Snapshot", "zda_calc": "Verify Exact ZDA Evidence Arithmetic", "tc16_asm": "TC-16 Assembly & Bytecode Debugger", "tc16_run": "Run Virtual Machine", "tc16_step": "Step Execution", "tc16_reset": "Reset Registers"}, "settings": {"title": "System & Component Lifecycle Settings", "runtime_mode": "Client Runtime Mode", "local_gateway_url": "Gateway Endpoint", "components_lifecycle": "On-Demand Component Launcher", "comp_corium": "Corium Native Blockchain", "comp_shadow6": "Shadow6 Multi-Core Tunnel", "comp_ufs": "UFS & dCPM Storage Engine", "comp_watchat": "WATChat Federation Bridge", "comp_etp": "ETP Onion Gateway Router", "accessibility": "Accessibility & Keyboard Navigation", "keyboard_shortcuts": "Shortcuts: [1-9] Switch Modules, [Esc] Close Modals, [Ctrl+K] Global Search", "local_node_title": "Local Node Connection & Real Verification", "local_node_desc": "Using local node requires an actual Ziokt node daemon running locally. If not running, local RPC and write operations are blocked.", "local_node_probe": "Probe Local Node", "local_node_online": "Local Real Node Online", "local_node_offline": "No Local Real Node Detected", "local_node_checking": "Probing Local Node...", "local_node_help": "Start local node daemon: run 'systemctl start ziokt-gateway' or './tools/control_center.sh' in terminal.", "remote_nodes_title": "Remote Node Gateways & Auth Management", "remote_nodes_desc": "Using a remote node requires authentication (Auth Token). You can add custom remote nodes and test their connection and auth validity.", "add_node": "Add New Remote Node", "node_name": "Node Name", "node_url": "Node Endpoint (URL)", "auth_token": "Auth Token", "auth_token_tip": "Used for Bearer / X-Ziokt-Auth remote authentication", "test_auth": "Test Auth", "set_active": "Set Active", "active_badge": "Active", "auth_valid": "Auth Verified", "auth_invalid": "Auth Failed", "auth_required": "Auth Required", "delete_node": "Delete Node", "cannot_delete_default": "Default system node cannot be deleted", "add_node_btn": "Add & Verify Node"}}};
 
 // i18n Translation Engine
 async function initI18n() {
@@ -1028,6 +1028,7 @@ function mountPrivateOffline(container){
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
+
 function renderHome(container) {
   const isEn = State.language === 'en';
   const isLocal = State.runtimeMode === 'local';
@@ -1199,20 +1200,7 @@ function renderHome(container) {
         <div class="card-title" style="margin-bottom: 12px;">
           <span>${t('home.recent_activity')}</span>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">🔒 UFS 存储保险箱初始化完成，已挂载双层诱饵卷</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">刚刚</span>
-          </div>
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">🪐 Shadow6 控制中心建立安全连接 (13 Profiles 活跃)</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">2 分钟前</span>
-          </div>
-          <div style="padding: 8px 12px; background: var(--bg-input); border-radius: var(--radius-sm); display: flex; justify-content: space-between;">
-            <span style="color: var(--text-main);">💬 WATChat 加密通讯桥接已就绪，XChaCha20 密钥握手成功</span>
-            <span style="color: var(--text-dim); font-size: 0.75rem;">5 分钟前</span>
-          </div>
-        </div>
+        <p role="status">${State.language === 'en' ? 'No verified activity receipts loaded. Inspect each native service for current connection and delivery evidence.' : '尚未加载经过验证的活动回执。请在各原生服务中核对当前连接和投递证据。'}</p>
       </div>
     </div>
   `;
@@ -1286,481 +1274,38 @@ function renderHome(container) {
 
 
   // --- Module: modules/chat.js ---
-// ==============================================================================
-// Module: WATChat End-to-End Encrypted Messenger with Dual UI Switcher
-// ==============================================================================
+/* Native WATChat owns authentication, keys, encryption and delivery receipts. */
 
-let chatUiMode = getStorage('watchat_ui_mode', 'classic'); // 'minimalist' | 'classic'
-let isChatLoggedIn = getStorage('watchat_logged_in', 'false') === 'true';
-let activeContact = 'genesis-node';
-let isVoiceRecording = false;
-let messagesStore = null;
-try {
-  const raw = getStorage('watchat_msgs');
-  if (raw) messagesStore = JSON.parse(raw);
-} catch (e) {
-  messagesStore = null;
-}
-if (!messagesStore) {
-  messagesStore = {
-    'genesis-node': [
-      { id: 1, sender: 'genesis-node', text: '欢迎加入 Ziokt 腕聊端到端加密通讯网络！所有消息均由 XChaCha20-Poly1305 密封。', time: '10:00' },
-      { id: 2, sender: 'me', text: '收到！经典丰富版已直接复刻腕聊原生界面架构。', time: '10:02' },
-      { id: 3, sender: 'genesis-node', text: '可在上方随时切换“现代简约版”与“经典丰富版”，加密会话状态实时无损保持。', time: '10:03' }
-    ],
-    'community-bot': [
-      { id: 1, sender: 'community-bot', text: 'Corium 治理委员会 #48 提案已发起，欢迎前往社区论坛参与投票。', time: '09:15' }
-    ]
-  };
-}
 function renderChat(container) {
-  const isMinimalist = chatUiMode === 'minimalist';
-
-  // 1. WATChat Login Screen with Dual UI Switcher
-  if (!isChatLoggedIn) {
-    if (!isMinimalist) {
-      // Replicate exact Login UI from WATChat-code.zip
-      container.innerHTML = `
-        <div class="chat-page-wrapper watchat-classic-root">
-          <div class="chat-login-container login-classic">
-            <div class="chat-login-card login-box">
-              
-              <!-- Dual UI Switcher at top of Login Page -->
-              <div class="chat-login-switcher-bar" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2b383f; padding-bottom: 10px; margin-bottom: 12px;">
-                <div style="font-size: 0.8rem; font-weight: 700; color: #45d483; display: flex; align-items: center; gap: 6px;">
-                  <span>腕聊</span>
-                  <span style="font-size: 0.68rem; color: #07140d; background: #45d483; padding: 1px 6px; border-radius: 6px; font-weight: 800;">经典版</span>
-                </div>
-                <div class="dual-ui-toggle-group">
-                  <button id="toggle-minimalist" class="btn btn-sm btn-secondary" style="border:none; padding: 3px 8px; font-size: 0.75rem;">${t('chat.ui_minimalist')}</button>
-                  <button id="toggle-classic" class="btn btn-sm btn-primary" style="border:none; background: #45d483; color: #07140d; font-weight: 700; padding: 3px 8px; font-size: 0.75rem;">${t('chat.ui_classic')}</button>
-                </div>
-              </div>
-
-              <!-- Replicated Login Form -->
-              <form id="chat-login-form">
-                <h1 style="font-size: 28px; margin: 0; color: #f4f7f8; font-weight: 800;">腕聊</h1>
-                <p style="color: #9fb0b8; margin: 5px 0 14px; font-size: 14px;">登录你的账户</p>
-                <input id="chat-username" autocomplete="username" maxlength="24" placeholder="用户名" aria-label="用户名" required class="input-text">
-                <input id="chat-passphrase" type="password" autocomplete="current-password" maxlength="64" placeholder="密码" aria-label="密码" required class="input-text">
-                <button type="submit" id="chat-login-btn">进入</button>
-                <output id="loginError" class="error" aria-live="polite" style="color: #ff7d7d; font-size: 13px; margin-top: 8px; display: block;"></output>
-              </form>
-
-              <div style="margin-top: 14px; font-size: 0.72rem; color: #9fb0b8; display: flex; justify-content: space-between; align-items: center;">
-                <span>DID: did:ziokt:mesh:genesis-node</span>
-                <span style="color: #45d483; border: 1px solid rgba(69,212,131,0.3); padding: 2px 6px; border-radius: 8px;">XChaCha20-Poly1305</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    } else {
-      // Modern Minimalist Login View
-      container.innerHTML = `
-        <div class="chat-page-wrapper">
-          <div class="chat-login-container login-minimalist">
-            <div class="chat-login-card">
-              <div class="chat-login-switcher-bar">
-                <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
-                  <span>💬 WATChat</span>
-                  <span class="mode-pill" style="font-size: 0.7rem; color: var(--accent-cyan);">${t('chat.dual_ui')}</span>
-                </div>
-                <div class="dual-ui-toggle-group">
-                  <button id="toggle-minimalist" class="btn btn-sm btn-primary" style="border:none;">${t('chat.ui_minimalist')}</button>
-                  <button id="toggle-classic" class="btn btn-sm btn-secondary" style="border:none;">${t('chat.ui_classic')}</button>
-                </div>
-              </div>
-
-              <div style="text-align: center; margin: 16px 0 20px 0;">
-                <div style="font-size: 2.2rem; margin-bottom: 8px;">🔐</div>
-                <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px;">${t('chat.login_title')}</h2>
-                <p style="font-size: 0.8rem; color: var(--text-muted);">${t('chat.login_desc')}</p>
-                <div style="margin-top: 8px;">
-                  <span class="status-badge" style="font-size: 0.72rem; color: var(--accent-green); background: rgba(16,185,129,0.12); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3);">
-                    <span class="status-dot"></span> XChaCha20-Poly1305
-                  </span>
-                </div>
-              </div>
-
-              <form id="chat-login-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-                <div>
-                  <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
-                    ${t('common.name')} / DID
-                  </label>
-                  <input type="text" id="chat-username" class="input-text" value="Genesis Node (Node #0)" placeholder="${t('chat.username_placeholder')}" style="width: 100%;">
-                </div>
-                <div>
-                  <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
-                    ${t('settings.auth_token')} / Passphrase
-                  </label>
-                  <input type="password" id="chat-passphrase" class="input-text" value="●●●●●●●●●●●●" placeholder="${t('chat.passphrase_placeholder')}" style="width: 100%;">
-                </div>
-                <button type="submit" id="chat-login-btn" class="btn btn-primary" style="width: 100%; padding: 10px; margin-top: 6px; font-weight: 600;">
-                  🚀 ${t('chat.login_btn')}
-                </button>
-              </form>
-
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 0.75rem; color: var(--text-dim);">
-                <span>DID: did:ziokt:mesh:genesis-node</span>
-                <span class="mode-pill">${t('chat.ui_minimalist')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    // Dual UI Handlers on Login Page
-    container.querySelector('#toggle-minimalist').onclick = () => {
-      chatUiMode = 'minimalist';
-      setStorage('watchat_ui_mode', 'minimalist');
-      showToast(t('chat.ui_minimalist'), 'info');
-      renderChat(container);
-    };
-
-    container.querySelector('#toggle-classic').onclick = () => {
-      chatUiMode = 'classic';
-      setStorage('watchat_ui_mode', 'classic');
-      showToast('已切换至腕聊经典丰富版', 'info');
-      renderChat(container);
-    };
-
-    // Login Form Submit
-    container.querySelector('#chat-login-form').onsubmit = (e) => {
-      e.preventDefault();
-      isChatLoggedIn = true;
-      setStorage('watchat_logged_in', 'true');
-      showToast('腕聊已进入会话', 'success');
-      renderChat(container);
-    };
-
-    return;
-  }
-
-  // 2. Logged-in Chat Room
-  if (!isMinimalist) {
-    // Replicate exact 腕聊 UI from WATChat-code.zip
-    container.innerHTML = `
-      <div class="chat-page-wrapper watchat-classic-root">
-        <div class="chat-classic-app">
-          
-          <!-- Replicated Header from WATChat-code.zip -->
-          <header class="chat-classic-header">
-            <button id="chat-back-btn" class="chat-classic-head-btn" aria-label="返回" title="返回联系人">‹</button>
-            <strong id="chat-peer-title">${activeContact === 'genesis-node' ? 'Genesis Node' : 'Community Bot'}</strong>
-            <span class="online">● 在线</span>
-            <span style="font-size: 0.65rem; color: #45d483; font-family: var(--font-mono); border: 1px solid rgba(69,212,131,0.3); padding: 1px 6px; border-radius: 6px; margin: 0 4px;">XChaCha20-Poly1305</span>
-            
-            <!-- Dual UI Switcher in Header -->
-            <div class="dual-ui-toggle-group" style="margin: 0 4px;">
-              <button id="toggle-minimalist" class="btn btn-sm btn-secondary" style="border:none; padding: 2px 8px; font-size: 0.72rem;">${t('chat.ui_minimalist')}</button>
-              <button id="toggle-classic" class="btn btn-sm btn-primary" style="border:none; background: #45d483; color: #07140d; font-weight: 700; padding: 2px 8px; font-size: 0.72rem;">${t('chat.ui_classic')}</button>
-            </div>
-
-            <!-- Header Action Buttons from WATChat-code.zip: 管 (Admin) & 退 (Logout) -->
-            <button id="chat-admin-btn" class="chat-classic-head-btn btn-text-badge" aria-label="管理用户" title="管理用户">管</button>
-            <button id="chat-logout-btn" class="chat-classic-head-btn btn-text-badge" aria-label="退出" title="${t('chat.logout_btn')}">退</button>
-          </header>
-
-          <!-- Admin Drawer from WATChat-code.zip -->
-          <section id="chat-admin-panel" style="display: none; background: #192126; border-bottom: 1px solid #2b383f; padding: 12px; font-size: 13px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <h2 style="font-size: 15px; margin: 0; color: #45d483;">用户与联系人 (腕聊)</h2>
-              <button id="chat-close-admin-btn" style="background: transparent; border: 0; color: #9fb0b8; font-size: 16px; cursor: pointer;">✕</button>
-            </div>
-            <p style="color: #9fb0b8; margin: 0 0 8px; font-size: 12px;">点选某用户，再勾选其可聊天联系人；端到端双向密钥生效。</p>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button type="button" class="user-chip active" style="padding: 4px 10px; background: #45d483; color: #07140d; font-weight: 700; border: 0; border-radius: 8px;">Genesis Node (主节点)</button>
-              <button type="button" class="user-chip" style="padding: 4px 10px; background: #101417; color: #f4f7f8; border: 1px solid #2b383f; border-radius: 8px;">Community Bot</button>
-            </div>
-          </section>
-
-          <!-- Body: Contacts List + Messages + 5-Column Composer -->
-          <div class="chat-container" style="display: flex; flex: 1; min-height: 0; background: #101417; overflow: hidden; border: none;">
-            
-            <!-- Replicated Sidebar Contacts List -->
-            <aside class="chat-sidebar" style="width: 260px; background: #101417; border-right: 1px solid #2b383f; display: flex; flex-direction: column;">
-              <div style="padding: 8px; border-bottom: 1px solid #2b383f;">
-                <input type="text" id="contact-search" class="input-text" placeholder="搜索联系人…" style="width: 100%; min-height: 38px; border: 1px solid #2b383f; background: #192126; color: #f4f7f8; border-radius: 9px; padding: 0 8px; font-size: 13px;">
-              </div>
-              <div id="contact-list" class="list" style="flex: 1; overflow-y: auto; padding: 8px;">
-                <div class="contact chat-classic-contact ${activeContact === 'genesis-node' ? 'active' : ''}" data-id="genesis-node">
-                  <span class="avatar chat-classic-avatar">G</span>
-                  <div style="flex: 1; overflow: hidden;">
-                    <div style="font-weight: 700; font-size: 14px; color: #f4f7f8; display: flex; justify-content: space-between;">
-                      <span>Genesis Node</span>
-                      <span style="font-size: 11px; color: #9fb0b8;">10:03</span>
-                    </div>
-                    <div style="font-size: 12px; color: #9fb0b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">双 UI 架构测试中...</div>
-                  </div>
-                </div>
-
-                <div class="contact chat-classic-contact ${activeContact === 'community-bot' ? 'active' : ''}" data-id="community-bot">
-                  <span class="avatar chat-classic-avatar" style="background: #246b49; color: #fff;">C</span>
-                  <div style="flex: 1; overflow: hidden;">
-                    <div style="font-weight: 700; font-size: 14px; color: #f4f7f8; display: flex; justify-content: space-between;">
-                      <span>Community Bot</span>
-                      <span style="font-size: 11px; color: #9fb0b8;">09:15</span>
-                    </div>
-                    <div style="font-size: 12px; color: #9fb0b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#48 提案已发布</div>
-                  </div>
-                </div>
-              </div>
-              <div style="padding: 8px; border-top: 1px solid #2b383f;">
-                <button id="add-contact-btn" style="width: 100%; min-height: 40px; border: 0; background: #45d483; color: #07140d; font-weight: 700; border-radius: 9px; cursor: pointer;">+ ${t('chat.new_conversation')}</button>
-              </div>
-            </aside>
-
-            <!-- Replicated Messages Area + Composer -->
-            <div class="chat-main" style="flex: 1; display: flex; flex-direction: column; min-height: 0; background: #101417; overflow: hidden;">
-              
-              <!-- Messages -->
-              <div id="messages-box" class="messages chat-classic-messages">
-                ${(messagesStore[activeContact] || []).map(m => `
-                  <article class="message chat-classic-msg ${m.sender === 'me' ? 'mine' : ''}">
-                    <div>${m.text}</div>
-                    <time>${m.time}</time>
-                  </article>
-                `).join('')}
-              </div>
-
-              <!-- Replicated 5-Column Composer: 图 / 视 / 音 / 消息… / 发 -->
-              <div class="chat-input-bar chat-classic-composer">
-                <button id="attach-vault-btn" class="media-button chat-classic-media-btn" type="button" aria-label="发送图片" title="从保险库/本地发送图片与附件">图</button>
-                <button id="video-attach-btn" class="media-button chat-classic-media-btn" type="button" aria-label="发送视频" title="发送视频附件">视</button>
-                <button id="voice-record-btn" class="media-button chat-classic-media-btn ${isVoiceRecording ? 'recording' : ''}" type="button" aria-label="录制语音" title="录制语音消息">${isVoiceRecording ? '停' : '音'}</button>
-                <input type="text" id="chat-input" class="chat-classic-input" maxlength="1000" enterkeyhint="send" autocomplete="off" placeholder="消息…" aria-label="消息">
-                <button type="submit" id="chat-send-btn" class="media-button chat-classic-media-btn" aria-label="发送" style="background:#45d483; color:#07140d; font-weight:800;">发</button>
-              </div>
-
-            </div>
-
-          </div>
-        </div>
-      </div>
-    `;
-  } else {
-    // Modern Minimalist Chat View
-    container.innerHTML = `
-      <div class="chat-page-wrapper">
-        <div class="chat-subheader">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-weight: 700; color: var(--accent-cyan); font-size: 0.95rem;">💬 ${t('chat.title')}</span>
-            <span class="status-badge" style="font-size: 0.7rem; color: var(--accent-green);">
-              <span class="status-dot"></span> XChaCha20-Poly1305
-            </span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 0.78rem; color: var(--text-muted);">${t('chat.dual_ui')}:</span>
-            <div class="dual-ui-toggle-group">
-              <button id="toggle-minimalist" class="btn btn-sm btn-primary" style="border:none;">${t('chat.ui_minimalist')}</button>
-              <button id="toggle-classic" class="btn btn-sm btn-secondary" style="border:none;">${t('chat.ui_classic')}</button>
-            </div>
-            <button id="chat-logout-btn" class="btn btn-secondary btn-sm" title="${t('chat.logout_btn')}" style="padding: 4px 8px; font-size: 0.75rem;">🔒 ${t('chat.logout_btn')}</button>
-          </div>
-        </div>
-
-        <div class="chat-container">
-          <div class="chat-sidebar">
-            <div style="padding: 12px; border-bottom: 1px solid var(--border-subtle);">
-              <input type="text" id="contact-search" class="input-text" placeholder="${t('common.search')}" style="padding: 6px 10px; font-size: 0.8rem;">
-            </div>
-            <div id="contact-list" style="flex: 1; overflow-y: auto;">
-              <div class="contact-item ${activeContact === 'genesis-node' ? 'active' : ''}" data-id="genesis-node" style="padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; display: flex; align-items: center; gap: 10px;">
-                <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #0284c7, #38bdf8); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff;">G</div>
-                <div style="flex: 1; overflow: hidden;">
-                  <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-main); display: flex; justify-content: space-between;">
-                    <span>Genesis Node</span>
-                    <span style="font-size: 0.7rem; color: var(--text-dim);">10:03</span>
-                  </div>
-                  <div style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">双 UI 架构测试中...</div>
-                </div>
-              </div>
-
-              <div class="contact-item ${activeContact === 'community-bot' ? 'active' : ''}" data-id="community-bot" style="padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; display: flex; align-items: center; gap: 10px;">
-                <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #818cf8, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff;">C</div>
-                <div style="flex: 1; overflow: hidden;">
-                  <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-main); display: flex; justify-content: space-between;">
-                    <span>Community Bot</span>
-                    <span style="font-size: 0.7rem; color: var(--text-dim);">09:15</span>
-                  </div>
-                  <div style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#48 提案已发布</div>
-                </div>
-              </div>
-            </div>
-            <div style="padding: 10px; border-top: 1px solid var(--border-subtle);">
-              <button id="add-contact-btn" class="btn btn-secondary btn-sm" style="width: 100%;">+ ${t('chat.new_conversation')}</button>
-            </div>
-          </div>
-
-          <div class="chat-main">
-            <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; background: var(--bg-sidebar);">
-              <div>
-                <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-main);">${activeContact === 'genesis-node' ? 'Genesis Node (Node #0)' : 'Community Bot'}</div>
-                <div style="font-size: 0.72rem; color: var(--accent-cyan); font-family: var(--font-mono);">did:ziokt:mesh:${activeContact}</div>
-              </div>
-            </div>
-
-            <div id="messages-box" class="chat-messages">
-              ${(messagesStore[activeContact] || []).map(m => `
-                <div class="chat-bubble ${m.sender === 'me' ? 'bubble-mine' : 'bubble-theirs'}">
-                  <div>${m.text}</div>
-                  <div style="font-size: 0.65rem; text-align: right; margin-top: 4px; opacity: 0.75;">${m.time}</div>
-                </div>
-              `).join('')}
-            </div>
-
-            <div class="chat-input-bar">
-              <div style="display: flex; gap: 10px;">
-                <input type="text" id="chat-input" class="input-text" placeholder="${t('chat.input_placeholder')}" style="flex: 1;">
-                <button id="chat-send-btn" class="btn btn-primary">${t('chat.send')}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // UI Switch Handlers
-  container.querySelector('#toggle-minimalist').onclick = () => {
-    chatUiMode = 'minimalist';
-    setStorage('watchat_ui_mode', 'minimalist');
-    showToast('已切换至 WATChat 现代简约版', 'info');
-    renderChat(container);
+  const label = (zh, en) => State.language === 'en' ? en : zh;
+  const node = (tag, text) => { const el = document.createElement(tag); el.textContent = text; return el; };
+  container.replaceChildren();
+  const card = node('section', ''); card.className = 'card';
+  card.append(node('h2', 'WATChat'), node('p', label(
+    '请在原生 WATChat 中登录、核对联系人指纹并发送消息。网关登录不代表聊天身份已登录。',
+    'Sign in, verify contact fingerprints and send messages in native WATChat. Gateway authentication does not sign in to chat.')),
+    node('p', label('当前随附原生实现：ECDH P-256 / HKDF-SHA256 / AES-256-GCM。此说明不代表握手或投递已完成。',
+    'Bundled native implementation: ECDH P-256 / HKDF-SHA256 / AES-256-GCM. This description is not handshake or delivery evidence.')));
+  const form = node('form', ''), caption = node('label', label('原生 WATChat 地址', 'Native WATChat URL'));
+  const input = document.createElement('input'); input.type = 'url'; input.required = true;
+  input.id = 'watchat-native-url'; input.className = 'input-text';
+  input.value = getStorage('ziokt_endpoint_watchat') || (State.serviceEndpoints || {}).watchat || '';
+  input.placeholder = 'https://'; caption.htmlFor = input.id;
+  const save = node('button', label('保存入口', 'Save entrypoint')); save.className = 'btn btn-secondary';
+  const status = node('p', label('尚未验证原生会话或消息投递。', 'Native session and delivery have not been verified.')); status.setAttribute('role', 'status');
+  const link = node('a', label('打开原生 WATChat', 'Open native WATChat'));
+  link.id = 'watchat-native-open'; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.hidden = true;
+  const validate = () => {
+    const url = new URL(input.value);
+    if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) || url.username || url.password || url.search || url.hash)
+      throw Error(label('请使用 HTTPS 地址或本机 HTTP 地址，不含凭证、查询或片段。', 'Use HTTPS or loopback HTTP without credentials, query or fragment.'));
+    return url.href;
   };
-
-  container.querySelector('#toggle-classic').onclick = () => {
-    chatUiMode = 'classic';
-    setStorage('watchat_ui_mode', 'classic');
-    showToast('已切换至腕聊经典丰富版', 'info');
-    renderChat(container);
-  };
-
-  // Logout / Lock Session Handler
-  const logoutBtn = container.querySelector('#chat-logout-btn');
-  if (logoutBtn) {
-    logoutBtn.onclick = () => {
-      isChatLoggedIn = false;
-      setStorage('watchat_logged_in', 'false');
-      showToast('已锁定会话并返回登录页', 'info');
-      renderChat(container);
-    };
-  }
-
-  // Admin button handler (Classic mode)
-  const adminBtn = container.querySelector('#chat-admin-btn');
-  const adminPanel = container.querySelector('#chat-admin-panel');
-  if (adminBtn && adminPanel) {
-    adminBtn.onclick = () => {
-      adminPanel.style.display = adminPanel.style.display === 'none' ? 'block' : 'none';
-    };
-    const closeAdminBtn = container.querySelector('#chat-close-admin-btn');
-    if (closeAdminBtn) closeAdminBtn.onclick = () => { adminPanel.style.display = 'none'; };
-  }
-
-  // Contact Switcher
-  container.querySelectorAll('.contact-item, .chat-classic-contact').forEach(item => {
-    item.onclick = () => {
-      activeContact = item.dataset.id;
-      renderChat(container);
-    };
-  });
-
-  // Send Message Logic
-  const inputEl = container.querySelector('#chat-input');
-  const sendBtn = container.querySelector('#chat-send-btn');
-  const doSend = () => {
-    const text = inputEl.value.trim();
-    if (!text) return;
-    if (!messagesStore[activeContact]) messagesStore[activeContact] = [];
-    
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    messagesStore[activeContact].push({
-      id: Date.now(),
-      sender: 'me',
-      text,
-      time: timeStr
-    });
-    setStorage('watchat_msgs', JSON.stringify(messagesStore));
-    inputEl.value = '';
-    
-    // Auto-scroll
-    renderChat(container);
-    const box = container.querySelector('#messages-box');
-    if (box) box.scrollTop = box.scrollHeight;
-  };
-
-  sendBtn.onclick = doSend;
-  inputEl.onkeydown = (e) => {
-    if (e.key === 'Enter') doSend();
-  };
-  inputEl.addEventListener('focus', () => {
-    setTimeout(() => {
-      inputEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 200);
-  });
-  const box = container.querySelector('#messages-box');
-  if (box) box.scrollTop = box.scrollHeight;
-
-  // Add Contact Prompt
-  const addBtn = container.querySelector('#add-contact-btn');
-  if (addBtn) {
-    addBtn.onclick = () => {
-      const recipient = prompt(t('chat.enter_recipient'));
-      if (recipient) {
-        messagesStore[recipient] = [
-          { id: Date.now(), sender: recipient, text: '端到端加密握手已建立。', time: '刚刚' }
-        ];
-        activeContact = recipient;
-        renderChat(container);
-        showToast('已建立新会话', 'success');
-      }
-    };
-  }
-
-  // Classic Bar Attachment ("图")
-  const attachBtn = container.querySelector('#attach-vault-btn');
-  if (attachBtn) {
-    attachBtn.onclick = () => {
-      const filename = prompt('输入图片或 UFS/SafeFS 附件文件名发送 (例如: PHOTO.jpg 或 WELCOME.txt):', 'PHOTO.jpg');
-      if (filename) {
-        inputEl.value = `[图: ${filename} | ufs://${filename}]`;
-        doSend();
-      }
-    };
-  }
-
-  // Classic Bar Video ("视")
-  const videoBtn = container.querySelector('#video-attach-btn');
-  if (videoBtn) {
-    videoBtn.onclick = () => {
-      const filename = prompt('输入视频附件名称发送 (例如: clip.mp4):', 'clip.mp4');
-      if (filename) {
-        inputEl.value = `[视: ${filename}]`;
-        doSend();
-      }
-    };
-  }
-
-  // Classic Bar Voice ("音")
-  const voiceBtn = container.querySelector('#voice-record-btn');
-  if (voiceBtn) {
-    voiceBtn.onclick = () => {
-      if (!isVoiceRecording) {
-        isVoiceRecording = true;
-        showToast('正在录音… 再次点击发送', 'info');
-        renderChat(container);
-      } else {
-        isVoiceRecording = false;
-        inputEl.value = `[音: 语音 3秒]`;
-        doSend();
-        showToast('语音已发送', 'success');
-      }
-    };
-  }
+  const refresh = () => { link.hidden = true; link.removeAttribute('href'); if (input.value) { link.href = validate(); link.hidden = false; } };
+  input.oninput = () => { link.hidden = true; link.removeAttribute('href'); };
+  form.onsubmit = event => { event.preventDefault(); try { const url = validate(); setStorage('ziokt_endpoint_watchat', url); refresh(); status.textContent = label('入口已保存；会话和投递状态仍需原生应用验证。', 'Entrypoint saved; session and delivery still require native verification.'); } catch(error) { link.hidden = true; status.textContent = error.message; } };
+  try { refresh(); } catch(error) { status.textContent = error.message; }
+  form.append(caption, input, save); card.append(form, link, status); container.append(card);
 }
 
 

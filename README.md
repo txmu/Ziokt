@@ -55,3 +55,5 @@ The ecosystem release remains **v1.0**; Ziokt application projects use `1.0.0`. 
 [Corium](https://github.com/txmu/Corium) · [Shadow6](https://github.com/txmu/Shadow6) · [Release and deployment tools](https://github.com/txmu/Ziokt-Releases)
 
 Signed multi-observer topology, TLS SMTP/IMAP bridging, and encrypted offline recovery: [operator guide](docs/DOOMSDAY-OBSERVATORY-MAIL.zh-CN.md).
+
+- [Federation audit, native chat handoff, pending work and rollback](docs/FEDERATION_ACCEPTANCE_2026-10-28.md)

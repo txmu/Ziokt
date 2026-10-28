@@ -3,6 +3,8 @@ name: OpenCI ALFS packaging and optional full build
   push:
     paths:
     - ci/openci/alfs/**
+    - tests/test_alfs_checkpoints.py
+    - tests/test_openci_alfs_config.py
     - .github/workflows/openci-alfs.yml
   workflow_dispatch:
     inputs:
@@ -27,6 +29,8 @@ jobs:
       run: bash ci/openci/alfs/check_image.sh
     - name: Verify the pinned kernel configuration adaptation
       run: python3 -m unittest discover -s tests -p test_openci_alfs_config.py -v
+    - name: Verify checkpoint identity, archive bounds and package breakpoints
+      run: python3 -m unittest discover -s tests -p test_alfs_checkpoints.py -v
     - name: Record validation scope
       run: |
         echo '### ALFS packaging regression' >> "$GITHUB_STEP_SUMMARY"

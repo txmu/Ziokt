@@ -84,7 +84,7 @@
     "send": "发送",
     "input_placeholder": "输入加密消息...",
     "attach_file": "发送文件附件",
-    "encryption_badge": "XChaCha20-Poly1305 端到端保密",
+    "encryption_badge": "AES-256-GCM (native WATChat)",
     "empty_messages": "暂无历史消息，发送一条问候开启端到端密聊吧",
     "login_title": "WATChat 密聊身份登录",
     "login_desc": "选择您偏好的 UI 风格并解锁端到端加密会话凭证",
@@ -93,9 +93,9 @@
     "passphrase_placeholder": "输入加密私钥密码 / 会话密令",
     "logout_btn": "锁定会话 / 退出",
     "classic_telemetry": "经典版实时安全信令与拓扑遥测",
-    "ratchet_status": "双棘轮状态: 就绪",
-    "cipher_info": "加密套件: XChaCha20-Poly1305 / HKDF-SHA256",
-    "onion_route": "中继节点: ETP Onion 3-Hop Multi-Path"
+    "ratchet_status": "会话状态：未验证",
+    "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM",
+    "onion_route": "路由状态：未验证"
   },
   "forum": {
     "title": "Corium 去中心化社区论坛",

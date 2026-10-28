@@ -55,3 +55,5 @@ python3 -m venv .venv
 [Corium](https://github.com/txmu/Corium) · [Shadow6](https://github.com/txmu/Shadow6) · [发布与部署工具](https://github.com/txmu/Ziokt-Releases)
 
 多节点签名拓扑、SMTP/IMAP 桥接与 Doomsday 冷恢复：[配置与使用](docs/DOOMSDAY-OBSERVATORY-MAIL.zh-CN.md)。
+
+- [联邦审计、原生聊天入口、待办与回滚](docs/FEDERATION_ACCEPTANCE_2026-10-28.md)

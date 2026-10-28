@@ -84,7 +84,7 @@
     "send": "Send",
     "input_placeholder": "Type encrypted message...",
     "attach_file": "Attach Vault File",
-    "encryption_badge": "XChaCha20-Poly1305 Sealed",
+    "encryption_badge": "AES-256-GCM (native WATChat)",
     "empty_messages": "No messages yet. Send a greeting to start secure chatting.",
     "login_title": "WATChat Identity Sign In",
     "login_desc": "Choose your preferred UI style and unlock your end-to-end encrypted session",
@@ -93,9 +93,9 @@
     "passphrase_placeholder": "Enter private key passphrase / session secret",
     "logout_btn": "Lock Session / Sign Out",
     "classic_telemetry": "Classic Mode Real-Time Security Signaling & Telemetry",
-    "ratchet_status": "Double Ratchet: Ready",
-    "cipher_info": "Cipher Suite: XChaCha20-Poly1305 / HKDF-SHA256",
-    "onion_route": "Relay Router: ETP Onion 3-Hop Multi-Path"
+    "ratchet_status": "Session: unverified",
+    "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM",
+    "onion_route": "Route: unverified"
   },
   "forum": {
     "title": "Corium Decentralized Community Forum",

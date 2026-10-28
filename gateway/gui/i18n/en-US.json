@@ -84,8 +84,11 @@
     "send": "Send",
     "input_placeholder": "Type encrypted message...",
     "attach_file": "Attach Vault File",
-    "encryption_badge": "XChaCha20-Poly1305 Sealed",
-    "empty_messages": "No messages yet. Send a greeting to start secure chatting."
+    "encryption_badge": "AES-256-GCM (native WATChat)",
+    "empty_messages": "No messages yet. Send a greeting to start secure chatting.",
+    "cipher_info": "ECDH P-256 / HKDF-SHA256 / AES-256-GCM",
+    "ratchet_status": "Session: unverified",
+    "onion_route": "Route: unverified"
   },
   "forum": {
     "title": "Corium Decentralized Community Forum",
