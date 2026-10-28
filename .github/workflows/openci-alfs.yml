@@ -1,7 +1,9 @@
 name: OpenCI ALFS packaging and optional full build
-on:
+'on':
   push:
-    paths: ["ci/openci/alfs/**", ".github/workflows/openci-alfs.yml"]
+    paths:
+    - ci/openci/alfs/**
+    - .github/workflows/openci-alfs.yml
   workflow_dispatch:
     inputs:
       full_build:
@@ -18,52 +20,120 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - name: Reproduce root-owned image directory and verify production packaging without compilation
-        run: bash ci/openci/alfs/check_image.sh
-      - name: Verify the pinned kernel configuration adaptation
-        run: python3 -m unittest discover -s tests -p test_openci_alfs_config.py -v
-      - name: Record validation scope
-        run: |
-          echo '### ALFS packaging regression' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Real ext4 packaging and original permission regression passed. No ALFS rebuild or ALFS QEMU boot was performed in this job.' >> "$GITHUB_STEP_SUMMARY"
-  official-alfs:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+    - name: Reproduce root-owned image directory and verify production packaging without compilation
+      run: bash ci/openci/alfs/check_image.sh
+    - name: Verify the pinned kernel configuration adaptation
+      run: python3 -m unittest discover -s tests -p test_openci_alfs_config.py -v
+    - name: Record validation scope
+      run: |
+        echo '### ALFS packaging regression' >> "$GITHUB_STEP_SUMMARY"
+        echo 'Real ext4 packaging and original permission regression passed. No ALFS rebuild or ALFS QEMU boot was performed in this job.' >> "$GITHUB_STEP_SUMMARY"
+  official-alfs-base:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     needs: image-regression
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - name: Provision disposable ALFS build host
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential bison gawk texinfo python3 libncurses-dev libelf-dev libssl-dev libxml2-utils xsltproc docbook-xml docbook-xsl wget curl git rsync xz-utils bzip2 gzip patch perl make diffutils findutils grep sed coreutils util-linux e2fsprogs qemu-system-x86 python3-pexpect
-          sudo ln -sf bash /bin/sh
-          df -h
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/openci-alfs/downloads
-          key: alfs-downloads-${{ hashFiles('ci/openci/alfs/source.lock.json') }}
-      - name: Complete pinned official book, critical toolchain suites, kernel and real serial boot
-        run: ci/openci/alfs/build.sh
-      - name: Compress tested root filesystem without altering it
-        if: success()
-        run: zstd -T2 -3 --rm "$RUNNER_TEMP/openci-alfs/images/rootfs.ext4"
-      - uses: actions/upload-artifact@v7.0.2
-        if: always()
-        with:
-          name: openci-alfs-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/openci-alfs/evidence/
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v7.0.2
-        if: success()
-        with:
-          name: openci-alfs-x86_64-${{ github.run_id }}
-          path: ${{ runner.temp }}/openci-alfs/images/
-          if-no-files-found: error
-          retention-days: 7
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+    - name: Provision disposable ALFS build host
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends build-essential bison gawk texinfo python3 libncurses-dev libelf-dev libssl-dev libxml2-utils xsltproc docbook-xml docbook-xsl wget curl git rsync xz-utils bzip2 gzip patch perl make diffutils findutils grep sed coreutils util-linux e2fsprogs qemu-system-x86 python3-pexpect zstd
+        sudo ln -sf bash /bin/sh
+        df -h
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/openci-alfs/downloads
+        key: alfs-downloads-${{ hashFiles('ci/openci/alfs/source.lock.json') }}
+    - name: Official book base phase (complete tests retained)
+      run: ci/openci/alfs/build.sh base
+    - uses: actions/upload-artifact@v7.0.2
+      with:
+        name: openci-alfs-checkpoint-base-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/checkpoint/
+        if-no-files-found: error
+        retention-days: 3
+    - uses: actions/upload-artifact@v7.0.2
+      if: always()
+      with:
+        name: openci-alfs-evidence-base-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/evidence/
+        if-no-files-found: error
+        retention-days: 14
+  official-alfs-gcc:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_build
+    needs: official-alfs-base
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+    - name: Provision disposable ALFS build host
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends build-essential bison gawk texinfo python3 libncurses-dev libelf-dev libssl-dev libxml2-utils xsltproc docbook-xml docbook-xsl wget curl git rsync xz-utils bzip2 gzip patch perl make diffutils findutils grep sed coreutils util-linux e2fsprogs qemu-system-x86 python3-pexpect zstd
+        sudo ln -sf bash /bin/sh
+        df -h
+    - uses: actions/download-artifact@v7.0.0
+      with:
+        name: openci-alfs-checkpoint-base-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/checkpoint
+    - name: Official book gcc phase (complete tests retained)
+      run: ci/openci/alfs/build.sh gcc
+    - uses: actions/upload-artifact@v7.0.2
+      with:
+        name: openci-alfs-checkpoint-gcc-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/checkpoint/
+        if-no-files-found: error
+        retention-days: 3
+    - uses: actions/upload-artifact@v7.0.2
+      if: always()
+      with:
+        name: openci-alfs-evidence-gcc-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/evidence/
+        if-no-files-found: error
+        retention-days: 14
+  official-alfs-finish:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_build
+    needs: official-alfs-gcc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+    - name: Provision disposable ALFS build host
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends build-essential bison gawk texinfo python3 libncurses-dev libelf-dev libssl-dev libxml2-utils xsltproc docbook-xml docbook-xsl wget curl git rsync xz-utils bzip2 gzip patch perl make diffutils findutils grep sed coreutils util-linux e2fsprogs qemu-system-x86 python3-pexpect zstd
+        sudo ln -sf bash /bin/sh
+        df -h
+    - uses: actions/download-artifact@v7.0.0
+      with:
+        name: openci-alfs-checkpoint-gcc-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/checkpoint
+    - name: Official book finish phase (complete tests retained)
+      run: ci/openci/alfs/build.sh finish
+    - name: Compress tested root filesystem without altering it
+      if: success()
+      run: zstd -T2 -3 --rm "$RUNNER_TEMP/openci-alfs/images/rootfs.ext4"
+    - uses: actions/upload-artifact@v7.0.2
+      if: always()
+      with:
+        name: openci-alfs-evidence-finish-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/evidence/
+        if-no-files-found: error
+        retention-days: 14
+    - uses: actions/upload-artifact@v7.0.2
+      if: success()
+      with:
+        name: openci-alfs-x86_64-${{ github.run_id }}
+        path: ${{ runner.temp }}/openci-alfs/images/
+        if-no-files-found: error
+        retention-days: 7

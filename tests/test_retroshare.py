@@ -32,7 +32,7 @@ class RetroShareTests(unittest.TestCase):
                     return
                 data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 values = {
-                    '/RsJsonApi/version': {'major': 0, 'minor': 6, 'mini': 7},
+                    '/rsJsonApi/version': {'major': 0, 'minor': 6, 'mini': 7},
                     '/rsPeers/getPeersCount': {'retval': True, 'peersCount': 2, 'onlinePeersCount': 1},
                     '/rsPeers/getFriendList': {'retval': True, 'sslIds': ['a' * 32]},
                     '/rsPeers/getOnlineList': {'retval': True, 'sslIds': ['a' * 32]},

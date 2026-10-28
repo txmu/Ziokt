@@ -261,6 +261,12 @@ class Service:
         self.add('retroshare_status','Inspect configured native RetroShare JSON API connectivity and authenticated peer counts.',schema(),False,'ziokt:read',('retroshare','status'))
         for action in ('friends','online','shares','downloads'):
             self.add('retroshare_'+action,'Read native RetroShare '+action+' through explicit private loopback API credentials.',schema(),False,'retroshare:read',('retroshare',action))
+        self.add('retroshare_invite','Export this node public RetroShare friend invite; contains no private key.',schema(),False,'retroshare:read',('retroshare','invite'))
+        self.add('retroshare_friend_accept','Explicitly accept a certificate pinned to the expected RetroShare peer.',schema({'invite':{'type':'string','maxLength':16384},'expected_peer':{'type':'string','pattern':'^[a-f0-9]{32}$'},'confirm':{'type':'boolean','const':True}},('invite','expected_peer','confirm')),True,'retroshare:admin',('retroshare','accept'))
+        self.add('retroshare_offer','Offer caller-supplied bytes under the existing native F2F friend policy; never shares directories.',schema({'data':{'type':'string','maxLength':87384},'seconds':{'type':'integer','minimum':60,'maximum':86400}},('data',)),True,'retroshare:write',('retroshare','offer'))
+        self.add('retroshare_offer_status','Inspect an explicit outgoing offer; native queueing is not peer delivery.',schema({'sha256':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('sha256',)),False,'retroshare:read',('retroshare','offer-status'))
+        self.add('retroshare_request','Request a bounded file from an allowlisted native friend with independently pinned SHA256.',schema({'hash':{'type':'string','pattern':'^[a-f0-9]{40}$'},'sha256':{'type':'string','pattern':'^[a-f0-9]{64}$'},'size':{'type':'integer','minimum':1,'maximum':65536},'peer':{'type':'string','pattern':'^[a-f0-9]{32}$'}},('hash','sha256','size','peer')),True,'retroshare:write',('retroshare','request'))
+        self.add('retroshare_collect','Return completed bytes only after exact size, SHA256 and native SHA1 verification.',schema({'sha256':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('sha256',)),False,'retroshare:read',('retroshare','collect'))
         self.add('mail_identity','Inspect your persistent mail public key and native sender address.',schema(),False,'mail:read',('mail','identity'))
         self.add('mail_internet_status','Inspect your configured TLS internet mail queue.',schema(),False,'mail:read',('mail','internet-status'))
         for action in ('internet-flush','internet-poll'):
@@ -501,7 +507,21 @@ class Service:
         if kind=='retroshare':
             from .retroshare import RetroShare
             native=RetroShare(self.current().get('retroshare'))
-            return native.status() if route[1]=='status' else native.inspect(route[1])
+            action=route[1]
+            if action=='status':return native.status()
+            if action=='invite':return native.invite()
+            if action=='accept':return native.accept_invite(args['invite'],args['expected_peer'],args['confirm'])
+            if action in {'offer','offer-status','request','collect'}:
+                from .retroshare_transport import FileCarrier
+                carrier=FileCarrier(native)
+                if action=='offer':
+                    try:data=base64.b64decode(args['data'],validate=True)
+                    except (ValueError,TypeError) as exc:raise ProtocolError('INVALID_REQUEST','canonical base64 RetroShare payload required') from exc
+                    return carrier.offer(data,args.get('seconds',3600))
+                if action=='offer-status':return carrier.offer_status(args['sha256'])
+                if action=='request':return carrier.request(args['hash'],args['sha256'],args['size'],args['peer'])
+                return carrier.collect(args['sha256'])
+            return native.inspect(action)
         if kind=='content-fabric':
             from .content_fabric import Fabric
             from .content_api import invoke,required_scopes

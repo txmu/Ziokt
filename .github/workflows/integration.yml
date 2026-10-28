@@ -147,8 +147,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 38484382737 --repo txmu/Ziokt --name ziokt-enabled-native-artifacts --dir reuse-download
-          archive=$(find reuse-download -name shadow6-ziokt.tar.gz -type f -print -quit)
+          reuse_dir="$RUNNER_TEMP/ziokt-native-reuse"
+          gh run download 38484382737 --repo txmu/Ziokt --name ziokt-enabled-native-artifacts --dir "$reuse_dir"
+          archive=$(find "$reuse_dir" -name shadow6-ziokt.tar.gz -type f -print -quit)
           python ci/verify_native_reuse.py "$archive"
           python ci/restore_native_baseline.py "$archive" ci/native-reuse.lock.json
       - name: Verify interpreted Shadow6 support against reused native products

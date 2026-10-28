@@ -111,6 +111,19 @@
       "regressions": [
         "tests/test_unified_distribution.py"
       ]
+    },
+    "RetroShare.lean": {
+      "namespace": "Ziokt.RetroShare",
+      "source_sha256": {
+        "ziokt/retroshare.py": "d59de892b73d7b00bed73a79df134806849666fd3d69efece56cdf7d580e5514",
+        "ziokt/retroshare_transport.py": "f4460db1bbcd3aac92df56c64f9a48230efba5e45cb7442c5bf335e9d104a871",
+        "ziokt/retroshare_node.py": "9a2609e010efb8586465da5af400eb9b4d38d88fba7ac2886a4e9c393778c24a"
+      },
+      "regressions": [
+        "tests/test_retroshare.py",
+        "tests/test_retroshare_transport.py"
+      ],
+      "boundary": "Abstract admission/integrity properties; native peer TLS, hashes, endpoint security and liveness are assumed, not proved."
     }
   }
 }

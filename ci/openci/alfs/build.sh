@@ -2,6 +2,8 @@
 # Full official ALFS, on a disposable CI VM only. Never runs on a production node.
 set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && $(uname -m) == x86_64 && $(id -u) != 0 ]]
+phase=${1:-full}
+[[ "$phase" == full || "$phase" == base || "$phase" == gcc || "$phase" == finish ]]
 work="$RUNNER_TEMP/openci-alfs"
 mkdir -p "$work/evidence" "$work/downloads"
 cleanup() {
@@ -9,11 +11,17 @@ cleanup() {
     sudo find /mnt/openci-lfs/jhalfs/logs -maxdepth 1 -type f -size -20M -exec cp -t "$work/evidence/" -- {} + || true
     sudo chown -R "$(id -u):$(id -g)" "$work/evidence" || true
   fi
+  if [[ -d /mnt/openci-lfs/jhalfs/test-logs ]]; then
+    mkdir -p "$work/evidence/test-logs"
+    sudo find /mnt/openci-lfs/jhalfs/test-logs -maxdepth 1 -type f -size -20M -exec cp -t "$work/evidence/test-logs/" -- {} + || true
+    sudo chown -R "$(id -u):$(id -g)" "$work/evidence/test-logs" || true
+  fi
   for path in /mnt/openci-lfs/run /mnt/openci-lfs/sys /mnt/openci-lfs/proc /mnt/openci-lfs/dev; do
     if mountpoint -q "$path"; then sudo umount -R "$path" || true; fi
   done
 }
 trap cleanup EXIT
+if [[ "$phase" == base || "$phase" == full ]]; then
 python3 - "$work" <<'PY'
 import json,subprocess,sys
 from pathlib import Path
@@ -46,13 +54,23 @@ printf '/dev/vda / ext4 defaults 1 1\n' > "$work/fstab"
 sudo mkdir -p /mnt/openci-lfs
 sudo chown "$(id -u):$(id -g)" /mnt/openci-lfs
 python3 ci/openci/alfs/configure.py "$work"
-# Two explicit confirmations; run_make subsequently drives the unmodified book.
-python3 ci/openci/alfs/run_jhalfs.py "$work/jhalfs" 2>&1 | tee "$work/evidence/alfs-build.log"
+# Retain configuration even if a compiler/test fails before imaging.
+cp "$work/kernel.config" "$work/evidence/kernel.config"
+cp "$work/jhalfs/configuration" "$work/evidence/jhalfs-configuration"
+else
+  previous=base
+  [[ "$phase" == finish ]] && previous=gcc
+  python3 ci/openci/alfs/checkpoint.py restore "$work" "$previous"
+fi
+# Upstream package breakpoints split the long build; no test is skipped.
+python3 ci/openci/alfs/run_jhalfs.py "$work/jhalfs" --phase "$phase" --evidence "$work/evidence" 2>&1 | tee "$work/evidence/alfs-build.log"
 cleanup
+if [[ "$phase" == base || "$phase" == gcc ]]; then
+  python3 ci/openci/alfs/checkpoint.py save "$work" "$phase"
+  exit 0
+fi
 sudo test -x /mnt/openci-lfs/usr/bin/gcc
 sudo test -s /mnt/openci-lfs/etc/lfs-release
-sudo install -m 0644 "$work/kernel.config" "$work/evidence/kernel.config"
-sudo install -m 0644 "$work/jhalfs/configuration" "$work/evidence/jhalfs-configuration"
 # The image is an ephemeral QEMU test system; the test-only console has no password.
 sudo chroot /mnt/openci-lfs /usr/bin/passwd -d root
 sudo mkdir -p /mnt/openci-lfs/etc/systemd/system/getty.target.wants

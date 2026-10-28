@@ -6,6 +6,8 @@ publishes shares, or changes RetroShare's network policy.
 """
 import base64
 import http.client
+import json
+from decimal import Decimal
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
@@ -13,7 +15,7 @@ from urllib.parse import urlsplit
 from .protocol import ProtocolError, encoded, secure_read, strict_json
 
 METHODS = {
-    'version': ('RsJsonApi/version', {}),
+    'version': ('rsJsonApi/version', {}),
     'counts': ('rsPeers/getPeersCount', {'countLocations': True}),
     'friends': ('rsPeers/getFriendList', {}),
     'online': ('rsPeers/getOnlineList', {}),
@@ -21,6 +23,25 @@ METHODS = {
     'downloads': ('rsFiles/FileDownloads', {}),
 }
 MAX_RESPONSE = 256 * 1024
+
+
+def native_json(raw):
+    # RetroShare exposes finite diagnostic floats, while Ziokt's signed wire
+    # protocol only permits integers. Keep those diagnostics as strings; do not
+    # weaken the canonical signed-protocol parser or coerce a float to a size.
+    def pairs(values):
+        result={}
+        for key,value in values:
+            if key in result:raise ValueError('duplicate native JSON field')
+            result[key]=value
+        return result
+    def decimal(value):
+        number=Decimal(value)
+        if not number.is_finite() or abs(number)>2**53 or len(value)>64:raise ValueError('native diagnostic number')
+        return value
+    def invalid(_):raise ValueError('nonfinite native JSON value')
+    try:return strict_json(encoded(json.loads(raw,object_pairs_hook=pairs,parse_float=decimal,parse_constant=invalid)),MAX_RESPONSE)
+    except (ValueError,UnicodeError,RecursionError) as exc:raise ProtocolError('NATIVE_REJECTED','invalid bounded RetroShare JSON response') from exc
 
 
 class RetroShare:
@@ -33,7 +54,7 @@ class RetroShare:
                 raise ValueError('disabled RetroShare config accepts only enabled')
             self.enabled = False
             return
-        if set(self.config) != {'enabled', 'endpoint', 'auth_file'}:
+        if set(self.config)-{'enabled','endpoint','auth_file','transport'} or not {'enabled','endpoint','auth_file'}<=set(self.config):
             raise ValueError('exact RetroShare endpoint and private auth_file required')
         endpoint = urlsplit(self.config['endpoint'])
         if (endpoint.scheme != 'http' or endpoint.hostname not in ('127.0.0.1', '::1')
@@ -59,11 +80,13 @@ class RetroShare:
         return 'Basic ' + base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
 
     def call(self, method):
+        if method not in METHODS:raise ProtocolError('METHOD_UNSUPPORTED','fixed RetroShare inspection method required')
+        path,arguments=METHODS[method]
+        return self._request(path,arguments)
+
+    def _request(self,path,arguments,*,allow_false=False):
         if not self.enabled:
             raise ProtocolError('NATIVE_UNAVAILABLE', 'RetroShare is not configured')
-        if method not in METHODS:
-            raise ProtocolError('METHOD_UNSUPPORTED', 'fixed read-only RetroShare method required')
-        path, arguments = METHODS[method]
         connection = http.client.HTTPConnection(self.host, self.port, timeout=3)
         try:
             connection.request('POST', '/' + path, body=encoded(arguments), headers={
@@ -75,8 +98,8 @@ class RetroShare:
             raw = response.read(MAX_RESPONSE + 1)
             if len(raw) > MAX_RESPONSE:
                 raise ProtocolError('LIMIT_EXCEEDED', 'RetroShare response budget exceeded')
-            data = strict_json(raw)
-            if type(data) is not dict or data.get('retval') is False or data.get('error'):
+            data = native_json(raw)
+            if type(data) is not dict or (data.get('retval') is False and not allow_false) or data.get('error'):
                 raise ProtocolError('NATIVE_REJECTED', 'RetroShare reported an unsuccessful operation')
             return data
         except (OSError, http.client.HTTPException) as exc:
@@ -86,7 +109,7 @@ class RetroShare:
 
     def status(self):
         base = {'schema': 'ziokt.retroshare-status.v1', 'enabled': self.enabled,
-                'read_only': True, 'external_peer_transfer': 'not_assessed'}
+                'read_only': 'transport' not in self.config, 'carrier':'retroshare-f2f-files','external_peer_transfer': 'not_assessed'}
         if not self.enabled:
             return dict(base, state='not_configured', native_authenticated=False)
         try:
@@ -115,3 +138,19 @@ class RetroShare:
                 raise ProtocolError('NATIVE_REJECTED', 'RetroShare native identifier format invalid')
         return {'schema': 'ziokt.retroshare-list.v1', 'kind': action, 'items': data[field],
                 'native_authenticated': True, 'read_only': True}
+
+    def invite(self):
+        result=self._request('rsPeers/getShortInvite',{'sslId':'0'*32,'inviteFlags':41,'baseUrl':''})
+        invite=result.get('invite')
+        if result.get('retval') is not True or not isinstance(invite,str) or not 1<=len(invite)<=16384:raise ProtocolError('NATIVE_REJECTED','RetroShare invite unavailable')
+        return {'invite':invite,'public_certificate':True,'secret_key_included':False}
+
+    def accept_invite(self,invite,expected_peer,confirm):
+        from .retroshare_transport import identifier
+        expected_peer=identifier(expected_peer,32)
+        if confirm is not True or not isinstance(invite,str) or not 1<=len(invite)<=16384:raise ProtocolError('POLICY_DENIED','explicit friend confirmation and bounded certificate required')
+        parsed=self._request('rsPeers/parseShortInvite',{'invite':invite})
+        if parsed.get('retval') is not True or parsed.get('details',{}).get('id')!=expected_peer:raise ProtocolError('POLICY_DENIED','RetroShare certificate does not match expected peer')
+        result=self._request('rsPeers/acceptInvite',{'invite':invite,'flags':0})
+        if result.get('retval') is not True:raise ProtocolError('NATIVE_REJECTED','RetroShare friend acceptance rejected')
+        return {'peer':expected_peer,'state':'friend_accepted','connected':False}
