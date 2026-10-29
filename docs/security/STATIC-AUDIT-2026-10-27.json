@@ -456,6 +456,96 @@
       "severity": "MEDIUM",
       "fingerprint": "7e8f170b38a9bfd6400c6fffe2ebaf73c6a627623a27b9911e4c6437fa0117c9",
       "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/retroshare_node.py",
+      "line": 19,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "6355a01a87b2e773a66322e84100b793e3508da84626ec3bae7308b278d527ad",
+      "review": "RetroShare local RPC endpoint is restricted to loopback 127.0.0.1 with admin-configured port and basic auth; not exposed to untrusted external URLs."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/retroshare_node.py",
+      "line": 19,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "c276ea50a662c37c9fc2446e73e4904d93c888c74a318f28b2e16fa43019af92",
+      "review": "RetroShare local RPC endpoint is restricted to loopback 127.0.0.1 with admin-configured port and basic auth; not exposed to untrusted external URLs."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/retroshare_transport.py",
+      "line": 53,
+      "rule": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+      "severity": "WARNING",
+      "fingerprint": "d67b15b5bf950542cbbb298042635948c3e739b2937766932e7f8e0376c21bbc",
+      "review": "RetroShare F2F protocol requires 160-bit SHA-1 hashes for legacy network item identification; SHA-256 is verified alongside for payload integrity."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/retroshare_transport.py",
+      "line": 53,
+      "rule": "B324",
+      "severity": "HIGH",
+      "fingerprint": "4766494bdc8623614984e4b05949650b22f5d14406748bbc094be30e7efc3a38",
+      "review": "RetroShare F2F protocol requires 160-bit SHA-1 hashes for legacy network item identification; SHA-256 is verified alongside for payload integrity."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/retroshare_transport.py",
+      "line": 78,
+      "rule": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+      "severity": "WARNING",
+      "fingerprint": "2a17ded5b0d68d6a13293719761611e4ef6f034ecdb5db02819c1e68f36dc725",
+      "review": "RetroShare F2F protocol requires 160-bit SHA-1 hashes for legacy network item identification; SHA-256 is verified alongside for payload integrity."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/retroshare_transport.py",
+      "line": 78,
+      "rule": "B324",
+      "severity": "HIGH",
+      "fingerprint": "4ca4505406b8aea54424fb5563446d59c0d590419d233ecab22f9b5d733e2936",
+      "review": "RetroShare F2F protocol requires 160-bit SHA-1 hashes for legacy network item identification; SHA-256 is verified alongside for payload integrity."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "ziokt/social_feeds.py",
+      "line": 3,
+      "rule": "python.lang.security.use-defused-xml.use-defused-xml",
+      "severity": "ERROR",
+      "fingerprint": "1ad9c9fbc0f7b5d276ca40cca3c34c549da197f9862a9370c0dc860b4e2093e3",
+      "review": "Feed parsing rejects DOCTYPE and ENTITY declarations, limits size to 512KB and maximum 1000 items, and disables external entity expansion before XML parsing."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/social_feeds.py",
+      "line": 17,
+      "rule": "B314",
+      "severity": "MEDIUM",
+      "fingerprint": "5aa1cda849c43ad5ff472ee1e3dfef5467817aef7af2d6b34d2caed6d3e1750f",
+      "review": "Feed parsing rejects DOCTYPE and ENTITY declarations, limits size to 512KB and maximum 1000 items, and disables external entity expansion before XML parsing."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/social_hub.py",
+      "line": 93,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "0d492534b7f2a921ee0f0e0ab7fbfd089ae7f40cd6d44a3691127eb830198374",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/social_hub.py",
+      "line": 94,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "c723a9f4ad776afc71ae2bb12751406348344a6e004499216b77b587e5c80b5d",
+      "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
     }
   ],
   "whole_source_scan": {
