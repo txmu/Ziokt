@@ -1,0 +1,131 @@
+{
+  "application_accounts": {
+    "environment": "live-production",
+    "origin": "https://chat.ziokt.com",
+    "accounts": [
+      {
+        "app": "watchat",
+        "username": "zioktqa1029131448a",
+        "id": "470c5638-8544-4ec8-81ce-4cd9f068f8d1",
+        "admin": false,
+        "registration_http": 201,
+        "session_verified": true,
+        "public_key": "03019f053978e31ddc0d53b85bd9d5f3ca34bf86314d71e00387f7942c82a8c1f7"
+      },
+      {
+        "app": "watchat",
+        "username": "zioktqa1029131448b",
+        "id": "a9972166-15e7-411a-865a-ceae16d6f3c8",
+        "admin": false,
+        "registration_http": 201,
+        "session_verified": true,
+        "public_key": "035e50b5b083ca17951f46934c89101d9f95d6795d51b6bd207a73656b364cc3eb"
+      }
+    ]
+  },
+  "chat": {
+    "environment": "live-production",
+    "origin": "https://chat.ziokt.com",
+    "test_accounts": [
+      "zioktqa1029131448a",
+      "zioktqa1029131448b"
+    ],
+    "message_id": "e49920fc-52d7-4d4a-88c7-1e0ac5ad1883",
+    "native_contact_created": true,
+    "cipher": "ECDH-P256/HKDF-SHA256/AES256GCM",
+    "ciphertext_bytes": 2048,
+    "recipient_decryption_verified": true,
+    "recipient_confirmed_receipt": true,
+    "history_verified": true,
+    "independent_multinode": false
+  },
+  "identity_binding": {
+    "environment": "live-production",
+    "network": "ziokt-main",
+    "id": "6722eb519fb4056fa440ac39e8c8770a1db13e988a7b7190a58adbf39c70c0ed",
+    "test_accounts": [
+      "zioktqa1029131448a",
+      "zioktqa1029131448b"
+    ],
+    "bilateral_binding_verified": true,
+    "unilateral_revocation_verified": true,
+    "revoked_contact_excluded": true,
+    "application_access_granted": false,
+    "proof_export_revisions": 2
+  },
+  "native_registration": {
+    "network": "ziokt-main",
+    "native_identity_registrations": [
+      {
+        "label": "ziokt-main-social-qa-a-5646976f",
+        "member_public": "5646976f42b52445554ab485f964483944ce0c7c20f2000121a1bf8be14e9bdc",
+        "result": {
+          "action": "identity.register",
+          "expires_at_ms": 1793280084815,
+          "operation_id": "main-qa-register-5646976f42b52445554ab485f964483944ce0c7c",
+          "plan_digest": "sha256:0697a93400b294c9b059fbdc443461060121a19d3d9d5d9b8b9593b4e4c0b930",
+          "resource": "identity:5646976f42b52445554ab485f964483944ce0c7c20f2000121a1bf8be14e9bdc",
+          "result": {
+            "application_ready": false,
+            "native_action": "identity.register",
+            "phase": "pending-native-consensus",
+            "transaction_hash": "2dce8fdfca21fd5fb9709ac73156704d8ec39a7d9ac88dc77c4b6d1476ce2220"
+          },
+          "state": "committed"
+        },
+        "chain_observation": {
+          "present_in_native_transactions": true,
+          "block_height": 1744,
+          "confirmed": true
+        },
+        "native_fact": {
+          "block_hash": "f5828f310fa4a21cc0e756cbb89502a8a0d417ce1e2e029d9f40ad458b9c0efc",
+          "document_commitment": "sha256:b1268971b822692ea6b151b48467fe277edf0de4407af15050d2cb36395adbf4",
+          "height": 1744,
+          "issuer": "f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415",
+          "member_public": "5646976f42b52445554ab485f964483944ce0c7c20f2000121a1bf8be14e9bdc",
+          "network_id": "ziokt-main",
+          "policy_digest": "sha256:1f4bf690f18b0f055b132a86372394fcccb7c530b80b9cb124ae6572b1f67308",
+          "registered": true,
+          "transaction_hash": "2dce8fdfca21fd5fb9709ac73156704d8ec39a7d9ac88dc77c4b6d1476ce2220"
+        }
+      },
+      {
+        "label": "ziokt-main-social-qa-b-4afa9a97",
+        "member_public": "4afa9a9745681e53d76057b9c1d9c0dc4035d0320b7e125e430a5b0706a57d09",
+        "result": {
+          "action": "identity.register",
+          "expires_at_ms": 1793280085997,
+          "operation_id": "main-qa-register-4afa9a9745681e53d76057b9c1d9c0dc4035d032",
+          "plan_digest": "sha256:7e889594ea29cc926392130fa9f5f3aeb9e1119c5c82843286388c1df162200b",
+          "resource": "identity:4afa9a9745681e53d76057b9c1d9c0dc4035d0320b7e125e430a5b0706a57d09",
+          "result": {
+            "application_ready": false,
+            "native_action": "identity.register",
+            "phase": "pending-native-consensus",
+            "transaction_hash": "8926e0a6415d2178aca9c6349a998a4a2deb7b8b8138c72a2f75faef897509a4"
+          },
+          "state": "committed"
+        },
+        "chain_observation": {
+          "present_in_native_transactions": true,
+          "block_height": 1744,
+          "confirmed": true
+        },
+        "native_fact": {
+          "block_hash": "f5828f310fa4a21cc0e756cbb89502a8a0d417ce1e2e029d9f40ad458b9c0efc",
+          "document_commitment": "sha256:a155abb120fb673524d079ddb819e402ad22351d605ed374bb622dad56304402",
+          "height": 1744,
+          "issuer": "f141b8a65ff97ec589599a3abb312d1a6a28ed17cb2f065f04f7220ec645d415",
+          "member_public": "4afa9a9745681e53d76057b9c1d9c0dc4035d0320b7e125e430a5b0706a57d09",
+          "network_id": "ziokt-main",
+          "policy_digest": "sha256:3da567ceacd4222dcd6c1c2625ed128ae408b60907366e978cd0e041bc7ef2b8",
+          "registered": true,
+          "transaction_hash": "8926e0a6415d2178aca9c6349a998a4a2deb7b8b8138c72a2f75faef897509a4"
+        }
+      }
+    ],
+    "consensus_rules_changed": false,
+    "existing_keys_changed": false
+  }
+}

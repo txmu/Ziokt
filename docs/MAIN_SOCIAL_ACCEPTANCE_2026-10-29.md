@@ -11,10 +11,17 @@
 - 在已上线的 Social Federation API 中，用两个真实账号的密钥签署 ziokt-main 域的同一绑定声明。
 - 双向绑定成功，联系人查询可见；由其中一方签署撤销后，联系人查询不再返回，证明链仍保留两版。
 
-这是生产 WATChat 应用账号和 ziokt-main 域社交证明测试，不是 Corium 链上账户登记，也不是独立主机多节点验收。未修改原有账号、共识、资产或生产密钥。测试账号和密文消息暂时保留，便于复验；不自动删除验收证据。
+另已通过原生 prepare/commit 提交两项 ziokt-main 身份登记，并经 identity.fact 核验 registered=true、交易签名、区块包含关系与高度 1744。它们是原生联邦成员登记，不会自动获得原生钱包、共识、Mail 或 Community 管理权限。这些测试仍不是独立主机多节点验收。未修改原有账号、共识、资产或生产密钥。测试账号和密文消息暂时保留，便于复验；不自动删除验收证据。
 
 本机原始证据：`/home/admin/release-validation/social-20261029/main-accounts.json`、`main-chat-acceptance.json`、`main-identity-acceptance.json`。这些收据不包含密码、会话或私钥。私有凭证目录仅限本机操作员访问，不上传。
 
-未验证事项：Corium 原生链上注册、五应用全部身份映射、全应用来源授权与遍历、RetroShare 双节点真实 F2F、独立公网多节点。现有生产配置未分配 Community 委托账号和 Mail 客户端；不能将两个 WATChat 账号的成功推断为这些来源已通过验收。社交页面与通用授权源适配已上线，当前配置来源为 Library 和 Netnews。
+未验证事项：五应用全部身份映射、全应用来源授权与遍历、RetroShare 双节点真实 F2F、独立公网多节点。现有生产配置未分配 Community 委托账号和 Mail 客户端；不能将两个 WATChat 账号的成功推断为这些来源已通过验收。社交页面与通用授权源适配已上线，当前配置来源为 Library 和 Netnews。
 
 代码与接口见 `SOCIAL_IDENTITY.md`、`SOCIAL_HUB.md`。回滚可关闭 social_federation.enabled、恢复上一已运行发布目录；无需删除测试账号或回写旧数据库覆盖新数据。
+
+原生链上登记交易：
+
+- `2dce8fdfca21fd5fb9709ac73156704d8ec39a7d9ac88dc77c4b6d1476ce2220`
+- `8926e0a6415d2178aca9c6349a998a4a2deb7b8b8138c72a2f75faef897509a4`
+
+确认区块：`f5828f310fa4a21cc0e756cbb89502a8a0d417ce1e2e029d9f40ad458b9c0efc`。详见 `evidence/main-social-20261029.json`。
