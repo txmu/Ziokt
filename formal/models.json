@@ -45,7 +45,7 @@
         "ziokt/_verified_guards.py": "bee12530372896fb029389b2c93a117a16af6e19c3dac71b1832c9e8f13b331f",
         "ziokt/naming_community.py": "04bd0d145af60df505a1d72c4100b6ea6c16b71a5212630f467f5ff85052e2d7",
         "ziokt/content_private.py": "a65e8ba6669720e44e5a45dafa703d240e5b6959a928e1db146d5c2a6e44bffa",
-        "ziokt/content_maintenance.py": "2183e0ae923b2d4160ccd3a2ef286a374e2e9a369e125a9262da6e3a1deca002"
+        "ziokt/content_maintenance.py": "21b5be92b3ce0987a65e63cf094e2e699526b788925cc3741f63c95f57b088d4"
       },
       "regressions": [
         "tests/test_chunkstore.py",

@@ -27,3 +27,7 @@ Content 服务或 MCP content_fabric 配置可选 `retroshare`，沿用 `ziokt.r
 测试包含真实 provisioned MCP / 原生签名 Community 的查询、搜索、去重、已读及撤销权限；真实 Chromium 原生发表到社交查询；真实 HTTP Fabric 分块校验和显式回退。实际 RetroShare 双节点 F2F、所有应用的真实账号授权和独立公网验收仍需采证。本机没有运行 RetroShare 服务，本轮不擅自启动公网监听或添加朋友。
 
 回滚：关闭 social_federation.enabled，移除 content_fabric/Content 服务 retroshare 配置，并恢复前一发布目录。所有新表是附加表，不改变共识或原生账号权限；不要回写旧数据库覆盖新数据。原始证据在 `/home/admin/release-validation/social-20261029/`。
+
+## 形式化对应审阅
+
+新增后台恢复入口仅遍历已持久化下载意图；排除 complete/paused，要求所有 alias 仍在当前配置，调用原有 `_download_object`，每次最多四个分块。接收仍经过 Merkle 校验、Fabric.put 配额和 Fabric.finish 整体校验。现有 Content 抽象预算/版本定理未修改；`content_maintenance.py` 源码哈希在审阅后更新。抽象定理和哈希不等于新增 F2F 实现的完整形式化精化证明。
