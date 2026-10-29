@@ -87,6 +87,18 @@ class ContentMaintenance:
     def run_once(self):
         from .content_server import sync
         now=int(time.time());p=self.private;f=self.f
+        # Resume only explicit F2F download intents, retaining ordinary pause and
+        # retry gates. No new source or native friend is discovered implicitly.
+        with f.lock:
+            exists=f.db.execute("SELECT 1 FROM sqlite_master WHERE name='cf_rs_downloads'").fetchone()
+            transfers=f.db.execute("SELECT r.* FROM cf_rs_downloads r JOIN downloads d ON d.id=r.job WHERE d.state NOT IN ('complete','paused') LIMIT 4").fetchall() if exists else []
+        if getattr(f,'retroshare_config',{}):
+            from .content_server import _download_object
+            for row in transfers:
+                aliases=json.loads(row['sources'])
+                if all(alias in f.remote_peers for alias in aliases):
+                    self._job('retroshare:'+row['job'],lambda row=row,aliases=aliases:_download_object(f,row['owner'],json.loads(row['metadata']),row['object'],aliases,f.remote_peers,max_chunks=4,application=row['application']))
+
         with f.lock:
             keys=f.db.execute('SELECT owner FROM cf_private_keys WHERE created<? LIMIT 4',(now-30*86400,)).fetchall()
             contacts=f.db.execute('SELECT * FROM cf_private_contacts ORDER BY rowid LIMIT 32 OFFSET ?',(self.contact_offset,)).fetchall()

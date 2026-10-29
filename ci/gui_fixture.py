@@ -23,6 +23,7 @@ def configuration(root):
     settings=strict_json(secure_read(path));authority=root/'mcp/authority.key'
     owner=sign({},secure_read(authority,32),'gui-fixture')['public_key']
     settings['content_fabric']={'enabled':True,'root':str(root/'content'),'accounts':{'ziokt-operator':'owner'},'community':{'root':str(root/'mcp/community'),'owner':owner,'policy':str(root/'mcp/policy.json'),'encryption_key':str(root/'mcp/community.key'),'accounts':{'owner':{'public_key':owner,'signing_key':str(authority)}}}}
+    settings['social_federation']={'enabled':True,'network':'gui-ci','sources':{'ziokt-operator':{'community':{'tool':'community_forum_list','kind':'content','arguments':{'limit':30,'offset':0},'items':'items','fields':{'id':'native_id','title':'body.title','text':'body.text','author':'author','proof':'proof','deleted':'deleted'}}}}}
     settings['clients']['ziokt-operator']['scopes']=Service(settings).scopes
     path.write_bytes(encoded(settings));path.chmod(0o600)
     config['mcp_config']=str(path)

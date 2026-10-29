@@ -104,3 +104,26 @@ class IdentityLinks:
             return {'items':[{'id':r[0],'revision':r[1],'head':r[2],'state':'expired' if r[3]=='linked' and r[4]<=time.time() else r[3],'expires':r[4],'statement':json.loads(r[5])} for r in self.db.execute('SELECT id,revision,head,state,expires,statement FROM social_links WHERE owner=? ORDER BY id LIMIT 4096',(owner,))]}
     def export(self,owner,id):
         with self.lock:return {'proofs':[json.loads(r[0]) for r in self.db.execute('SELECT proof FROM social_link_proofs WHERE owner=? AND id=? ORDER BY revision',(owner,id))]}
+
+def main():
+    """Sign on the device holding the native key; only public proof is printed."""
+    import argparse
+    from .protocol import secure_read,strict_json
+    from cryptography.hazmat.primitives import serialization,hashes
+    from cryptography.hazmat.primitives.asymmetric import ed25519,ec
+    parser=argparse.ArgumentParser(description='Sign an explicit social statement locally; never uploads a private key')
+    parser.add_argument('--statement',required=True);parser.add_argument('--identity',required=True);parser.add_argument('--key-file',required=True)
+    args=parser.parse_args();statement=strict_json(Path(args.statement).read_bytes(),65536);who=strict_json(Path(args.identity).read_bytes(),4096);identity(who)
+    raw=secure_read(args.key_file,16384)
+    key=ed25519.Ed25519PrivateKey.from_private_bytes(raw) if who['algorithm']=='ed25519' and len(raw)==32 else serialization.load_pem_private_key(raw,password=None)
+    message=(DOMAIN+'\n').encode()+encoded(statement)
+    if who['algorithm']=='ed25519':
+        if not isinstance(key,ed25519.Ed25519PrivateKey):raise ValueError('native key algorithm mismatch')
+        signature=key.sign(message)
+    else:
+        if not isinstance(key,ec.EllipticCurvePrivateKey):raise ValueError('native EC signing key required')
+        signature=key.sign(message,ec.ECDSA(hashes.SHA256()))
+    proof={'identity':who,'signature':signature.hex()};verify_proof(statement,proof)
+    print(json.dumps(proof,sort_keys=True))
+
+if __name__=='__main__':main()

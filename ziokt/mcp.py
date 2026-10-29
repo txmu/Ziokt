@@ -296,9 +296,22 @@ class Service:
         if config.get('social_federation',{}).get('enabled') is True:
             network=config['social_federation'].get('network')
             if not isinstance(network,str) or not re.fullmatch('[A-Za-z0-9_-]{1,64}',network):raise ValueError('explicit social federation network required')
+            self.add('social_query','Refresh and search explicitly delegated native inbox/content summaries.',schema({'kind':{'type':'string','enum':['all','inbox','content']},'query':STRING,'limit':{'type':'integer','minimum':1,'maximum':100},'offset':{'type':'integer','minimum':0,'maximum':100000},'unread':{'type':'boolean'}},()),False,'social:read',('social-hub','query'))
+            self.add('social_subscribe','Enable or disable one configured native source.',schema({'source':STRING,'enabled':{'type':'boolean'}},('source','enabled')),True,'social:write',('social-hub','subscribe'))
+            self.add('social_acknowledge','Mark only the observed item revision as read.',schema({'source':STRING,'id':STRING,'version':STRING},('source','id','version')),True,'social:write',('social-hub','acknowledge'))
+            self.add('social_feed_read','Read one explicitly configured RSS/Atom source; unsigned feeds remain unsigned.',schema({'source':STRING},('source',)),False,'feeds:read',('social-feed','read'))
+            self.add('social_contacts','List active bilateral key mappings; never merges application permissions.',schema(),False,'social:read',('social-identity','contacts'))
             self.add('social_identity_apply','Verify and persist bilateral identity proofs; never grants native access.',schema({'envelope':{'type':'object'}},('envelope',)),True,'social:write',('social-identity','apply'))
             self.add('social_identity_list','List this account identity links, including expired and revoked links.',schema(),False,'social:read',('social-identity','list'))
             self.add('social_identity_export','Export this account public signed proof chain.',schema({'id':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('id',)),False,'social:read',('social-identity','export'))
+        if 'social_query' in self.tools:
+            delegated={'social:read'}
+            for sources in config['social_federation'].get('sources',{}).values():
+                for source in sources.values():
+                    native=self.tools.get(source.get('tool'))
+                    if native and not native['annotations']['destructiveHint'] and (not native['name'].startswith('social_') or native['name']=='social_feed_read'):
+                        for scheme in native['securitySchemes']:delegated.update(scheme.get('scopes',[]))
+            self.tools['social_query']['securitySchemes'][0]['scopes']=sorted(delegated)
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.mail_services={}
         from .mail import UnifiedMail
@@ -510,6 +523,21 @@ class Service:
 
     def execute(self,principal,name,args):
         route=self.dispatch[name];kind=route[0]
+        if kind=='social-feed':
+            from .social_feeds import read
+            config=self.current().get('social_federation',{})
+            if config.get('enabled') is not True:raise PermissionError('social federation disabled')
+            return read(config,principal['client'],args['source'])
+        if kind=='social-hub':
+            from .social_hub import SocialHub
+            config=self.current().get('social_federation',{})
+            if config.get('enabled') is not True:raise PermissionError('social federation disabled')
+            hub=SocialHub(self.root/'social-hub.sqlite',self,principal,config)
+            try:
+                if route[1]=='query':return hub.query(**args)
+                if route[1]=='subscribe':return hub.subscribe(**args)
+                return hub.acknowledge(**args)
+            finally:hub.close()
         if kind=='social-identity':
             from .social_identity import IdentityLinks
             config=self.current().get('social_federation',{})
@@ -517,6 +545,7 @@ class Service:
             links=IdentityLinks(self.root/'social-identities.sqlite',config['network'])
             try:
                 if route[1]=='apply':return links.apply(principal['client'],args['envelope'])
+                if route[1]=='contacts':return {'items':[item for item in links.list(principal['client'])['items'] if item['state']=='linked']}
                 if route[1]=='export':return links.export(principal['client'],args['id'])
                 return links.list(principal['client'])
             finally:links.close()
@@ -551,6 +580,7 @@ class Service:
             fabric.remote_peers=settings.get('peers',{})
             fabric.ipfs_gateways=settings.get('ipfs_gateways',{})
             fabric.community_config=settings.get('community',{})
+            fabric.retroshare_config=settings.get('retroshare')
             fabric.native_etp=native_etp
             try:return invoke(fabric,owner,route[1],args)
             finally:fabric.close()

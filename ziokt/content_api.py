@@ -8,6 +8,7 @@ from .content_fabric import Fabric
 ADMIN_OPERATIONS={'content.sync','content.maintenance','optimization.configure_defaults','content.rights.review','content.rights.decide','content.policy'}
 
 OPERATIONS={
+ 'content.retroshare.offer':({'id':str,'position':int},True),
  'content.private.identity':({},True),
  'content.private.rotate':({},True),
  'content.private.contact':({'alias':str,'identity':dict,'peer':str,'sync':bool},True),
@@ -135,6 +136,9 @@ def invoke(fabric, owner, operation, args):
     if set(args)-set(fields) or (set(fields)-optional_fields(operation))-set(args):raise ValueError('operation fields')
     for key,value in args.items():
         if type(value) is not fields[key]:raise ValueError('operation type')
+    if operation=='content.retroshare.offer':
+        from .content_retroshare import offer
+        return offer(fabric,owner,args['id'],args['position'])
     if operation.startswith('content.private.'):
         from .content_private import PrivateFabric
         private=PrivateFabric(fabric);action=operation.rsplit('.',1)[-1]

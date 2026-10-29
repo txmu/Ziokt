@@ -93,6 +93,10 @@ def _download_object(fabric,owner,meta,oid,sources,peers,*,max_chunks=128,applic
     fabric.begin(owner,upload,meta['size'],meta['digest'],meta['mime'])
     with fabric.transaction():
         fabric.db.execute('INSERT OR IGNORE INTO downloads(id,owner,remote,upload,metadata,state) VALUES(?,?,?,?,?,?)',(job,owner,oid,upload,encoded(meta),'running'))
+    if any(peers[a].get('retroshare') is not None for a in sources):
+        with fabric.transaction():
+            fabric.db.execute('CREATE TABLE IF NOT EXISTS cf_rs_downloads(job TEXT PRIMARY KEY,owner TEXT,object TEXT,metadata BLOB,sources BLOB,application TEXT)')
+            fabric.db.execute('INSERT OR REPLACE INTO cf_rs_downloads VALUES(?,?,?,?,?,?)',(job,owner,oid,encoded(meta),encoded(sources),application))
     profile=fabric.optimizations.get(owner,application)['effective']
     with fabric.lock:
         state=fabric.db.execute('SELECT state FROM downloads WHERE id=? AND owner=?',(job,owner)).fetchone()
@@ -114,13 +118,25 @@ def _download_object(fabric,owner,meta,oid,sources,peers,*,max_chunks=128,applic
                 failures.append({'source':alias,'error':'temporarily_quarantined'});continue
             for attempt in range(profile['transfer_retries']+1):
                 try:
-                    result=remote(peers[alias],{'operation':'content.object.get','arguments':{'id':oid,'position':position}})
+                    using_rs=False
+                    if peers[alias].get('retroshare') is not None:
+                        from .content_retroshare import fetch,Pending
+                        try:
+                            result=fetch(fabric,owner,alias,peers[alias],oid,position);using_rs=True
+                        except (OSError,ValueError,PermissionError,ProtocolError):
+                            if peers[alias]['retroshare'].get('fallback') is not True:raise
+                            result=remote(peers[alias],{'operation':'content.object.get','arguments':{'id':oid,'position':position}})
+                    else:result=remote(peers[alias],{'operation':'content.object.get','arguments':{'id':oid,'position':position}})
                     data=base64.b64decode(result['data'],validate=True)
                     merkle_verify(data,position,result['proof'],meta['merkle_root'])
+                    if using_rs:
+                        from .content_retroshare import accepted
+                        accepted(fabric,owner,alias,oid,position)
                     with fabric.transaction():fabric.db.execute('INSERT INTO source_health VALUES(?,1,0,0,?) ON CONFLICT(alias) DO UPDATE SET successes=successes+1,verified=excluded.verified,quarantined_until=0',(alias,int(time.time())))
                     return position,data,failures
-                except (OSError,ValueError,KeyError,PermissionError) as exc:
+                except (OSError,ValueError,KeyError,PermissionError,ProtocolError) as exc:
                     failures.append({'source':alias,'error':type(exc).__name__})
+                    if type(exc).__name__=='Pending':break
                     with fabric.transaction():fabric.db.execute('INSERT INTO source_health VALUES(?,0,1,?,0) ON CONFLICT(alias) DO UPDATE SET failures=failures+1,quarantined_until=excluded.quarantined_until',(alias,int(time.time())+profile['transfer_quarantine_seconds']))
         return position,None,failures
     failures=[]
@@ -165,6 +181,7 @@ def server(fabric, config):
     tokens=config.get('tokens',[])
     peers=config.get('peers',{})
     fabric.remote_peers=peers
+    fabric.retroshare_config=config.get('retroshare')
     fabric.ipfs_gateways=config.get('ipfs_gateways',{})
     fabric.native_etp=None
     if config.get('native_etp') is not None:

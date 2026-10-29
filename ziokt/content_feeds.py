@@ -39,6 +39,8 @@ def collect(fabric,owner,source='all',group='',limit=30,offset=0,*,include_commu
     if published is None:
      event=fabric.db.execute('SELECT envelope FROM events WHERE id=?',(row['event'],)).fetchone();published=_date(json.loads(event[0])['payload']['at']) if event else None
     items.append({'source':'library' if is_book else 'netnews','native_id':row['id'],'origin':row['origin'],'title':body.get('title' if is_book else 'subject',''),'text':body.get('description',body.get('text','')) if is_book else body.get('body',''),'authors':body.get('authors',[]) if is_book else [body.get('from','')],'tags':body.get('tags',[]) if is_book else body.get('newsgroups',[]),'published':published,'date_kind':'node_updated' if is_book else 'publisher_supplied','attachments':([{'id':body['file_id'],'name':body.get('title','book'),**body.get('file',{})}] if is_book and body.get('file_id') else body.get('attachments',[])),'references':body.get('references',[])})
+    signed=fabric.db.execute('SELECT envelope FROM events WHERE id=?',(row['event'],)).fetchone()
+    items[-1].update(version=row['event'],visibility=row['visibility'],proof=json.loads(signed[0]) if signed else None)
  if source=='community' or (source=='all' and include_community):
   if fabric.community_config.get('accounts',{}).get(owner):
    from .community_application import invoke
