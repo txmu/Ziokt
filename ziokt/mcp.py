@@ -293,6 +293,12 @@ class Service:
         self.add('mail_read_receipt','Explicitly send or block an external MDN; automatic receipts are never sent.',schema({'account':STRING,'inbox_id':STRING,'decision':{'type':'string','enum':['send','block']}},('account','inbox_id','decision')),True,'mail:write',('mail','read-receipt'))
         self.add('mail_receipt_policy','Get or set this account reading receipt policy.',schema({'account':STRING,'policy':{'type':'string','enum':['deny','manual']}},('account',)),True,'mail:write',('mail','receipt-policy'))
         self.add('mail_attachment_import','Scan a quarantined external attachment into the configured private Content Fabric account.',schema({'account':STRING,'attachment_id':STRING},('account','attachment_id')),True,'mail:write',('mail','attachment-import'))
+        if config.get('social_federation',{}).get('enabled') is True:
+            network=config['social_federation'].get('network')
+            if not isinstance(network,str) or not re.fullmatch('[A-Za-z0-9_-]{1,64}',network):raise ValueError('explicit social federation network required')
+            self.add('social_identity_apply','Verify and persist bilateral identity proofs; never grants native access.',schema({'envelope':{'type':'object'}},('envelope',)),True,'social:write',('social-identity','apply'))
+            self.add('social_identity_list','List this account identity links, including expired and revoked links.',schema(),False,'social:read',('social-identity','list'))
+            self.add('social_identity_export','Export this account public signed proof chain.',schema({'id':{'type':'string','pattern':'^[a-f0-9]{64}$'}},('id',)),False,'social:read',('social-identity','export'))
         self.scopes=sorted({tool['scope'] for tool in self.tools.values()})
         self.mail_services={}
         from .mail import UnifiedMail
@@ -504,6 +510,16 @@ class Service:
 
     def execute(self,principal,name,args):
         route=self.dispatch[name];kind=route[0]
+        if kind=='social-identity':
+            from .social_identity import IdentityLinks
+            config=self.current().get('social_federation',{})
+            if config.get('enabled') is not True:raise PermissionError('social federation disabled')
+            links=IdentityLinks(self.root/'social-identities.sqlite',config['network'])
+            try:
+                if route[1]=='apply':return links.apply(principal['client'],args['envelope'])
+                if route[1]=='export':return links.export(principal['client'],args['id'])
+                return links.list(principal['client'])
+            finally:links.close()
         if kind=='retroshare':
             from .retroshare import RetroShare
             native=RetroShare(self.current().get('retroshare'))
