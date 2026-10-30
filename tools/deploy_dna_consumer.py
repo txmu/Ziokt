@@ -15,8 +15,20 @@ from ziokt.config import fingerprint,load
 def main():
  p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--federation',required=True);p.add_argument('--chain-database',required=True);p.add_argument('--port',type=int,default=8189);p.add_argument('--refresh-chain-domain',action='store_true');args=p.parse_args()
  root=Path(args.root).absolute();root.mkdir(mode=0o700,parents=True,exist_ok=True);root.chmod(0o700)
- source=root/'runtime';source.mkdir(mode=0o700,exist_ok=True)
- shutil.copytree(ROOT/'ziokt',source/'ziokt',dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+ source=root/'runtime'
+ if source.is_symlink():raise ValueError('runtime symlink denied')
+ stamp=str(__import__('time').time_ns());stage=root/('.runtime-'+stamp);stage.mkdir(mode=0o700)
+ try:
+  shutil.copytree(ROOT/'ziokt',stage/'ziokt',copy_function=shutil.copyfile,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+  for item in stage.rglob('*'):item.chmod(0o700 if item.is_dir() else 0o600)
+  previous=root/('runtime.previous-'+stamp)
+  if source.exists():source.rename(previous)
+  try:stage.rename(source)
+  except BaseException:
+   if previous.exists():previous.rename(source)
+   raise
+ finally:
+  if stage.exists():shutil.rmtree(stage)
  federation=load(args.federation)
  for provider in federation['providers']:
   path=Path(provider['root'])/('corix_v108.sh' if provider['native_project']=='corium' else 'CLI/shadow6.py')

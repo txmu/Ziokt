@@ -49,3 +49,19 @@ class ConsumerTests(NativeFixture):
   self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read');self.assertEqual(self.consumer.poll_chain(),0)
   with sqlite3.connect(source) as db:db.execute('UPDATE blocks SET hash=? WHERE height=1',('0'*64,))
   with self.assertRaises(PermissionError):self.consumer.poll_chain()
+ def test_installer_can_replace_readonly_runtime_without_rotating_credentials(self):
+  import sqlite3,subprocess,sys
+  from pathlib import Path
+  source=self.base/'install-chain.db'
+  with sqlite3.connect(source) as db:
+   db.executescript('CREATE TABLE blocks(height INTEGER,hash TEXT);CREATE TABLE block_work(hash TEXT,proof TEXT);')
+   db.executemany('INSERT INTO blocks VALUES(?,?)',[(0,'c'*64),(1,'d'*64)])
+   db.execute('INSERT INTO block_work VALUES(?,?)',('d'*64,json.dumps({'schema':'corium.dna-work.v1','recovery':'a'*64,'policy':'b'*64})))
+  root=self.base/'installation';tool=Path(__file__).resolve().parents[1]/'tools/deploy_dna_consumer.py'
+  command=[sys.executable,str(tool),'--root',str(root),'--federation',str(self.fpath),'--chain-database',str(source)]
+  subprocess.run(command,check=True,capture_output=True)
+  key=(root/'producer.pem').read_bytes();config=(root/'consumer.json').read_bytes()
+  (root/'runtime/ziokt/dna_consumer.py').chmod(0o444)
+  subprocess.run(command,check=True,capture_output=True)
+  self.assertEqual((root/'producer.pem').read_bytes(),key);self.assertEqual((root/'consumer.json').read_bytes(),config)
+  self.assertEqual((root/'runtime/ziokt/dna_consumer.py').stat().st_mode&0o777,0o600)

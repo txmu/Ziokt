@@ -14,7 +14,7 @@
 - H50：`409d4800864aed38dcd81742948c796d4a02a4a3a06a67e93ea462bd10589a54`
 - 两端原生同步确认的 H162：`6d7ef60d26f6dc8e0766e58f89df630c7618d9f00994e4b6f431249c6a460466`
 - 已修复原生激活高度验证顺序、重放链头缓存及挖矿/重组写入互斥。
-- 双矿工持续同链、重启恢复和 DNA 双端同步仍在验收，尚未宣布通过。
+- 已在两端共同链确认本机产出的 H190、H191 和对端产出的 H192；持续稳定、重启恢复和 DNA 双端同步仍在验收。
 
 Corium 修改见独立仓库 `corix_v108.sh`、`consensus_hold.py`、
 `rebuild_authorization.py` 和 `docs/MAIN_REBUILD_ADMISSION.md`。
@@ -31,7 +31,7 @@ Corium 修改见独立仓库 `corix_v108.sh`、`consensus_hold.py`、
 代码：`ziokt/dna_consumer.py`，部署工具：`tools/deploy_dna_consumer.py`，
 真实签名探测：`tools/probe_dna_consumer.py`，测试：`tests/test_dna_consumer.py`。
 两端均部署独立 `ziokt-dna-consumer`，仅监听回环端口 8189；初始只读授权。
-本机已消费 Corium、Shadow6 原生状态接口，对端已消费 Corium 状态接口。
+本机已消费 Corium、Shadow6 原生状态接口，对端已消费 Corium、Shadow6 状态接口。
 
 本机真实链上路径：
 
@@ -80,3 +80,7 @@ SHA-256 Digest 认证及明确允许的发布者。源服务关闭后，对端�
 `ziokt/p2p_explorer.py` 对带时间戳的适配器快照拒绝五分钟以上旧数据及未来时间。
 针对性权限/观测测试共 12 项通过。公共浏览仍隐藏地址和原生身份；独立只读验收凭据
 只保存在私有目录。停止采集 timer 并移除 `main-live-probe` 来源即可回滚。
+
+实测浏览器：`https://p2p.ziokt.com/`，桌面与 390px 移动视口均能展示
+实际对端身份与 `native-rpc-responded`，无路由拦截、页面异常或横向溢出。
+这不替代每项应用协议的数据投递验证。

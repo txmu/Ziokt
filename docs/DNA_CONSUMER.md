@@ -69,9 +69,9 @@ financial operations are not supported consumer actions.
 PYTHONPATH=.:tests python3 -m unittest test_dna_consumer -q
 ```
 
-The five targeted tests cover real native status RPC, real RNA signatures,
+The six targeted tests cover real native status RPC, real RNA signatures,
 persistent replay/duplicates, revocation, expiry, journal tampering and confirmed
-source/reorg handling. The chain-source unit test uses an isolated SQLite fixture;
+source/reorg handling, plus repeat installation over a read-only runtime without credential rotation. The chain-source unit test uses an isolated SQLite fixture;
 it is not evidence of public mainnet acceptance.
 
 Rollback: `systemctl disable --now ziokt-dna-consumer`; keep its private state,
