@@ -11,7 +11,22 @@ if(typeof fetch!=='function'){text('#status','浏览器不支持 Fetch，请升�
 function link(parent,path,label){const a=document.createElement('a');a.className='block';a.href='#'+path;a.textContent=label;a.addEventListener('click',e=>{if(location.hash==='#'+path){e.preventDefault();show(path)}});parent.appendChild(a);return a}
 function date(seconds){const value=new Date(seconds*1000);return Number.isFinite(value.getTime())?value.toISOString():String(seconds)}
 function sourceURL(raw){const u=new URL(raw,location.href);if(u.username||u.password||u.search||u.hash||u.href.length>2048||!['https:','http:'].includes(u.protocol)||(u.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(u.hostname)))throw Error(tr('请使用 HTTPS 或本机 API 地址','Use an HTTPS or loopback API URL'));if(!u.pathname.endsWith('/api/explorer/')){if(u.pathname.endsWith('/explorer/'))u.pathname=u.pathname.slice(0,-10)+'/api/explorer/';else u.pathname=u.pathname.replace(/\/?$/,'/')+'api/explorer/'}return u}
-async function bodyJSON(response){let raw='';if(response.body&&response.body.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let bytes=0;try{for(;;){const value=await reader.read();if(value.done)break;bytes+=value.value.byteLength;if(bytes>1048576)throw Error('RESPONSE_TOO_LARGE');raw+=decoder.decode(value.value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}}else{const size=Number(response.headers.get('Content-Length'));if(!Number.isFinite(size)||size>1048576)throw Error('RESPONSE_TOO_LARGE');raw=await response.text();if(raw.length>1048576)throw Error('RESPONSE_TOO_LARGE')}return JSON.parse(raw)}
+async function bodyJSON(response){
+ const limit=1048576;let raw='';
+ if(response.body&&response.body.getReader){
+  const reader=response.body.getReader(),decoder=typeof TextDecoder==='function'?new TextDecoder():null,chunks=[];let bytes=0;
+  try{
+   for(;;){const value=await reader.read();if(value.done)break;bytes+=value.value.byteLength;if(bytes>limit){await reader.cancel();throw Error('RESPONSE_TOO_LARGE')}if(decoder)raw+=decoder.decode(value.value,{stream:true});else chunks.push(value.value)}
+   if(decoder)raw+=decoder.decode();
+   else{const data=new Uint8Array(bytes);let offset=0;for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.byteLength}raw=await new Response(data).text()}
+  }finally{reader.releaseLock()}
+ }else{
+  const length=response.headers.get('Content-Length'),size=length===null?NaN:Number(length);
+  if(!Number.isFinite(size)||size<0||size>limit)throw Error('RESPONSE_TOO_LARGE');
+  raw=await response.text();if(raw.length>limit)throw Error('RESPONSE_TOO_LARGE');
+ }
+ return JSON.parse(raw)
+}
 async function api(path){const generation=selectionEpoch,controller=typeof AbortController==='function'?new AbortController():null,timer=controller?setTimeout(()=>controller.abort(),12000):null;try{const u=new URL(path,sourceBase);if(path!=='networks'){if(selectedNetwork!=='main')u.searchParams.set('network',selectedNetwork);if(selectedChain!=='primary')u.searchParams.set('chain',selectedChain)}const options={cache:'no-store',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'};if(controller)options.signal=controller.signal;const response=await fetch(u.href,options),data=await bodyJSON(response);if(generation!==selectionEpoch){const e=Error('STALE_SELECTION');e.name='AbortError';throw e}if(!response.ok){const error=Error(data.error||'QUERY_FAILED');error.status=response.status;throw error}if(!data||typeof data!=='object'||Array.isArray(data))throw Error('INVALID_EXPLORER_RESPONSE');const network=manifest&&manifest.networks.find(n=>n.id===selectedNetwork),pin=network&&network.chains[selectedChain]&&network.chains[selectedChain].genesis_hash;if(pin&&data.genesis_hash&&data.genesis_hash!==pin)throw Error('GENESIS_MISMATCH');return data}finally{if(timer)clearTimeout(timer)}}
 function failed(error){return error.name==='AbortError'?tr('查询超时，请重试','Query timed out. Please retry'):error.message}
 async function load(){if(busy)return;busy=true;$('#more').disabled=true;try{const data=await api('blocks'+(before===null?'':'?before='+before));clear($('#blocks'));data.blocks.forEach(b=>link($('#blocks'),'block/'+b.height,'#'+b.height+' · '+b.hash+' · '+date(b.timestamp)));before=data.next_before;$('#more').hidden=before===null||before===0}catch(e){$('#status').textContent=failed(e)}finally{busy=false;$('#more').disabled=false}}
