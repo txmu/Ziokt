@@ -53,6 +53,7 @@ def main():
             '[Unit]\nDescription=Track public address changes automatically\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=60s\nPersistent=true\n[Install]\nWantedBy=timers.target\n')
         subprocess.run(['systemctl','daemon-reload'],check=True)
         subprocess.run(['systemctl','enable','--now','ziokt-peer-addresses.timer'],check=True)
+        return 0
     results=[refresh(args.source,Path(root),network) for root,network in args.chain]
     print(json.dumps({'schema':'ziokt.peer-address-refresh.v1','chains':results}))
     return int(any(not row['ok'] for row in results))
