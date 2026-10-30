@@ -38,7 +38,7 @@ class NativeContributionPlanTests(unittest.TestCase):
     def test_exact_current_signed_receipts_export_without_settlement(self):
         first=self.plan();self.assertEqual(first,self.plan())
         self.assertFalse(first['ledger_modified']);self.assertFalse(first['corium_settled'])
-        self.assertEqual(first['governance_approved'],'not_assessed')
+        self.assertNotIn('governance_approved',first)
         self.assertEqual(first['payload']['problem_id'],consensus.problem(self.policy,'build'))
         self.assertEqual(len(first['payload']['proof_data']['receipts']),2)
 

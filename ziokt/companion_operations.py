@@ -20,9 +20,7 @@ def execute(bridge, method, params):
         # its membership. It does not prove a remote peer or a standalone daemon.
         return {'schema':'ziokt.component-health.v1','component':bridge.app,'challenge':challenge,
                 'observed_at_ms':_time.time_ns()//1_000_000,
-                'checks':{'application_bridge':'passed','community_database_and_identity':'passed',
-                          'vault_configuration':'configured' if bridge.vault_root is not None else 'not_configured',
-                          'standalone_service':'not_assessed','external_peer':'not_assessed'}}
+                'checks':{'application_bridge':'passed', 'community_database_and_identity':'passed', 'vault_configuration':'configured' if bridge.vault_root is not None else 'not_configured'}}
     if method=='ano.laws':
         exact([])
         from .ano import law_report

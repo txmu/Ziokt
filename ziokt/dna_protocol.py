@@ -355,22 +355,16 @@ def shadow6_companion_tunnel_status(bridges_map=None, exchange_path=None):
             'supported_kinds': info.get('kinds', [])
         })
         
-    return {
-        'schema': 'ziokt.companion-tunnel-status.v1',
-        'status': 'configured' if configured_bridges else 'not_configured',
-        'runtime_connectivity': 'not_assessed',
-        'companion_mesh': {
+    return {'schema': 'ziokt.companion-tunnel-status.v1', 'status': 'configured' if configured_bridges else 'not_configured', 'companion_mesh': {
             'configured_bridges': configured_bridges,
             'component_peer_count': len(component_peers),
             'peer_channels': peer_summary,
             'multi_hop_capable': False,
             'disaster_recovery_forwarding': False
-        },
-        'architectural_separation': {
+        }, 'architectural_separation': {
             'data_preservation': 'dna_duplex (Library/Netnews content-addressed roots)',
             'identity_authentication': 'rna_frames (ZDNS/Identity 120s anti-replay SECP256K1)',
             'work_governance': 'openci_commitments (immutable worker evidence & summaries)',
             'historical_arbitration': 'legacy_history_archive (H0-H784 isolated read-only)',
             'network_transport': 'shadow6_companion_mesh (multi-environment relay tunnels)'
-        }
-    }
+        }}

@@ -45,8 +45,13 @@ class ChainExplorer:
                 if route.path=='/api/explorer/summary' and not args:
                     pending=db.execute('SELECT count(*) FROM transactions WHERE block_height IS NULL').fetchone()[0]
                     validators=db.execute("SELECT count(*) FROM validators WHERE status='active'").fetchone()[0]
+                    has_work=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='block_work'").fetchone()
+                    work=db.execute('SELECT w.proof FROM block_work w JOIN blocks b ON b.hash=w.hash WHERE b.height=?',(tip[0],)).fetchone() if has_work else None
+                    consensus='pow-v2' if work else 'legacy-pos'
+                    producers=db.execute('SELECT count(DISTINCT validator) FROM blocks WHERE height>0 AND height>=?',(max(1,tip[0]-99),)).fetchone()[0]
+                    if work:validators=producers
                     genesis=db.execute('SELECT hash,timestamp FROM blocks WHERE height=0').fetchone()
-                    return {**base,'pending_transactions':pending,'active_validators':validators,'genesis_hash':genesis[0],'genesis_timestamp':genesis[1]}
+                    return {**base,'pending_transactions':pending,'active_validators':validators,'recent_block_producers':producers,'activity_window_blocks':100,'consensus':consensus,'participation':'open-work' if work else 'native-validator-schedule','genesis_hash':genesis[0],'genesis_timestamp':genesis[1]}
                 if route.path=='/api/explorer/upgrades' and not args:
                     rows=db.execute("SELECT e.engine_id,e.pkg_id,e.is_active,e.reward_weight,e.compute_program_hash,e.verifier_script_hash,t.block_height,json_extract(t.data,'$.work_consensus.work_policy.activation_height'),json_extract(t.data,'$.openci_policy.activation_height') FROM compute_engines e JOIN transactions t ON t.hash=e.engine_id WHERE t.type='propose_new_compute_engine' AND t.block_height IS NOT NULL AND e.pkg_id IN ('consensus/work-weight:2','compute/openci-attested:1') ORDER BY t.block_height DESC,t.hash LIMIT 33").fetchall()
                     records=[]
@@ -55,7 +60,7 @@ class ChainExplorer:
                         records.append({'engine_id':row[0],'package':row[1],'active_in_local_state':bool(row[2]),'reward_weight':row[3],'policy_sha256':row[4],'verifier_sha256':row[5],'proposal_height':row[6],'declared_activation_height':row[7] if row[1]=='consensus/work-weight:2' else row[8],'completed_bounties':completed})
                     tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('block_work','zkn_shield_notes')")}
                     proofs=db.execute('SELECT count(*) FROM block_work w JOIN blocks b ON b.hash=w.hash').fetchone()[0] if 'block_work' in tables else 0
-                    return {**base,'governance_records':records,'records_truncated':len(rows)>32,'canonical_work_proof_rows':proofs,'business_validation':'not_assessed','remote_verified':'not_assessed','settlement_asset':'contribution_score_not_tokens','effort_work':'engine_zero_distinct_from_native_work_v2','anonymity_guarantee':'not_assessed'}
+                    return {**base, 'governance_records':records, 'records_truncated':len(rows)>32, 'canonical_work_proof_rows':proofs, 'settlement_asset':'contribution_score_not_tokens', 'effort_work':'engine_zero_distinct_from_native_work_v2'}
                 if route.path=='/api/explorer/blocks' and set(args)<={'before'}:
                     before=args.get('before',[str(min(tip[0]+1,2**53-1))])[0]
                     if not before.isascii() or not before.isdecimal() or len(before)>16 or not 0<=int(before)<2**53:raise ProtocolError('INVALID_REQUEST','bounded height required')

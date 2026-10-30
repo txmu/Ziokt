@@ -29,7 +29,7 @@ class ControlTests(unittest.TestCase):
     def test_only_authenticated_service_upload_receipt_counts_and_is_sanitized(self):
         observer=self.run_observer(('650 HS_DESC UPLOADED '+ONION[:-6]+' NO_AUTH relay\r\n').encode())
         health=observer.wait(1);self.assertEqual(health['uploaded_services'],1)
-        self.assertNotIn(ONION[:-6],str(health));self.assertEqual(health['application_verified'],'not_assessed')
+        self.assertNotIn(ONION[:-6],str(health));self.assertNotIn('application_verified',health)
     def test_bootstrap_and_other_service_events_never_imply_publication(self):
         observer=self.run_observer(b'650 STATUS_CLIENT NOTICE BOOTSTRAP PROGRESS=100\r\n650 HS_DESC UPLOADED unknown NO_AUTH relay\r\n')
         with self.assertRaises(ProtocolError):observer.wait(.1)

@@ -37,7 +37,7 @@ class McpTests(unittest.TestCase):
   status,_,body=self.rpc('resources/read',{'uri':'ziokt://components'})
   component=json.loads(json.loads(body)['result']['contents'][0]['text'])
   openci=component['source_features']['openci'];self.assertEqual(openci['worker_receipt_schema'],'openci.worker-receipt.v1')
-  self.assertEqual(openci['native_consensus_settlement'],'testnet_implementation_acceptance_pending');self.assertEqual(openci['native_claim_plan'],'openci.native-contribution-plan.v1');self.assertEqual(openci['controller_running'],'not_assessed');self.assertFalse(openci['mainnet_consensus_changed'])
+  self.assertEqual(openci['native_consensus_settlement'],'testnet_implementation_acceptance_pending');self.assertEqual(openci['native_claim_plan'],'openci.native-contribution-plan.v1');self.assertNotIn('controller_running',openci);self.assertFalse(openci['mainnet_consensus_changed'])
   self.assertEqual(self.rpc('unknown')[0],404)
  def test_auth_origin_headers_and_audience(self):
   self.assertEqual(self.request('POST','/mcp','{}',{'Content-Type':'application/json'})[0],401)

@@ -29,7 +29,7 @@ def collect(path):
  except (OSError,ValueError,subprocess.SubprocessError) as e:error=type(e).__name__
  now=int(time.time());state='native-rpc-responded' if error is None else 'unreachable'
  snapshot={'schema':'ziokt.p2p-snapshot.v1','component':'corium','observed_at':now,'nodes':[{'id':c['local_id'],'kind':'local-validator','state':'configured','seen_at':now},{'id':peer['id'],'kind':'independent-validator','state':state,'address':peer['host']+':'+str(peer['port']),'seen_at':now}],'edges':[{'source':c['local_id'],'target':peer['id'],'relation':'native-public-rpc','state':state}]}
- evidence={'schema':'ziokt.native-topology-probe-result.v1','sampled_at':now,'started_at':at,'peer':peer['id'],'network':c['network'],'native_source_sha256':c['source_sha256'],'challenge_sha256':hashlib.sha256(challenge.encode()).hexdigest(),'response_sha256':hashlib.sha256(response.encode()).hexdigest(),'state':state,'error':error,'application_delivery':'not_assessed'}
+ evidence={'schema':'ziokt.native-topology-probe-result.v1', 'sampled_at':now, 'started_at':at, 'peer':peer['id'], 'network':c['network'], 'native_source_sha256':c['source_sha256'], 'challenge_sha256':hashlib.sha256(challenge.encode()).hexdigest(), 'response_sha256':hashlib.sha256(response.encode()).hexdigest(), 'state':state, 'error':error}
  for name,value in [('snapshot',snapshot),('evidence',evidence)]:
   p=Path(c[name]);p.parent.mkdir(mode=0o700,parents=True,exist_ok=True);tmp=p.with_name(p.name+'.'+secrets.token_hex(8)+'.new');fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
   with os.fdopen(fd,'wb') as out:out.write(encoded(value));out.flush();os.fsync(out.fileno())

@@ -58,15 +58,7 @@ def compare(source,live,baseline):
                     details.append({'field':field,'source':local.get(field),'live':remote.get(field)})
         old=baseline.get(name)
         baseline_state='not_in_baseline' if old is None else 'unchanged' if local is not None and canonical(semantic(wire(old)))==canonical(semantic(wire(local))) else 'changed_or_removed_since_baseline'
-        rows.append({'tool':name,'baseline_present':old is not None,'source_present':local is not None,'live_present':remote is not None,
-                     'baseline_comparison':baseline_state,'source_live_differences':changes,
-                     'changed_fields':details,'baseline_descriptor_sha256':hashlib.sha256(canonical(wire(old))).hexdigest() if old else None,
-                     'representation_only_differences':representation,
-                     'source_descriptor_sha256':hashlib.sha256(canonical(wire(local))).hexdigest() if local else None,
-                     'live_descriptor_sha256':hashlib.sha256(canonical(wire(remote))).hexdigest() if remote else None,
-                     'source_required_scope':local.get('scope') if local else None,
-                     'live_security_schemes':remote.get('securitySchemes',[]) if remote else None,
-                     'business_operational':'not_assessed','remote_verified':'not_assessed','recovery_verified':'not_assessed'})
+        rows.append({'tool':name, 'baseline_present':old is not None, 'source_present':local is not None, 'live_present':remote is not None, 'baseline_comparison':baseline_state, 'source_live_differences':changes, 'changed_fields':details, 'baseline_descriptor_sha256':hashlib.sha256(canonical(wire(old))).hexdigest() if old else None, 'representation_only_differences':representation, 'source_descriptor_sha256':hashlib.sha256(canonical(wire(local))).hexdigest() if local else None, 'live_descriptor_sha256':hashlib.sha256(canonical(wire(remote))).hexdigest() if remote else None, 'source_required_scope':local.get('scope') if local else None, 'live_security_schemes':remote.get('securitySchemes',[]) if remote else None})
     return rows
 
 
@@ -121,12 +113,9 @@ def build_alignment(source,discovery,gateway):
     for peer,build in peers.items():
         for field in ('source_commit','python_sources_sha256','native_sources'):
             a,b=source.get(field),build.get(field)
-            status='not_assessed' if a is None or b is None else 'match' if a==b else 'mismatch'
+            status='missing_build_metadata' if a is None or b is None else 'match' if a==b else 'mismatch'
             rows.append({'service':peer,'field':field,'source':a,'deployed_declaration':b,'status':status})
-    return {'declarations':rows,'all_build_metadata_matches':all(row['status']=='match' for row in rows) and source.get('working_tree_dirty') is False,
-            'source_working_tree_dirty':source.get('working_tree_dirty'),'installed_native_revision_verification':'not_assessed',
-            'configured_native_entrypoint_digest':(gateway or {}).get('native_entrypoint_digest'),
-            'limit':'Matching tool descriptors or declared source revisions do not prove native executable provenance or business acceptance.'}
+    return {'declarations':rows, 'all_build_metadata_matches':all(row['status']=='match' for row in rows) and source.get('working_tree_dirty') is False, 'source_working_tree_dirty':source.get('working_tree_dirty'), 'configured_native_entrypoint_digest':(gateway or {}).get('native_entrypoint_digest'), 'limit':'Matching tool descriptors or declared source revisions do not prove native executable provenance or business acceptance.'}
 
 
 def audit(config_path,baseline_path,endpoint,output,evidence=None,gateway_url=None):
@@ -172,10 +161,10 @@ def audit(config_path,baseline_path,endpoint,output,evidence=None,gateway_url=No
     output.parent.mkdir(parents=True,exist_ok=True);output.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
     markdown=output.with_suffix('.md')
     lines=['# MCP 源码与生产注册表逐项对照','',f'基线 {len(baseline)}；当前源码 {len(source)}；实时服务 {len(live)}。',
-           '','注册一致不代表业务可用。未取得逐工具原生业务、远端及恢复证明的维度保持 not_assessed。','',
+           '','各行列出实际检查到的注册、权限和构建信息。','',
            '|工具|基线|源码/生产差异|真实测试记录|','|---|---|---|---|']
     alignment=report['build_alignment']
-    lines[6:6]=['构建声明完全一致：'+str(alignment['all_build_metadata_matches'])+'；已安装原生可执行文件修订验证：not_assessed。','']+[r['service']+' '+r['field']+'：'+r['status'] for r in alignment['declarations']]+['']
+    lines[6:6]=['构建声明完全一致：'+str(alignment['all_build_metadata_matches'])+'；逐服务构建元数据检查结果见下表。','']+[r['service']+' '+r['field']+'：'+r['status'] for r in alignment['declarations']]+['']
     for row in rows:
         difference=', '.join(row['source_live_differences'])
         if not difference:difference='仅集合顺序不同（语义一致）' if row['representation_only_differences'] else '一致'

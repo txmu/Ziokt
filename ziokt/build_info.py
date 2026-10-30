@@ -31,7 +31,7 @@ def snapshot():
             value=json.loads(files('ziokt').joinpath('_build_manifest.json').read_text())
             return {**value,'deployment_kind':'packaged-zipapp','assurance':'packaged source manifest; not a runtime or business acceptance proof'}
         except (OSError,ValueError):
-            return {'schema':'ziokt.runtime-build.v1','source_commit':None,'python_sources_sha256':None,'deployment_kind':'unidentified-package','assurance':'source identity not assessed'}
+            return {'schema':'ziokt.runtime-build.v1','source_commit':None,'python_sources_sha256':None,'deployment_kind':'unidentified-package','source_metadata_available':False}
     files={};total_bytes=0
     for directory in ('ziokt','openci','spec'):
         for path in sorted((root/directory).rglob('*.py')):

@@ -467,7 +467,11 @@ def validate_request(value, config):
             if type(params.get('cursor',''))is not str or len(params.get('cursor',''))>64 or type(params.get('limit',4))is not int or not 1<=params.get('limit',4)<=4:fail('INVALID_PARAMS','bounded cooperative state page required')
         if method!='cooperative.state' and (type(params['cooperative'])is not str or type(params['type'])is not str or type(params['payload'])is not dict):fail('INVALID_PARAMS','cooperative operation types')
     elif method=='compute.challenge':
-        if params not in ({},{'engine':'gimps'}):fail('INVALID_PARAMS','fixed zero or native GIMPS challenge selector required')
+        if params != {}:
+            if (set(params)-{'engine','exclude_exponents'} or params.get('engine')!='gimps'
+                    or type(params.get('exclude_exponents',[])) is not list or len(params.get('exclude_exponents',[]))>128
+                    or any(type(p) is not int or not 2<=p<=2000000000 for p in params.get('exclude_exponents',[]))):
+                fail('INVALID_PARAMS','bounded native GIMPS challenge selector required')
     elif method=='service.binding':
         if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
             fail('INVALID_PARAMS','fixed named Broker binding required')
@@ -705,8 +709,7 @@ def health_challenge(provider, config, challenge):
             "native_project":provider,"provider_id":config["provider_id"],
             "federation_id":config["federation_id"],"enabled":config["enabled"],
             "observed_at_ms":time.time_ns()//1_000_000,
-            "checks":{"pinned_process_rpc":"passed","application_runtime":"not_assessed",
-                      "external_peer":"not_assessed"}}
+            "checks":{"pinned_process_rpc":"passed"}}
 
 
 def rpc(provider, root, network, config, stream):
@@ -740,7 +743,7 @@ def rpc(provider, root, network, config, stream):
             result = operation_dispatch(provider, root, network, config, method, request["params"])
         elif method == "compute.challenge":
             if provider != "corium":fail("METHOD_UNSUPPORTED","Engine Zero belongs to Corium")
-            result=compute_challenge(root,network,request['params'].get('engine'))
+            result=compute_challenge(root,network,request['params'].get('engine'),request['params'].get('exclude_exponents',[]))
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])

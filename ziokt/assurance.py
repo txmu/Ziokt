@@ -25,7 +25,6 @@ def snapshot(hold=None):
                       'standalone_weight_source': 'verified expected target',
                       'native_weight_source': 'active governed work policy schedule',
                       'model_is_native_consensus': False,
-                      'operational_state': 'safety_hold' if hold and hold.get('active') else 'not_assessed',
                       'safety_hold': hold},
         'formal': {'inventory': 'formal/THEOREMS.md', 'gate': 'formal/check_all_formal.sh',
                    'scope': 'conditional models; concrete verifier results and trusted history are premises',

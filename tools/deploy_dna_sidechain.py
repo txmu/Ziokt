@@ -82,6 +82,7 @@ def deploy(root,primary,archive,corium,entrypoint,activate=False,port=7235,recov
     command=['bash','-c','source "$1"\nload_config\nmkdir -p "$BUILD_TMP_DIR_BASE" "$INSTALLED_DB" "$P2P_DIR/objects"\n_init_dht_db\n_internal_semantic_state','dna-state',str(entrypoint)]
     result=subprocess.run(command,env=env,capture_output=True,timeout=30,check=True)
     state=json.loads(result.stdout.decode().splitlines()[-1]);initial=hashlib.sha256(dna.encoded(state)).hexdigest()
+    write(etc/'recovery-state.json',dna.encoded(state))
     archive_root=hashlib.sha256(b'Corium/LegacyCheckpoint/v1\0'+dna.encoded({'genesis':genesis,'height':tip[0],'hash':tip[1],
         'files':{name:hashlib.sha256((archive/name).read_bytes()).hexdigest() for name in ('chain.db','forum.db','dht.db')}})).hexdigest()
     declaration={'schema':recovery.SCHEMA,'network':network,'protocol':recovery.SIDE,'checkpoint':{'height':tip[0],'hash':tip[1]},

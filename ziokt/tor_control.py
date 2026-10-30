@@ -76,7 +76,7 @@ class DescriptorObserver:
         return self.health()
 
     def health(self):
-        with self.condition:return {'configured_services':len(self.services),'uploaded_services':len(self.uploaded),'events':dict(self.counts),'control_responding':not self.failed and not self.closed,'application_verified':'not_assessed'}
+        with self.condition:return {'configured_services':len(self.services), 'uploaded_services':len(self.uploaded), 'events':dict(self.counts), 'control_responding':not self.failed and not self.closed}
 
     def close(self):
         self.closed=True

@@ -41,6 +41,17 @@ class BrowserNetworkTests(unittest.TestCase):
                       'dna':{'state_root':str(self.root/'two'),'network_id':'beta','genesis_hash':'b'*64}}
         self.view=ExplorerNetworks(self.root/'one','alpha',[self.profile])
 
+    def test_either_chain_can_be_the_business_default_but_pair_is_required(self):
+        profile={**self.profile,'business_chain':'dna'}
+        view=ExplorerNetworks(self.root/'one','alpha',[profile])
+        self.assertEqual(view.catalog()['default_chain'],'dna')
+        self.assertEqual(view.catalog()['networks'][0]['business_chain'],'dna')
+        self.assertEqual(view.query('/api/explorer/summary')['network_id'],'beta')
+        self.assertEqual(view.query('/api/explorer/summary?chain=primary')['network_id'],'alpha')
+        with self.assertRaises(ProtocolError):ExplorerNetworks(self.root/'one','alpha',[{**profile,'business_chain':'other'}])
+        del profile['primary']
+        with self.assertRaises(ProtocolError):ExplorerNetworks(self.root/'one','alpha',[profile])
+
     def test_primary_default_side_selection_and_pinned_genesis_isolation(self):
         self.assertEqual(self.view.query('/api/explorer/summary')['network_id'],'alpha')
         self.assertEqual(self.view.query('/api/explorer/summary?chain=dna')['genesis_hash'],'b'*64)

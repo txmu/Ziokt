@@ -63,7 +63,7 @@ class IntegrationTests(NativeFixture):
         for item in report["providers"]:
             self.assertEqual(item["health"]["level"],"native-provider-rpc")
             self.assertEqual(item["health"]["proof"]["checks"]["pinned_process_rpc"],"passed")
-            self.assertEqual(item["health"]["proof"]["checks"]["application_runtime"],"not_assessed")
+            self.assertNotIn("application_runtime",item["health"]["proof"]["checks"])
         self.assertEqual(tree_state(self.base), before)
 
     def test_union_of_native_service_package_and_strata(self):

@@ -128,7 +128,7 @@ class EtpGateway:
             if not isinstance(params,dict) or set(params)!={'challenge'} or not isinstance(params['challenge'],str) or len(params['challenge'])!=32 or any(c not in '0123456789abcdef' for c in params['challenge']):raise ProtocolError('INVALID_ETP','fresh 128-bit health challenge required')
             stats=self.call('etp.stats',{})
             if not isinstance(stats,dict) or stats.get('schema')!='ziokt.etp-stats.v1' or not isinstance(stats.get('native'),dict):raise ProtocolError('INVALID_RESPONSE','native ETP statistics required for health proof')
-            return {'schema':'ziokt.component-health.v1','component':'etp','challenge':params['challenge'],'observed_at_ms':time.time_ns()//1_000_000,'checks':{'pinned_native_process_rpc':'passed','native_engine_stats':'passed','external_peer':'not_assessed'}}
+            return {'schema':'ziokt.component-health.v1','component':'etp','challenge':params['challenge'],'observed_at_ms':time.time_ns()//1_000_000,'checks':{'pinned_native_process_rpc':'passed', 'native_engine_stats':'passed'}}
         if not isinstance(method,str) or method not in {'etp.stats','etp.onion.send','etp.receive','etp.shutdown','etp.mailbox.status','etp.mailbox.request'}|FORUM_METHODS|FILESHARE_METHODS or not isinstance(params,dict):raise ProtocolError('METHOD_UNSUPPORTED','bounded native ETP operation required')
         if method=='etp.onion.send':
             if set(params)!={'hops','ciphertext'} or not isinstance(params['hops'],list) or not 2<=len(params['hops'])<=4:raise ProtocolError('INVALID_ETP','private 2..4-hop path required')

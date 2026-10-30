@@ -101,11 +101,11 @@ def compute_receipt(root, network, plan):
     return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
 
 
-def compute_challenge(root, network, engine=None):
+def compute_challenge(root, network, engine=None, exclude_exponents=None):
     """Select an explicit independent native engine; no cross-engine fallback."""
     if engine=='gimps':
         with closing(corium_db(root,network,'blockchain/chain.db')) as db:
-            try:return _native_gimps.native_challenge(db,network,corium_identity(root,network))
+            try:return _native_gimps.native_challenge(db,network,corium_identity(root,network),exclude_exponents or [])
             except (ValueError,TypeError,KeyError) as exc:fail('NATIVE_STATE_CONFLICT',str(exc))
     with closing(corium_db(root,network,'blockchain/chain.db')) as db:
         cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()

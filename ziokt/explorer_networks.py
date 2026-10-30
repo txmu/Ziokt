@@ -44,10 +44,11 @@ class ExplorerNetworks:
         configured=set()
         for profile in profiles:
             if (not isinstance(profile,dict) or not {'id','name','protocol','primary','dna'}<=set(profile)
-                    or set(profile)-{'id','name','protocol','primary','dna'} or profile['protocol']!=PROTOCOL
+                    or set(profile)-{'id','name','protocol','primary','dna','business_chain'} or profile['protocol']!=PROTOCOL
                     or not isinstance(profile['id'],str) or not IDENTIFIER.fullmatch(profile['id'])
                     or not isinstance(profile['name'],str) or not 1<=len(profile['name'])<=80):
                 raise ProtocolError('INVALID_CONFIG','exact DNA explorer network descriptor required')
+            if profile.get('business_chain','primary') not in ROLES:raise ProtocolError('INVALID_CONFIG','primary or DNA business chain required')
             if profile['id'] in configured:
                 raise ProtocolError('INVALID_CONFIG','duplicate explorer network')
             configured.add(profile['id'])
@@ -69,9 +70,9 @@ class ExplorerNetworks:
             self.networks[profile['id']]=profile
 
     def catalog(self):
-        return {'schema':PROTOCOL,'default_network':'main','default_chain':'primary',
+        return {'schema':PROTOCOL,'default_network':'main','default_chain':self.networks['main'].get('business_chain','primary'),
                 'dna_encoding':'corium.dna.duplex.v1','rna_protocol':'corium.rna.v1',
-                'networks':[{'id':p['id'],'name':p['name'],'protocol':PROTOCOL,
+                'networks':[{'id':p['id'],'name':p['name'],'protocol':PROTOCOL,'business_chain':p.get('business_chain','primary'),
                              'chains':{role:{'network_id':p[role]['network_id'],
                                              'genesis_hash':p[role].get('genesis_hash'),
                                              'configured':True} if role in p else {'configured':False}
@@ -94,7 +95,7 @@ class ExplorerNetworks:
         if route.path=='/api/explorer/networks':
             if args:raise ProtocolError('INVALID_REQUEST','catalog takes no query arguments')
             return self.catalog()
-        profile=args.pop('network',['main'])[0];role=args.pop('chain',['primary'])[0]
+        profile=args.pop('network',['main'])[0];role=args.pop('chain',[self.networks.get(profile,{}).get('business_chain','primary')])[0]
         if profile not in self.networks or role not in ROLES:raise ProtocolError('NOT_FOUND','configured network and chain required')
         if route.path=='/api/explorer/duplex':
             if args:raise ProtocolError('INVALID_REQUEST','duplex takes only network and chain selectors')

@@ -108,8 +108,7 @@ class RetroShare:
             connection.close()
 
     def status(self):
-        base = {'schema': 'ziokt.retroshare-status.v1', 'enabled': self.enabled,
-                'read_only': 'transport' not in self.config, 'carrier':'retroshare-f2f-files','external_peer_transfer': 'not_assessed'}
+        base = {'schema': 'ziokt.retroshare-status.v1', 'enabled': self.enabled, 'read_only': 'transport' not in self.config, 'carrier':'retroshare-f2f-files'}
         if not self.enabled:
             return dict(base, state='not_configured', native_authenticated=False)
         try:

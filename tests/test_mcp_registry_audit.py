@@ -17,7 +17,7 @@ class RegistryAuditTests(unittest.TestCase):
         result=build_alignment(source,{'serverInfo':{'build':deployed}},{'build':source,'native_entrypoint_digest':'sha256:'+'e'*64})
         self.assertFalse(result['all_build_metadata_matches'])
         self.assertEqual(result['declarations'][0]['status'],'mismatch')
-        self.assertEqual(result['installed_native_revision_verification'],'not_assessed')
+        self.assertNotIn('installed_native_revision_verification',result)
         self.assertTrue(build_alignment(source,{'serverInfo':{'build':source}},{'build':source})['all_build_metadata_matches'])
         self.assertFalse(build_alignment(source,{},None)['all_build_metadata_matches'])
         self.assertFalse(build_alignment({**source,'working_tree_dirty':True},{'serverInfo':{'build':source}},{'build':source})['all_build_metadata_matches'])
@@ -29,7 +29,7 @@ class RegistryAuditTests(unittest.TestCase):
         changed={**tool,'securitySchemes':[{'scopes':['private:write']}],'inputSchema':{'type':'array'},'annotations':{'readOnlyHint':False}}
         row=compare([tool],[changed],[tool])[0]
         self.assertEqual(set(row['source_live_differences']),{'authorization_changed','schema_changed','operation_semantics_changed'})
-        self.assertEqual(row['business_operational'],'not_assessed')
+        self.assertNotIn('business_operational',row)
 
     def test_set_order_does_not_hide_real_schema_or_scope_changes(self):
         original={'name':'example','inputSchema':{'required':['a','b'],'enum':['one','two']},'securitySchemes':[{'scopes':['read','write']}]}

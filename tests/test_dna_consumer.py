@@ -49,6 +49,24 @@ class ConsumerTests(NativeFixture):
   self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read');self.assertEqual(self.consumer.poll_chain(),0)
   with sqlite3.connect(source) as db:db.execute('UPDATE blocks SET hash=? WHERE height=1',('0'*64,))
   with self.assertRaises(PermissionError):self.consumer.poll_chain()
+ def test_primary_source_uses_same_consumer_without_dna_domain_confusion(self):
+  import sqlite3
+  from ziokt.dna_consumer import primary_domain
+  source=self.base/'primary-chain.db';genesis='c'*64
+  self.config['chain']=primary_domain('my-business',genesis)
+  command={'schema':'ziokt.dna-command.v1','component':'corium','operation':'status.get','resource':'','arguments':{},'expected_revision':None}
+  frame=rna_sign(self.key,self.config['chain'],self.config['policy'],self.sender,1,int(time.time()),encoded(command))
+  with sqlite3.connect(source) as db:
+   db.executescript('CREATE TABLE blocks(height INTEGER PRIMARY KEY,hash TEXT,transactions TEXT);CREATE TABLE transactions(hash TEXT,type TEXT,data TEXT,block_height INTEGER);CREATE TABLE block_work(hash TEXT,proof TEXT);')
+   db.executemany('INSERT INTO blocks VALUES(?,?,?)',[(0,genesis,'[]'),(1,'d'*64,json.dumps(['e'*64])),(2,'f'*64,'[]')])
+   db.execute('INSERT INTO block_work VALUES(?,?)',('d'*64,json.dumps({'schema':'corium.native-block-work.v2','policy':'b'*64})))
+   db.execute('INSERT INTO transactions VALUES(?,?,?,1)',('e'*64,'ziokt_content',json.dumps({'content_type':'application/vnd.ziokt.rna+json','text':json.dumps(frame)})))
+  self.config['chain_source']={'database':str(source),'genesis':genesis,'confirmations':1,'start_height':1,'role':'primary','network_id':'my-business'};self.save()
+  self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read')
+  self.assertNotEqual(primary_domain('other-business',genesis),self.config['chain'])
+  self.config['chain_source']['network_id']='other-business';self.save()
+  with self.assertRaises(ValueError):self.consumer.settings()
+
  def test_installer_can_replace_readonly_runtime_without_rotating_credentials(self):
   import sqlite3,subprocess,sys
   from pathlib import Path

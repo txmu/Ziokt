@@ -35,5 +35,4 @@ def prepare(store,pipeline,task,policy,engine,bounty_name):
         except (ValueError,KeyError,TypeError,consensus.InvalidSignature) as exc:raise Error('CHAIN_PROOF_REJECTED','Signed current results differ from the approved bounty',409) from exc
         payload={'engine_id':engine,'problem_id':consensus.problem(policy,bounty_name),'engine_hash':consensus.policy_digest(policy),'verifier_hash':consensus.source_digest(),'proof_data':proof}
     plan={'transaction_type':'submit_math_proof','payload':payload,'network':policy['network'],'genesis':policy['genesis'],'beneficiary':bounty['beneficiary']}
-    return {'schema':'openci.native-contribution-plan.v1',**plan,'plan_sha256':hashlib.sha256(consensus.canonical(plan)).hexdigest(),
-            'verification':result,'governance_approved':'not_assessed','native_consensus_accepted':False,'native_submission_required':True,'ledger_modified':False,'corium_settled':False}
+    return {'schema':'openci.native-contribution-plan.v1', **plan, 'plan_sha256':hashlib.sha256(consensus.canonical(plan)).hexdigest(), 'verification':result, 'native_consensus_accepted':False, 'native_submission_required':True, 'ledger_modified':False, 'corium_settled':False}

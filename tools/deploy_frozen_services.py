@@ -172,11 +172,7 @@ def activate(root,release,revision,settings):
         run('sudo','-n','systemctl','restart',*services)
         reload_caddy(root,caddy,settings['https_service'])
         raise
-    receipt={'schema':'ziokt.frozen-deployment.v1','source_commit':revision,'at':timestamp,'services':list(services),
-             'release':str(release),'backup':str(backup),'gateway_build':status['build'],
-             'native_entrypoint_digest':status.get('native_entrypoint_digest'),
-             'gui_app_sha256':hashlib.sha256((release/'gateway/gui/app.js').read_bytes()).hexdigest(),
-             'consensus_changed':False,'native_compilation':False,'telegram_messages_explicitly_requested':False,'telegram_delivery_observation':'not_assessed'}
+    receipt={'schema':'ziokt.frozen-deployment.v1', 'source_commit':revision, 'at':timestamp, 'services':list(services), 'release':str(release), 'backup':str(backup), 'gateway_build':status['build'], 'native_entrypoint_digest':status.get('native_entrypoint_digest'), 'gui_app_sha256':hashlib.sha256((release/'gateway/gui/app.js').read_bytes()).hexdigest(), 'consensus_changed':False, 'native_compilation':False, 'telegram_messages_explicitly_requested':False}
     receipt_path=root/'config/frozen-deployment-receipt.json';receipt_path.write_text(json.dumps(receipt,indent=2)+'\n');receipt_path.chmod(0o600)
     return receipt
 

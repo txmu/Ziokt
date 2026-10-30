@@ -33,7 +33,7 @@ def schema(properties=None,required=()):
 
 
 def _validate_health(result,component,challenge,*,native_etp=False):
-    expected={'pinned_native_process_rpc':'passed','native_engine_stats':'passed','external_peer':'not_assessed'} if native_etp else None
+    expected={'pinned_native_process_rpc':'passed', 'native_engine_stats':'passed'} if native_etp else None
     now=time.time_ns()//1_000_000
     if (not isinstance(result,dict) or set(result)!={'schema','component','challenge','observed_at_ms','checks'} or
             result['schema']!='ziokt.component-health.v1' or result['component']!=component or
@@ -44,10 +44,9 @@ def _validate_health(result,component,challenge,*,native_etp=False):
         raise ProtocolError('INVALID_HEALTH_PROOF','native ETP stats checks required')
     if not native_etp:
         checks=result['checks']
-        if (set(checks)!={'application_bridge','community_database_and_identity','vault_configuration','standalone_service','external_peer'} or
+        if (set(checks)!={'application_bridge','community_database_and_identity','vault_configuration'} or
                 checks['application_bridge']!='passed' or checks['community_database_and_identity']!='passed' or
-                checks['vault_configuration'] not in {'configured','not_configured'} or
-                checks['standalone_service']!='not_assessed' or checks['external_peer']!='not_assessed'):
+                checks['vault_configuration'] not in {'configured','not_configured'}):
             raise ProtocolError('INVALID_HEALTH_PROOF','scoped application bridge checks required')
     return result
 STRING={'type':'string','maxLength':65536}
@@ -646,7 +645,7 @@ class Service:
                 return {'suffix_authorities':SUFFIXES,'realms':{} if networks is None else {key:{'network_id':view.network_id,'sources':sorted(view.sources)} for key,view in networks.realms.items()},'public_dns_fallback':False,'dns_confers_authorization':False,'nns_default_publication':False,'ech_tls_termination_verified':False}
             if networks is None:raise ValueError('DNS node configuration unavailable')
             return networks.resolve(args['name'],realm=args.get('realm'),component=args.get('component'),public=kind=='name-resolve')
-        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info,'assurance':self.assurance_info,'source_features':{'openci':{'worker_receipt_schema':'openci.worker-receipt.v1','signature_domain':'OpenCI/worker-receipt/v1','result_bindings':['pipeline','task','attempt','source','task_digest','lease_digest','worker','result'],'native_delivery':'signed-dcpm-provenance','controller_running':'not_assessed','remote_workers':'not_assessed','hardware_attestation':False,'native_consensus_settlement':'testnet_implementation_acceptance_pending','native_claim_plan':'openci.native-contribution-plan.v1','native_work_consensus':'testnet_implementation_acceptance_pending','mainnet_consensus_changed':False}}}
+        if kind=='components':return {'components':sorted(self.config.get('bridges',{})),'native_providers':sorted({r[1] for r in self.dispatch.values() if r[0]=='native'}),'etp_nodes':sorted(self.config.get('etp',{})),'protocols':VERSIONS,'tools':len(self.tools),'writes_enabled':self.current().get('writes_enabled',False),'build':self.build_info,'assurance':self.assurance_info,'source_features':{'openci':{'worker_receipt_schema':'openci.worker-receipt.v1', 'signature_domain':'OpenCI/worker-receipt/v1', 'result_bindings':['pipeline','task','attempt','source','task_digest','lease_digest','worker','result'], 'native_delivery':'signed-dcpm-provenance', 'hardware_attestation':False, 'native_consensus_settlement':'testnet_implementation_acceptance_pending', 'native_claim_plan':'openci.native-contribution-plan.v1', 'native_work_consensus':'testnet_implementation_acceptance_pending', 'mainnet_consensus_changed':False}}}
         if kind=='registry':
             from .registry import Registry
             from .gateway import Gateway

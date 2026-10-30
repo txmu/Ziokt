@@ -57,7 +57,7 @@ def main():
         adb('shell','svc','wifi','enable');adb('shell','svc','data','enable');time.sleep(4);wait_text('已停止；不会自动恢复');checks.append('manual_stop_cancels_recovery')
         tap('轻量网络协作（主网直连，非匿名）');tap('计算协作（单线程）');tap('一键启用');wait_text('计算协作运行中','等待真实计算任务','证明已提交',seconds=60);tap('停止助力');wait_text('已停止；不会自动恢复');checks.append('native_compute_path_and_stop')
         adb('shell','screencap','-p','/sdcard/effort-screen.png');adb('pull','/sdcard/effort-screen.png',str(out/'effort-screen.png'))
-        result={'success':True,'checks':checks,'api':api,'emulator_abis':abis,'emulator_cores':2,'emulator_ram_mb':2048,'measured_pss_kib':pss,'physical_arm_device':'not_assessed','source_commit':json.loads((args.artifacts/'build-source.json').read_text())['source_commit']}
+        result={'success':True, 'checks':checks, 'api':api, 'emulator_abis':abis, 'emulator_cores':2, 'emulator_ram_mb':2048, 'measured_pss_kib':pss, 'source_commit':json.loads((args.artifacts/'build-source.json').read_text())['source_commit']}
         (out/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
     finally:
         (out/'logcat.txt').write_text(adb('logcat','-d','-t','1000',check=False));adb('shell','svc','wifi','enable',check=False);adb('shell','svc','data','enable',check=False);adb('shell','am','force-stop',package,check=False)

@@ -324,10 +324,12 @@ PY_CORIUM_OPENCI_CONSENSUS
     work_block=work_start+'''_corium_work_consensus() (
     ulimit -t 15 -v 262144 || exit 2
     "${PYTHON_CMD:-python3}" - "$@" <<'PY_CORIUM_WORK_CONSENSUS'
-'''+work_primitives+'\n'+recovery_embedded+'\n'+work_embedded+'''
+'''+work_primitives+'\n'+recovery_embedded+'\n'+work_embedded+'\n'+(ROOT/'spec/replay_anchor_runtime.py').read_text()+'''
 import sys
 try:
-    main(sys.argv[1:])
+    if sys.argv[1]=='replay-anchor':
+        result=replay_anchor(sys.argv[2],sys.argv[3],int(sys.argv[4]),*sys.argv[5:8]);print(json.dumps(result,separators=(',',':')))
+    else:main(sys.argv[1:])
 except (ValueError,TypeError,KeyError,InvalidSignature,sqlite3.Error):
     print('WORK_CONSENSUS_REJECTED',file=sys.stderr)
     raise SystemExit(2)

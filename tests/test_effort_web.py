@@ -58,8 +58,8 @@ class EffortWebTests(unittest.TestCase):
             with self.assertRaises(ProtocolError):pool.submit(job['token'],nonce)
             pool.close();self._cleanups.pop()
             restarted=EffortPool(chain,'a'*64,Path(temporary));self.addCleanup(restarted.close);again=restarted.issue()
-            receipt=restarted.submit(again['token'],solve(again));self.assertTrue(receipt['duplicate']);self.assertEqual(chain.commits,1)
-            self.assertFalse(receipt['confirmed'])
+            self.assertFalse(again['available']);self.assertEqual(chain.commits,1)
+            receipt=json.loads(restarted.db.execute('SELECT result FROM submissions').fetchone()[0]);self.assertFalse(receipt['confirmed'])
             wrong=EffortPool(chain,'f'*64,Path(temporary)/'wrong');self.addCleanup(wrong.close)
             with self.assertRaises(ProtocolError):wrong.issue()
 

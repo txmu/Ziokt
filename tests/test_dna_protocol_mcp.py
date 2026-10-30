@@ -197,7 +197,7 @@ class TestDnaProtocolMcp(unittest.TestCase):
         res = call["structuredContent"]
         self.assertEqual(res["schema"], "ziokt.companion-tunnel-status.v1")
         self.assertEqual(res["status"], "not_configured")
-        self.assertEqual(res["runtime_connectivity"],"not_assessed")
+        self.assertNotIn("runtime_connectivity",res)
         self.assertFalse(res["companion_mesh"]["multi_hop_capable"])
         self.assertFalse(res["companion_mesh"]["disaster_recovery_forwarding"])
 

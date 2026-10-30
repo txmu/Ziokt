@@ -11,9 +11,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from ziokt.protocol import encoded,secure_read,strict_json
 from ziokt.config import fingerprint,load
+from ziokt.dna_consumer import primary_domain
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--federation',required=True);p.add_argument('--chain-database',required=True);p.add_argument('--port',type=int,default=8189);p.add_argument('--refresh-chain-domain',action='store_true');args=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--federation',required=True);p.add_argument('--chain-database',required=True);p.add_argument('--port',type=int);p.add_argument('--chain-role',choices=['primary','dna'],default='dna');p.add_argument('--network-id');p.add_argument('--refresh-chain-domain',action='store_true');args=p.parse_args()
+ args.port=args.port or (8189 if args.chain_role=='dna' else 8190)
  root=Path(args.root).absolute();root.mkdir(mode=0o700,parents=True,exist_ok=True);root.chmod(0o700)
  source=root/'runtime'
  if source.is_symlink():raise ValueError('runtime symlink denied')
@@ -43,14 +45,21 @@ def main():
  with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True) as db:
   genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone()[0];height=db.execute('SELECT MAX(height) FROM blocks').fetchone()[0]
   proof=json.loads(db.execute('SELECT w.proof FROM block_work w JOIN blocks b ON b.hash=w.hash ORDER BY b.height DESC LIMIT 1').fetchone()[0])
-  if proof.get('schema')!='corium.dna-work.v1':raise ValueError('native DNA chain proof required')
-  chain=proof['recovery'];policy=proof['policy']
+  if args.chain_role=='dna':
+   if proof.get('schema')!='corium.dna-work.v1':raise ValueError('native DNA chain proof required')
+   chain=proof['recovery']
+  else:
+   if proof.get('schema')!='corium.native-block-work.v2':raise ValueError('native primary chain proof required')
+   chain=primary_domain(args.network_id,genesis)
+  policy=proof['policy']
  targets={v['native_project']:{'federation':str(fpath),'provider':v['provider_id'],'actions':['status.get']} for v in federation['providers']}
  configpath=root/'consumer.json'
  if not configpath.exists():
   config={'schema':'ziokt.dna-consumer.v1','enabled':True,'state':str(root/'state'),'listen':'127.0.0.1','port':args.port,'chain':chain,'policy':policy,'senders':{sender:{'public_key':pem,'components':list(targets)}},'targets':targets,'chain_source':{'database':str(database),'genesis':genesis,'confirmations':1,'start_height':height+1}}
+  if args.chain_role=='primary':config['chain_source'].update(role='primary',network_id=args.network_id)
   configpath.write_bytes(encoded(config));configpath.chmod(0o600)
  user=__import__('pwd').getpwuid(os.getuid()).pw_name
+ unitname='ziokt-'+args.chain_role+'-consumer' if args.chain_role=='primary' else 'ziokt-dna-consumer'
  unit=f'''[Unit]
 Description=Ziokt authenticated DNA native consumer
 After=network-online.target
@@ -68,11 +77,11 @@ MemoryMax=256M
 [Install]
 WantedBy=multi-user.target
 '''
- (root/'ziokt-dna-consumer.service').write_text(unit)
+ (root/(unitname+'.service')).write_text(unit)
  config=strict_json(secure_read(configpath,65536))
  if args.refresh_chain_domain and (config['chain']!=chain or config['policy']!=policy):
   if any(t['actions']!=['status.get'] for t in config['targets'].values()):raise ValueError('review outstanding writes before domain migration')
   backup=root/('consumer-before-domain-'+str(__import__('time').time_ns())+'.json');backup.write_bytes(encoded(config));backup.chmod(0o600)
   config.update(chain=chain,policy=policy);configpath.write_bytes(encoded(config));configpath.chmod(0o600)
- print(json.dumps({'root':str(root),'components':list(targets),'actions':['status.get'],'chain_start_height':config['chain_source']['start_height'],'unit':str(root/'ziokt-dna-consumer.service'),'enabled_in_systemd':False}))
+ print(json.dumps({'root':str(root),'components':list(targets),'actions':['status.get'],'chain_start_height':config['chain_source']['start_height'],'unit':str(root/(unitname+'.service')),'enabled_in_systemd':False}))
 if __name__=='__main__':main()

@@ -24,7 +24,7 @@ class ExplorerTests(unittest.TestCase):
         initial=self.explorer.query('/api/explorer/upgrades')
         self.assertEqual(initial['governance_records'],[])
         self.assertEqual(initial['canonical_work_proof_rows'],0)
-        self.assertEqual(initial['business_validation'],'not_assessed')
+        self.assertNotIn('business_validation',initial)
         proposal={'work_consensus':{'work_policy':{'activation_height':200}},'private_marker':'NEVER-PUBLISH-THIS'}
         with sqlite3.connect(self.explorer.path) as db:
             for i in range(34):
@@ -37,7 +37,7 @@ class ExplorerTests(unittest.TestCase):
         self.assertEqual(view['governance_records'][0]['declared_activation_height'],200)
         self.assertNotIn('NEVER-PUBLISH-THIS',json.dumps(view))
         self.assertNotIn('private description',json.dumps(view))
-        self.assertEqual(view['remote_verified'],'not_assessed')
+        self.assertNotIn('remote_verified',view)
         self.assertEqual(self.fixture.semantic(),before)
         with self.assertRaises(ProtocolError):self.explorer.query('/api/explorer/upgrades?sql=1')
 

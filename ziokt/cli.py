@@ -66,8 +66,7 @@ def inspect(config, action, kind):
         try:
             client = NativeClient(config["federation_id"], provider)
             proof=client.health()
-            item["health"]={"level":"native-provider-rpc","proof":proof,
-                            "application_readiness":"not_assessed","peer_connectivity":"not_assessed"}
+            item["health"]={"level":"native-provider-rpc", "proof":proof}
             if action == "inventory":
                 result = client.objects(kind)
                 all_objects.extend(result)

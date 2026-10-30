@@ -18,12 +18,12 @@ class AssuranceTests(unittest.TestCase):
             hold=public_hold({'consensus_safety_hold':str(path)})
             self.assertNotIn('backup',hold)
             state=snapshot(hold)
-            self.assertEqual(state['consensus']['operational_state'],'safety_hold')
+            self.assertTrue(state['consensus']['safety_hold']['active'])
             self.assertNotIn('private-backup',json.dumps(state))
             self.assertFalse(state['privacy']['independently_audited'])
 
     def test_missing_or_malformed_hold_cannot_claim_healthy(self):
-        self.assertEqual(snapshot()['consensus']['operational_state'],'not_assessed')
+        self.assertNotIn('operational_state',snapshot()['consensus'])
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'hold.json';path.write_text('{"active":"false"}');path.chmod(0o600)
             with self.assertRaises(ValueError):public_hold({'consensus_safety_hold':str(path)})

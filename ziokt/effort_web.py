@@ -33,7 +33,8 @@ class EffortPool:
         except FileExistsError:pass
         secure_read(file,16*1024*1024)
         self.db=sqlite3.connect(file,check_same_thread=False);self.db.execute('PRAGMA synchronous=FULL')
-        self.db.execute('CREATE TABLE IF NOT EXISTS submissions (problem TEXT PRIMARY KEY,operation TEXT NOT NULL,nonce TEXT NOT NULL,result BLOB)');self.db.commit()
+        self.db.execute('CREATE TABLE IF NOT EXISTS submissions (problem TEXT PRIMARY KEY,operation TEXT NOT NULL,nonce TEXT NOT NULL,result BLOB)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS zero_work_ranges (scope TEXT PRIMARY KEY,next_nonce INTEGER NOT NULL,updated_at INTEGER NOT NULL)');self.db.commit()
 
     def close(self):self.db.close()
 
@@ -72,10 +73,36 @@ class EffortPool:
             if not isinstance(value,dict) or (self.expected_network is not None and value.get('network_id')!=self.expected_network):raise ProtocolError('NETWORK_MISMATCH','native compute challenge does not match configured mainnet')
             if value['submitter_id']!=self.submitter:raise ProtocolError('SCOPE_MISMATCH','configured contribution address differs from the Corium signer')
             if not value['available']:return {'available':False,'retry_ms':5000}
-            token=secrets.token_hex(24);start=secrets.randbits(48)
+            # Reserve disjoint ranges durably, including across gateway restarts.
+            scope=value['network_id']+':'+self.submitter+':'+value['problem_id']
+            if self.db.execute('SELECT 1 FROM submissions WHERE problem=? AND result IS NOT NULL',(value['problem_id'],)).fetchone():
+                return {'available':False,'reason':'proof-already-submitted','retry_ms':5000}
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                row=self.db.execute('SELECT next_nonce FROM zero_work_ranges WHERE scope=?',(scope,)).fetchone()
+                start=row[0] if row else secrets.randbits(48)
+                if start>9223372036853775807:raise ProtocolError('BACKPRESSURE','nonce range budget exhausted')
+                self.db.execute('INSERT INTO zero_work_ranges VALUES (?,?,?) ON CONFLICT(scope) DO UPDATE SET next_nonce=excluded.next_nonce,updated_at=excluded.updated_at',(scope,start+1000000,int(now)))
+                self.db.execute('DELETE FROM zero_work_ranges WHERE scope IN (SELECT scope FROM zero_work_ranges WHERE scope!=? ORDER BY updated_at DESC LIMIT -1 OFFSET 2048)',(scope,))
+                self.db.commit()
+            except BaseException:self.db.rollback();raise
+            token=secrets.token_hex(24)
             job={**value,'token':token,'start':str(start),'limit':1000000,'expires':int(now)+90,'batch':64,'pause_ms':40}
             self.jobs[token]=job
             return {**job,'available':True}
+
+    def job_status(self,token):
+        require_network()
+        with self.lock:
+            job=self.jobs.get(token) if isinstance(token,str) else None
+            if not job or job['expires']<=time.time():return {'active':False,'reason':'expired'}
+            if self.db.execute('SELECT 1 FROM submissions WHERE problem=? AND result IS NOT NULL',(job['problem_id'],)).fetchone():
+                return {'active':False,'reason':'proof-already-submitted'}
+            now=time.time()
+            if self.cache is None or now-self.cached_at>=2:
+                self.cache=self.client.call('compute.challenge',{});self.cached_at=now
+            active=(self.cache.get('available') is True and self.cache.get('problem_id')==job['problem_id'] and self.cache.get('network_id')==job['network_id'] and self.cache.get('submitter_id')==self.submitter)
+            return {'active':active,'reason':'working' if active else 'task-changed','expires':job['expires']}
 
     def submit(self,token,nonce):
         require_network()
@@ -250,7 +277,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                     if tail==['open']:result=direct_relay.call(None,'open',value)
                     elif len(tail)==2:result=direct_relay.call(tail[0],tail[1],value,self.headers.get('Authorization'))
                     else:raise ProtocolError('NOT_FOUND','fixed direct relay operation required')
-                elif self.path=='/api/gimps/job' and value=={}:result=gimps_pool.issue() if gimps_pool else {'available':False,'engine':'gimps','reason':'not-configured','retry_ms':5000}
+                elif self.path=='/api/gimps/job' and isinstance(value,dict) and set(value)<= {'worker_id'}:result=gimps_pool.issue(value.get('worker_id')) if gimps_pool else {'available':False,'engine':'gimps','reason':'not-configured','retry_ms':5000}
                 elif self.path=='/api/gimps/proof' and gimps_pool is not None and isinstance(value,dict) and {'token','proof'}<=set(value):result=gimps_pool.submit(value['token'],value['proof'])
                 elif self.path=='/api/gimps/checkpoint' and gimps_pool is not None and isinstance(value,dict) and {'token','checkpoint'}<=set(value):result=gimps_pool.save_checkpoint(value['token'],value['checkpoint'])
                 elif self.path=='/api/gimps/heartbeat' and gimps_pool is not None and isinstance(value,dict) and 'token' in value:result=gimps_pool.heartbeat(value['token'],value.get('progress_pct'),value.get('checkpoint'))
@@ -258,6 +285,7 @@ def effort_server(pool,origin,*,host='127.0.0.1',port=0,explorer=None,relay_orig
                 elif self.path=='/api/gimps/resume' and gimps_pool is not None and isinstance(value,dict) and 'exponent' in value:result=gimps_pool.resume(value['exponent'],value.get('worker_id'))
                 elif self.path=='/api/gimps/status' and gimps_pool is not None and isinstance(value,dict):result=gimps_pool.get_status(value.get('exponent'))
                 elif self.path=='/api/job' and value=={}:result=pool.issue()
+                elif self.path=='/api/job/status' and isinstance(value,dict) and set(value)=={'token'}:result=pool.job_status(value['token'])
                 elif self.path=='/api/proof' and isinstance(value,dict) and set(value)=={'token','nonce'}:result=pool.submit(value['token'],value['nonce'])
                 else:raise ProtocolError('INVALID_REQUEST','fixed worker endpoint required')
                 self.send_value(200,result)

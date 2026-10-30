@@ -578,6 +578,8 @@ class GimpsPool(EffortPool):
             self.db.execute("""CREATE TABLE IF NOT EXISTS gimps_lease_receipts (
                 token TEXT PRIMARY KEY, submitter TEXT NOT NULL, network_id TEXT NOT NULL,
                 proof_digest TEXT NOT NULL, receipt BLOB NOT NULL, expires INTEGER NOT NULL)""")
+        if 'worker_id' not in {row[1] for row in self.db.execute('PRAGMA table_info(gimps_leases)')}:
+            with self.db:self.db.execute("ALTER TABLE gimps_leases ADD COLUMN worker_id TEXT")
         self._load_active_leases()
 
     def _load_active_leases(self):
@@ -631,56 +633,74 @@ class GimpsPool(EffortPool):
         self.jobs[token] = job
         return job
 
-    def issue(self):
+    def issue(self, worker_id=None):
         require_network()
+        if worker_id is None:worker_id=secrets.token_hex(24)
+        if not isinstance(worker_id,str) or len(worker_id)!=48 or any(c not in '0123456789abcdef' for c in worker_id):
+            raise ProtocolError('INVALID_JOB','private random worker identifier required')
         with self.lock:
-            now = time.time()
-            self.jobs = {token: job for token, job in self.jobs.items() if job['expires'] > now}
-            if len(self.jobs) >= 128:
-                raise ProtocolError('BACKPRESSURE', 'GIMPS worker job budget exhausted')
-            job = self.client.call('compute.challenge', {'engine': 'gimps'})
-            if (not isinstance(job, dict) or job.get('schema') != 'corium.gimps-challenge.v1' or
-                    job.get('submitter_id') != self.submitter or self.expected_network and job.get('network_id') != self.expected_network):
-                raise ProtocolError('NETWORK_MISMATCH', 'native GIMPS node and signer must match configuration')
-            if job.get('available') is not True:
-                return {'available': False, 'engine': 'gimps', 'reason': job.get('reason', 'no-native-task'), 'retry_ms': 5000}
-            p = job.get('exponent')
-            max_exp = job.get('max_exponent', 2_000_000_000)
-            if (type(p) is not int or not 2 <= p <= max_exp or job.get('problem_id') != str(p) or
-                    job.get('proof_schema') not in ('corium.gimps-proof.v2', 'corium.gimps-prp-proof.v1') or
-                    job.get('method') not in ('lucas-lehmer', 'prp-fiat-shamir') or
-                    not isinstance(job.get('engine_id'), str) or len(job['engine_id']) > 128):
-                raise ProtocolError('INVALID_JOB', 'bounded native GIMPS task required')
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                result=self._issue_locked(worker_id)
+                self.db.commit()
+                return result
+            except BaseException:self.db.rollback();raise
 
-            if not self.governor.check_exponent_capacity(p):
-                return {'available': False, 'engine': 'gimps', 'reason': f'exponent-{p}-exceeds-node-capacity', 'retry_ms': 10000}
+    def _issue_locked(self, worker_id):
+        now = time.time()
+        self.jobs = {token: job for token, job in self.jobs.items() if job['expires'] > now}
+        if len(self.jobs) >= 128:
+            raise ProtocolError('BACKPRESSURE', 'GIMPS worker job budget exhausted')
+        owned=self.db.execute('SELECT token FROM gimps_leases WHERE worker_id=? AND submitter=? AND (? IS NULL OR network_id=?) AND expires>? ORDER BY created_at LIMIT 1',
+                              (worker_id,self.submitter,self.expected_network,self.expected_network,int(now))).fetchone()
+        if owned:return self._get_active_job(owned[0])
+        reserved=self.db.execute('SELECT DISTINCT exponent FROM gimps_leases WHERE submitter=? AND (? IS NULL OR network_id=?) AND expires>?',
+                                 (self.submitter,self.expected_network,self.expected_network,int(now))).fetchall()
+        params={'engine':'gimps'}
+        if reserved:params['exclude_exponents']=[row[0] for row in reserved]
+        job = self.client.call('compute.challenge', params)
+        if (not isinstance(job, dict) or job.get('schema') != 'corium.gimps-challenge.v1' or
+                job.get('submitter_id') != self.submitter or self.expected_network and job.get('network_id') != self.expected_network):
+            raise ProtocolError('NETWORK_MISMATCH', 'native GIMPS node and signer must match configuration')
+        if job.get('available') is not True:
+            return {'available': False, 'engine': 'gimps', 'reason': job.get('reason', 'no-native-task'), 'retry_ms': 5000}
+        p = job.get('exponent')
+        max_exp = job.get('max_exponent', 2_000_000_000)
+        if (type(p) is not int or not 2 <= p <= max_exp or job.get('problem_id') != str(p) or
+                job.get('proof_schema') not in ('corium.gimps-proof.v2', 'corium.gimps-prp-proof.v1') or
+                job.get('method') not in ('lucas-lehmer', 'prp-fiat-shamir') or
+                not isinstance(job.get('engine_id'), str) or len(job['engine_id']) > 128):
+            raise ProtocolError('INVALID_JOB', 'bounded native GIMPS task required')
 
-            # Look up any existing checkpoint for this exponent
-            task_key = job['network_id'] + ':' + self.submitter + ':' + job['engine_id'] + ':' + str(p)
-            chk = self.checkpoints.load_checkpoint(task_key)
-            checkpoint_data = chk['checkpoint_data'] if chk else None
+        if not self.governor.check_exponent_capacity(p):
+            return {'available': False, 'engine': 'gimps', 'reason': f'exponent-{p}-exceeds-node-capacity', 'retry_ms': 10000}
 
-            existing = self.db.execute('SELECT token FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>? ORDER BY created_at LIMIT 1',
-                                       (job['network_id'], self.submitter, job['engine_id'], p, int(now))).fetchone()
-            if existing:
-                return self._get_active_job(existing[0])
-            token = secrets.token_hex(24)
-            job = dict(job, engine='gimps', token=token, expires=int(now) + 86400, checkpoint=checkpoint_data)
-            self.jobs[token] = job
-            with self.db:
-                self.db.execute("""
-                INSERT INTO gimps_leases (token, engine_id, problem_id, exponent, submitter, network_id, proof_schema, method, max_exponent, expires, checkpoint, created_at, updated_at)
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                WHERE NOT EXISTS (SELECT 1 FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>?)
-                """, (token, job['engine_id'], job['problem_id'], p, self.submitter, job['network_id'], job['proof_schema'], job['method'], job.get('max_exponent', 2_000_000_000), job['expires'], json.dumps(checkpoint_data) if checkpoint_data else None, int(now), int(now), job['network_id'], self.submitter, job['engine_id'], p, int(now)))
-                row = self.db.execute('SELECT token FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>? ORDER BY created_at LIMIT 1',
-                                      (job['network_id'], self.submitter, job['engine_id'], p, int(now))).fetchone()
-                self.db.execute('DELETE FROM gimps_leases WHERE expires<=?', (int(now),))
-                self.db.execute('DELETE FROM gimps_lease_receipts WHERE expires<=?', (int(now),))
-            if row[0] != token:
-                self.jobs.pop(token, None)
-                return self._get_active_job(row[0])
-            return job
+        # Look up any existing checkpoint for this exponent
+        task_key = job['network_id'] + ':' + self.submitter + ':' + job['engine_id'] + ':' + str(p)
+        chk = self.checkpoints.load_checkpoint(task_key)
+        checkpoint_data = chk['checkpoint_data'] if chk else None
+
+        existing = self.db.execute('SELECT token FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>? ORDER BY created_at LIMIT 1',
+                                   (job['network_id'], self.submitter, job['engine_id'], p, int(now))).fetchone()
+        if existing:
+            return {'available':False,'engine':'gimps','reason':'task-leased','retry_ms':5000}
+        token = secrets.token_hex(24)
+        job = dict(job, engine='gimps', token=token, expires=int(now) + 120, checkpoint=checkpoint_data)
+        self.jobs[token] = job
+        self.db.execute("""
+        INSERT INTO gimps_leases (token, engine_id, problem_id, exponent, submitter, network_id, proof_schema, method, max_exponent, expires, checkpoint, created_at, updated_at)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>?)
+        """, (token, job['engine_id'], job['problem_id'], p, self.submitter, job['network_id'], job['proof_schema'], job['method'], job.get('max_exponent', 2_000_000_000), job['expires'], json.dumps(checkpoint_data) if checkpoint_data else None, int(now), int(now), job['network_id'], self.submitter, job['engine_id'], p, int(now)))
+        row = self.db.execute('SELECT token FROM gimps_leases WHERE network_id=? AND submitter=? AND engine_id=? AND exponent=? AND expires>? ORDER BY created_at LIMIT 1',
+                              (job['network_id'], self.submitter, job['engine_id'], p, int(now))).fetchone()
+        self.db.execute('UPDATE gimps_leases SET worker_id=? WHERE token=?',(worker_id,token))
+        self.db.execute('DELETE FROM gimps_leases WHERE expires<=?', (int(now),))
+        self.db.execute('DELETE FROM gimps_lease_receipts WHERE expires<=?', (int(now),))
+        if row[0] != token:
+            self.jobs.pop(token, None)
+            return {'available':False,'engine':'gimps','reason':'task-leased','retry_ms':5000}
+        return job
 
     def submit(self, token, proof):
         require_network()
@@ -831,7 +851,7 @@ class GimpsPool(EffortPool):
             if not job:
                 raise ProtocolError('STALE_JOB', 'native GIMPS job not found')
             now = time.time()
-            new_expires = int(now) + 86400
+            new_expires = int(now) + 120
             task_id = job['network_id'] + ':' + self.submitter + ':' + job['engine_id'] + ':' + job['problem_id']
             iteration = checkpoint_data.get('iteration', 0) if isinstance(checkpoint_data, dict) else 0
             if checkpoint_data:

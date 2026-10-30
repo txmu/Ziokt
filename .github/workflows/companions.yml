@@ -103,6 +103,7 @@ jobs:
           node tools/people_relay_browser_smoke.cjs
           DIRECT_RELAY=1 node tools/people_relay_browser_smoke.cjs
           node tools/explorer_browser_smoke.cjs
+          node tools/test_explorer_body.cjs
           node gui/build.js
           node tools/gui_browser_smoke.cjs
           node tools/gui_offline_smoke.cjs

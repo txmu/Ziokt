@@ -42,7 +42,7 @@ def install(source,root):
     else:
         point=current.lower().rfind('</html>');updated=current[:point]+section+current[point:] if point>=0 else current+section
     temp=index.with_suffix('.html.new');temp.write_text(updated);temp.chmod(0o644);temp.replace(index)
-    receipt={'schema':'ziokt.effort.android-downloads.v1','source_commit':commit,'ci_run_id':manifest['run_id'],'apk_bytes':manifest['apk_bytes'],'apk_sha256':checks[apk],'url':'https://app.ziokt.com/downloads/'+prefix+apk,'physical_arm_device':'not_assessed'}
+    receipt={'schema':'ziokt.effort.android-downloads.v1', 'source_commit':commit, 'ci_run_id':manifest['run_id'], 'apk_bytes':manifest['apk_bytes'], 'apk_sha256':checks[apk], 'url':'https://app.ziokt.com/downloads/'+prefix+apk}
     temp=root/'effort-android.json.new';temp.write_text(json.dumps(receipt,indent=2)+'\n');temp.chmod(0o644);temp.replace(root/'effort-android.json');return receipt
 
 if __name__=='__main__':

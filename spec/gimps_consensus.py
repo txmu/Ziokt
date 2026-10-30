@@ -582,7 +582,7 @@ def candidates(metadata):
     return (p for p in range(start, end + 1) if all(p % d for d in range(2, int(p**0.5) + 1)))
 
 
-def native_challenge(db, network, submitter):
+def native_challenge(db, network, submitter, exclude_exponents=()):
     """Read-only native GIMPS selection; never falls back to another engine."""
     row = db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
     require(row and type(row[0]) is str, 'accepted native head required')
@@ -616,7 +616,7 @@ def native_challenge(db, network, submitter):
             blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='assigned' AND lease_timeout>?", (engine, int(time.time()))))
             blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='paused'", (engine,)))
         for exponent in candidates(problem[1]):
-            if str(exponent) not in blocked:
+            if str(exponent) not in blocked and exponent not in exclude_exponents:
                 metadata = json.loads(problem[1]) if isinstance(problem[1], str) else problem[1]
                 use_prp = metadata.get('method') in ('prp', 'prp-fiat-shamir')
                 return dict(base, available=True, engine_id=engine, problem_set_id=problem[0], problem_id=str(exponent),

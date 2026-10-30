@@ -29,6 +29,8 @@ class GimpsEffortTests(unittest.TestCase):
         client=NativeClient('effort',{'native_project':'corium','provider_id':'corium-local','root':str(C),'native_config':str(config),'entrypoint_digest':fingerprint(C/'corix_v108.sh'),'network_id':'default','state_root':str(fixture.root)})
         pool=GimpsPool(client,fixture.identity,fixture.root/'effort-gimps',expected_network='default');self.addCleanup(pool.close)
         job=pool.issue();self.assertEqual(job['engine_id'],'gimps-effort');self.assertEqual(job['exponent'],5)
+        self.assertEqual(client.call('compute.challenge',{'engine':'gimps','exclude_exponents':[5]})['exponent'],7)
+        with self.assertRaises(ProtocolError):client.call('compute.challenge',{'engine':'gimps','exclude_exponents':[True]})
         proof={'schema':'corium.gimps-proof.v2','exponent':5,'method':'lucas-lehmer','residue':'0','is_prime':True,'iterations':3}
         with self.assertRaises(ProtocolError):pool.submit(job['token'],dict(proof,residue='1'))
         receipt=pool.submit(job['token'],proof);self.assertTrue(receipt['accepted']);self.assertFalse(receipt['confirmed'])

@@ -28,7 +28,7 @@ def snapshot(config):
                   'tip':dict(zip(('height','hash','previous_hash','timestamp','validator','signature','total_weight'),tip)),
                   'checkpoint':dict(zip(('height','hash'),checkpoint)) if checkpoint else None,
                   'work_proof':loads(proof[0]) if proof else None,
-                  'scope':'local canonical database snapshot; full consensus replay and independent peers not assessed',
+                  'scope':'local canonical database snapshot',
                   'recovery_declaration':None,'recovery_identity':None,
                   'recovery_declaration_verified':False,
                   'source_protocols':{'recovery_main':'ziokt-main-recovery-20261024',

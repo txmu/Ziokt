@@ -14,6 +14,10 @@ from .config import load
 
 ACTIONS={'status.get','content.publish','wiki.create','artifact.stage'}
 
+def primary_domain(network,genesis):
+ if not isinstance(network,str) or re.fullmatch('[A-Za-z0-9_-]{1,64}',network) is None:raise ValueError('pinned primary network required')
+ return hashlib.sha256(b'Ziokt/NativeBusinessChain/v1\0'+encoded({'network':network,'genesis':genesis})).hexdigest()
+
 class Consumer:
  def __init__(self,path):
   self.path=Path(path);config=self.settings();root=Path(config['state'])
@@ -41,7 +45,9 @@ class Consumer:
    if not isinstance(target,dict) or set(target)!={'federation','provider','actions'} or not isinstance(target['actions'],list) or any(not isinstance(x,str) or x not in ACTIONS for x in target['actions']) or not isinstance(target['federation'],str) or not Path(target['federation']).is_absolute() or not isinstance(target['provider'],str):raise ValueError('explicit native action allowlist required')
   if 'chain_source' in c:
    source=c['chain_source']
-   if not isinstance(source,dict) or set(source)!={'database','genesis','confirmations','start_height'} or not isinstance(source['database'],str) or not Path(source['database']).is_absolute() or not isinstance(source['genesis'],str) or re.fullmatch('[a-f0-9]{64}',source['genesis']) is None or type(source['confirmations']) is not int or not 1<=source['confirmations']<=100 or type(source['start_height']) is not int or source['start_height']<1:raise ValueError('pinned confirmed native chain source required')
+   if not isinstance(source,dict) or set(source)-{'role','network_id'}!={'database','genesis','confirmations','start_height'} or not isinstance(source['database'],str) or not Path(source['database']).is_absolute() or not isinstance(source['genesis'],str) or re.fullmatch('[a-f0-9]{64}',source['genesis']) is None or type(source['confirmations']) is not int or not 1<=source['confirmations']<=100 or type(source['start_height']) is not int or source['start_height']<1:raise ValueError('pinned confirmed native chain source required')
+   if source.get('role','dna') not in {'primary','dna'}:raise ValueError('explicit primary or DNA source role required')
+   if source.get('role')=='primary' and primary_domain(source.get('network_id'),source['genesis'])!=c['chain']:raise ValueError('primary chain domain mismatch')
   return c
  def authorize(self,c,sender,command):
   if c['enabled'] is not True:raise PermissionError('consumer disabled')
@@ -123,7 +129,10 @@ class Consumer:
     if block is None:raise ValueError('native chain gap')
     proof_row=chain.execute('SELECT proof FROM block_work WHERE hash=?',(block[0],)).fetchone()
     proof=strict_json(proof_row[0].encode(),65536) if proof_row else {}
-    if proof.get('schema')!='corium.dna-work.v1' or proof.get('recovery')!=c['chain'] or proof.get('policy')!=c['policy']:raise PermissionError('native DNA identity or policy changed')
+    if source.get('role','dna')=='dna':
+     if proof.get('schema')!='corium.dna-work.v1' or proof.get('recovery')!=c['chain'] or proof.get('policy')!=c['policy']:raise PermissionError('native DNA identity or policy changed')
+    elif proof.get('schema')!='corium.native-block-work.v2' or proof.get('policy')!=c['policy'] or primary_domain(source['network_id'],source['genesis'])!=c['chain']:
+     raise PermissionError('native primary identity or policy changed')
     listed=strict_json(block[1].encode(),1048576)
     rows=chain.execute("SELECT hash,data FROM transactions WHERE block_height=? AND type='ziokt_content' ORDER BY hash",(h,)).fetchall()
     for txid,data in rows:

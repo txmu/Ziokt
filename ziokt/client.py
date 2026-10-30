@@ -156,8 +156,7 @@ class NativeClient:
                 result["provider_id"]!=self.provider["provider_id"] or
                 result["federation_id"]!=self.federation or result["enabled"] is not True or
                 type(result["observed_at_ms"]) is not int or abs(now-result["observed_at_ms"])>5000 or
-                result["checks"]!={"pinned_process_rpc":"passed","application_runtime":"not_assessed",
-                                   "external_peer":"not_assessed"}):
+                result["checks"]!={"pinned_process_rpc":"passed"}):
             raise ProtocolError("INVALID_HEALTH_PROOF","fresh native provider challenge response required")
         return result
 
