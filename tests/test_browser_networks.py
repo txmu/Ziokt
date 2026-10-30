@@ -97,6 +97,17 @@ class BrowserNetworkTests(unittest.TestCase):
         detailed=service.query('/api/p2p/topology?addresses=1&identities=1','Bearer owner-token')
         self.assertIn('192.0.2.1',json.dumps(detailed));self.assertNotEqual(public['nodes'][0]['id'],service.query('/api/p2p/topology','Bearer owner-token')['nodes'][0]['id'])
 
+    def test_timestamped_adapter_cannot_present_stale_or_future_connectivity(self):
+        path=self.root/'live-probe.json'
+        source={'id':'owned-peer','component':'corium','kind':'snapshot','path':str(path)}
+        view=P2PExplorer({'public':True,'sources':[source]})
+        now=int(time.time())
+        for at,available in [(now,True),(now-301,False),(now+6,False),(True,False)]:
+            path.write_bytes(encoded({'schema':'ziokt.p2p-snapshot.v1','component':'corium','observed_at':at,'nodes':[{'id':'peer','state':'native-rpc-responded'}],'edges':[]}));path.chmod(0o600)
+            result=view.query('/api/p2p/topology')
+            self.assertEqual(result['sources'][0]['state']=='available',available)
+            self.assertEqual(bool(result['nodes']),available)
+
     def test_cbb_signature_expiry_and_scope_are_enforced(self):
         root=self.root/'one';network='alpha';dht=root/'var/lib/corix/p2p/dht.db';dht.parent.mkdir(parents=True)
         with database(dht) as db:db.execute('CREATE TABLE nodes(id TEXT,address TEXT,port INTEGER,last_seen INTEGER)')

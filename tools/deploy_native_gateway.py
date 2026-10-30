@@ -53,7 +53,7 @@ def deploy(root,corix):
  # Standalone native commands import these sidecars as well as the embedded
  # provider runtime. Updating just the shell leaves two verifier versions live.
  sidecars={}
- for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
+ for name in ('consensus_hold.py','rebuild_authorization.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
               'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
               'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
               'dna_protocol.py','cooperative_protocol.py','cooperative_consensus.py','shielded_ownership.py','gimps_consensus.py'):
@@ -76,7 +76,7 @@ def deploy(root,corix):
   guard_target=target.with_name('consensus_hold.py');temporary=guard_target.with_suffix('.new');shutil.copyfile(guard_source,temporary);temporary.chmod(0o755);temporary.replace(guard_target)
   def unit_arg(path):return '"'+str(path).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
   override=backup/'consensus-hold.new'
-  override.write_text('# Managed Ziokt provenance hold\n[Service]\nExecCondition=/usr/bin/python3 '+unit_arg(guard_target)+' '+unit_arg(hold_path)+'\n')
+  override.write_text('# Managed Ziokt provenance hold\n[Service]\nEnvironment='+unit_arg('CORIUM_ROOT='+str(config['state_root']))+'\nEnvironment='+unit_arg('CORIUM_NETWORK_ID_OVERRIDE='+config['network'])+'\nExecCondition=/usr/bin/python3 '+unit_arg(guard_target)+' '+unit_arg(hold_path)+'\n')
   install=[] if os.geteuid()==0 else ['sudo','-n']
   subprocess.run([*install,'install','-d',str(guard_override.parent)],check=True)
   subprocess.run([*install,'install','-m','0644',str(override),str(guard_override)],check=True)

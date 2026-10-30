@@ -45,7 +45,7 @@ with tarfile.open(dist / "shadow6-ziokt.tar.gz", "w:gz") as archive:
 # Public verification/hold tools must accompany the native single-file runtime.
 # A node cannot review and release its history hold using an absent sidecar.
 runtime=dist/'corium-runtime';runtime.mkdir(exist_ok=True)
-for name in ('consensus_hold.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
+for name in ('consensus_hold.py','rebuild_authorization.py','consensus_core.py','verify_mainnet_history.py','audit_history_provenance.py',
              'recovery_transition_plan.py','sovereign_status.py','recovery_consensus.py',
              'work_consensus.py','work_weight_policy.py','work_weight_native.py','openci_consensus.py',
              'dna_protocol.py','cooperative_protocol.py','cooperative_consensus.py','shielded_ownership.py','gimps_consensus.py'):

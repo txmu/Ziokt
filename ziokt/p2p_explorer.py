@@ -204,6 +204,7 @@ class P2PExplorer:
             value=strict_json(secure_read(Path(source['path']),1024*1024,private=None),1024*1024)
             if not isinstance(value,dict) or set(value)-{'schema','component','nodes','edges','observed_at'} or value.get('schema')!='ziokt.p2p-snapshot.v1' or value.get('component')!=source['component']:
                 raise ValueError('adapter snapshot contract')
+            if 'observed_at' in value and (type(value['observed_at']) is not int or not -5<=int(time.time())-value['observed_at']<=300):raise ValueError('adapter snapshot is stale or future-dated')
             nodes=value.get('nodes');edges=value.get('edges')
             if not isinstance(nodes,list) or len(nodes)>128 or not isinstance(edges,list) or len(edges)>256:raise ValueError('adapter graph budget')
             seen=set()
