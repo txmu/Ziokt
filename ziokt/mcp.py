@@ -168,19 +168,22 @@ class Service:
                     self.add(pid.replace('-','_')+'_'+action.replace('.','_')+'_plan',f'Create a reviewable {pid} {action} workflow; does not execute it.',schema({'resource':STRING,'arguments':PARAMS,'expected_revision':{'type':['string','null']},'operation_id':{'type':'string','maxLength':64}},('resource','arguments','expected_revision','operation_id')),True,project+':'+action+':plan',('plan',pid,action))
         if config.get('federation'):
             from .mcp_corium import READ,WRITE
+            corium_index=0
             for provider in federation['providers']:
                 if provider['native_project']!='corium':continue
+                prefix='corium_' if corium_index==0 else provider['provider_id'].replace('-','_')+'_corium_'
+                corium_index+=1
                 for method,wire in {**READ,**WRITE}.items():
                     fields={} if method in {'ping','chain_state','cbb_messages'} else {'payload':STRING if method not in {'block_announce','phoenix_propose','phoenix_notarize','cbb_relay'} else PARAMS}
-                    self.add('corium_'+method,'Call the original signed Corium '+wire+' verifier. CBB expires after 24 hours and does not imply consensus finality.',schema(fields,tuple(fields)),method in WRITE,'corium:protocol:'+('write' if method in WRITE else 'read'),('corium-protocol',provider['provider_id'],wire))
-                self.add('corium_cbb_publish','Publish a native node-signed CBB emergency bulletin, valid for 24 hours. Requires administrator write scope.',schema({'message':{'type':'string','minLength':1,'maxLength':65536}},('message',)),True,'corium:cbb:write',('corium-cbb',provider['provider_id']))
-                self.add('corium_cbb_sync','Synchronize and verify signed native emergency bulletins from approved native peers.',schema(),True,'corium:cbb:write',('corium-cbb-sync',))
+                    self.add(prefix+method,'Call the original signed Corium '+wire+' verifier. CBB expires after 24 hours and does not imply consensus finality.',schema(fields,tuple(fields)),method in WRITE,'corium:protocol:'+('write' if method in WRITE else 'read'),('corium-protocol',provider['provider_id'],wire))
+                self.add(prefix+'cbb_publish','Publish a native node-signed CBB emergency bulletin, valid for 24 hours. Requires administrator write scope.',schema({'message':{'type':'string','minLength':1,'maxLength':65536}},('message',)),True,'corium:cbb:write',('corium-cbb',provider['provider_id']))
+                self.add(prefix+'cbb_sync','Synchronize and verify signed native emergency bulletins from approved native peers.',schema(),True,'corium:cbb:write',('corium-cbb-sync',provider['provider_id']))
                 for action in ('new','join','move','forfeit'):
                     fields={'invite':{'type':'string','pattern':'^$|^[a-f0-9]{64}$'}} if action=='new' else {'game_id':{'type':'string','maxLength':80,'pattern':'^game-[A-Za-z0-9_-]+$'}}
                     if action=='move':fields['position']={'type':'integer','minimum':1,'maximum':9}
-                    self.add('corium_cbb_game_'+action,'Native signed CBB tic-tac-toe '+action+'. Game state is verified by the native CBB engine.',schema(fields,tuple(fields)),True,'corium:cbb:write',('corium-cbb-game',action))
-                self.add('corium_cbb_games','List signed, unexpired native CBB game invitations and moves.',schema(),False,'corium:protocol:read',('corium-protocol',provider['provider_id'],'CBB_SYNC_REQUEST'))
-                self.add('corium_cbb_game_state','Verify and read a native CBB game state.',schema({'game_id':{'type':'string','pattern':'^game-[A-Za-z0-9_-]+$','maxLength':80}},('game_id',)),False,'corium:protocol:read',('corium-cbb-game-state',))
+                    self.add(prefix+'cbb_game_'+action,'Native signed CBB tic-tac-toe '+action+'. Game state is verified by the native CBB engine.',schema(fields,tuple(fields)),True,'corium:cbb:write',('corium-cbb-game',provider['provider_id'],action))
+                self.add(prefix+'cbb_games','List signed, unexpired native CBB game invitations and moves.',schema(),False,'corium:protocol:read',('corium-protocol',provider['provider_id'],'CBB_SYNC_REQUEST'))
+                self.add(prefix+'cbb_game_state','Verify and read a native CBB game state.',schema({'game_id':{'type':'string','pattern':'^game-[A-Za-z0-9_-]+$','maxLength':80}},('game_id',)),False,'corium:protocol:read',('corium-cbb-game-state',provider['provider_id']))
         for app in config.get('bridges',{}):
             if not re.fullmatch('[a-z0-9-]{1,64}',app):raise ValueError('invalid bridge name')
             for method in sorted(BRIDGE_READ|BRIDGE_WRITE):
@@ -821,29 +824,30 @@ class Service:
             if not federation['enabled']:raise ValueError('federation disabled')
             protocol=CoriumProtocol(provider)
             if kind=='corium-cbb':
-                from .gateway import Gateway
-                gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
-                gateway.native('cbb-post',args['message'])
+                protocol.native_text('cbb-post',args['message'])
                 return {'published':True,'native_identity':protocol.identity,'expires_after_seconds':86400,'consensus_confirmed':False}
             payload=args.get('payload','')
             if isinstance(payload,dict):payload=json.dumps(payload)
             result=protocol.call(route[2],payload)
-            if name=='corium_cbb_games':result['data']=[row for row in result['data'] if row.get('message','').startswith('GAME:TICTACTOE|')]
+            if name.endswith('corium_cbb_games'):result['data']=[row for row in result['data'] if row.get('message','').startswith('GAME:TICTACTOE|')]
             return result
         if kind in {'corium-cbb-sync','corium-cbb-game','corium-cbb-game-state'}:
-            from .gateway import Gateway
-            gateway=Gateway(strict_json(secure_read(self.config['gateway'])))
-            if kind=='corium-cbb-sync':gateway.native('cbb-sync');return {'synchronized':True}
+            from .config import load
+            from .mcp_corium import CoriumProtocol
+            federation=load(self.config['federation'])
+            if not federation['enabled']:raise ValueError('federation disabled')
+            protocol=CoriumProtocol(next(p for p in federation['providers'] if p['provider_id']==route[1]))
+            if kind=='corium-cbb-sync':protocol.native_text('cbb-sync');return {'synchronized':True}
             if kind=='corium-cbb-game-state':
-                text=gateway.native_text('cbb-state',args['game_id'])
+                text=protocol.native_text('cbb-state',args['game_id'])
                 values=text.strip().split('|')
                 if len(values)!=5:raise ValueError('invalid native game state')
                 return dict(zip(('player_x','player_o','board','turn','state'),values))
-            action=route[1]
+            action=route[2]
             values=[args.get('game_id','')]
             if action=='move':values.append(str(args['position']))
             if action=='new':values=['--invite',args['invite']] if args['invite'] else []
-            text=gateway.native_text('cbb-game',action,*values)
+            text=protocol.native_text('cbb-game',action,*values)
             return {'action':action,'native_result':text,'consensus_confirmed':False}
         if kind=='privacy-status':
             return {'transport_encryption':True,'fresh_receiver_keys':True,'sealed_receipts':True,

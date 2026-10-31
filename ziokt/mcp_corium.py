@@ -22,6 +22,12 @@ class CoriumProtocol:
   if not isinstance(self.private,ec.EllipticCurvePrivateKey) or not isinstance(self.private.curve,ec.SECP256K1):raise ValueError('native secp256k1 identity required')
   public=self.private.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
   self.identity=hashlib.sha256(public.encode()).hexdigest()
+ def native_text(self,*arguments):
+  import subprocess
+  from .gateway import ASSETS
+  if fingerprint(self.source)!=self.provider['entrypoint_digest']:raise ProtocolError('STALE_PROVIDER','native source changed')
+  result=subprocess.run([str(ASSETS/'native.sh'),str(self.source),str(self.root),self.network,*arguments],check=True,timeout=60,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+  return result.stdout.decode('utf-8')
  def sign(self,message):return self.private.sign(message.encode(),ec.ECDSA(hashes.SHA256())).hex()
  def call(self,kind,payload):
   result=self.handler.handle_dht_message({'type':kind,'payload':payload,'sender_id':self.identity,'signature':self.sign(kind+'|'+payload)})

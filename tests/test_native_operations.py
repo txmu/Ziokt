@@ -184,6 +184,24 @@ r.operation_dispatch("corium",root,"default",config,"operation.commit",{"operati
             stored=db.execute('SELECT file_path FROM local_chunks WHERE hash=?',(resource[7:],)).fetchone()[0]
         self.assertEqual(Path(stored).read_bytes(),data)
 
+    def test_dual_corium_mcp_tools_retain_provider_specific_routes(self):
+        from ziokt.mcp import Service
+        native_config=self.state/'etc/corix/networks/dna-test/corix.conf'
+        native_config.parent.mkdir(parents=True)
+        native_config.write_text('[ziokt]\nenabled=TRUE\nfederation_id=test\nprovider_id=dna-node\n')
+        native_config.chmod(0o600)
+        secondary=dict(self.providers[1],provider_id='dna-node',network_id='dna-test',native_config=str(native_config))
+        config=self.base/'federation.json'
+        config.write_text(json.dumps(dict(self.federation,providers=[self.providers[1],secondary])))
+        config.chmod(0o600)
+        service=Service({'schema':'ziokt.mcp.v1','issuer':'https://node.test','state':str(self.base/'mcp'),'federation':str(config),'clients':{},'bridges':{}})
+        self.addCleanup(service.close)
+        self.assertEqual(service.dispatch['corium_chain_state'],('corium-protocol','corium-local','GET_CHAIN_STATE'))
+        self.assertEqual(service.dispatch['dna_node_corium_chain_state'],('corium-protocol','dna-node','GET_CHAIN_STATE'))
+        self.assertEqual(service.dispatch['dna_node_corium_cbb_sync'],('corium-cbb-sync','dna-node'))
+        self.assertEqual(service.dispatch['dna_node_corium_cbb_game_move'],('corium-cbb-game','dna-node','move'))
+        self.assertEqual(service.dispatch['dna_node_corium_cbb_game_state'],('corium-cbb-game-state','dna-node'))
+
     def test_mcp_cbb_uses_real_native_signature_verifier_and_database(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ec
