@@ -22,7 +22,7 @@ mapfile -t peers < <(db_query_static "$DHT_DB" 'SELECT id FROM nodes ORDER BY la
 accepted=0
 for peer in "${peers[@]}"; do
     [[ "$peer" =~ ^[a-f0-9]{64}$ ]] || continue
-    if _dht_send_message_direct "$peer" ANNOUNCE_ADDRESS "$claim"; then accepted=$((accepted+1)); fi
+    if (_dht_send_message_direct "$peer" ANNOUNCE_ADDRESS "$claim"); then accepted=$((accepted+1)); fi
 done
 [ "$accepted" -gt 0 ]
 '''
