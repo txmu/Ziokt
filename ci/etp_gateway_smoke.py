@@ -25,7 +25,7 @@ def forum_smoke(binary, digest, root, required):
     """Real native Forum instances, including same-address restart, never a fixture."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     keys = [X25519PrivateKey.generate() for _ in range(2)]
-    sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in keys]
+    sockets = [socket.socket(socket.AF_INET, socket.SOCK_STREAM if os.environ.get('ZIOKT_TEST_ETP_TRANSPORT')=='tcp' else socket.SOCK_DGRAM) for _ in keys]
     for sock in sockets:sock.bind(('127.0.0.1', 0))
     addresses = [f'127.0.0.1:{sock.getsockname()[1]}' for sock in sockets]
     for sock in sockets:sock.close()
@@ -50,7 +50,7 @@ def forum_smoke(binary, digest, root, required):
     try:
         for index,key in enumerate(keys):
             config=root/f'forum-node-{index}.json'
-            config.write_text(json.dumps({'bind':addresses[index],'private_key':key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()).hex(),'peers':{addresses[1-index]:public[1-index]},'forum':{'database':str(root/f'forum-{index}.sled'),'identities':{'author':secrets.token_hex(32)},'subscriptions':['native-forum']},'fileshare':{'storage':str(root/f'fileshare-{index}'),'exports':{'library-source':str(file_source)} if index==0 else {}}}))
+            config.write_text(json.dumps({'transport':os.environ.get('ZIOKT_TEST_ETP_TRANSPORT','udp'),'bind':addresses[index],'private_key':key.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()).hex(),'peers':{addresses[1-index]:public[1-index]},'forum':{'database':str(root/f'forum-{index}.sled'),'identities':{'author':secrets.token_hex(32)},'subscriptions':['native-forum']},'fileshare':{'storage':str(root/f'fileshare-{index}'),'exports':{'library-source':str(file_source)} if index==0 else {}}}))
             config.chmod(0o600);configs.append(config)
             if index == 0:
                 route=root/'forum-application-router.json'
@@ -117,7 +117,7 @@ def main(binary, forum_required):
 
     keys = [X25519PrivateKey.generate() for _ in range(4)]
     # Hold all port reservations until distinct addresses have been chosen.
-    reservations = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in keys]
+    reservations = [socket.socket(socket.AF_INET, socket.SOCK_STREAM if os.environ.get('ZIOKT_TEST_ETP_TRANSPORT')=='tcp' else socket.SOCK_DGRAM) for _ in keys]
     for sock in reservations:
         sock.bind(('127.0.0.1', 0))
     addresses = [f'127.0.0.1:{sock.getsockname()[1]}' for sock in reservations]
@@ -136,7 +136,7 @@ def main(binary, forum_required):
         try:
             for i, key in enumerate(keys):
                 config = Path(temporary) / f'node-{i}.json'
-                config.write_text(json.dumps({'bind': addresses[i], 'private_key': key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()).hex(), 'peers': {address: public[j] for j, address in enumerate(addresses) if j != i}, 'relay': True}))
+                config.write_text(json.dumps({'transport':os.environ.get('ZIOKT_TEST_ETP_TRANSPORT','udp'),'bind': addresses[i], 'private_key': key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()).hex(), 'peers': {address: public[j] for j, address in enumerate(addresses) if j != i}, 'relay': True}))
                 config.chmod(0o600)
                 worker = EtpGateway(binary, digest, config)
                 workers.append(worker)

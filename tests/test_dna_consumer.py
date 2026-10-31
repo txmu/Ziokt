@@ -18,8 +18,8 @@ class ConsumerTests(NativeFixture):
   command={'schema':'ziokt.dna-command.v1','component':component,'operation':'status.get','resource':'','arguments':{},'expected_revision':None}
   return rna_sign(self.key,'a'*64,'b'*64,self.sender,sequence,int(time.time()),encoded(command))
  def test_signed_queue_restart_native_dispatch_and_duplicate(self):
-  frame=self.frame();first=self.consumer.enqueue(frame);self.assertFalse(first['application_ready']);self.assertTrue(self.consumer.enqueue(frame)['duplicate'])
-  restarted=Consumer(self.path);result=restarted.step();self.assertEqual(result['state'],'completed_read',result);self.assertFalse(result['application_ready']);self.assertIsNone(restarted.step())
+  frame=self.frame();first=self.consumer.enqueue(frame);self.assertEqual(first['state'],'queued');self.assertTrue(self.consumer.enqueue(frame)['duplicate'])
+  restarted=Consumer(self.path);result=restarted.step();self.assertEqual(result['state'],'completed_read',result);self.assertIsNone(restarted.step())
   with restarted.db() as db:self.assertIn('native_status',json.loads(db.execute('SELECT result FROM jobs').fetchone()[0]))
  def test_tamper_domain_replay_and_component_denied(self):
   frame=self.frame();bad=copy.deepcopy(frame);bad['header']['chain']='f'*64
@@ -37,7 +37,7 @@ class ConsumerTests(NativeFixture):
   frame=self.frame(2);self.consumer.enqueue(frame)
   with self.consumer.db() as db:db.execute("UPDATE jobs SET command=? WHERE sequence=2",(encoded({'bad':'command'}),))
   self.assertEqual(self.consumer.step()['state'],'rejected')
- def test_confirmed_source_and_reorg_fail_closed(self):
+ def test_confirmed_source_replays_reads_and_halts_writes_after_reorg(self):
   import sqlite3
   source=self.base/'native-chain.db';frame=self.frame()
   with sqlite3.connect(source) as db:
@@ -48,6 +48,13 @@ class ConsumerTests(NativeFixture):
   self.config['chain_source']={'database':str(source),'genesis':'c'*64,'confirmations':1,'start_height':1};self.save()
   self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read');self.assertEqual(self.consumer.poll_chain(),0)
   with sqlite3.connect(source) as db:db.execute('UPDATE blocks SET hash=? WHERE height=1',('0'*64,))
+  with sqlite3.connect(source) as db:db.execute('UPDATE block_work SET hash=? WHERE hash=?',('0'*64,'d'*64))
+  self.assertEqual(self.consumer.poll_chain(),1);self.assertIsNone(self.consumer.step())
+  with self.consumer.db() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],1)
+   self.assertEqual(db.execute('SELECT hash FROM chain_cursor WHERE slot=1').fetchone()[0],'0'*64)
+  self.config['targets']['corium']['actions'].append('content.publish');self.save()
+  with sqlite3.connect(source) as db:db.execute('UPDATE blocks SET hash=? WHERE height=1',('1'*64,))
   with self.assertRaises(PermissionError):self.consumer.poll_chain()
  def test_primary_source_uses_same_consumer_without_dna_domain_confusion(self):
   import sqlite3

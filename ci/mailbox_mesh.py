@@ -23,10 +23,10 @@ def main():
   nonce=os.urandom(12);plaintext=b'Native encrypted mailbox mesh integration fixture';ciphertext=nonce+AESGCM(os.urandom(32)).encrypt(nonce,plaintext,b'Ziokt/mesh/CI')
   mid=owner+blake3(ciphertext).digest()
   for _ in range(copies):
-   with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sock:
+   with socket.socket(socket.AF_INET,socket.SOCK_STREAM if os.environ.get('ZIOKT_TEST_ETP_TRANSPORT')=='tcp' else socket.SOCK_DGRAM) as sock:
     sock.bind(('127.0.0.1',0));addresses.append('127.0.0.1:'+str(sock.getsockname()[1]))
   for i in range(copies):
-   config={'bind':addresses[i],'private_key':transport[i].private_bytes(Encoding.Raw,PrivateFormat.Raw,NoEncryption()).hex(),'peers':{addresses[j]:public(transport[j]).hex() for j in range(copies) if i!=j},'mailbox':{'database':str(root/('mailbox-'+str(i))),'replication':{'copies':copies,'signing_key':signers[i].private_bytes(Encoding.Raw,PrivateFormat.Raw,NoEncryption()).hex(),'peers':{addresses[j]:public(signers[j]).hex() for j in range(copies) if i!=j}}}}
+   config={'transport':os.environ.get('ZIOKT_TEST_ETP_TRANSPORT','udp'),'bind':addresses[i],'private_key':transport[i].private_bytes(Encoding.Raw,PrivateFormat.Raw,NoEncryption()).hex(),'peers':{addresses[j]:public(transport[j]).hex() for j in range(copies) if i!=j},'mailbox':{'database':str(root/('mailbox-'+str(i))),'replication':{'copies':copies,'signing_key':signers[i].private_bytes(Encoding.Raw,PrivateFormat.Raw,NoEncryption()).hex(),'peers':{addresses[j]:public(signers[j]).hex() for j in range(copies) if i!=j}}}}
    path=root/(str(i)+'.json');path.write_text(json.dumps(config));path.chmod(0o600);configs.append(path)
   def call(i,method,params):
    nonlocal sequence

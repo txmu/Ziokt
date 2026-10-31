@@ -122,7 +122,7 @@ mod enabled {
                         "status fields"
                     );
                     Ok(
-                        serde_json::json!({"schema":"etp.mailbox.health.v1","native_store":"opened","copies_required":self.copies,"replication_confirmed":false,"confirmation":"use recipient-signed operation 6 for an actual delivery","e2e_verified":false}),
+                        serde_json::json!({"schema":"etp.mailbox.health.v1","native_store":"opened","copies_required":self.copies}),
                     )
                 }
                 "etp.mailbox.request" => {

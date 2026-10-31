@@ -709,7 +709,7 @@ class Fabric:
     def health(self,owner):
         with self.lock:
             integrity=self.db.execute('PRAGMA quick_check').fetchone()[0]
-            return {'schema':'ziokt.content-health.v1','node':self.public,'native_store':integrity,'account':owner,'objects':self.db.execute('SELECT count(*) FROM objects WHERE owner=?',(owner,)).fetchone()[0],'downloads':[dict(row) for row in self.db.execute('SELECT id,state,error FROM downloads WHERE owner=? ORDER BY id LIMIT 30',(owner,))],'observations':{'database_checked_now':True,'all_objects_verified':False,'end_to_end_verified':False},'guarantees':{'private_catalogue_exported':False,'ciphertext_at_rest':'SafeFS AEAD','metadata_at_rest':'private SQLite, not encrypted','remote_erasure_guaranteed':False}}
+            return {'schema':'ziokt.content-health.v1','node':self.public,'native_store':integrity,'account':owner,'objects':self.db.execute('SELECT count(*) FROM objects WHERE owner=?',(owner,)).fetchone()[0],'downloads':[dict(row) for row in self.db.execute('SELECT id,state,error FROM downloads WHERE owner=? ORDER BY id LIMIT 30',(owner,))],'observations':{'database_checked_now':True}}
 
     def _auto_prune(self, needed_bytes=0):
         now = int(time.time())

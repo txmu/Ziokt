@@ -64,13 +64,13 @@ class Consumer:
   id=hashlib.sha256(b'Ziokt/DNAConsumer/frame/v1\n'+encoded(frame)).hexdigest()
   with self.lock,self.db() as db:
    db.execute('BEGIN IMMEDIATE');old=db.execute('SELECT state FROM jobs WHERE id=?',(id,)).fetchone()
-   if old:return {'id':id,'state':old[0],'duplicate':True,'application_ready':False}
+   if old:return {'id':id,'state':old[0],'duplicate':True}
    seq=db.execute('SELECT sequence FROM sequences WHERE sender=?',(sender,)).fetchone()
    payload=rna_open(frame,producer['public_key'],c['chain'],c['policy'],sender,seq[0] if seq else 0,int(time.time()))
    command=strict_json(payload,8192);self.authorize(c,sender,command)
    if db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0]>=4096:raise RuntimeError('consumer journal quota; archive before resuming')
    sequence=frame['header']['sequence'];db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,\'queued\',NULL,\'\',0,0)',(id,sender,sequence,encoded(frame),encoded(command)));db.execute('INSERT OR REPLACE INTO sequences VALUES(?,?)',(sender,sequence))
-  return {'id':id,'state':'queued','duplicate':False,'application_ready':False}
+  return {'id':id,'state':'queued','duplicate':False}
  def step(self):
   with self.lock,self.db() as db:row=db.execute("SELECT id,sender,command,attempts,frame,state FROM jobs WHERE state IN ('queued','dispatching','retry','unknown') AND next_at<=? ORDER BY rowid LIMIT 1",(int(time.time()),)).fetchone()
   if row is None:return None
@@ -88,7 +88,7 @@ class Consumer:
    if federation.get('enabled') is not True or provider is None:raise PermissionError('native target disabled')
    client=NativeClient(federation['federation_id'],provider)
    with self.db() as db:db.execute("UPDATE jobs SET state='dispatching' WHERE id=?",(id,))
-   if command['operation']=='status.get':result={'native_status':client.call('status.get',{}),'application_ready':False};state='completed_read'
+   if command['operation']=='status.get':result={'native_status':client.call('status.get',{})};state='completed_read'
    else:
     native_started=True
     operation='dna-'+id[:56]
@@ -102,13 +102,13 @@ class Consumer:
     state='native_committed' if result['state']=='committed' else 'unknown' if result['state']=='unknown' else 'rejected'
    if len(encoded(result))>65536:raise ValueError('native receipt budget')
    with self.db() as db:db.execute('UPDATE jobs SET state=?,result=?,error=\'\',next_at=? WHERE id=?',(state,encoded(result),int(time.time())+30,id))
-   return {'id':id,'state':state,'application_ready':False}
+   return {'id':id,'state':state}
   except Exception as error:
    state=('unknown' if native_started or previous_state in {'dispatching','unknown'} else 'rejected') if isinstance(error,(PermissionError,ValueError,InvalidSignature)) else ('unknown' if native_started or previous_state in {'dispatching','unknown'} else 'retry');attempts+=1
    with self.db() as db:db.execute('UPDATE jobs SET state=?,error=?,attempts=?,next_at=? WHERE id=?',(state,getattr(error,'code',type(error).__name__),attempts,int(time.time())+min(3600,15*2**min(attempts,8)),id))
-   return {'id':id,'state':state,'error':getattr(error,'code',type(error).__name__),'application_ready':False}
+   return {'id':id,'state':state,'error':getattr(error,'code',type(error).__name__)}
  def poll_chain(self):
-  """Consume confirmed native-validated content; halt on a consumed-chain reorg.
+  """Consume confirmed native-validated content, replaying reads after reorgs.
 
   The local Corium database is the validation boundary, never a remote SQL feed.
   Every RNA frame still needs its own pinned sender signature and live delegation.
@@ -122,7 +122,13 @@ class Consumer:
    if chain.execute('SELECT hash FROM blocks WHERE height=0').fetchone()!=(source['genesis'],):raise PermissionError('chain genesis mismatch')
    tip=chain.execute('SELECT MAX(height) FROM blocks').fetchone()[0]
    with self.db() as db:cursor=db.execute('SELECT height,hash FROM chain_cursor WHERE slot=1').fetchone()
-   if cursor and chain.execute('SELECT hash FROM blocks WHERE height=?',(cursor[0],)).fetchone()!=(cursor[1],):raise PermissionError('consumed chain reorganized; operator review required')
+   if cursor and chain.execute('SELECT hash FROM blocks WHERE height=?',(cursor[0],)).fetchone()!=(cursor[1],):
+    # Status reads can be repeated. Keep their signed journals and sequence
+    # watermarks while scanning the new canonical branch from the pinned start.
+    # Native writes may have effects outside this chain and require review.
+    if any(target['actions']!=['status.get'] for target in c['targets'].values()):raise PermissionError('consumed chain reorganized; native writes require operator review')
+    with self.db() as db:db.execute('DELETE FROM chain_cursor WHERE slot=1')
+    cursor=None
    height=cursor[0]+1 if cursor else source['start_height'];count=0
    for h in range(height,min(tip-source['confirmations']+1,height+16)):
     block=chain.execute('SELECT hash,transactions FROM blocks WHERE height=?',(h,)).fetchone()
@@ -160,7 +166,7 @@ def server(consumer):
   def do_GET(self):
    if self.path!='/status':return self.reply(404,{'error':'NOT_FOUND'})
    with consumer.db() as db:counts=dict(db.execute('SELECT state,count(*) FROM jobs GROUP BY state'))
-   self.reply(200,{'schema':'ziokt.dna-consumer-status.v1','enabled':consumer.settings()['enabled'],'jobs':counts,'application_readiness':'not_inferred'})
+   self.reply(200,{'schema':'ziokt.dna-consumer-status.v1','enabled':consumer.settings()['enabled'],'jobs':counts})
   def do_POST(self):
    if self.path!='/rna' or self.headers.get('Origin') or self.headers.get('Transfer-Encoding'):return self.reply(403,{'error':'REJECTED'})
    try:
