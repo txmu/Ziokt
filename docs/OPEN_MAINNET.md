@@ -37,3 +37,7 @@ Native ETP public peers use authenticated TCP. The optional
 `tools/refresh_etp_peers.py` timer resolves owner-approved DNS peers and updates
 both transport and mailbox addresses together, retaining their pinned public
 keys and persistent databases. A temporary DNS failure preserves all addresses.
+
+For native Mailbox/Forum deployments, set `etp_autostart: true` in the owner MCP
+configuration. Configured ETP engines then start at service boot and restart
+after a child failure without waiting for a browser or MCP request.

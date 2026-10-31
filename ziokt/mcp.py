@@ -325,6 +325,7 @@ class Service:
             if hasattr(mail.internet_channel,'start'):mail.internet_channel.start()
         self.publication_stop=threading.Event();self.publication_thread=None
         self.etp={}
+        self.etp_thread=None
         self.content_etp=None;self.content_etp_config=None
 
     def start_protocol_publisher(self):
@@ -347,6 +348,21 @@ class Service:
         self.publication_thread=threading.Thread(target=run,name='native-protocol-publication',daemon=True)
         self.publication_thread.start()
 
+    def start_native_etp(self):
+        """Keep explicitly enabled native listeners alive without an HTTP visitor."""
+        if self.current().get('etp_autostart') is not True or self.etp_thread is not None:return
+        def run():
+            while not self.publication_stop.is_set():
+                try:settings=list(self.current().get('etp',{}).items())[:16]
+                except Exception:settings=[];log.warning('Native ETP configuration could not be loaded')
+                for name,value in settings:
+                    if self.publication_stop.is_set():return
+                    try:self.etp_backend(value).call('etp.stats',{})
+                    except Exception:log.warning('Configured native ETP listener unavailable: %s',name)
+                self.publication_stop.wait(5)
+        self.etp_thread=threading.Thread(target=run,name='native-etp-listeners',daemon=True)
+        self.etp_thread.start()
+
     def attach_shadow6_control(self,config=None,adapter=None):
         from .shadow6_control_mcp import attach_shadow6_control
         return attach_shadow6_control(self,config=config,adapter=adapter)
@@ -356,6 +372,7 @@ class Service:
             if hasattr(mail.internet_channel,'close'):mail.internet_channel.close()
         self.publication_stop.set()
         if self.publication_thread:self.publication_thread.join(timeout=30)
+        if self.etp_thread:self.etp_thread.join(timeout=12)
         with self.lock:
             if self.content_etp is not None:self.content_etp.close();self.content_etp=None
             for gateway in self.etp.values():gateway.close()
@@ -1195,6 +1212,7 @@ def execute(args):
     if args.mcp_action=='serve':
         server=Server((local_listener(config.get('listen','127.0.0.1')),config.get('port',8186)),http_handler(service))
         service.start_protocol_publisher()
+        service.start_native_etp()
         try:server.serve_forever()
         finally:server.server_close();service.close()
         return {}
