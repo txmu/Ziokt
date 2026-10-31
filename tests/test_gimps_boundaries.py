@@ -128,8 +128,10 @@ context.self.onmessage({data:{engine:'gimps',exponent:p,problem_id:String(p),pro
             state = Path(temporary)
             owner = GimpsPool(Chain(), 'a' * 64, state, expected_network='alpha')
             self.addCleanup(owner.close)
-            job = owner.issue()
-            self.assertEqual(owner.issue()['token'], job['token'])
+            worker = '1' * 48
+            job = owner.issue(worker)
+            self.assertEqual(owner.issue(worker)['token'], job['token'])
+            self.assertFalse(owner.issue('2' * 48)['available'])
             owner.save_checkpoint(job['token'], {'iteration': 5, 's': '3'})
             owner.heartbeat(job['token'])
             restart = GimpsPool(Chain(), 'a' * 64, state, expected_network='alpha')
