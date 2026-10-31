@@ -329,6 +329,8 @@ import sys
 try:
     if sys.argv[1]=='replay-anchor':
         result=replay_anchor(sys.argv[2],sys.argv[3],int(sys.argv[4]),*sys.argv[5:8]);print(json.dumps(result,separators=(',',':')))
+    elif sys.argv[1]=='replay-empty':
+        result=replay_empty_batch(sys.argv[2],sys.argv[3],sys.argv[4],int(sys.argv[5]));print(json.dumps(result,separators=(',',':')))
     else:main(sys.argv[1:])
 except (ValueError,TypeError,KeyError,InvalidSignature,sqlite3.Error):
     print('WORK_CONSENSUS_REJECTED',file=sys.stderr)

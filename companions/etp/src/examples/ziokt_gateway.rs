@@ -1,4 +1,6 @@
 //! Explicit bounded local JSONL bridge; the operator supplies private keys and approved peers.
+#[path = "support/tcp_transport.rs"]
+mod tcp_transport;
 #[path = "support/forum_gateway.rs"]
 mod forum_gateway;
 #[path = "support/mailbox_gateway.rs"]
@@ -29,6 +31,8 @@ struct Config {
     peers: HashMap<SocketAddr, String>,
     #[serde(default)]
     relay: bool,
+    #[serde(default = "default_transport")]
+    transport: String,
     #[serde(default)]
     forum: Option<forum_gateway::ForumConfig>,
     #[serde(default)]
@@ -43,6 +47,7 @@ struct Request {
     method: String,
     params: Value,
 }
+fn default_transport()->String {"udp".into()}
 fn hex_key(value: &str) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(
         value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -151,7 +156,14 @@ async fn main() -> anyhow::Result<()> {
         config.multiplexing_mode =
             etp_core::transport::reliability::MultiplexingMode::ParallelMulti;
     }
-    let (engine, handle, mut received) = EtpEngine::new(config, plugins).await?;
+    let (engine, handle, mut received) = match settings.transport.as_str() {
+        "udp" => EtpEngine::new(config, plugins).await?,
+        "tcp" => {
+            let transport=tcp_transport::TcpPacketTransport::bind(settings.bind,settings.peers.keys().copied().collect()).await?;
+            EtpEngine::new_with_transport(config,plugins,Arc::new(transport)).await?
+        },
+        _ => anyhow::bail!("transport must be udp or tcp"),
+    };
     #[cfg(feature = "persistence")]
     if let Some(files) = &mut fileshare {
         // One startup handshake owner: connect replaces native Noise state.

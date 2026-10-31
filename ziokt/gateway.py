@@ -323,7 +323,7 @@ def handler(gateway):
                 self.send(exc.status if isinstance(exc,GuiError) else 404,{'error':str(exc) if isinstance(exc,GuiError) else 'object unavailable'})
         def do_POST(self):
             path=urlsplit(self.path).path
-            if path not in ('/api/gateway/forum','/api/gateway/registrations','/api/gateway/registrations/decide','/api/gateway/tools/call'):return self.send(404,{'error':'not found'})
+            if path not in ('/api/gateway/forum','/api/gateway/registrations','/api/gateway/registrations/decide','/api/gateway/tools/call','/api/gateway/transactions'):return self.send(404,{'error':'not found'})
             try:
                 lengths = self.headers.get_all('Content-Length',[])
                 if len(lengths)!=1 or not lengths[0].isdigit() or not 0<int(lengths[0])<=100000 or self.headers.get('Transfer-Encoding'):
@@ -331,6 +331,18 @@ def handler(gateway):
                 if self.headers.get_content_type() != 'application/json': raise ValueError('JSON required')
                 payload = json.loads(self.rfile.read(int(lengths[0])), object_pairs_hook=unique)
                 auth = self.headers.get('Authorization','')
+                if path == '/api/gateway/transactions':
+                    self.check_gui_origin()
+                    from .public_transactions import validate
+                    tx,digest=validate(payload,gateway.config['network'])
+                    with gateway.lock,database(gateway.config['forum_db']) as db:
+                        now=int(time.time());author='public:'+hashlib.sha256(tx['public_key'].encode()).hexdigest()
+                        ip=gateway.rate_identity(self.headers.get('X-Ziokt-Client-IP',self.client_address[0]))
+                        db.execute('DELETE FROM gateway_nonces WHERE timestamp<?',(now-600,))
+                        if not db.execute('SELECT 1 FROM gateway_nonces WHERE nonce=?',(digest,)).fetchone():
+                            if db.execute('SELECT count(*) FROM gateway_nonces WHERE (author=? OR ip=?) AND timestamp>?',(author,ip,now-60)).fetchone()[0]>=60:raise ValueError('request rate')
+                            db.execute('INSERT INTO gateway_nonces VALUES(?,?,?,?)',(digest,author,ip,now))
+                    return self.send(200,json.loads(gateway.native_text('public-transaction',encoded(payload).decode())))
                 if path == '/api/gateway/tools/call':
                     self.check_gui_origin()
                     from .gui_api import dispatch

@@ -11,15 +11,16 @@ import signal
 
 SCRIPT=r'''
 source "$1" || exit
+load_config || exit
 get_our_ip || exit
 claim=$(printf '{"port":%s,"timestamp":%s}' "$P2P_PORT" "$(date +%s)")
 mapfile -t peers < <(db_query_static "$DHT_DB" 'SELECT id FROM nodes ORDER BY last_seen DESC LIMIT 8;')
-failed=0
+accepted=0
 for peer in "${peers[@]}"; do
     [[ "$peer" =~ ^[a-f0-9]{64}$ ]] || continue
-    _dht_send_message_direct "$peer" ANNOUNCE_ADDRESS "$claim" || failed=1
+    if _dht_send_message_direct "$peer" ANNOUNCE_ADDRESS "$claim"; then accepted=$((accepted+1)); fi
 done
-exit "$failed"
+[ "$accepted" -gt 0 ]
 '''
 
 def refresh(source, root, network):

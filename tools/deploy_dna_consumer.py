@@ -14,7 +14,7 @@ from ziokt.config import fingerprint,load
 from ziokt.dna_consumer import primary_domain
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--federation',required=True);p.add_argument('--chain-database',required=True);p.add_argument('--port',type=int);p.add_argument('--chain-role',choices=['primary','dna'],default='dna');p.add_argument('--network-id');p.add_argument('--refresh-chain-domain',action='store_true');args=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--federation',required=True);p.add_argument('--chain-database',required=True);p.add_argument('--port',type=int);p.add_argument('--chain-role',choices=['primary','dna'],default='dna');p.add_argument('--network-id');p.add_argument('--provider-id');p.add_argument('--refresh-chain-domain',action='store_true');args=p.parse_args()
  args.port=args.port or (8189 if args.chain_role=='dna' else 8190)
  root=Path(args.root).absolute();root.mkdir(mode=0o700,parents=True,exist_ok=True);root.chmod(0o700)
  source=root/'runtime'
@@ -52,7 +52,8 @@ def main():
    if proof.get('schema')!='corium.native-block-work.v2':raise ValueError('native primary chain proof required')
    chain=primary_domain(args.network_id,genesis)
   policy=proof['policy']
- targets={v['native_project']:{'federation':str(fpath),'provider':v['provider_id'],'actions':['status.get']} for v in federation['providers']}
+ if args.provider_id and not any(v['provider_id']==args.provider_id and v['native_project']=='corium' for v in federation['providers']):raise ValueError('selected Corium provider required')
+ targets={v['native_project']:{'federation':str(fpath),'provider':v['provider_id'],'actions':['status.get']} for v in federation['providers'] if not args.provider_id or v['native_project']!='corium' or v['provider_id']==args.provider_id}
  configpath=root/'consumer.json'
  if not configpath.exists():
   config={'schema':'ziokt.dna-consumer.v1','enabled':True,'state':str(root/'state'),'listen':'127.0.0.1','port':args.port,'chain':chain,'policy':policy,'senders':{sender:{'public_key':pem,'components':list(targets)}},'targets':targets,'chain_source':{'database':str(database),'genesis':genesis,'confirmations':1,'start_height':height+1}}

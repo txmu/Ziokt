@@ -6,6 +6,25 @@ shift 3
 source "$script"
 load_config
 case "$1" in
+ public-transaction)
+  [ "$#" -eq 2 ] || exit 2
+  acquire_lock system || exit 1
+  trap 'release_lock system' EXIT
+  db_begin_transaction "$BLOCKCHAIN_DB" "$FORUM_DB" || exit 1
+  committed=false
+  trap 'if ! $committed; then db_rollback_transaction "$BLOCKCHAIN_DB" "$FORUM_DB"; fi; release_lock system' EXIT
+  staged=$(python3 -m ziokt.public_transactions stage "$BLOCKCHAIN_DB" "$CORIUM_NETWORK_ID" "$2") || exit 1
+  tx=$(jq -er .transaction <<< "$staged") || exit 1
+  height=$(db_query_static "$BLOCKCHAIN_DB" 'SELECT COALESCE(MAX(height),-1)+1 FROM blocks;') || exit 1
+  declare -A public_tracker=() public_cache=()
+  if [ "$(jq -r .phase <<< "$staged")" != confirmed ]; then
+   _validate_single_transaction "$tx" '' '' "$height" public_tracker public_cache >/dev/null || exit 1
+   python3 -m ziokt.public_transactions publish "$CORIUM_ROOT" "$CORIUM_NETWORK_ID" "$2" >/dev/null || exit 1
+  fi
+  db_commit_transaction "$BLOCKCHAIN_DB" "$FORUM_DB" || exit 1
+  committed=true
+  printf '%s\n' "$staged"
+  ;;
  zkt-governance)
   [[ "$#" == 3 && "$2" =~ ^(propose|vote|enact)$ ]] || exit 2
   corix_zkt "$2" "$3"
@@ -48,7 +67,7 @@ PY_PUBLIC_OBJECT
   cost=$(_nns_calculate_genesis_cost "$2" "$BLOCKCHAIN_DB")
   points=$(get_my_contribution_points)
   [ "$points" -ge "$cost" ] || exit 1
-  data=$(jq -nc --arg name "$2" --arg root "$3" --argjson cost "$cost" '{domain_name:$name,target_hash:$root,proof_of_genesis_contribution:{burned_amount:$cost}}')
+  data=$(jq -nc --arg name "$2" --arg root "$3" --argjson cost "$cost" '{domain_name:$name,target_hash:$root,proof_of_genesis_contribution:{burned_amount:$cost},proof_of_contribution:{burned_amount:$cost}}')
   blockchain_create_transaction nns_register "$data" >/dev/null
   ;;
  announce)

@@ -84,7 +84,6 @@ class WorkflowJournal:
         rows = self.db.execute("SELECT step_id,state,native_plan,result FROM steps WHERE workflow_id=? ORDER BY rowid", (workflow_id,)).fetchall()
         return {"workflow_id": workflow_id, "plan_digest": row[0], "state": row[1],
                 "execution_semantics": "recoverable-steps", "global_atomicity": False,
-                "application_health": "not-assessed",
                 "steps": [{"step_id": r[0], "state": r[1], "native_plan": strict_json(r[2].encode()) if r[2] else None,
                            "result": strict_json(r[3].encode()) if r[3] else None} for r in rows]}
 

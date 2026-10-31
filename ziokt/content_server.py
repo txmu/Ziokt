@@ -179,6 +179,8 @@ class BoundedHTTP(http.server.ThreadingHTTPServer):
 
 def server(fabric, config):
     tokens=config.get('tokens',[])
+    from .public_accounts import Accounts
+    accounts=Accounts(fabric.root,{t['account'] for t in tokens}) if config.get('public_registration',True) else None
     peers=config.get('peers',{})
     fabric.remote_peers=peers
     fabric.retroshare_config=config.get('retroshare')
@@ -214,11 +216,14 @@ def server(fabric, config):
         def admit(self,principal):
             with rate_lock:
                 now=int(time.time())//60;key=principal['account'];previous,count=rates.get(key,(now,0));count=count+1 if previous==now else 1;rates[key]=(now,count)
-                if count>1200:raise RateLimited('request rate')
+                if count>(20 if key.startswith('signup:') else 1200):raise RateLimited('request rate')
+                if len(rates)>8192:
+                    for old in [k for k,v in rates.items() if v[0]!=now]:rates.pop(old,None)
         def principal(self,feed_auth=False):
             auth=self.headers.get('Authorization','')
             for entry in tokens:
                 if hmac.compare_digest(auth,'Bearer '+entry['token']):return entry
+            if accounts and (principal:=accounts.principal(auth)) is not None:return principal
             if feed_auth and auth.startswith('Basic ') and len(auth)<4096:
                 try:user,password=base64.b64decode(auth[6:],validate=True).decode('ascii').split(':',1)
                 except (ValueError,UnicodeError):raise PermissionError('feed authentication')
@@ -312,6 +317,14 @@ def server(fabric, config):
             except Exception:self.close_connection=True;self.send(503,{'error':'read failed; inspect node state'})
         def do_POST(self):
             try:
+                if self.path in {'/api/accounts/register','/api/accounts/login'} and accounts:
+                    self.origin()
+                    self.admit({'account':'signup:'+self.client_address[0]})
+                    lengths=self.headers.get_all('Content-Length',[])
+                    if self.headers.get('Transfer-Encoding') or len(lengths)!=1 or not lengths[0].isdigit() or not 0<int(lengths[0])<=2048:raise ValueError('account request budget')
+                    if self.headers.get_content_type()!='application/json':raise ValueError('JSON required')
+                    payload=strict_json(self.rfile.read(int(lengths[0])),2048)
+                    return self.send(201 if self.path.endswith('/register') else 200,accounts.issue(payload,self.path.endswith('/register')))
                 if self.path!='/api':self.close_connection=True;return self.send(404,{'error':'not found'})
                 self.origin();principal=self.principal()
                 self.admit(principal)
@@ -332,12 +345,12 @@ def server(fabric, config):
                     expected={'private.identity':{'account'},'private.status':{'id','challenge'},'private.packet':{'id','revision','position'},'private.deliver':{'envelope'}}
                     if op not in expected or type(args)is not dict or set(args)!=expected[op]:raise ValueError('private transport fields')
                     if op=='private.identity':
-                        if args['account'] not in {t['account'] for t in tokens}:raise PermissionError('local account identity unavailable')
+                        if args['account'] not in {t['account'] for t in tokens} and not (accounts and accounts.contains(args['account'])):raise PermissionError('local account identity unavailable')
                         result=private.identity(args['account'])
                     elif op=='private.status':result=private.status(args['id'],args['challenge'])
                     elif op=='private.packet':result=private.packet(args['id'],args['revision'],args['position'])
                     else:
-                        if args['envelope'].get('payload',{}).get('recipient') not in {t['account'] for t in tokens}:raise PermissionError('local recipient unavailable')
+                        if args['envelope'].get('payload',{}).get('recipient') not in {t['account'] for t in tokens} and not (accounts and accounts.contains(args['envelope'].get('payload',{}).get('recipient'))):raise PermissionError('local recipient unavailable')
                         result=private.deliver(args['envelope'])
                 elif op=='federation.export':
                     if 'content:replicate' not in scopes:raise PermissionError('peer grant')
