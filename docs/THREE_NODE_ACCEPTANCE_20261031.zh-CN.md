@@ -24,7 +24,8 @@ UpCloud 公布的试用范围包括 33434–33534，但本次 C→A/B 该范围 
 | Primary / DNA 完整历史 | C 原生重放通过 | C /root/ziokt-mainnet-join.log；后续实时追赶未完成 |
 | 三验证者共同出块与恢复 | 未完成 | 需要追平后记录三节点同高区块与各自合法区块 |
 | DNA 消费者、ETP、Shadow6、UFS、Phoenix | 沿用此前双节点或原生 CI 证据 | 第三节点扩展尚未完成，不能标记三节点通过 |
-| Social Federation、WATChat、Mail、Community | 已实现；沿用既有细分证据 | 三节点账户业务、联邦、持久化与故障恢复尚待执行 |
+| Social Federation 身份证明 | 三节点通过（限定双签绑定、证明分发、篡改拒绝与撤销） | social-three-result.json：三台真实主机经原生 HTTPS 传输证明，各自重开持久化状态后验证；不授予原生应用权限 |
+| WATChat、Mail、Community | 已实现；沿用既有细分证据 | 三节点账户业务与故障恢复尚待执行 |
 
 证据目录：`/home/admin/release-validation/three-node-20261031`。仅发布经过审阅的公开结果；私钥、口令、令牌及账户材料留在私有目录。
 
