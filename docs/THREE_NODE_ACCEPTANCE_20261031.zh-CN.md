@@ -20,7 +20,7 @@ UpCloud 公布的试用范围包括 33434–33534，但本次 C→A/B 该范围 
 |---|---|---|
 | 应用中心、远端密钥保存与鉴权 | CI/本地及实际公网浏览器通过 | ui-live-result.json：27 个实际原生包工具，浏览器错误为零，凭据不落 localStorage |
 | cor-web 根入口 | 实际公网浏览器通过 | 原生 explorer HTTP 200；移除对未发布保留域名的默认跳转，保留静态内容验签策略 |
-| TLS 入口自动选择 | 本地通过，实际 C→B 通过 | entrypoint-regression.log、c-primary-ping.log；错误证书和路径越界拒绝 |
+| TLS 入口自动选择 | 本地通过，实际 C→B 自动选择通过 | entrypoint-regression.log、c-primary-ping.log；错误证书和路径越界拒绝 |
 | Primary / DNA 完整历史 | C 原生重放通过 | C /root/ziokt-mainnet-join.log；后续实时追赶未完成 |
 | 三验证者共同出块与恢复 | 未完成 | 需要追平后记录三节点同高区块与各自合法区块 |
 | DNA 消费者、ETP、Shadow6、UFS、Phoenix | 沿用此前双节点或原生 CI 证据 | 第三节点扩展尚未完成，不能标记三节点通过 |

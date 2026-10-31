@@ -1148,33 +1148,7 @@ function renderHome(container) {
         </div>
       </div>
 
-      <!-- Telemetry Cards -->
-      <div class="grid-cards">
-        <div class="card">
-          <div class="card-title">
-            <span>${t('identity.did')}</span>
-            <span class="status-badge"><span class="status-dot"></span> Active</span>
-          </div>
-          <div class="card-value" style="font-family: var(--font-mono); font-size: 0.95rem; color: var(--accent-cyan);">${State.userDid}</div>
-          <div class="card-desc">绑定 NNS 域: genesis.ziokt &bull; Ed25519 签名链已锚定</div>
-        </div>
-        <div class="card">
-          <div class="card-title">
-            <span>${t('identity.pouw_status')}</span>
-            <span style="color: var(--accent-green); font-weight: 600;">MINING</span>
-          </div>
-          <div class="card-value">2,840 H/s <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">(SHA-256 / Blake3)</span></div>
-          <div class="card-desc">区块高度: #10,482 &bull; 累计算力贡献分: 142.50</div>
-        </div>
-        <div class="card">
-          <div class="card-title">
-            <span>${t('network.profiles_title')}</span>
-            <span style="color: var(--accent-purple); font-weight: 600;">13 CORES</span>
-          </div>
-          <div class="card-value" style="font-size: 1.1rem; color: var(--accent-purple);">Shadow6 Virtual Broker: 就绪</div>
-          <div class="card-desc">已连接 Go, Rust, Zig, Nim, Gleam, Ada 等多协议隧道</div>
-        </div>
-      </div>
+      <section class="card" id="home-native-observation" aria-live="polite"><h3>${isEn ? 'Native node observation' : '原生节点观测'}</h3><p>${isEn ? 'Reading current node state…' : '正在读取本节点实时状态…'}</p></section>
 
       <!-- Component Health Grid -->
       <div class="card" style="margin-bottom: 24px;">
@@ -1211,6 +1185,15 @@ function renderHome(container) {
       Events.emit('navigate', btn.dataset.target);
     };
   });
+
+  const observation=container.querySelector('#home-native-observation');
+  apiRequest('/api/gateway/status').then(value=>{
+    if(!observation?.isConnected)return;
+    const chain=value.chain_provenance,tip=chain?.tip;
+    const lines=[['Network',value.network],['Height',tip?.height],['Block',tip?.hash],['Block producer',tip?.validator],['Source revision',value.build?.source_commit],['Observed at',new Date().toISOString()]];
+    observation.replaceChildren();
+    for(const [label,text]of lines){if(text===undefined||text===null)continue;const row=document.createElement('p');row.textContent=label+': '+text;row.style.overflowWrap='anywhere';observation.append(row);}
+  }).catch(error=>{if(observation?.isConnected)observation.textContent=(isEn?'Node state unavailable: ':'节点状态读取失败：')+error.message;});
 
   const modeSelect = container.querySelector('#home-mode-select');
   if (modeSelect) {
