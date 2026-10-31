@@ -40,7 +40,19 @@ class EffortPool:
 
     def recover(self,problem,operation):
         """Resume a durable intent without confusing prepare with execution."""
-        result=self.client.call('operation.reconcile',{'operation_id':operation})
+        try:result=self.client.call('operation.reconcile',{'operation_id':operation})
+        except ProtocolError as exc:
+            if exc.code!='OPERATION_NOT_FOUND':raise
+            # A canonical history restore may remove an old native journal. Keep
+            # its intent permanently, and never retry it against a different task.
+            current=self.client.call('compute.challenge',{})
+            if (not isinstance(current,dict) or current.get('available') is not True or
+                    current.get('submitter_id')!=self.submitter or
+                    self.expected_network is not None and current.get('network_id')!=self.expected_network or
+                    not isinstance(current.get('problem_id'),str) or current['problem_id']==problem):raise
+            result={'state':'obsolete','accepted':False,'phase':'obsolete-native-task','operation_id':operation}
+            with self.db:self.db.execute('UPDATE submissions SET result=? WHERE problem=? AND operation=? AND result IS NULL',(encoded(result),problem,operation))
+            return result
         if result.get('state')=='prepared':
             try:
                 result=self.client.call('operation.commit',{'operation_id':operation,'plan_digest':result['plan_digest']})

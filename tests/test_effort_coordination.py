@@ -60,3 +60,32 @@ class CoordinationTests(unittest.TestCase):
                 with self.assertRaises(ProtocolError):pools[0].heartbeat(jobs[0]['token'])
             finally:
                 for pool in pools:pool.close()
+
+class RestoredHistoryTests(unittest.TestCase):
+    def test_missing_old_native_journal_does_not_block_new_canonical_tasks(self):
+        class Restored(Tasks):
+            def call(self,method,params):
+                if method=='operation.reconcile':raise ProtocolError('OPERATION_NOT_FOUND','restored ledger')
+                return super().call(method,params)
+        with tempfile.TemporaryDirectory() as directory:
+            pool=EffortPool(Restored(),'a'*64,Path(directory),expected_network='test')
+            try:
+                with pool.db:pool.db.execute('INSERT INTO submissions VALUES (?,?,?,NULL)',('c'*64,'old-operation','123'))
+                self.assertTrue(pool.issue()['available'])
+                receipt=json.loads(pool.db.execute('SELECT result FROM submissions').fetchone()[0])
+                self.assertFalse(receipt['accepted']);self.assertEqual(receipt['state'],'obsolete')
+                self.assertEqual(pool.client.commits,0)
+            finally:pool.close()
+
+    def test_missing_current_native_journal_retains_the_unresolved_intent(self):
+        class Restored(Tasks):
+            def call(self,method,params):
+                if method=='operation.reconcile':raise ProtocolError('OPERATION_NOT_FOUND','missing journal')
+                return super().call(method,params)
+        with tempfile.TemporaryDirectory() as directory:
+            pool=EffortPool(Restored(),'a'*64,Path(directory),expected_network='test')
+            try:
+                with pool.db:pool.db.execute('INSERT INTO submissions VALUES (?,?,?,NULL)',('b'*64,'current-operation','123'))
+                with self.assertRaises(ProtocolError):pool.issue()
+                self.assertIsNone(pool.db.execute('SELECT result FROM submissions').fetchone()[0])
+            finally:pool.close()
