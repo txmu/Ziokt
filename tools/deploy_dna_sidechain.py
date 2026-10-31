@@ -108,11 +108,12 @@ def deploy(root,primary,archive,corium,entrypoint,activate=False,port=7235,recov
 mkdir -p "$BUILD_TMP_DIR_BASE" "$INSTALLED_DB" "$P2P_DIR/objects"
 case "$1" in
  p2p) dht_server_daemon; while sleep 5; do test -f "$DAEMON_PID_FILE" && kill -0 "$(cat "$DAEMON_PID_FILE")" || exit 1; done ;;
- consensus) while true; do blockchain_mine_block; sleep 60; done ;;
+ consensus) export CORIUM_MINER_POLL_SECONDS=${{CORIUM_MINER_POLL_SECONDS:-120}}; _consensus_daemon_loop ;;
  *) exit 2 ;;
 esac
 '''
     write(wrapper,script.encode(),0o700)
+    if args.activate:write(root/'allow_empty_blocks',b'',0o600)
     observation={'schema':'ziokt.dna-deployment.v1','network':network,'root':str(root),'checkpoint':declaration['checkpoint'],
                  'genesis_hash':genesis,'recovery_identity':recovery.identity(declaration),'verifier_source_sha256':work.source_digest(),
                  'legacy_history_fully_verified':False,'legacy_checkpoint_explicitly_trusted':True,'activated':False}
@@ -135,7 +136,7 @@ esac
         units=[]
         for role in ('p2p','consensus'):
             name='ziokt-corium-dna-'+role;unit=root/(name+'.service')
-            text='[Unit]\nAfter=network-online.target\n[Service]\nUser='+str(__import__('pwd').getpwuid(os.getuid()).pw_name)+'\nWorkingDirectory='+str(root)+'\nExecStart='+str(wrapper)+' '+role+'\nRestart=on-failure\nRestartSec=5\nCPUQuota=25%\nMemoryMax=512M\n[Install]\nWantedBy=multi-user.target\n'
+            text='[Unit]\nAfter=network-online.target\n[Service]\nUser='+str(__import__('pwd').getpwuid(os.getuid()).pw_name)+'\nWorkingDirectory='+str(root)+'\nExecStart='+str(wrapper)+' '+role+'\nRestart=on-failure\nRestartSec=5\nCPUQuota=150%\nMemoryMax=512M\n[Install]\nWantedBy=multi-user.target\n'
             write(unit,text.encode());subprocess.run(['sudo','-n','install','-m','0644',str(unit),'/etc/systemd/system/'+name+'.service'],check=True);units.append(name)
         subprocess.run(['sudo','-n','systemctl','daemon-reload'],check=True)
         subprocess.run(['sudo','-n','systemctl','enable','--now',*units],check=True)

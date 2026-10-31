@@ -4,14 +4,33 @@ import argparse,hashlib,importlib.util,json,os,shutil,subprocess,tempfile,zipfil
 from pathlib import Path
 
 
-def package(repositories_root,output,evidence=None):
- # A source release cannot bypass the full proof and inventory gate.
- subprocess.run(['bash',str(Path(repositories_root).resolve()/'Corium/formal/check_all_formal.sh')],check=True)
- for project in ('Ziokt','Shadow6'):
-  subprocess.run([__import__('sys').executable,str(Path(repositories_root).resolve()/project/'formal/check.py')],check=True)
+def package(repositories_root,output,evidence=None,reuse_proofs=None):
+ base=Path(repositories_root).resolve();proof_reuse={}
+ if reuse_proofs:
+  recorded=json.loads(Path(reuse_proofs).read_text())
+  for name in ('Ziokt','Corium','Shadow6'):
+   repo=base/name;revision=recorded[name];files=sorted((repo/'formal').rglob('*.lean'));digests={}
+   prior=set(subprocess.check_output(['git','ls-tree','-r','--name-only',revision,'--','formal'],cwd=repo,text=True).splitlines())
+   prior={path for path in prior if path.endswith('.lean')}
+   current={str(path.relative_to(repo)) for path in files}
+   if prior!=current:raise ValueError('proof inventory changed: '+name)
+   for path in files:
+    relative=str(path.relative_to(repo));before=subprocess.check_output(['git','show',revision+':'+relative],cwd=repo)
+    if before!=path.read_bytes():raise ValueError('proof source changed: '+name+'/'+relative)
+    digests[relative]=hashlib.sha256(before).hexdigest()
+   proof_reuse[name]={'previously_checked_revision':revision,'unchanged_lean_files':digests}
+  subprocess.run([__import__('sys').executable,str(base/'Corium/formal/check_source.py')],check=True)
+  subprocess.run([__import__('sys').executable,str(base/'Corium/formal/generate_guards.py'),'--check'],check=True)
+  for name in ('Ziokt','Shadow6'):
+   subprocess.run([__import__('sys').executable,str(base/name/'formal/check.py'),'--inventory-only'],check=True)
+ else:
+  subprocess.run(['bash',str(Path(repositories_root).resolve()/'Corium/formal/check_all_formal.sh')],check=True)
+ if not reuse_proofs:
+  for project in ('Ziokt','Shadow6'):
+   subprocess.run([__import__('sys').executable,str(Path(repositories_root).resolve()/project/'formal/check.py')],check=True)
  base=Path(repositories_root).resolve();output=Path(output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
  excluded={'.git','.venv','.venv-ft','.tools','.runtime','.tmp','__pycache__','node_modules','target','.zig-cache','zig-out','.gradle','build','dist','obj','jniLibs','.android-toolchain','.nim_runtime','.pytest_cache','.mypy_cache'}
- provenance={'schema':'ziokt.joint-source.v1','repositories':{},'contract':'strict UTF-8; every file name ends in .txt; no native build'}
+ provenance={'schema':'ziokt.joint-source.v1','repositories':{},'reused_unchanged_proofs':proof_reuse,'contract':'strict UTF-8; every file name ends in .txt; no native build'}
  with tempfile.TemporaryDirectory(prefix='ziokt-joint-source-') as temporary:
   stage=Path(temporary)/'tree';stage.mkdir()
   for name in ['Ziokt','Corium','Shadow6']+(['Ziokt-Releases'] if (base/'Ziokt-Releases').is_dir() else []):
@@ -86,4 +105,4 @@ def package(repositories_root,output,evidence=None):
  return {'archive':str(output),'bytes':output.stat().st_size,'sha256':digest,'text_files':kept,'excluded_non_text':removed}
 
 if __name__=='__main__':
- parser=argparse.ArgumentParser();parser.add_argument('--repositories-root',type=Path,default=Path(__file__).resolve().parents[2]);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--evidence',type=Path);args=parser.parse_args();print(json.dumps(package(args.repositories_root,args.output,args.evidence)))
+ parser=argparse.ArgumentParser();parser.add_argument('--repositories-root',type=Path,default=Path(__file__).resolve().parents[2]);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--evidence',type=Path);parser.add_argument('--reuse-proofs-from',type=Path);args=parser.parse_args();print(json.dumps(package(args.repositories_root,args.output,args.evidence,args.reuse_proofs_from)))

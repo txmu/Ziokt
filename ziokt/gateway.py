@@ -130,6 +130,20 @@ class Gateway:
         if not self.config.get('corix_digest') or fingerprint(Path(self.config['corix']))!=self.config['corix_digest']:
             raise ValueError('native source digest changed; redeploy reviewed gateway')
 
+    def public_chain(self,network):
+        if network==self.config['network']:return self.config['state_root']
+        chains=self.config.get('public_chains',{})
+        if not isinstance(network,str) or network not in chains or not isinstance(chains[network],str) or not Path(chains[network]).is_absolute():raise ValueError('public chain unavailable')
+        return chains[network]
+
+    def public_transaction(self,payload):
+        from .public_transactions import validate
+        network=payload.get('network');root=self.public_chain(network)
+        validate(payload,network);self.verify_native_source()
+        result=subprocess.run([str(ASSETS/'native.sh'),self.config['corix'],root,network,'public-transaction',encoded(payload).decode()],check=True,timeout=60,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+        if len(result.stdout)>65536:raise ValueError('public transaction result budget')
+        return json.loads(result.stdout)
+
     def native_text(self,*args):
         self.verify_native_source()
         result=subprocess.run([str(ASSETS/'native.sh'),self.config['corix'],self.config['state_root'],self.config['network'],*args],check=True,timeout=60,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
@@ -334,7 +348,8 @@ def handler(gateway):
                 if path == '/api/gateway/transactions':
                     self.check_gui_origin()
                     from .public_transactions import validate
-                    tx,digest=validate(payload,gateway.config['network'])
+                    network=payload.get('network');gateway.public_chain(network)
+                    tx,digest=validate(payload,network)
                     with gateway.lock,database(gateway.config['forum_db']) as db:
                         now=int(time.time());author='public:'+hashlib.sha256(tx['public_key'].encode()).hexdigest()
                         ip=gateway.rate_identity(self.headers.get('X-Ziokt-Client-IP',self.client_address[0]))
@@ -342,7 +357,7 @@ def handler(gateway):
                         if not db.execute('SELECT 1 FROM gateway_nonces WHERE nonce=?',(digest,)).fetchone():
                             if db.execute('SELECT count(*) FROM gateway_nonces WHERE (author=? OR ip=?) AND timestamp>?',(author,ip,now-60)).fetchone()[0]>=60:raise ValueError('request rate')
                             db.execute('INSERT INTO gateway_nonces VALUES(?,?,?,?)',(digest,author,ip,now))
-                    return self.send(200,json.loads(gateway.native_text('public-transaction',encoded(payload).decode())))
+                    return self.send(200,gateway.public_transaction(payload))
                 if path == '/api/gateway/tools/call':
                     self.check_gui_origin()
                     from .gui_api import dispatch

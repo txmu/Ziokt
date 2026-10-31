@@ -61,6 +61,9 @@ with closing(sqlite3.connect(sys.argv[2])) as db:
                     fields=list(row)
                     db.execute('INSERT INTO '+label+'."'+table+'" ('+','.join('"'+f+'"' for f in fields)+') VALUES ('+','.join('?' for f in fields)+')',[decode(row[f]) for f in fields])
     db.executemany('INSERT INTO transactions(hash,type,data,signature,public_key,timestamp,block_height) VALUES(?,?,?,?,?,?,NULL)',pending)
+    tip=db.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
+    db.execute("INSERT OR REPLACE INTO chain_state VALUES('last_processed_height',?)",(str(tip[0]),))
+    db.execute("INSERT OR REPLACE INTO chain_state VALUES('chain_info',?)",(tip[1]+'|'+str(tip[0]),))
     db.commit()
 ADOPT
 _internal_consensus_safety_check

@@ -10,7 +10,7 @@ from pathlib import Path
 import sqlite3
 import time
 from . import _runtime
-from .protocol import ProtocolError,strict_json
+from .protocol import ProtocolError,strict_json,encoded
 from .gateway_store import Store,digest_ok
 from .static_site import cs_content
 
@@ -42,20 +42,26 @@ class CoriumNames:
             hashes=strict_json(block[1].encode())
             rows=db.execute("SELECT hash,type,data,signature,public_key,timestamp FROM transactions WHERE block_height=? AND type IN ('nns_register','nns_update') LIMIT 4097",(height,)).fetchall()
             if len(rows)>4096:raise ProtocolError('NAME_REJECTED','native proof budget exceeded')
-            matched=None
+            matched=None;inline_manifest=None
             for txhash,kind,data,signature,public,timestamp in rows:
                 if txhash not in hashes:continue
                 if hashlib.sha256(public.rstrip('\n').encode()).hexdigest()!=owner:continue
                 payload=strict_json(data.encode())
                 records=payload.get('records',[]) if kind=='nns_update' else [payload]
                 if not any(isinstance(record,dict) and record.get('domain_name')==root and record.get('target_hash')==target for record in records):continue
-                raw=('{"type":'+json.dumps(kind)+',"data":'+data+',"timestamp":'+str(timestamp)+'}').encode()
+                if self.network_id in {'ziokt-dna-side-20261024','ziokt-main-recovery-20261024'}:
+                    raw=_runtime.asset_transaction_bytes({'type':kind,'data':payload,'timestamp':timestamp,'public_key':public},self.network_id)
+                else:raw=('{"type":'+json.dumps(kind)+',"data":'+data+',"timestamp":'+str(timestamp)+'}').encode()
                 if hashlib.sha256(raw).hexdigest()!=txhash:continue
                 _runtime.native_ec_verify(public,signature,raw)
                 matched=txhash
+                if kind=='nns_register' and 'publication' in payload:
+                    publication=payload['publication']
+                    if not isinstance(publication,dict) or hashlib.sha256(encoded(publication)).hexdigest()!=target:raise ProtocolError('NAME_REJECTED','inline publication content address differs')
+                    inline_manifest=publication
             if matched is None:
                 raise ProtocolError('NAME_REJECTED','NNS target is not bound by current native owner in canonical block; rebind after transfer')
-        manifest=strict_json(cs_content(target,self.store.get))
+        manifest=inline_manifest if inline_manifest is not None else strict_json(cs_content(target,self.store.get))
         if site and (type(expiry) is not int or expiry!=0 and expiry<=int(time.time())):raise ProtocolError('NAME_REJECTED','native website registration expired')
         if site:return {'manifest':manifest,'target':target,'owner':owner,'height':height,'block_hash':block[0],'transaction':matched}
         naming=manifest.get('ziokt_naming') if isinstance(manifest,dict) else None

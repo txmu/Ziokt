@@ -16,8 +16,8 @@ jobs:
       - name: Build native gateway and test TCP packet framing
         working-directory: companions/etp/src
         run: |
-          cargo test --locked --example ziokt_gateway tcp_transport::tests::actual_tcp_packets_preserve_both_endpoint_ports_and_bounds -- --exact
-          cargo build --locked --example ziokt_gateway
+          cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway tcp_transport::tests::actual_tcp_packets_preserve_both_endpoint_ports_and_bounds -- --exact
+          cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway
           strip target/debug/examples/ziokt_gateway
           sha256sum target/debug/examples/ziokt_gateway > target/debug/examples/ziokt_gateway.sha256
       - uses: actions/upload-artifact@v7.0.2

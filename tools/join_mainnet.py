@@ -53,7 +53,7 @@ def main():
                 path=bundle/role/name
                 if path.exists():shutil.copyfile(path,etc/name);(etc/name).chmod(0o600)
             conf=etc/'corix.conf'
-            write(conf,f'[main]\ndep_mode = manual\nbuild_jobs = 1\nenable_fuzzy_finder = false\n[network]\nid = {network}\n[p2p]\nport = {port}\npublic_address_mode = auto\nenable_upnp = false\nauto_trust_new_nodes = false\ntls_ech_enabled = false\ntls_no_sni_client = true\n[blockchain]\nconsensus = pos\n[ziokt]\nenabled = TRUE\nfederation_id = ziokt-mainnet\nprovider_id = {role}-node\n')
+            write(conf,f'[main]\ndep_mode = manual\nbuild_jobs = 1\nenable_fuzzy_finder = false\n[network]\nid = {network}\n[p2p]\nport = {port}\npublic_address_mode = auto\nenable_upnp = false\nauto_trust_new_nodes = false\ntls_ech_enabled = false\ntls_no_sni_client = true\n[gateway]\nport = {port+3000}\n[blockchain]\nconsensus = pos\n[ziokt]\nenabled = TRUE\nfederation_id = ziokt-mainnet\nprovider_id = {role}-node\n')
             env=dict(os.environ,CORIUM_ROOT=str(state),CORIUM_NETWORK_ID_OVERRIDE=network,CORIUM_TEST_NO_DAEMONS='1')
             env.pop('CORIUM_CONSENSUS_HOLD_FILE',None)
             subprocess.run(['bash',str(source),'init','--state-only'],env=env,check=True,timeout=180)
@@ -68,9 +68,10 @@ def main():
             key=(etc/'identity.key.pub').read_text().rstrip('\n');identity=hashlib.sha256(key.encode()).hexdigest()
             chains[role]={'root':str(state),'network_id':network,'identity':identity}
             providers.append({'native_project':'corium','provider_id':role+'-node','root':str(source.parent),'native_config':str(conf),'entrypoint_digest':'sha256:'+hashlib.sha256(source.read_bytes()).hexdigest(),'network_id':network,'state_root':str(state)})
+            write(state/'allow_empty_blocks','')
             for action in ('p2p','consensus'):
                 runner=root/(role+'-'+action+'.sh')
-                script='#!/bin/bash\numask 077\nexport CORIUM_ROOT='+shlex.quote(str(state))+' CORIUM_NETWORK_ID_OVERRIDE='+shlex.quote(network)+'\nsource '+shlex.quote(str(source))+'\nload_config\n'+('dht_server_daemon; wait' if action=='p2p' else '_consensus_daemon_loop')+'\n'
+                script='#!/bin/bash\numask 077\nexport CORIUM_ROOT='+shlex.quote(str(state))+' CORIUM_NETWORK_ID_OVERRIDE='+shlex.quote(network)+' CORIUM_GATEWAY_PORT='+str(port+3000)+'\nsource '+shlex.quote(str(source))+'\nload_config\n'+('dht_server_daemon; wait' if action=='p2p' else 'export CORIUM_MINER_POLL_SECONDS=${CORIUM_MINER_POLL_SECONDS:-120}; _consensus_daemon_loop')+'\n'
                 write(runner,script);runner.chmod(0o700)
                 name='ziokt-'+role+'-'+action+'.service'
                 unit='[Unit]\nDescription=Ziokt open mainnet '+role+' '+action+'\nAfter=network-online.target\n[Service]\nType=simple\nExecStart='+shlex.quote(str(runner))+'\nRestart=on-failure\nRestartSec=5\nUMask=0077\n[Install]\nWantedBy='+('multi-user.target' if os.geteuid()==0 else 'default.target')+'\n'

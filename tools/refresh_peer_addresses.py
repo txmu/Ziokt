@@ -13,7 +13,11 @@ SCRIPT=r'''
 source "$1" || exit
 load_config || exit
 get_our_ip || exit
-claim=$(printf '{"port":%s,"timestamp":%s}' "$P2P_PORT" "$(date +%s)")
+if type _corium_address_claim >/dev/null 2>&1; then
+    claim=$(_corium_address_claim) || exit
+else
+    claim=$(printf '{"port":%s,"timestamp":%s}' "$P2P_PORT" "$(date +%s)")
+fi
 mapfile -t peers < <(db_query_static "$DHT_DB" 'SELECT id FROM nodes ORDER BY last_seen DESC LIMIT 8;')
 accepted=0
 for peer in "${peers[@]}"; do

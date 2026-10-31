@@ -3,7 +3,7 @@ import hashlib,hmac,re,secrets,sqlite3,threading,time
 from pathlib import Path
 from contextlib import contextmanager
 
-SCOPES=['applications:read','content:read','content:write','library:read','library:write','netnews:read','netnews:write','feeds:read','feeds:write']
+SCOPES=['applications:read','content:read','content:write','library:read','library:write','netnews:read','netnews:write','feeds:read','feeds:write','optimization:read','optimization:write']
 
 class Accounts:
     def __init__(self,root,reserved=()):

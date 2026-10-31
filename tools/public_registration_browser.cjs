@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto');
+let pw;try{pw=require('../ci/browser/node_modules/playwright')}catch(_){pw=require('../.runtime/browser/node_modules/playwright')}
+(async()=>{const browser=await pw.chromium.launch({headless:true,args:['--no-sandbox']});try{const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+await page.goto(process.env.READER_URL||'https://read.ziokt.com/',{waitUntil:'networkidle'});
+await page.locator('#account-panel summary').click();const username='accept'+Date.now().toString(36),password=crypto.randomBytes(20).toString('hex');
+await page.locator('#account-name').fill(username);await page.locator('#account-password').fill(password);await page.locator('#account-show').click();assert.equal(await page.locator('#account-password').getAttribute('type'),'text');await page.locator('#account-show').click();
+await page.locator('button[value="register"]').click();await page.waitForFunction(()=>document.querySelector('#account-status').textContent.startsWith('已登录：'),{timeout:20000});
+const result=await page.evaluate(async()=>{const reply=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({operation:'library.collection.manage',arguments:{id:'acceptance',action:'create',name:'我的验收书架',revision:0}})});const collection=await reply.json();const denied=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({operation:'content.maintenance',arguments:{}})});return {collection_status:reply.status,collection_revision:collection.revision,admin_status:denied.status}});
+assert.equal(result.collection_status,200);assert.equal(result.collection_revision,1);assert.equal(result.admin_status,403);
+assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.locator('#theme').click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.deepEqual(errors,[]);
+if(process.env.ACCOUNT_RECEIPT)fs.writeFileSync(process.env.ACCOUNT_RECEIPT,JSON.stringify({username,password,account:'user_'+username}),{mode:0o600});
+console.log(JSON.stringify({status:'PASS',transport:'real public HTTPS and browser',account:'user_'+username,mobile:true,themes:2,private_collection:true,admin_rejected:true,page_errors:errors}));}finally{await browser.close()}})().catch(error=>{console.error(error);process.exitCode=1});
