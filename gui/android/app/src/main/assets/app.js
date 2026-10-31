@@ -316,6 +316,7 @@ function getInitialLang() {
 }
 
 const nodeSecrets = new Map();
+const nodeObservations = new Map();
 try { localStorage.removeItem('ziokt_auth_token'); const old = JSON.parse(localStorage.getItem('ziokt_remote_nodes') || '[]'); localStorage.setItem('ziokt_remote_nodes', JSON.stringify(old.map(({authToken, ...n}) => n))); } catch (_) {}
 function configuredEndpoint(name, path = '/') {
   const explicit = getStorage('ziokt_endpoint_' + name) || (State.serviceEndpoints || {})[name] || (typeof document !== 'undefined' ? document.querySelector('meta[name="ziokt-' + name + '"]')?.content : '');
@@ -346,13 +347,13 @@ function getRemoteNodes() {
     const raw = localStorage.getItem('ziokt_remote_nodes');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(n => ({...n,authToken: nodeSecrets.get(n.id) || '',status:'unverified'}));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(n => ({...n,authToken: nodeSecrets.get(n.id) || '',status:'unverified',...nodeObservations.get(n.id)}));
     }
   } catch (e) {}
   return DEFAULT_REMOTE_NODES.map(n=>({...n,authToken:nodeSecrets.get(n.id)||''}));
 }
 function saveRemoteNodes(nodes) {
-  nodes.forEach(n => nodeSecrets.set(n.id, n.authToken || ''));
+  nodes.forEach(n => {nodeSecrets.set(n.id, n.authToken || '');nodeObservations.set(n.id,{status:n.status,latency:n.latency,verifiedAt:n.verifiedAt});});
   setStorage('ziokt_remote_nodes', JSON.stringify(nodes.map(({authToken, ...n}) => n)));
   State.remoteNodes = nodes;
   Events.emit('remote_nodes_changed', nodes);
