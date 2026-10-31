@@ -32,3 +32,8 @@ python3 tools/register_public_name.py --name my-public-name --address YOUR_PUBLI
 Both chain consumers verify local canonical inclusion and current producer delegation. Confirmed `status.get` observations can be read after mining and confirmation delays; direct RNA ingress and native mutations retain their signed live execution window. Reorganizations replay read-only consumers idempotently, while consumers configured for native writes require review before resuming on a changed consumed branch.
 
 Use `deploy.py mainnet` to join both public chains with persistent services, `mainnet --create --network NAME` to create a sovereign pair, and a creator-provided checksum-pinned bootstrap to join that pair. Each pair records its recommended mainnet IBC peers in `IBC.json`; foreign checkpoints are admitted by native governance. See the Releases repository for service lifecycle commands and [UFS protocol integration](UFS_PROTOCOLS.md) for the full native protocol set.
+
+Native ETP public peers use authenticated TCP. The optional
+`tools/refresh_etp_peers.py` timer resolves owner-approved DNS peers and updates
+both transport and mailbox addresses together, retaining their pinned public
+keys and persistent databases. A temporary DNS failure preserves all addresses.

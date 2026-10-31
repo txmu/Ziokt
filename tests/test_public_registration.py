@@ -38,7 +38,8 @@ class PublicAccountTests(unittest.TestCase):
 CORE=pathlib.Path(__file__).resolve().parents[2]/'Corium'
 if CORE.is_dir():
     sys.path.insert(0,str(CORE))
-    from test_core import Fixture
+    try:from test_core import Fixture
+    finally:sys.path.pop(0)
     class PublicNamingTests(Fixture):
         def signed(self,key,kind,data,network='default'):
             pem=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')

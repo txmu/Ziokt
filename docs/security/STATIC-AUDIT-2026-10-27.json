@@ -546,6 +546,132 @@
       "severity": "MEDIUM",
       "fingerprint": "c723a9f4ad776afc71ae2bb12751406348344a6e004499216b77b587e5c80b5d",
       "review": "The interpolated SQL consists of fixed internal table/column names or typed internal query fragments; all caller values use bound SQLite parameters."
+    },
+    {
+      "fingerprint": "0248962de7bc8e77c47fc499a91a737e3136da0d7352b016f2a48b50202ba31d",
+      "line": 41,
+      "path": "ci/ufs_crosshost.py",
+      "rule": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+      "scanner": "semgrep",
+      "severity": "WARNING",
+      "review": "Authorized two-host acceptance harness only. HTTPS uses an explicit CA certificate and hostname verification; FTP uses AUTH TLS with encrypted data, and Telnet uses verified TLS. Public listener binds are necessary for the physical exchange. Random test accounts, isolated per-user roots and negative guest/path checks are exercised; no credentials are published."
+    },
+    {
+      "fingerprint": "6362913b570f6670204f4a580b4a637a5efeaed7711c8e71a0f30ea3ab253ac8",
+      "line": 44,
+      "path": "ci/ufs_crosshost.py",
+      "rule": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+      "scanner": "semgrep",
+      "severity": "WARNING",
+      "review": "Authorized two-host acceptance harness only. HTTPS uses an explicit CA certificate and hostname verification; FTP uses AUTH TLS with encrypted data, and Telnet uses verified TLS. Public listener binds are necessary for the physical exchange. Random test accounts, isolated per-user roots and negative guest/path checks are exercised; no credentials are published."
+    },
+    {
+      "fingerprint": "670eb49f3cdc1e940f33ba1c5c7e85c16b726fce129d12e005cb33cb1d6d58b5",
+      "line": 73,
+      "path": "tools/join_mainnet.py",
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "scanner": "semgrep",
+      "severity": "WARNING",
+      "review": "Owner selects an HTTPS bootstrap URL; download is bounded to 256 MiB and verified against the required expected SHA-256 before any archive extraction or native execution. This is a deployment CLI, not a remote user supplied URL fetch service."
+    },
+    {
+      "fingerprint": "658762f36987bad3b6ac39d2a7715578bc3b18d298ad5a7c1086d4403b1b89a2",
+      "line": 38,
+      "path": "tools/register_public_name.py",
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "scanner": "semgrep",
+      "severity": "WARNING",
+      "review": "Owner invokes a CLI with an HTTPS gateway origin; only the domain-bound signed public naming transaction is transmitted. TLS certificate verification remains enabled, request timeout is 30 seconds, and no local secrets are included in the payload."
+    },
+    {
+      "fingerprint": "08f978013a6fca471c6d15ebb865c552870b4eae68f38d5f73a5bc80cf602996",
+      "line": 2,
+      "path": "ci/ufs_crosshost.py",
+      "rule": "B402",
+      "scanner": "bandit",
+      "severity": "HIGH",
+      "review": "Authorized two-host acceptance harness only. HTTPS uses an explicit CA certificate and hostname verification; FTP uses AUTH TLS with encrypted data, and Telnet uses verified TLS. Public listener binds are necessary for the physical exchange. Random test accounts, isolated per-user roots and negative guest/path checks are exercised; no credentials are published."
+    },
+    {
+      "fingerprint": "68b7f616006fe79eb72f61d166b8b023c2e679a662458e0a2d6ed220e85f0bb4",
+      "line": 3,
+      "path": "ci/ufs_crosshost.py",
+      "rule": "B401",
+      "scanner": "bandit",
+      "severity": "HIGH",
+      "review": "Authorized two-host acceptance harness only. HTTPS uses an explicit CA certificate and hostname verification; FTP uses AUTH TLS with encrypted data, and Telnet uses verified TLS. Public listener binds are necessary for the physical exchange. Random test accounts, isolated per-user roots and negative guest/path checks are exercised; no credentials are published."
+    },
+    {
+      "fingerprint": "aaa37edabc920f2d99b8fec2f92caf1c5b20555ce07bd1a7817ecae206e1dd40",
+      "line": 25,
+      "path": "ci/ufs_crosshost.py",
+      "rule": "B104",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Authorized two-host acceptance harness only. HTTPS uses an explicit CA certificate and hostname verification; FTP uses AUTH TLS with encrypted data, and Telnet uses verified TLS. Public listener binds are necessary for the physical exchange. Random test accounts, isolated per-user roots and negative guest/path checks are exercised; no credentials are published."
+    },
+    {
+      "fingerprint": "76fcd5304ac017160e333ac6b4dae3e99e251d70e3b39164629d6e879bb6ae10",
+      "line": 57,
+      "path": "spec/replay_anchor_runtime.py",
+      "rule": "B608",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Only verified owner-signed native recovery state reaches restore. SQL table identifiers are restricted by fullmatch to ASCII identifiers before quoting; schema text accepts one CREATE TABLE statement for the exact name, and row values use bound parameters. No remote identifier or row value can inject SQL."
+    },
+    {
+      "fingerprint": "89ecb820bb6c48c9bee6158000a035dc65cc34480b361bb8d605123273307cfd",
+      "line": 64,
+      "path": "spec/replay_anchor_runtime.py",
+      "rule": "B608",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Only verified owner-signed native recovery state reaches restore. SQL table identifiers are restricted by fullmatch to ASCII identifiers before quoting; schema text accepts one CREATE TABLE statement for the exact name, and row values use bound parameters. No remote identifier or row value can inject SQL."
+    },
+    {
+      "fingerprint": "e00abf64b0700d1b38914c6bca3d60d8d5c1c638a95a54d3b273c51cdd74dfdd",
+      "line": 13,
+      "path": "tools/configure_ufs_protocols.py",
+      "rule": "B104",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Owner deployment CLI intentionally binds public extension protocols to all interfaces; public authenticated FTP and Telnet require TLS, SSH uses SFTP with no shell, and unauthenticated Gopher is isolated to a separate public root. Credentials remain in the existing private native configuration."
+    },
+    {
+      "fingerprint": "80e347e4347250822752fb2ace4f30e6a8adad7d94bdb16d64fd2c93c0cf1617",
+      "line": 73,
+      "path": "tools/join_mainnet.py",
+      "rule": "B310",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Owner selects an HTTPS bootstrap URL; download is bounded to 256 MiB and verified against the required expected SHA-256 before any archive extraction or native execution. This is a deployment CLI, not a remote user supplied URL fetch service."
+    },
+    {
+      "fingerprint": "96c446888a009f0d9321f4e2cb04495ccd9931512062d431cd85b95fcb72a9af",
+      "line": 38,
+      "path": "tools/register_public_name.py",
+      "rule": "B310",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "Owner invokes a CLI with an HTTPS gateway origin; only the domain-bound signed public naming transaction is transmitted. TLS certificate verification remains enabled, request timeout is 30 seconds, and no local secrets are included in the payload."
+    },
+    {
+      "fingerprint": "36551a8aa4ae997b564f220fe818e06e426713caccc3fe15cac8e9abd6b24beb",
+      "line": 228,
+      "path": "ziokt/ufs_protocols.py",
+      "rule": "B401",
+      "scanner": "bandit",
+      "severity": "HIGH",
+      "review": "Telnet is a required UFS extension. Public authenticated sessions require TLS; plaintext requires an explicit owner opt-in for an encrypted tunnel. Each session is authenticated and confined to its account file root, with a fixed UFS command set and no operating system shell."
+    },
+    {
+      "fingerprint": "7be3abce7310a28cc06f26a3f6990e8ed9d1c4bac8130846879468cbab622860",
+      "line": 441,
+      "path": "ziokt/ufs_protocols.py",
+      "rule": "B104",
+      "scanner": "bandit",
+      "severity": "MEDIUM",
+      "review": "The wildcard bind address is normalized to localhost only for the fixed owner-configured loopback status client. Status uses SHA-256 Digest credentials from a private file, disallows redirects and proxies, verifies TLS if enabled, and bounds the response to 64 KiB."
     }
   ],
   "whole_source_scan": {
@@ -562,5 +688,6 @@
     "Cross-node encrypted reader, notes, bookmarks and collection state",
     "Complete binary closure with exact CI/native/formal evidence gates"
   ],
-  "formal_scope": "Lean checks explicit abstract predicates and reviewed source correspondence; full production refinement and cryptographic security are not proved."
+  "formal_scope": "Lean checks explicit abstract predicates and reviewed source correspondence; full production refinement and cryptographic security are not proved.",
+  "last_reviewed": "2026-10-31"
 }

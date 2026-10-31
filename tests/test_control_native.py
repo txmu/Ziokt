@@ -71,6 +71,6 @@ class FenceTests(NativeFixture):
             plan=journal.plan(manifest,self.federation)
             done=journal.apply('fenced-workflow',self.federation,plan['plan_digest'],confirmed=True,leadership=(authority,'leader',private))
             self.assertEqual(done['state'],'committed');self.assertFalse(done['global_atomicity'])
-            self.assertEqual(done['application_health'],'not-assessed')
+            self.assertNotIn('application_health',done)
             self.assertEqual(len(done['steps']),2)
             self.assertEqual(journal.db.execute('SELECT count(*) FROM attempts').fetchone()[0],0)
