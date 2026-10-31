@@ -24,7 +24,7 @@ function watchLease(job,gimps,generation){
    const value=gimps?{token:job.token,...(latestCheckpoint?{checkpoint:latestCheckpoint}:{})}:{token:job.token};
    const response=await fetch(gimps?'/api/gimps/heartbeat':'/api/job/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:request.signal,credentials:'same-origin',cache:'no-store'});
    const state=await response.json();if(stopped||!active||generation!==epoch)return;
-   if(!response.ok||!gimps&&!state.active){clearWorkers();return}
+   if(!response.ok||gimps&&!state.renewed||!gimps&&!state.active){clearWorkers();return}if(gimps&&Number.isFinite(state.expires))job.expires=state.expires;
   }catch(_){if(!stopped&&Date.now()/1000>=job.expires)clearWorkers()}
   finally{clearTimeout(timeout);request=null}
   if(!stopped)pollTimer=setTimeout(poll,gimps?15000:3000);
@@ -44,4 +44,5 @@ document.addEventListener('freeze',()=>{if(!backgroundOption.checked)stop();else
 addEventListener('pagehide',event=>{if(!event.persisted||!backgroundOption.checked)stop()});
 addEventListener('pageshow',event=>{if(event.persisted){const resume=active&&backgroundOption.checked;stop();if(resume)start()}});
 
+window.ZioktEffortCoordination=Object.freeze({version:1,nonce_ranges:true,exclusive_gimps:true,heartbeat_ms:15000,task_status_ms:3000});
 window.ZioktCompute={stop:()=>stop(),desired:()=>active||resumeAfterNetwork};

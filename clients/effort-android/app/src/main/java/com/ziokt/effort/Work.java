@@ -10,23 +10,45 @@ import javax.net.ssl.HttpsURLConnection;
 import org.json.*;
 
 /** One bounded native worker. No browser engine, JNI, connectivity probes or arbitrary destinations. */
-final class Work {
+class Work {
     static final String ORIGIN="https://fendou.ziokt.com";
     private final String origin;
     private String expectedNetwork;private boolean networkConfigLoaded;
     private final Consumer<JSONObject> receiptSink;
     static boolean validOrigin(String value){try{java.net.URI uri=new java.net.URI(value);return "https".equals(uri.getScheme())&&uri.getHost()!=null&&uri.getUserInfo()==null&&(uri.getRawPath()==null||uri.getRawPath().isEmpty()||uri.getRawPath().equals("/"))&&uri.getRawQuery()==null&&uri.getRawFragment()==null;}catch(Exception error){return false;}}
     volatile boolean cancelled;
+    final String workerId;
+    String leaseToken; boolean gimpsLease;
+    long leaseExpires,nextLeasePoll;
+    JSONObject checkpoint;
+    static String newWorkerId(){byte[] bytes=new byte[24];new java.security.SecureRandom().nextBytes(bytes);StringBuilder out=new StringBuilder(48);for(byte b:bytes)out.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return out.toString();}
+    void guardLease(boolean force) throws Exception {
+        check();long now=System.currentTimeMillis()/1000;
+        if(leaseToken==null)return;
+        if(now>=leaseExpires)throw new IOException("STALE_JOB");
+        if(!force&&android.os.SystemClock.elapsedRealtime()<nextLeasePoll)return;
+        JSONObject value=object("token",leaseToken);
+        if(gimpsLease&&checkpoint!=null)value.put("checkpoint",checkpoint);
+        JSONObject reply=post(gimpsLease?"/api/gimps/heartbeat":"/api/job/status",value,null);
+        if(!(gimpsLease?reply.optBoolean("renewed"):reply.optBoolean("active")))throw new IOException("STALE_JOB");
+        long expires=reply.getLong("expires");
+        if(expires<=now||expires>now+125)throw new IOException("INVALID_LEASE");
+        leaseExpires=expires;nextLeasePoll=android.os.SystemClock.elapsedRealtime()+(gimpsLease?15000:3000);
+    }
+    void beginLease(JSONObject job,boolean gimps) throws Exception {
+        leaseToken=job.getString("token");leaseExpires=job.getLong("expires");gimpsLease=gimps;checkpoint=null;nextLeasePoll=0;
+        guardLease(true);
+    }
     private volatile HttpsURLConnection request;
     private final Consumer<String> status;
     Work(Consumer<String> status) { this(status,ORIGIN); }
     Work(Consumer<String> status,String origin) { this(status,origin,value->{}); }
-    Work(Consumer<String> status,String origin,Consumer<JSONObject> receiptSink) { this.receiptSink=receiptSink;if(!validOrigin(origin))throw new IllegalArgumentException("HTTPS node origin required");this.status=status;this.origin=origin.endsWith("/")?origin.substring(0,origin.length()-1):origin; }
+    Work(Consumer<String> status,String origin,Consumer<JSONObject> receiptSink) { this.receiptSink=receiptSink;this.workerId=newWorkerId();if(!validOrigin(origin))throw new IllegalArgumentException("HTTPS node origin required");this.status=status;this.origin=origin.endsWith("/")?origin.substring(0,origin.length()-1):origin; }
     void cancel() { cancelled=true; HttpsURLConnection c=request;if(c!=null)c.disconnect(); }
     void check() { if(cancelled||Thread.currentThread().isInterrupted())throw new CancellationException(); }
     void pause(long ms) throws InterruptedException { check();Thread.sleep(ms);check(); }
     JSONObject post(String path,JSONObject value,String token) throws Exception {
-        check();if(!path.matches("/api/(job|proof|gimps/(job|proof|checkpoint|pause|resume|status)|people/config|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
+        check();if(!path.matches("/api/(job|job/status|proof|gimps/(job|proof|checkpoint|heartbeat|pause|resume|status)|people/config|people/direct/(open|[ab]/(read|write|ack|close)))"))throw new IOException("INVALID_ENDPOINT");
         byte[] body=value.toString().getBytes(StandardCharsets.UTF_8);if(body.length>32768)throw new IOException("REQUEST_LIMIT");
         HttpsURLConnection c=(HttpsURLConnection)new URL(origin+path).openConnection();request=c;
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setUseCaches(false);boolean config=path.equals("/api/people/config");c.setRequestMethod(config?"GET":"POST");if(!config){c.setDoOutput(true);c.setFixedLengthStreamingMode(body.length);}
@@ -62,18 +84,18 @@ final class Work {
         String network=job.getString("network_id"),submitter=job.getString("submitter_id"),problem=job.getString("problem_id"),token=job.getString("token"),start=job.getString("start");
         String expected=networkId(network);
         long expires=job.getLong("expires"),limit=job.getLong("limit");
-        if(!network.equals(expected)||!job.getString("engine_id").equals("corium/internal-engine-zero-v1")||job.getInt("difficulty")!=3||!submitter.matches("[a-f0-9]{64}")||!problem.matches("[a-f0-9]{64}")||!token.matches("[a-f0-9]{48}")||!start.matches("[0-9]{1,18}")||limit<1||limit>1000000||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_JOB");
+        if(!network.equals(expected)||!job.getString("engine_id").equals("corium/internal-engine-zero-v1")||job.getInt("difficulty")!=3||!submitter.matches("[a-f0-9]{64}")||!problem.matches("[a-f0-9]{64}")||!token.matches("[a-f0-9]{48}")||!start.matches("[0-9]{1,19}")||limit<1||limit>1000000||expires<=System.currentTimeMillis()/1000||expires>System.currentTimeMillis()/1000+120)throw new IOException("INVALID_JOB");
         long base=Long.parseLong(start);if(base>Long.MAX_VALUE-limit)throw new IOException("NONCE_LIMIT");
-        MessageDigest digest=MessageDigest.getInstance("SHA-256");int[] batches={8,16,32,64,128};int[] delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
+        beginLease(job,false);MessageDigest digest=MessageDigest.getInstance("SHA-256");int[] batches={8,16,32,64,128};int[] delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
         status.accept("计算协作运行中 · 单线程 · 档位 "+(selected+1));
         for(long offset=0;offset<limit&&System.currentTimeMillis()/1000<expires;offset++) {
-            check();String nonce=Long.toString(base+offset);byte[] raw=digest.digest((network+submitter+nonce+problem).getBytes(StandardCharsets.UTF_8));
-            if(raw[0]==0&&(raw[1]&240)==0){JSONObject receipt=post("/api/proof",object("token",token,"nonce",nonce),null);if(!receipt.optBoolean("accepted",false))throw new IOException("PROOF_UNCONFIRMED");status.accept("证明已提交，等待原生共识；不保证奖励");pause(5000);return;}
+            guardLease(false);String nonce=Long.toString(base+offset);byte[] raw=digest.digest((network+submitter+nonce+problem).getBytes(StandardCharsets.UTF_8));
+            if(raw[0]==0&&(raw[1]&240)==0){guardLease(true);JSONObject receipt=post("/api/proof",object("token",token,"nonce",nonce),null);if(!receipt.optBoolean("accepted",false))throw new IOException("PROOF_UNCONFIRMED");status.accept("证明已提交，等待原生共识；不保证奖励");pause(5000);return;}
             if(offset%batches[selected]==batches[selected]-1)pause(delays[selected]);
         }
     }
     void gimps(int level) throws Exception {
-        JSONObject job=post("/api/gimps/job",object(),null);
+        JSONObject job=post("/api/gimps/job",object("worker_id",workerId),null);
         if(!job.getBoolean("available")){status.accept("等待 Corium 原生 GIMPS 任务，不切换到零号引擎");pause(5000);return;}
         int p=job.getInt("exponent");long expires=job.getLong("expires");
         String proofSchema=job.optString("proof_schema","corium.gimps-proof.v2");
@@ -83,78 +105,16 @@ final class Work {
         int maxExp=isPrp?job.optInt("max_exponent",2000000000):4096;
         if(p<2||p>maxExp||!job.getString("problem_id").equals(Integer.toString(p))||!job.getString("network_id").equals(networkId(job.getString("network_id")))||(!isPrp&&!isLL)||!job.getString("token").matches("[a-f0-9]{48}")||expires<=System.currentTimeMillis()/1000)throw new IOException("INVALID_GIMPS_JOB");
         for(int divisor=2;divisor*divisor<=p;divisor++)if(p%divisor==0)throw new IOException("INVALID_GIMPS_EXPONENT");
-        java.math.BigInteger modulus=java.math.BigInteger.ONE.shiftLeft(p).subtract(java.math.BigInteger.ONE);
+        if(p>(isPrp?100000:4096))throw new IOException("LOCAL_MEMORY_BUDGET");
+        beginLease(job,true);
         int[] batches={8,16,32,64,128},delays={100,80,60,40,20};int selected=Math.max(0,Math.min(4,level-1));
-        status.accept("GIMPS 梅森数 2^"+p+"-1 · Corium 原生"+(isPrp?"PRP":"LL")+"证明");
-        JSONObject proof;
-        if(isPrp){
-            java.math.BigInteger s=java.math.BigInteger.valueOf(3);
-            for(int iteration=0;iteration<p-1;iteration++){
-                check();if(System.currentTimeMillis()/1000>=expires)throw new IOException("GIMPS_JOB_EXPIRED");
-                s=s.multiply(s).mod(modulus);
-                if((iteration+1)%batches[selected]==0)pause(delays[selected]);
-            }
-            java.math.BigInteger inv3=java.math.BigInteger.valueOf(2).multiply(modulus).add(java.math.BigInteger.ONE).divide(java.math.BigInteger.valueOf(3));
-            java.math.BigInteger residue=s.multiply(inv3).mod(modulus);
-            boolean isPrime=p==2||residue.equals(modulus.subtract(java.math.BigInteger.ONE));
-            long low64=residue.and(new java.math.BigInteger("FFFFFFFFFFFFFFFF",16)).longValue();
-            String res64=String.format(java.util.Locale.ROOT,"%016X",low64);
-
-            JSONArray proofSteps=new JSONArray();
-            java.math.BigInteger currX=java.math.BigInteger.valueOf(3);
-            java.math.BigInteger currY=java.math.BigInteger.valueOf(3).multiply(residue).mod(modulus);
-            int currT=p-1;
-            MessageDigest sha=MessageDigest.getInstance("SHA-256");
-            for(int d=0;(currT>4096||d<4)&&currT>1&&d<64;d++){
-                boolean wasOdd=(currT%2==1);
-                if(wasOdd){currX=currX.multiply(currX).mod(modulus);currT--;}
-                int half=currT/2;
-                java.math.BigInteger Z=currX;
-                for(int j=0;j<half;j++)Z=Z.multiply(Z).mod(modulus);
-                byte[] h=sha.digest((currX+":"+currY+":"+Z+":"+modulus).getBytes(StandardCharsets.UTF_8));
-                StringBuilder sb=new StringBuilder();
-                for(int b=0;b<8;b++)sb.append(String.format(java.util.Locale.ROOT,"%02x",h[b]&255));
-                java.math.BigInteger r=new java.math.BigInteger(sb.toString(),16);
-                JSONObject step=new JSONObject();
-                step.put("Z","0x"+Z.toString(16));
-                step.put("odd",wasOdd);
-                proofSteps.put(step);
-                currX=currX.modPow(r,modulus).multiply(Z).mod(modulus);
-                currY=Z.modPow(r,modulus).multiply(currY).mod(modulus);
-                currT=half;
-            }
-
-            JSONArray gerbiczCheckpoints=new JSONArray();
-            byte[] h0=sha.digest(("gerbicz-init:"+p+":3").getBytes(StandardCharsets.UTF_8));
-            StringBuilder currHash=new StringBuilder();
-            for(byte b:h0)currHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-            int[] chkIter=p>5?new int[]{0,(p-1)/2,p-1}:new int[]{0,p-1};
-            for(int it:chkIter){
-                byte[] sh=sha.digest((p+":"+it+":"+res64).getBytes(StandardCharsets.UTF_8));
-                StringBuilder sHash=new StringBuilder();
-                for(byte b:sh)sHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-                byte[] nh=sha.digest((currHash+":"+it+":"+sHash).getBytes(StandardCharsets.UTF_8));
-                currHash=new StringBuilder();
-                for(byte b:nh)currHash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-                JSONObject chkObj=new JSONObject();
-                chkObj.put("iteration",it);
-                chkObj.put("state_hash",sHash.toString());
-                chkObj.put("hash",currHash.toString());
-                gerbiczCheckpoints.put(chkObj);
-            }
-
-            proof=object("schema","corium.gimps-prp-proof.v1","exponent",p,"method","prp-fiat-shamir","base",3,"residue",residue.toString(),"res64",res64,"is_prp",isPrime,"prp_result",isPrime?"PRP":"COMPOSITE","is_prime",isPrime&&(p<=61||java.util.Arrays.asList(89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,136279841).contains(p)),"iterations",p-1,"gerbicz_status","OK");
-            proof.put("proof_steps",proofSteps);
-            proof.put("gerbicz_checkpoints",gerbiczCheckpoints);
-        }else{
-            java.math.BigInteger residue=p==2?java.math.BigInteger.ZERO:java.math.BigInteger.valueOf(4);
-            for(int iteration=0;iteration<p-2;iteration++){
-                check();if(System.currentTimeMillis()/1000>=expires)throw new IOException("GIMPS_JOB_EXPIRED");
-                residue=residue.multiply(residue).subtract(java.math.BigInteger.valueOf(2)).mod(modulus);
-                if((iteration+1)%batches[selected]==0)pause(delays[selected]);
-            }
-            proof=object("schema","corium.gimps-proof.v2","exponent",p,"method","lucas-lehmer","residue",residue.toString(),"is_prime",residue.signum()==0,"iterations",p-2);
-        }
+        status.accept("GIMPS 梅森数 2^"+p+"-1 · 独占租约 · 档位 "+(selected+1));
+        JSONObject proof=GimpsProof.compute(p,isPrp,job.optJSONObject("checkpoint"),(iteration,state)->{
+            if(state!=null)checkpoint=object("iteration",iteration,"s",state.toString());
+            guardLease(false);
+            if(iteration%batches[selected]==0)pause(delays[selected]);
+        });
+        guardLease(true);
         JSONObject receipt=post("/api/gimps/proof",object("token",job.getString("token"),"proof",proof),null);
         if(!receipt.optBoolean("accepted",false))throw new IOException("GIMPS_PROOF_UNCONFIRMED");
         status.accept("GIMPS 证明已提交，等待原生共识与挑战期结算");pause(5000);

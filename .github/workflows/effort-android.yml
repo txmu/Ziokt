@@ -50,7 +50,7 @@ jobs:
           assert apk.stat().st_size<1024*1024,'APK exceeds 1 MiB delivery budget'
           with zipfile.ZipFile(apk) as z: assert not any(n.startswith('lib/') for n in z.namelist()),'unexpected native runtime'
           assert "sdkVersion:'28'" in (root/'package-badging.txt').read_text()
-          result={'schema':'ziokt.effort.android-build.v1','source_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'apk_bytes':apk.stat().st_size,'min_sdk':28,'architecture':'Java universal; no native libraries','arm32_compatibility':'ABI independent; physical device not assessed','arm64_compatibility':'ABI independent; physical device not assessed','signing':'dedicated stable development certificate; not a Play Store release','local_heavy_build':False}
+          result={'schema':'ziokt.effort.android-build.v1','source_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'apk_bytes':apk.stat().st_size,'min_sdk':28,'architecture':'Java universal; no native libraries','arm32_compatibility':'ABI independent Java bytecode','arm64_compatibility':'ABI independent Java bytecode','signing':'dedicated stable development certificate; not a Play Store release','local_heavy_build':False}
           (root/'build-source.json').write_text(json.dumps(result,indent=2)+'\n')
           (root/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(root.iterdir()) if p.is_file()))
           PY

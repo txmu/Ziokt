@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Ziokt Effort" Manufacturer="Ziokt" Version="1.0.0" UpgradeCode="81A42FAD-501D-49FA-A00C-302C585D5894" Scope="perUser" InstallerVersion="500">
+  <Package Name="Ziokt Effort" Manufacturer="Ziokt" Version="1.0.1" UpgradeCode="81A42FAD-501D-49FA-A00C-302C585D5894" Scope="perUser" InstallerVersion="500">
     <MajorUpgrade DowngradeErrorMessage="A newer Ziokt Effort version is installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="LocalAppDataFolder">

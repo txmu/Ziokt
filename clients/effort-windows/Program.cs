@@ -128,6 +128,8 @@ internal sealed class EffortWindow : Form
                 navigating = false; ready = e.IsSuccess && AllowedForOrigin(web.Source?.AbsoluteUri ?? "",Origin); start.Enabled = ready;
                 if (!ready && smoke) { FinishSmoke(false, "navigation_failed"); return; }
                 if (!ready) { state.Text = connected ? "页面暂不可用，点击此处重试" : "网络已断开，等待系统网络恢复"; return; }
+                var coordinated = await ScriptAsync("!!(window.ZioktEffortCoordination&&window.ZioktEffortCoordination.version===1&&window.ZioktEffortCoordination.nonce_ranges&&window.ZioktEffortCoordination.exclusive_gimps&&window.ZioktEffortCoordination.heartbeat_ms===15000)");
+                if (coordinated != "true") { ready = false; start.Enabled = false; state.Text = "节点奋斗页面需要更新任务协调协议，请更新节点后重载"; if (smoke) FinishSmoke(false, "coordination_contract_missing"); return; }
                 await ScriptAsync("document.addEventListener('click',e=>{if(e.target&&e.target.id==='start')queueMicrotask(()=>window.chrome.webview.postMessage({kind:'effort-intent',active:!!((window.ZioktCompute&&window.ZioktCompute.desired())||(window.ZioktPeopleRelay&&window.ZioktPeopleRelay.desired())||(window.ZioktLight&&window.ZioktLight.desired()))}))},true);'intent-listener-installed'");
                 await ScriptAsync("window.ZioktHostArchitecture=" + JsonSerializer.Serialize(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.X64 ? "x86_64" : System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "aarch64" : "unsupported") + ";'architecture-detected'");
                 await PublishNetworkAsync();
@@ -155,7 +157,7 @@ internal sealed class EffortWindow : Form
     }
     void FinishSmoke(bool success, string detail)
     {
-        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-test.json"), JsonSerializer.Serialize(new { success, detail, actual_winforms_webview2 = true, computation_started = false, relay_started = false, device_test = "not_assessed" }));
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-test.json"), JsonSerializer.Serialize(new { success, detail, actual_winforms_webview2 = true, coordination_version = 1, computation_started = false, relay_started = false }));
         Environment.ExitCode = success ? 0 : 1; exiting = true; Close();
     }
     internal static bool ValidOrigin(string value) => Uri.TryCreate(value,UriKind.Absolute,out var u) && u.Scheme=="https" && u.UserInfo=="" && u.AbsolutePath=="/" && u.Query=="" && u.Fragment=="" && !string.IsNullOrEmpty(u.Host);
@@ -271,6 +273,6 @@ internal static class SelfTest
         // Verify C# native GIMPS worker
         var (res, res64, isPrp, steps, chks) = GimpsWorker.ComputePrp(7);
         if (!isPrp || res64 != "000000000000007E" || steps.Count == 0 || chks.Count == 0) throw new Exception("GIMPS PRP worker self-test failure");
-        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "self-test.json"), JsonSerializer.Serialize(new { success = true, navigation_boundary = true, no_automatic_contribution_default = true, gimps_worker_verified = true, network_detection = "NetworkAvailabilityChanged", device_test = "not_assessed" }));
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "self-test.json"), JsonSerializer.Serialize(new { success = true, navigation_boundary = true, no_automatic_contribution_default = true, prp_arithmetic_verified = true, network_detection = "NetworkAvailabilityChanged" }));
     }
 }

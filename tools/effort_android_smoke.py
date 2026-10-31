@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """CI-only real emulator checks; no local Android compilation or mocked network state."""
+import sys
+sys.path.insert(0,str(__import__("pathlib").Path(__file__).resolve().parents[1]))
 import argparse
 import json
 from pathlib import Path
@@ -46,6 +48,13 @@ def main():
         api=int(adb('shell','getprop','ro.build.version.sdk').strip());abis=adb('shell','getprop','ro.product.cpu.abilist').strip()
         if api>=33:adb('shell','pm','grant',package,'android.permission.POST_NOTIFICATIONS')
         native=adb('shell','am','instrument','-w','-r',package+'.test/com.ziokt.effort.Smoke');(out/'native-checks.txt').write_text(native);assert 'native_checks=passed' in native and 'INSTRUMENTATION_CODE: -1' in native,native;checks.append('actual_runtime_sha256_cancel_and_origin')
+        from ziokt._runtime import _native_gimps
+        transcript=re.search(r'^INSTRUMENTATION_RESULT: gimps_proofs=(.+)$',native,re.M)
+        assert transcript,'native Android PRP transcript missing'
+        proofs=json.loads(transcript[1]);assert [v['exponent'] for v in proofs]==[7,11,127]
+        for proof in proofs:_native_gimps.verify_prp_proof(proof['exponent'],proof)
+        (out/'native-gimps-proofs.json').write_text(json.dumps(proofs,indent=2)+'\n')
+        checks.extend(['native_task_cancellation_and_lease_renewal','native_prp_verified_by_corium_including_composite_and_checkpoint_resume'])
         open_app();wait_text('尚未启动');tap('一键启用');wait_text('直连已启用');checks.append('real_selected_node_task_queue')
         adb('shell','input','keyevent','KEYCODE_HOME');time.sleep(2)
         services=adb('shell','dumpsys','activity','services',package);(out/'services-background.txt').write_text(services);assert 'isForeground=true' in services;checks.append('foreground_service_survives_home')
