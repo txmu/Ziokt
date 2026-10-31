@@ -36,8 +36,12 @@ def verify_proof(statement,proof):
     else:
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives import hashes
+        from cryptography.exceptions import InvalidSignature
         curve=ec.SECP256K1() if who['algorithm']=='secp256k1' else ec.SECP256R1()
-        ec.EllipticCurvePublicKey.from_encoded_point(curve,bytes.fromhex(who['public_key'])).verify(bytes.fromhex(proof['signature']),(DOMAIN+'\n').encode()+encoded(statement),ec.ECDSA(hashes.SHA256()))
+        try:
+            ec.EllipticCurvePublicKey.from_encoded_point(curve,bytes.fromhex(who['public_key'])).verify(bytes.fromhex(proof['signature']),(DOMAIN+'\n').encode()+encoded(statement),ec.ECDSA(hashes.SHA256()))
+        except InvalidSignature as exc:
+            raise ValueError('bad signature') from exc
     return key
 
 class IdentityLinks:
