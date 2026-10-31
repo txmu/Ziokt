@@ -11,7 +11,11 @@ from urllib.parse import quote
 
 def native():
     directory=Path(__file__).resolve().parents[1]/'companions/ufsdcpm/src'
-    if directory.is_dir() and str(directory) not in sys.path:sys.path.insert(0,str(directory))
+    if not directory.is_dir():
+        from importlib.resources import files
+        directory=files('ziokt').joinpath('_ufs_native')
+        if not directory.is_dir():raise ImportError('packaged native UFS modules are required')
+    if str(directory) not in sys.path:sys.path.insert(0,str(directory))
     return importlib.import_module('ufsultra'),importlib.import_module('ufs_http_security')
 
 
