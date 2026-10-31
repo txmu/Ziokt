@@ -169,28 +169,41 @@ impl OnionRouter {
             padding: PaddingStrategy::BlockAligned(32),
             ..OnionConfig::default()
         };
-        for (index, chunk) in bytes.chunks(CHUNK).enumerate() {
-            let mut layer = Layer::Deliver {
-                id,
-                index: index as u16,
-                count,
-                total: bytes.len() as u32,
-                digest,
-                chunk: chunk.to_vec(),
-            };
-            let mut packet = Vec::new();
-            for i in (0..path.len()).rev() {
-                packet =
-                    OnionCrypto::seal(&path[i].1, &bincode::serialize(&layer)?, &onion_config)?;
-                if i > 0 {
-                    layer = Layer::Relay {
-                        next: path[i].0,
-                        packet: packet.clone(),
-                    };
+        // Keep one encrypted record identity across bounded UDP retransmissions.
+        // Fresh onion layers/nonces preserve packet replay rejection; the exit's
+        // existing fragment map and completion tombstone deliver at most once.
+        let rounds = if self.transport.unreliable_datagrams() {
+            3
+        } else {
+            1
+        };
+        for _round in 0..rounds {
+            for (index, chunk) in bytes.chunks(CHUNK).enumerate() {
+                let mut layer = Layer::Deliver {
+                    id,
+                    index: index as u16,
+                    count,
+                    total: bytes.len() as u32,
+                    digest,
+                    chunk: chunk.to_vec(),
+                };
+                let mut packet = Vec::new();
+                for i in (0..path.len()).rev() {
+                    packet =
+                        OnionCrypto::seal(&path[i].1, &bincode::serialize(&layer)?, &onion_config)?;
+                    if i > 0 {
+                        layer = Layer::Relay {
+                            next: path[i].0,
+                            packet: packet.clone(),
+                        };
+                    }
+                }
+                let packet = self.envelope(path[0].0, &packet)?;
+                self.transport.send_to(&packet, path[0].0).await?;
+                if self.transport.unreliable_datagrams() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
             }
-            let packet = self.envelope(path[0].0, &packet)?;
-            self.transport.send_to(&packet, path[0].0).await?;
         }
         Ok(())
     }

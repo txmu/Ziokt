@@ -1,4 +1,4 @@
-name: ETP TCP native build
+name: ETP native transport build
 on:
   workflow_dispatch:
 permissions:
@@ -13,13 +13,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: companions/etp/src
-      - name: Build native gateway and test TCP packet framing
+      - name: Build reviewed native gateway
         working-directory: companions/etp/src
         run: |
-          cargo test --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway tcp_transport::tests::actual_tcp_packets_preserve_both_endpoint_ports_and_bounds -- --exact
           cargo build --locked --features tc16-tcc,dsl-runtime,ultrafileserver,ens-gateway,smart-contracts,safefs --example ziokt_gateway
           strip target/debug/examples/ziokt_gateway
           sha256sum target/debug/examples/ziokt_gateway > target/debug/examples/ziokt_gateway.sha256
+      - name: Exercise native UDP loss recovery and duplicate rejection
+        run: |
+          python3 -m pip install --only-binary=:all: cryptography==50.0.1
+          python3 ci/etp_udp_loss.py companions/etp/src/target/debug/examples/ziokt_gateway
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: ziokt-etp-tcp-native

@@ -209,12 +209,19 @@ pub trait PacketTransport: Send + Sync + std::fmt::Debug {
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize>;
     async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)>;
     fn local_addr(&self) -> std::io::Result<SocketAddr>;
+    /// Datagram links may lose individual encrypted onion fragments.
+    fn unreliable_datagrams(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
 pub struct UdpTransport(pub Arc<UdpSocket>);
 #[async_trait::async_trait]
 impl PacketTransport for UdpTransport {
+    fn unreliable_datagrams(&self) -> bool {
+        true
+    }
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize> {
         self.0.send_to(buf, target).await
     }
