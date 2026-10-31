@@ -47,6 +47,7 @@ class IntegratedSystem:
         self.dcpm_node, self.ufs_chain, self.loop = None, None, None
         self.running = False
         self.ufs_server = None
+        self.protocol_hub = None
 
     def _load_config(self, config_path: Optional[str]) -> Dict:
         """加载配置文件"""
@@ -193,9 +194,14 @@ class IntegratedSystem:
         ufs_config = dict(self.config['ufs'])
         ufs_config.update(root_dir=self.config['storage']['ufs_root'],
             download_limit=self.config['ufs']['max_download'],log_file=self.config['logging']['file'])
+        if ufs_config.get('protocols'):
+            from ziokt.ufs_protocols import Hub
+            self.protocol_hub=Hub(ufs_config,include_http=False)
+            ufs_config=self.protocol_hub.config
         server = ufsultra.UltraServer((ufs_config['host'],ufs_config['port']),
             self._create_ufs_handler_class(),config=ufs_config)
         server.integrated_system = self
+        server.protocol_hub = self.protocol_hub
         return server
 
     def _create_ufs_handler_class(self):
@@ -370,6 +376,7 @@ class IntegratedSystem:
         if self.running: return
         self.loop = asyncio.get_running_loop()
         if self.ufs_server is None: self.ufs_server = self._init_ufs_server()
+        if self.protocol_hub is not None:await self.protocol_hub.start()
         if self.config['p2p'].get('enabled',False):
             self.dcpm_node = self._init_dcpm_node()
             await self.dcpm_node.start()
@@ -381,7 +388,10 @@ class IntegratedSystem:
         self.server_thread.start(); self.running=True
         if threading.current_thread() is threading.main_thread():
             signal.signal(signal.SIGINT,self._handle_shutdown); signal.signal(signal.SIGTERM,self._handle_shutdown)
-        while self.running: await asyncio.sleep(0.2)
+        while self.running:
+            if self.protocol_hub is not None and self.protocol_hub.stopping.is_set():
+                await self.stop();raise RuntimeError('native UFS protocol listener stopped; supervisor will restart the component')
+            await asyncio.sleep(0.2)
 
     async def stop(self):
         if self.running:
@@ -389,6 +399,7 @@ class IntegratedSystem:
             await asyncio.to_thread(self.ufs_server.shutdown)
             self.server_thread.join(5)
         if self.ufs_server is not None: self.ufs_server.server_close()
+        if self.protocol_hub is not None:await self.protocol_hub.close()
         if self.dcpm_node is not None: await self.dcpm_node.stop()
         if self.ufs_chain is not None: await self.ufs_chain.cleanup()
         if not getattr(self,'_closed',False):

@@ -44,20 +44,23 @@ def main():
  database=Path(args.chain_database).absolute()
  with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True) as db:
   genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone()[0];height=db.execute('SELECT MAX(height) FROM blocks').fetchone()[0]
-  proof=json.loads(db.execute('SELECT w.proof FROM block_work w JOIN blocks b ON b.hash=w.hash ORDER BY b.height DESC LIMIT 1').fetchone()[0])
-  if args.chain_role=='dna':
+  row=db.execute('SELECT w.proof FROM block_work w JOIN blocks b ON b.hash=w.hash ORDER BY b.height DESC LIMIT 1').fetchone()
+  proof=json.loads(row[0]) if row else {}
+  legacy=not proof
+  if args.chain_role=='dna' and not legacy:
    if proof.get('schema')!='corium.dna-work.v1':raise ValueError('native DNA chain proof required')
    chain=proof['recovery']
   else:
-   if proof.get('schema')!='corium.native-block-work.v2':raise ValueError('native primary chain proof required')
+   if not legacy and proof.get('schema')!='corium.native-block-work.v2':raise ValueError('native primary chain proof required')
    chain=primary_domain(args.network_id,genesis)
-  policy=proof['policy']
+  policy=proof['policy'] if not legacy else hashlib.sha256(b'Corium/native-pos/v108').hexdigest()
  if args.provider_id and not any(v['provider_id']==args.provider_id and v['native_project']=='corium' for v in federation['providers']):raise ValueError('selected Corium provider required')
  targets={v['native_project']:{'federation':str(fpath),'provider':v['provider_id'],'actions':['status.get']} for v in federation['providers'] if not args.provider_id or v['native_project']!='corium' or v['provider_id']==args.provider_id}
  configpath=root/'consumer.json'
  if not configpath.exists():
   config={'schema':'ziokt.dna-consumer.v1','enabled':True,'state':str(root/'state'),'listen':'127.0.0.1','port':args.port,'chain':chain,'policy':policy,'senders':{sender:{'public_key':pem,'components':list(targets)}},'targets':targets,'chain_source':{'database':str(database),'genesis':genesis,'confirmations':1,'start_height':height+1}}
-  if args.chain_role=='primary':config['chain_source'].update(role='primary',network_id=args.network_id)
+  if args.chain_role=='primary' or legacy:config['chain_source'].update(role='primary',network_id=args.network_id)
+  if legacy:config['chain_source']['protocol']='native-pos-v108'
   configpath.write_bytes(encoded(config));configpath.chmod(0o600)
  user=__import__('pwd').getpwuid(os.getuid()).pw_name
  unitname='ziokt-'+args.chain_role+'-consumer' if args.chain_role=='primary' else 'ziokt-dna-consumer'

@@ -22,6 +22,8 @@ class ConsumerTests(NativeFixture):
   restarted=Consumer(self.path);result=restarted.step();self.assertEqual(result['state'],'completed_read',result);self.assertIsNone(restarted.step())
   with restarted.db() as db:self.assertIn('native_status',json.loads(db.execute('SELECT result FROM jobs').fetchone()[0]))
  def test_tamper_domain_replay_and_component_denied(self):
+  for malformed in ([],{'header':[]},{'header':'invalid'}):
+   with self.assertRaises(ValueError):self.consumer.enqueue(malformed)
   frame=self.frame();bad=copy.deepcopy(frame);bad['header']['chain']='f'*64
   with self.assertRaises(ValueError):self.consumer.enqueue(bad)
   with self.assertRaises(PermissionError):self.consumer.enqueue(self.frame(component='unassigned'))
@@ -41,12 +43,17 @@ class ConsumerTests(NativeFixture):
   import sqlite3
   source=self.base/'native-chain.db';frame=self.frame()
   with sqlite3.connect(source) as db:
-   db.executescript('CREATE TABLE blocks(height INTEGER PRIMARY KEY,hash TEXT,transactions TEXT);CREATE TABLE transactions(hash TEXT,type TEXT,data TEXT,block_height INTEGER);CREATE TABLE block_work(hash TEXT,proof TEXT);')
-   db.executemany('INSERT INTO blocks VALUES(?,?,?)',[(0,'c'*64,'[]'),(1,'d'*64,json.dumps(['e'*64])),(2,'f'*64,'[]')])
+   db.executescript('CREATE TABLE blocks(height INTEGER PRIMARY KEY,hash TEXT,transactions TEXT,timestamp INTEGER DEFAULT 0);CREATE TABLE transactions(hash TEXT,type TEXT,data TEXT,block_height INTEGER);CREATE TABLE block_work(hash TEXT,proof TEXT);')
+   db.executemany('INSERT INTO blocks(height,hash,transactions) VALUES(?,?,?)',[(0,'c'*64,'[]'),(1,'d'*64,json.dumps(['e'*64])),(2,'f'*64,'[]')])
+   db.execute('UPDATE blocks SET timestamp=?',(frame['header']['expires_at']+600,))
    db.executemany('INSERT INTO block_work VALUES(?,?)',[(x,json.dumps({'schema':'corium.dna-work.v1','recovery':'a'*64,'policy':'b'*64})) for x in ['d'*64,'f'*64]])
    db.execute('INSERT INTO transactions VALUES(?,?,?,1)',('e'*64,'ziokt_content',json.dumps({'content_type':'application/vnd.ziokt.rna+json','text':json.dumps(frame)})))
   self.config['chain_source']={'database':str(source),'genesis':'c'*64,'confirmations':1,'start_height':1};self.save()
-  self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read');self.assertEqual(self.consumer.poll_chain(),0)
+  from unittest.mock import patch
+  from types import SimpleNamespace
+  with patch('ziokt.dna_consumer.time',SimpleNamespace(time=lambda:frame['header']['expires_at']+600)):
+   with self.assertRaises(ValueError):self.consumer.enqueue(frame)
+   self.assertEqual(self.consumer.poll_chain(),1);self.assertEqual(self.consumer.step()['state'],'completed_read');self.assertEqual(self.consumer.poll_chain(),0)
   with sqlite3.connect(source) as db:db.execute('UPDATE blocks SET hash=? WHERE height=1',('0'*64,))
   with sqlite3.connect(source) as db:db.execute('UPDATE block_work SET hash=? WHERE hash=?',('0'*64,'d'*64))
   self.assertEqual(self.consumer.poll_chain(),1);self.assertIsNone(self.consumer.step())
@@ -64,8 +71,9 @@ class ConsumerTests(NativeFixture):
   command={'schema':'ziokt.dna-command.v1','component':'corium','operation':'status.get','resource':'','arguments':{},'expected_revision':None}
   frame=rna_sign(self.key,self.config['chain'],self.config['policy'],self.sender,1,int(time.time()),encoded(command))
   with sqlite3.connect(source) as db:
-   db.executescript('CREATE TABLE blocks(height INTEGER PRIMARY KEY,hash TEXT,transactions TEXT);CREATE TABLE transactions(hash TEXT,type TEXT,data TEXT,block_height INTEGER);CREATE TABLE block_work(hash TEXT,proof TEXT);')
-   db.executemany('INSERT INTO blocks VALUES(?,?,?)',[(0,genesis,'[]'),(1,'d'*64,json.dumps(['e'*64])),(2,'f'*64,'[]')])
+   db.executescript('CREATE TABLE blocks(height INTEGER PRIMARY KEY,hash TEXT,transactions TEXT,timestamp INTEGER DEFAULT 0);CREATE TABLE transactions(hash TEXT,type TEXT,data TEXT,block_height INTEGER);CREATE TABLE block_work(hash TEXT,proof TEXT);')
+   db.executemany('INSERT INTO blocks(height,hash,transactions) VALUES(?,?,?)',[(0,genesis,'[]'),(1,'d'*64,json.dumps(['e'*64])),(2,'f'*64,'[]')])
+   db.execute('UPDATE blocks SET timestamp=?',(frame['header']['issued_at'],))
    db.execute('INSERT INTO block_work VALUES(?,?)',('d'*64,json.dumps({'schema':'corium.native-block-work.v2','policy':'b'*64})))
    db.execute('INSERT INTO transactions VALUES(?,?,?,1)',('e'*64,'ziokt_content',json.dumps({'content_type':'application/vnd.ziokt.rna+json','text':json.dumps(frame)})))
   self.config['chain_source']={'database':str(source),'genesis':genesis,'confirmations':1,'start_height':1,'role':'primary','network_id':'my-business'};self.save()

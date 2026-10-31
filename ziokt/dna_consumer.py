@@ -29,6 +29,7 @@ class Consumer:
   CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,sender TEXT,sequence INTEGER,frame BLOB,command BLOB,state TEXT,result BLOB,error TEXT,attempts INTEGER,next_at INTEGER,UNIQUE(sender,sequence));''')
   self.dbpath.chmod(0o600)
   with self.db() as db:db.execute('CREATE TABLE IF NOT EXISTS chain_cursor(slot INTEGER PRIMARY KEY,height INTEGER,hash TEXT)')
+  with self.db() as db:db.execute('CREATE TABLE IF NOT EXISTS chain_frames(id TEXT PRIMARY KEY,height INTEGER,hash TEXT,timestamp INTEGER)')
  @contextmanager
  def db(self):
   with closing(sqlite3.connect(self.dbpath,timeout=10)) as connection:
@@ -45,9 +46,10 @@ class Consumer:
    if not isinstance(target,dict) or set(target)!={'federation','provider','actions'} or not isinstance(target['actions'],list) or any(not isinstance(x,str) or x not in ACTIONS for x in target['actions']) or not isinstance(target['federation'],str) or not Path(target['federation']).is_absolute() or not isinstance(target['provider'],str):raise ValueError('explicit native action allowlist required')
   if 'chain_source' in c:
    source=c['chain_source']
-   if not isinstance(source,dict) or set(source)-{'role','network_id'}!={'database','genesis','confirmations','start_height'} or not isinstance(source['database'],str) or not Path(source['database']).is_absolute() or not isinstance(source['genesis'],str) or re.fullmatch('[a-f0-9]{64}',source['genesis']) is None or type(source['confirmations']) is not int or not 1<=source['confirmations']<=100 or type(source['start_height']) is not int or source['start_height']<1:raise ValueError('pinned confirmed native chain source required')
+   if not isinstance(source,dict) or set(source)-{'role','network_id','protocol'}!={'database','genesis','confirmations','start_height'} or not isinstance(source['database'],str) or not Path(source['database']).is_absolute() or not isinstance(source['genesis'],str) or re.fullmatch('[a-f0-9]{64}',source['genesis']) is None or type(source['confirmations']) is not int or not 1<=source['confirmations']<=100 or type(source['start_height']) is not int or source['start_height']<1:raise ValueError('pinned confirmed native chain source required')
    if source.get('role','dna') not in {'primary','dna'}:raise ValueError('explicit primary or DNA source role required')
    if source.get('role')=='primary' and primary_domain(source.get('network_id'),source['genesis'])!=c['chain']:raise ValueError('primary chain domain mismatch')
+   if 'protocol' in source and (source['protocol']!='native-pos-v108' or source.get('role')!='primary' or c['policy']!=hashlib.sha256(b'Corium/native-pos/v108').hexdigest()):raise ValueError('pinned native legacy policy required')
   return c
  def authorize(self,c,sender,command):
   if c['enabled'] is not True:raise PermissionError('consumer disabled')
@@ -57,19 +59,40 @@ class Consumer:
   if not isinstance(command['resource'],str) or len(command['resource'])>300 or not isinstance(command['arguments'],dict) or len(encoded(command['arguments']))>4096:raise ValueError('bounded native command required')
   if command['operation']=='status.get' and (command['resource'] or command['arguments'] or command['expected_revision'] is not None):raise ValueError('status.get has no execution arguments')
   return target
- def enqueue(self,frame):
+ def chain_time(self,c,source):
+  chain=c.get('chain_source')
+  if not chain or type(source)is not tuple or len(source)!=3:raise PermissionError('native chain origin required')
+  height,hash_,timestamp=source
+  with closing(sqlite3.connect(Path(chain['database']).as_uri()+'?mode=ro',uri=True,timeout=3)) as native:
+   native.execute('BEGIN')
+   if native.execute('SELECT hash FROM blocks WHERE height=0').fetchone()!=(chain['genesis'],):raise PermissionError('native origin genesis mismatch')
+   row=native.execute('SELECT hash,timestamp FROM blocks WHERE height=?',(height,)).fetchone()
+   tip=native.execute('SELECT MAX(height) FROM blocks').fetchone()[0]
+   if row!=(hash_,timestamp) or height>tip-chain['confirmations']:raise PermissionError('RNA origin is not confirmed canonical content')
+  return timestamp
+ def enqueue(self,frame,*,source=None):
+  if not isinstance(frame,dict) or not isinstance(frame.get('header'),dict):raise ValueError('exact RNA envelope required')
   if len(encoded(frame))>16384:raise ValueError('RNA frame budget')
   c=self.settings();sender=frame.get('header',{}).get('sender');producer=c['senders'].get(sender)
   if not producer:raise PermissionError('unrecognized RNA sender')
   id=hashlib.sha256(b'Ziokt/DNAConsumer/frame/v1\n'+encoded(frame)).hexdigest()
   with self.lock,self.db() as db:
    db.execute('BEGIN IMMEDIATE');old=db.execute('SELECT state FROM jobs WHERE id=?',(id,)).fetchone()
-   if old:return {'id':id,'state':old[0],'duplicate':True}
+   if old:
+    if source is not None:
+     self.chain_time(c,source);db.execute('INSERT OR REPLACE INTO chain_frames VALUES(?,?,?,?)',(id,*source))
+    return {'id':id,'state':old[0],'duplicate':True}
    seq=db.execute('SELECT sequence FROM sequences WHERE sender=?',(sender,)).fetchone()
-   payload=rna_open(frame,producer['public_key'],c['chain'],c['policy'],sender,seq[0] if seq else 0,int(time.time()))
+   if source is not None:self.chain_time(c,source)
+   admitted_at=frame['header'].get('issued_at') if source is not None else int(time.time())
+   payload=rna_open(frame,producer['public_key'],c['chain'],c['policy'],sender,seq[0] if seq else 0,admitted_at)
    command=strict_json(payload,8192);self.authorize(c,sender,command)
+   if source is not None:
+    now=int(time.time())
+    if frame['header']['issued_at']>now or (command['operation']!='status.get' and now>frame['header']['expires_at']):raise ValueError('on-chain mutations require a live execution window')
    if db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0]>=4096:raise RuntimeError('consumer journal quota; archive before resuming')
    sequence=frame['header']['sequence'];db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,\'queued\',NULL,\'\',0,0)',(id,sender,sequence,encoded(frame),encoded(command)));db.execute('INSERT OR REPLACE INTO sequences VALUES(?,?)',(sender,sequence))
+   if source is not None:db.execute('INSERT OR REPLACE INTO chain_frames VALUES(?,?,?,?)',(id,*source))
   return {'id':id,'state':'queued','duplicate':False}
  def step(self):
   with self.lock,self.db() as db:row=db.execute("SELECT id,sender,command,attempts,frame,state FROM jobs WHERE state IN ('queued','dispatching','retry','unknown') AND next_at<=? ORDER BY rowid LIMIT 1",(int(time.time()),)).fetchone()
@@ -83,7 +106,15 @@ class Consumer:
    payload=rna_open(frame,c['senders'][sender]['public_key'],c['chain'],c['policy'],sender,0,header['issued_at'])
    if payload!=encoded(command):raise PermissionError('stored command integrity')
    expired=not header['issued_at']<=now<=header['expires_at']
-   if expired and previous_state in {'queued','retry'}:raise PermissionError('RNA expired before dispatch')
+   if expired and previous_state in {'queued','retry'}:
+    with self.db() as db:source=db.execute('SELECT height,hash,timestamp FROM chain_frames WHERE id=?',(id,)).fetchone()
+    # A confirmed status read can be observed later than its publication
+    # window. Mutations and direct ingress retain their live expiry gate.
+    if command['operation']!='status.get' or source is None or header['issued_at']>now:raise PermissionError('RNA expired before dispatch')
+    self.chain_time(c,source)
+   else:
+    with self.db() as db:source=db.execute('SELECT height,hash,timestamp FROM chain_frames WHERE id=?',(id,)).fetchone()
+    if source is not None:self.chain_time(c,source)
    federation=load(target['federation']);provider=next((p for p in federation['providers'] if p['provider_id']==target['provider']),None)
    if federation.get('enabled') is not True or provider is None:raise PermissionError('native target disabled')
    client=NativeClient(federation['federation_id'],provider)
@@ -131,11 +162,13 @@ class Consumer:
     cursor=None
    height=cursor[0]+1 if cursor else source['start_height'];count=0
    for h in range(height,min(tip-source['confirmations']+1,height+16)):
-    block=chain.execute('SELECT hash,transactions FROM blocks WHERE height=?',(h,)).fetchone()
+    block=chain.execute('SELECT hash,transactions,timestamp FROM blocks WHERE height=?',(h,)).fetchone()
     if block is None:raise ValueError('native chain gap')
     proof_row=chain.execute('SELECT proof FROM block_work WHERE hash=?',(block[0],)).fetchone()
     proof=strict_json(proof_row[0].encode(),65536) if proof_row else {}
-    if source.get('role','dna')=='dna':
+    if source.get('protocol')=='native-pos-v108':
+     if proof:raise PermissionError('native consensus changed; refresh the consumer policy')
+    elif source.get('role','dna')=='dna':
      if proof.get('schema')!='corium.dna-work.v1' or proof.get('recovery')!=c['chain'] or proof.get('policy')!=c['policy']:raise PermissionError('native DNA identity or policy changed')
     elif proof.get('schema')!='corium.native-block-work.v2' or proof.get('policy')!=c['policy'] or primary_domain(source['network_id'],source['genesis'])!=c['chain']:
      raise PermissionError('native primary identity or policy changed')
@@ -145,7 +178,7 @@ class Consumer:
      if txid not in listed:raise ValueError('transaction not committed by block')
      value=strict_json(data.encode(),65536)
      if value.get('content_type')!='application/vnd.ziokt.rna+json':continue
-     try:self.enqueue(strict_json(value['text'].encode(),16384));count+=1
+     try:self.enqueue(strict_json(value['text'].encode(),16384),source=(h,block[0],block[2]));count+=1
      except (ValueError,PermissionError,KeyError,TypeError,InvalidSignature):pass # Untrusted content cannot stall later valid commands.
     with self.db() as db:db.execute('INSERT OR REPLACE INTO chain_cursor VALUES(1,?,?)',(h,block[0]))
    return count

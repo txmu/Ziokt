@@ -28,3 +28,7 @@ python3 tools/register_public_name.py --name my-public-name --address YOUR_PUBLI
 添加 `--network ziokt-dna-side-20261024` 可在 DNA 业务链注册。默认 DoH 入口为
 `https://dns.ziokt.com/dns-query`，DNA 入口为 `https://dns.ziokt.com/realms/dna/dns-query`。
 命名密钥与原生所有者密钥保存在 `--key-file` 所在目录；后续更新继续使用这两把密钥。
+
+Both chain consumers verify local canonical inclusion and current producer delegation. Confirmed `status.get` observations can be read after mining and confirmation delays; direct RNA ingress and native mutations retain their signed live execution window. Reorganizations replay read-only consumers idempotently, while consumers configured for native writes require review before resuming on a changed consumed branch.
+
+Use `deploy.py mainnet` to join both public chains with persistent services, `mainnet --create --network NAME` to create a sovereign pair, and a creator-provided checksum-pinned bootstrap to join that pair. Each pair records its recommended mainnet IBC peers in `IBC.json`; foreign checkpoints are admitted by native governance. See the Releases repository for service lifecycle commands and [UFS protocol integration](UFS_PROTOCOLS.md) for the full native protocol set.

@@ -10,7 +10,7 @@ def execute(bridge, method, params):
         if set(params)!=set(fields):raise ProtocolError('INVALID_PARAMS','exact typed component arguments required')
     if method=='component.status':
         exact([])
-        return {'schema':'ziokt.component-status.v1','application':bridge.app,'status':'local-bridge-reachable','native_runtime':'not-observed','vault_ready':bridge.vault_root is not None,'auto_execute_imports':False}
+        return {'schema':'ziokt.component-status.v1','application':bridge.app,'status':'local-bridge-reachable','vault_ready':bridge.vault_root is not None,'auto_execute_imports':False}
     if method=='component.health':
         exact(['challenge'])
         challenge=params['challenge']

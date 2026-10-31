@@ -101,8 +101,8 @@ DAV_PROPS = {
 
 # ==================== API权限级别 ====================
 API_PERMISSIONS = {
-    'guest': ['/api/stats'],
-    'user': ['/api/stats', '/api/files', '/api/transfers'],
+    'guest': ['/api/stats','/api/protocols'],
+    'user': ['/api/stats', '/api/files', '/api/transfers','/api/protocols'],
     'admin': ['*']
 }
 
@@ -708,6 +708,10 @@ def validated_config(value):
 
 class UltraHandler(http.server.SimpleHTTPRequestHandler):
     """Authenticated HTTP/WebDAV with bounded, descriptor-confined file I/O."""
+    @property
+    def files(self):
+        return self.server.account_files.get(getattr(self,'username',None),self.server.files)
+
     def __init__(self, *args, **kwargs):
         self.cfg = args[2].config
         self.start_time = time.monotonic()
@@ -823,9 +827,9 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
     def translate_path(self, path):
         # Compatibility for extensions. Core operations use retained directory
         # descriptors instead of reopening this string after checking it.
-        parts = self.server.files.parts(path)
-        self.server.files.info(parts)
-        return str(self.server.files.root.joinpath(*parts))
+        parts = self.files.parts(path)
+        self.files.info(parts)
+        return str(self.files.root.joinpath(*parts))
 
     def _error(self, error):
         if isinstance(error, FileNotFoundError): self.send_error(404, 'Not found')
@@ -844,16 +848,16 @@ class UltraHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_head(self):
         try:
-            parts = self.server.files.parts(self.path)
-            info = self.server.files.info(parts)
+            parts = self.files.parts(self.path)
+            info = self.files.info(parts)
             if stat.S_ISDIR(info.st_mode):
                 self._is_dashboard = True
-                entries = self.server.files.entries(parts, self.cfg['max_listing'])
+                entries = self.files.entries(parts, self.cfg['max_listing'])
                 dashboard = self.render_dashboard(parts, entries)
                 data = dashboard.encode('utf-8')
                 source, kind = io.BytesIO(data), 'text/html; charset=utf-8'
             else:
-                source = self.server.files.open(parts)
+                source = self.files.open(parts)
                 kind = self.guess_type(parts[-1])
                 if self.cfg['compression'] and info.st_size <= 8*1024*1024 and 'gzip' in self.headers.get('Accept-Encoding', '').split(','):
                     data = gzip.compress(source.read(), compresslevel=self.cfg['compression_level']); source.close()
@@ -1664,18 +1668,18 @@ if (dropzone) {{
         if not self._writable(): return
         try:
             size = self._length(self.cfg['max_upload'])
-            parts = self.server.files.parts(self.path)
+            parts = self.files.parts(self.path)
             if not parts or parts[-1].endswith('.checksum'): raise PermissionError('UFS_RESERVED_METADATA')
             self.transfer_id = secrets.token_hex(16)
             with self.server.state_lock:
                 self.cfg['active_transfers'][self.transfer_id] = {'path': '/'.join(parts), 'total': size,
                     'transferred': 0, 'start_time': time.monotonic(), 'client': self.client_address[0]}
-            with self.server.files.lock:
+            with self.files.lock:
                 if self.cfg['checksum']:
-                    try: self.server.files.info(self._checksum_parts(parts))
+                    try: self.files.info(self._checksum_parts(parts))
                     except FileNotFoundError: pass
-                existed = self.server.files.put(parts, self.rfile, size, self.update_transfer_progress)
-                if self.cfg['checksum']: self.generate_checksum(self.server.files.root.joinpath(*parts))
+                existed = self.files.put(parts, self.rfile, size, self.update_transfer_progress)
+                if self.cfg['checksum']: self.generate_checksum(self.files.root.joinpath(*parts))
             with self.server.state_lock: self.server.stats['uploads'] += 1
             self.send_response(204 if existed else 201); self.send_header('Content-Length', '0'); self.end_headers()
             self.log_transfer('upload', '/'.join(parts), size)
@@ -1694,7 +1698,7 @@ if (dropzone) {{
     def do_DELETE(self):
         if not self._writable(): return
         try:
-            self.server.files.delete(self.server.files.parts(self.path))
+            self.files.delete(self.files.parts(self.path))
             self.send_response(204); self.send_header('Content-Length', '0'); self.end_headers()
         except (OSError, ValueError) as error: self._error(error)
 
@@ -1702,7 +1706,7 @@ if (dropzone) {{
         if not self._writable(): return
         try:
             if self._length(0, required=False): raise ValueError('UFS_COLLECTION_BODY')
-            self.server.files.mkdir(self.server.files.parts(self.path))
+            self.files.mkdir(self.files.parts(self.path))
             self.send_response(201); self.send_header('Content-Length', '0'); self.end_headers()
         except OverflowError: self.send_error(415, 'MKCOL body not supported')
         except (OSError, ValueError) as error: self._error(error)
@@ -1718,7 +1722,7 @@ if (dropzone) {{
             if len(self.rfile.read(size)) != size: raise ValueError('UFS_TRUNCATED_BODY')
             depth = self.headers.get('Depth', '0')
             if depth not in {'0', '1'}: raise ValueError('UFS_DEPTH_LIMIT')
-            parts = self.server.files.parts(self.path)
+            parts = self.files.parts(self.path)
             response = self.generate_dav_response(parts, depth == '1').encode()
             self.send_response(207); self.send_header('Content-Type', 'application/xml; charset=utf-8')
             self.send_header('Content-Length', str(len(response))); self.end_headers()
@@ -1727,10 +1731,10 @@ if (dropzone) {{
         except (OSError, ValueError, UnicodeError) as error: self._error(error)
 
     def generate_dav_response(self, path, recursive):
-        parts = path if isinstance(path, list) else self.server.files.parts(self.path)
-        entries = [(parts, self.server.files.info(parts))]
+        parts = path if isinstance(path, list) else self.files.parts(self.path)
+        entries = [(parts, self.files.info(parts))]
         if recursive and stat.S_ISDIR(entries[0][1].st_mode):
-            entries += [(parts+[name], info) for name, info in self.server.files.entries(parts, self.cfg['max_listing'])]
+            entries += [(parts+[name], info) for name, info in self.files.entries(parts, self.cfg['max_listing'])]
         result = '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">'
         for item, info in entries:
             name = item[-1] if item else ''
@@ -1751,7 +1755,7 @@ if (dropzone) {{
         endpoint = urlsplit(self.path).path
         if not self.check_api_permission(endpoint): self.send_error(403, 'Insufficient API permission'); return
         handlers = {'/api/stats': self.api_stats, '/api/files': self.api_files,
-            '/api/config': self.api_config, '/api/cleanup': self.api_cleanup, '/api/transfers': self.api_transfers}
+            '/api/config': self.api_config, '/api/cleanup': self.api_cleanup, '/api/transfers': self.api_transfers,'/api/protocols':self.api_protocols}
         if endpoint not in handlers: self.send_error(404, 'API endpoint not found'); return
         if (endpoint == '/api/cleanup') != (self.command == 'POST'):
             self.send_error(405, 'Method not allowed'); return
@@ -1770,6 +1774,10 @@ if (dropzone) {{
     def api_config(self):
         self.send_json({key:self.cfg[key] for key in ('max_upload','upload','download_limit','max_conn','ssl')})
 
+    def api_protocols(self):
+        hub=getattr(self.server,'protocol_hub',None)
+        self.send_json({'schema':'ziokt.ufs-protocols.v1','listeners':hub.snapshot() if hub else {},'http':{'port':self.server.server_port,'tls':self.cfg['ssl']}})
+
     def api_transfers(self):
         with self.server.state_lock:
             transfers = [{'id':tid, 'path':info['path'], 'progress':100*info['transferred']/max(info['total'],1),
@@ -1779,8 +1787,8 @@ if (dropzone) {{
     def api_files(self):
         try:
             files = [{'name':name,'size':info.st_size,'modified':info.st_mtime,
-                'checksum': self.get_checksum(self.server.files.root/name) if self.cfg['checksum'] and not name.endswith('.checksum') else None}
-                for name, info in self.server.files.entries([], self.cfg['max_listing']) if stat.S_ISREG(info.st_mode)]
+                'checksum': self.get_checksum(self.files.root/name) if self.cfg['checksum'] and not name.endswith('.checksum') else None}
+                for name, info in self.files.entries([], self.cfg['max_listing']) if stat.S_ISREG(info.st_mode)]
             self.send_json({'files':files})
         except (OSError, ValueError) as error: self._error(error)
 
@@ -1790,8 +1798,8 @@ if (dropzone) {{
         self.send_json({'deleted':deleted})
 
     def _parts_for_local_path(self, path):
-        relative = Path(path).absolute().relative_to(self.server.files.root)
-        return self.server.files.parts('/'+'/'.join(quote(p) for p in relative.parts))
+        relative = Path(path).absolute().relative_to(self.files.root)
+        return self.files.parts('/'+'/'.join(quote(p) for p in relative.parts))
 
     def _checksum_parts(self, parts):
         name = parts[-1]+'.checksum'
@@ -1801,15 +1809,15 @@ if (dropzone) {{
     def generate_checksum(self, path):
         parts = self._parts_for_local_path(path)
         md5, sha256 = hashlib.md5(), hashlib.sha256()
-        with self.server.files.open(parts) as source:
+        with self.files.open(parts) as source:
             while data := source.read(65536): md5.update(data); sha256.update(data)
         raw = f'MD5: {md5.hexdigest()}\nSHA256: {sha256.hexdigest()}\n'.encode()
-        self.server.files.put(self._checksum_parts(parts), io.BytesIO(raw), len(raw))
+        self.files.put(self._checksum_parts(parts), io.BytesIO(raw), len(raw))
 
     def get_checksum(self, path):
         parts = self._parts_for_local_path(path)
         try:
-            with self.server.files.open(self._checksum_parts(parts)) as source: return source.read(512).decode()
+            with self.files.open(self._checksum_parts(parts)) as source: return source.read(512).decode()
         except FileNotFoundError: return None
 
     def log_transfer(self, action, path=None, size=0):
@@ -1836,6 +1844,12 @@ class UltraServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         self.started = time.monotonic(); self.state_lock = threading.RLock()
         self.stopping = threading.Event(); self.config_reloader = None
         self.files = ConfinedFiles(self.config['root_dir'])
+        self.account_files = {}
+        roots=self.config.get('account_roots',{})
+        if roots and set(roots)!=set(self.accounts):raise ValueError('UFS_EXACT_ACCOUNT_ROOTS_REQUIRED')
+        for username,path in roots.items():
+            if not Path(path).is_absolute():raise ValueError('UFS_ABSOLUTE_ACCOUNT_ROOT_REQUIRED')
+            self.account_files[username]=ConfinedFiles(path)
         self.digest = DigestAuthority(); self.opaque = secrets.token_hex(16)
         self.bucket = TokenBucket(self.config['token_bucket']['capacity'], self.config['token_bucket']['rate'])
         self.slots = threading.BoundedSemaphore(self.config['max_conn'])
@@ -1867,6 +1881,7 @@ class UltraServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     def server_close(self):
         self.stopping.set()
         super().server_close(); self.files.close()
+        for files in self.account_files.values():files.close()
         if self.config_reloader is not None: self.config_reloader.join(2)
 
     def start_config_reloader(self):

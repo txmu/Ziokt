@@ -196,6 +196,8 @@ class Service:
                 if method.startswith('chat.') and app!='watchat':continue
                 if method.startswith('package.') and app not in {'ufs','dcpm'}:continue
                 self.add(app.replace('-','_')+'_'+method.replace('.','_'),f'{app}: {method} through its authenticated application bridge.',schema({'params':BRIDGE.get(method,PARAMS)},('params',)),method in BRIDGE_WRITE,app+(':write' if method in BRIDGE_WRITE else ':read'),('bridge',app,method))
+        if config.get('ufs_protocols_config'):
+            self.add('ufs_protocols_status','Read the actual native UFS protocol listeners through authenticated UFS HTTP.',schema(),False,'ufs:read',('ufs-protocols',))
         if config.get('native_package_handoff'):
             self.add('ziokt_package_admission_approve','Owner: whitelist an exact staged, independently signed native package for later install/activate plans. Does not install or run code.',schema({'receipt_digest':STRING,'selector':STRING,'confirm':{'type':'boolean','const':True}},('receipt_digest','selector','confirm')),True,'ziokt:admin',('native-admission',))
             self.add('ziokt_package_signer_list','Owner: inspect the native package publisher allowlist.',schema(),False,'ziokt:admin',('native-signers','list'))
@@ -875,6 +877,9 @@ class Service:
         if kind=='etp':
             settings=self.current()['etp'][route[1]]
             return self.etp_backend(settings).call(route[2],args['params'])
+        if kind=='ufs-protocols':
+            from .ufs_protocols import status
+            return status(self.current()['ufs_protocols_config'])
         if kind=='telegram':
             from .telegram import TelegramBot
             bot=TelegramBot(self.current()['telegram'])

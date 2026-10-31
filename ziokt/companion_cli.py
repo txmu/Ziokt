@@ -40,6 +40,7 @@ def register(sub):
         if action=='run':item.add_argument('--cycles',type=int,default=10000);item.add_argument('--debug',action='store_true')
         else:item.add_argument('--output',type=Path,required=True)
     packages=families.add_parser('ufsdcpm');actions=packages.add_subparsers(dest='companion_action',required=True)
+    item=actions.add_parser('protocols');item.add_argument('--config',type=Path,required=True);item.add_argument('--lang',choices=LOCALES,default='en')
     for action in ('put','get','publish'):
         item=actions.add_parser(action);item.add_argument('--lang',choices=LOCALES,default='en');item.add_argument('--root',type=Path,required=True);item.add_argument('--scope',required=True);item.add_argument('--key',type=Path,required=True)
         if action=='put':
@@ -137,6 +138,9 @@ def execute(args):
             return {**result,'message':translate('link.sent' if args.companion_action=='send' else 'link.received',args.lang)}
         finally:bridge.close()
     if args.companion=='ufsdcpm':
+        if args.companion_action=='protocols':
+            from .ufs_protocols import status
+            return status(args.config)
         from .ufsdcpm import IntegratedStorage,MAX_PACKAGE
         from .safefs import Vault
         from .cli import write_binary_exclusive
