@@ -1,5 +1,7 @@
 # Ziokt
 
+本轮状态：[三节点验收与实际证据](docs/THREE_NODE_ACCEPTANCE_20261031.zh-CN.md)。三节点生产验收进行中，旧双节点记录不能代表三节点通过。
+
 [English](README.md) · [中文文档](docs/README.zh-CN.md) · [v1.0 下载](https://github.com/txmu/Ziokt-Releases/releases/tag/v1.0)
 
 Ziokt 是面向自治节点的分布式应用与协作平台。它将内容、私有社区、可验证构建、软件交付、命名与节点运维组织成自己的应用系统。Corium 提供原生链与治理服务，Shadow6 提供可独立部署的原生传输；三者各自保有权限和部署能力。

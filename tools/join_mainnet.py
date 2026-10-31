@@ -5,6 +5,32 @@ from pathlib import Path
 
 URL='https://app.ziokt.com/mainnet/bootstrap.zip'
 
+def reachable_seeds(item,bundle,role,offset,profile):
+    """Select actual TLS-pinned entrypoints; never trust discovery without the bundle pin."""
+    import socket,ssl
+    selected=[]
+    for seed in item['seeds']:
+        relative=seed['certificate']
+        if Path(relative).is_absolute() or '..' in Path(relative).parts:raise ValueError('relative seed certificate required')
+        certificate=bundle/relative
+        if not certificate.is_file() or certificate.stat().st_size>16384:raise ValueError('bounded seed certificate required')
+        context=ssl.create_default_context(cafile=str(certificate));context.check_hostname=False
+        expected=ssl.PEM_cert_to_DER_cert(certificate.read_text())
+        original=seed['port']+item.get('http_port_offset',1000)
+        candidates=[original] if profile=='trial' else ([443 if role=='primary' else 80] if profile=='standard' else [original,443 if role=='primary' else 80])
+        for endpoint in dict.fromkeys(candidates):
+            if not 1<=endpoint<=65535:continue
+            try:
+                with socket.create_connection((seed['host'],endpoint),timeout=3) as raw:
+                    with context.wrap_socket(raw,server_hostname=None) as connection:
+                        if connection.getpeercert(binary_form=True)!=expected:raise ValueError('seed pin differs')
+                route=endpoint-offset
+                if not 1<=route<=65535:continue
+                selected.append(dict(seed,port=route));break
+            except (OSError,ValueError):continue
+    if not selected:raise ValueError('no TLS-pinned seed entrypoint is reachable for '+role)
+    return selected
+
 def create_genesis(etc):
     from cryptography.hazmat.primitives import hashes,serialization
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -30,7 +56,7 @@ def export_network(root,bundle,chains,ports,host):
             with sqlite3.connect(ledger.as_uri()+'?mode=ro',uri=True) as source,sqlite3.connect(public/'chain.db') as target:
                 source.backup(target)
                 tip=source.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
-            manifest['chains'][role]={'network':network,'port':ports[role],'snapshot':list(tip),'seeds':[{'host':host,'port':ports[role],'identity':item['identity'],'certificate':role+'/seed-local.crt'}]}
+            manifest['chains'][role]={'network':network,'port':ports[role],'snapshot':list(tip),'http_port_offset':item.get('http_port_offset',1000),'file_port_offset':item.get('file_port_offset',2000),'seeds':[{'host':host,'port':ports[role],'identity':item['identity'],'certificate':role+'/seed-local.crt'}]}
         for source in stage.rglob('*'):
             if source.is_file():manifest['files'][str(source.relative_to(stage))]=hashlib.sha256(source.read_bytes()).hexdigest()
         write(stage/'manifest.json',manifest)
@@ -55,6 +81,8 @@ def main():
     parser.add_argument('--create',metavar='NETWORK',help='Create a sovereign pair using this public runtime bundle')
     parser.add_argument('--custom-network',action='store_true',help='Join the explicitly checksum-pinned network in the supplied bundle')
     parser.add_argument('--expected-network')
+    parser.add_argument('--port-profile',choices=['manifest','auto','trial','standard'],default='manifest',help='Pinned entrypoint probing and native listener profile')
+    parser.add_argument('--http-port-offset',type=int);parser.add_argument('--file-port-offset',type=int)
     parser.add_argument('--dna-network');parser.add_argument('--advertise-host',default='127.0.0.1')
     parser.add_argument('--p2p-port',type=int);parser.add_argument('--dna-p2p-port',type=int)
     parser.add_argument('--service-prefix',default='ziokt')
@@ -92,35 +120,45 @@ def main():
         for relative,expected in manifest['files'].items():
             if Path(relative).is_absolute() or '..' in Path(relative).parts or hashlib.sha256((bundle/relative).read_bytes()).hexdigest()!=expected:raise ValueError('bootstrap file digest differs')
         source=bundle/'native/corix_v108.sh';source.chmod(0o700)
-        providers=[];units=[];chains={};ports={}
+        providers=[];units=[];chains={};ports={};listeners=[]
         for role in ('primary','dna'):
             item=manifest['chains'][role];network=item['network'];port=item['port']
             if not args.create and not args.custom_network and network!=('ziokt-main' if role=='primary' else 'ziokt-dna-side-20261024'):raise ValueError('use --custom-network with a pinned bundle for another network')
             if args.create:network=args.create if role=='primary' else (args.dna_network or args.create+'-dna')
             if not re.fullmatch('[A-Za-z0-9_-]{1,64}',network):raise ValueError('safe network name required')
             port=(args.p2p_port if role=='primary' else args.dna_p2p_port) or port
-            if type(port)is not int or not 1024<=port<=61000:raise ValueError('bounded chain listening port required')
+            if type(port)is not int or not 1<=port<=61000:raise ValueError('bounded chain listening port required')
+            if args.port_profile in {'trial','auto'}:port=(args.p2p_port if role=='primary' else args.dna_p2p_port) or (33434 if role=='primary' else 33435)
+            if args.port_profile=='standard':port=(args.p2p_port if role=='primary' else args.dna_p2p_port) or (441 if role=='primary' else 78)
+            http_offset=args.http_port_offset if args.http_port_offset is not None else (2 if args.port_profile!='manifest' else item.get('http_port_offset',1000))
+            file_offset=args.file_port_offset if args.file_port_offset is not None else (4 if args.port_profile!='manifest' else item.get('file_port_offset',2000))
+            if any(type(o)is not int or not 1<=port+o<=65535 for o in (http_offset,file_offset)):raise ValueError('bounded native endpoint offsets required')
+            seeds=[] if args.create else (reachable_seeds(item,bundle,role,http_offset,args.port_profile) if args.port_profile!='manifest' else item['seeds'])
+            if args.port_profile=='auto' and seeds and all(s['port']<1024 for s in seeds):port=441 if role=='primary' else 78
             ports[role]=port
+            listeners.extend(port+offset for offset in (0,http_offset,file_offset,3000,4000))
             state=root/role;etc=state/'etc/corix/networks'/network;etc.mkdir(parents=True,mode=0o700)
             for name in ('genesis.json','recovery.json','recovery-state.json'):
                 path=bundle/role/name
                 if not args.create and path.exists():shutil.copyfile(path,etc/name);(etc/name).chmod(0o600)
             if args.create:create_genesis(etc)
             conf=etc/'corix.conf'
-            write(conf,f'[main]\ndep_mode = manual\nbuild_jobs = 1\nenable_fuzzy_finder = false\n[network]\nid = {network}\n[p2p]\nport = {port}\npublic_address_mode = auto\nenable_upnp = false\nauto_trust_new_nodes = false\ntls_ech_enabled = false\ntls_no_sni_client = true\n[gateway]\nport = {port+3000}\n[blockchain]\nconsensus = pos\n[ziokt]\nenabled = TRUE\nfederation_id = ziokt-mainnet\nprovider_id = {role}-node\n')
-            env=dict(os.environ,CORIUM_ROOT=str(state),CORIUM_NETWORK_ID_OVERRIDE=network,CORIUM_TEST_NO_DAEMONS='1')
+            write(conf,f'[main]\ndep_mode = manual\nbuild_jobs = 1\nenable_fuzzy_finder = false\n[network]\nid = {network}\n[p2p]\nport = {port}\nhttp_port_offset = {http_offset}\nfile_port_offset = {file_offset}\npublic_address_mode = auto\nenable_upnp = false\nauto_trust_new_nodes = false\ntls_ech_enabled = false\ntls_no_sni_client = true\n[gateway]\nport = {port+3000}\n[blockchain]\nconsensus = pos\n[ziokt]\nenabled = TRUE\nfederation_id = ziokt-mainnet\nprovider_id = {role}-node\n')
+            env=dict(os.environ,PATH=str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH',os.defpath),CORIUM_ROOT=str(state),CORIUM_NETWORK_ID_OVERRIDE=network,CORIUM_TEST_NO_DAEMONS='1')
             env.pop('CORIUM_CONSENSUS_HOLD_FILE',None)
             subprocess.run(['bash',str(source),'init','--state-only'],env=env,check=True,timeout=180)
-            for seed in ([] if args.create else item['seeds']):
+            for seed in seeds:
                 host,seedport,identity=seed['host'],seed['port'],seed['identity']
                 if not re.fullmatch('[a-zA-Z0-9.-]+',host) or not re.fullmatch('[a-f0-9]{64}',identity) or type(seedport)is not int or not 1<=seedport<=65535:raise ValueError('bounded seed route')
                 cache=state/'var/lib/corix/p2p/peer_certs';cache.mkdir(parents=True,exist_ok=True,mode=0o700)
-                shutil.copyfile(bundle/seed['certificate'],cache/(host+'_'+str(seedport)+'.pem'))
+                relative=Path(seed['certificate'])
+                if relative.is_absolute() or '..' in relative.parts or str(relative) not in manifest['files']:raise ValueError('pinned relative seed certificate required')
+                shutil.copyfile(bundle/relative,cache/(host+'_'+str(seedport)+'.pem'))
                 subprocess.run(['bash','-c','source "$1"; dht_add_node "$2" tcp "$3" "$4"','ziokt-seed',str(source),identity,host,str(seedport)],env=env,check=True,timeout=30)
             ledger=bundle/role/'chain.db'
             if not args.create:subprocess.run(['python3',str(bundle/'tools/sync_native_snapshot.py'),'--source',str(source),'--root',str(state),'--network',network,'--snapshot',str(ledger),'--sha256',manifest['files'][role+'/chain.db'],'--apply'],env=env,check=True)
             key=(etc/'identity.key.pub').read_text().rstrip('\n');identity=hashlib.sha256(key.encode()).hexdigest()
-            chains[role]={'root':str(state),'network_id':network,'identity':identity}
+            chains[role]={'root':str(state),'network_id':network,'identity':identity,'http_port_offset':http_offset,'file_port_offset':file_offset}
             providers.append({'native_project':'corium','provider_id':role+'-node','root':str(source.parent),'native_config':str(conf),'entrypoint_digest':'sha256:'+hashlib.sha256(source.read_bytes()).hexdigest(),'network_id':network,'state_root':str(state)})
             write(state/'allow_empty_blocks','')
             for action in ('p2p','consensus'):
@@ -143,7 +181,7 @@ def main():
         write(root/'ziokt-peer-addresses.service',address_unit)
         write(root/'ziokt-peer-addresses.timer','[Unit]\nDescription=Track mainnet public address changes\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=60s\n[Install]\nWantedBy=timers.target\n')
         units.extend((args.service_prefix+name[len('ziokt'):],root/name) for name in ('ziokt-peer-addresses.service','ziokt-peer-addresses.timer'))
-        if len({i['network_id'] for i in chains.values()})!=2 or len({p+offset for p in ports.values() for offset in (0,1000,2000,3000,4000)})!=10:raise ValueError('chain networks and listener ports must be independent')
+        if len({i['network_id'] for i in chains.values()})!=2 or len(set(listeners))!=10:raise ValueError('chain networks and listener ports must be independent')
         exported=export_network(root,bundle,chains,ports,args.advertise_host) if args.create else None
         write(root/'IBC.json',{'schema':'ziokt.ibc-connections.v1','home_networks':[c['network_id'] for c in chains.values()],'recommended_peers':['ziokt-main','ziokt-dna-side-20261024'],'trust':'Register each foreign checkpoint verifier through native governance before relaying; the bundle grants no foreign-chain authority.'})
 

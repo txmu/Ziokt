@@ -27,5 +27,16 @@ try{
  assert.equal(await page.evaluate(()=>localStorage.getItem('watchat_msgs')),null);
  await page.evaluate(()=>{location.hash='#home'});
  assert.equal(await page.getByText('XChaCha20 密钥握手成功',{exact:false}).count(),0);
+ await page.evaluate(()=>{location.hash='#settings'});
+ await page.locator('.node-token-input').first().fill(fixture.token);
+ await page.locator('.save-token-btn').first().click();
+ await page.locator('.test-node-btn').first().click();
+ await page.waitForFunction(()=>/auth verified|Auth Valid|鉴权成功|鉴权有效/.test(document.body.textContent));
+ await page.evaluate(()=>{location.hash='#apps'});
+ await page.locator('#ecosystem-filter').waitFor();
+ await page.locator('#load-real-tools').click();
+ await page.waitForFunction(()=>document.querySelector('#tool-count')?.textContent.includes('0')||document.querySelector('#real-tool')?.options.length>0);
+ assert(!(await page.locator('#content-container').innerText()).includes('label is not defined'));
+ assert(!(await page.evaluate(()=>JSON.stringify(localStorage))).includes(fixture.token));
  assert.deepEqual(errors,[]);console.log('PASS '+engine+': mobile authenticated chunk upload, independent content verification, delegated native Community post/read after reload; credentials memory-only; native chat handoff rejects embedded credentials and creates no simulated messages');
 }finally{if(browser)await browser.close();child.kill('SIGTERM');}})().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,7 @@
 # Ziokt
 
+Current three-node closeout: [live evidence and acceptance scope](docs/THREE_NODE_ACCEPTANCE_20261031.zh-CN.md). Three-node production acceptance is still in progress.
+
 [简体中文](README.zh-CN.md) · [Documentation](docs/README.md) · [v1.0 downloads](https://github.com/txmu/Ziokt-Releases/releases/tag/v1.0)
 
 Ziokt is a distributed application and collaboration platform for independently operated nodes. It brings content, private communities, verifiable builds, software delivery, naming and node operations into one application system. Corium supplies native chain and governance services; Shadow6 supplies independently deployable native transports. Each project retains its own authority and can run on its own.

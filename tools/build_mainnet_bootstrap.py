@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Publishable chain-pair bootstrap: canonical ledger, public anchors and source only."""
+import configparser
 import argparse,hashlib,json,pathlib,shutil,sqlite3,tempfile,zipfile
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 def main():
- p=argparse.ArgumentParser();p.add_argument('--production',type=pathlib.Path,required=True);p.add_argument('--ledgers',type=pathlib.Path,required=True);p.add_argument('--remote-certificates',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--production',type=pathlib.Path,required=True);p.add_argument('--ledgers',type=pathlib.Path,required=True);p.add_argument('--remote-certificates',type=pathlib.Path,required=True);p.add_argument('--remote-primary-port',type=int,default=441);p.add_argument('--remote-dna-port',type=int,default=78);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
  ledgers=json.loads(a.ledgers.read_text());manifest={'schema':'ziokt.mainnet-bootstrap.v1','business_chain':'primary','chains':{},'files':{}}
  a.output.parent.mkdir(parents=True,exist_ok=True)
  with tempfile.TemporaryDirectory(prefix='ziokt-public-bootstrap-') as directory:
@@ -21,12 +22,13 @@ def main():
    if '__pycache__' not in source.parts:copy(source,'runtime/'+str(source.relative_to(ROOT)))
   for role,subroot,net,port,remoteid in [('primary','corium','ziokt-main',7234,'7c175bafc19a6846e755cda406a5540a8bfaa74c400b7d425039e0ace5b54d61'),('dna','dna-sidechain','ziokt-dna-side-20261024',7235,'720138201b1acd8cf065b851d5d6e97394498eb2eb3a0ede81163655ed87db07')]:
    etc=a.production/subroot/'etc/corix/networks'/net
+   config=configparser.ConfigParser();config.read(etc/'corix.conf');port=config.getint('p2p','port',fallback=port)
    for name in ('genesis.json','recovery.json','recovery-state.json'):
     if (etc/name).is_file():copy(etc/name,role+'/'+name)
    copy(pathlib.Path(ledgers[role]['path']),role+'/chain.db')
    copy(etc/'tls.crt',role+'/seed-local.crt');copy(a.remote_certificates/(role+'.crt'),role+'/seed-remote.crt')
    public=(etc/'identity.key.pub').read_text().rstrip('\n');identity=hashlib.sha256(public.encode()).hexdigest()
-   manifest['chains'][role]={'network':net,'port':port,'genesis_sha256':hashlib.sha256((etc/'genesis.json').read_bytes()).hexdigest(),'snapshot':ledgers[role]['tip'],'seeds':[{'host':'p2p.ziokt.com','port':port,'identity':identity,'certificate':role+'/seed-local.crt'},{'host':'38.175.194.110','port':port,'identity':remoteid,'certificate':role+'/seed-remote.crt'}]}
+   manifest['chains'][role]={'network':net,'port':port,'http_port_offset':config.getint('p2p','http_port_offset',fallback=1000),'file_port_offset':config.getint('p2p','file_port_offset',fallback=2000),'genesis_sha256':hashlib.sha256((etc/'genesis.json').read_bytes()).hexdigest(),'snapshot':ledgers[role]['tip'],'seeds':[{'host':'p2p.ziokt.com','port':port,'identity':identity,'certificate':role+'/seed-local.crt'},{'host':'38.175.194.110','port':a.remote_primary_port if role=='primary' else a.remote_dna_port,'identity':remoteid,'certificate':role+'/seed-remote.crt'}]}
   for source in stage.rglob('*'):
    if source.is_file():manifest['files'][str(source.relative_to(stage))]=hashlib.sha256(source.read_bytes()).hexdigest()
   (stage/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

@@ -660,5 +660,7 @@
       "shallow_bridge": "见 remaining_gap",
       "false_success_control": "注册、存储、签名、原生提交、服务健康和共识最终性分别报告"
     }
-  ]
+  ],
+  "historical_status_notice": "Historical evidence, not current three-node production acceptance",
+  "current_acceptance_report": "THREE_NODE_ACCEPTANCE_20261031.md"
 }

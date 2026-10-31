@@ -210,5 +210,7 @@
     "all_relevant_ci_passed": true,
     "production_deployed": true,
     "mainnet_shielding_enabled": false
-  }
+  },
+  "historical_status_notice": "Historical evidence, not current three-node production acceptance",
+  "current_acceptance_report": "THREE_NODE_ACCEPTANCE_20261031.md"
 }
