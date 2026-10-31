@@ -21,7 +21,7 @@ class CoriumProtocol:
   self.private=serialization.load_pem_private_key(secure_read(self.root/'etc/corix/networks'/self.network/'identity.key'),password=None)
   if not isinstance(self.private,ec.EllipticCurvePrivateKey) or not isinstance(self.private.curve,ec.SECP256K1):raise ValueError('native secp256k1 identity required')
   public=self.private.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
-  self.identity=hashlib.sha256(public.encode()).hexdigest()
+  self.identity=hashlib.sha256(public.encode()).hexdigest();self.public_key=public
  def native_text(self,*arguments):
   import subprocess
   from .gateway import ASSETS
@@ -30,7 +30,7 @@ class CoriumProtocol:
   return result.stdout.decode('utf-8')
  def sign(self,message):return self.private.sign(message.encode(),ec.ECDSA(hashes.SHA256())).hex()
  def call(self,kind,payload):
-  result=self.handler.handle_dht_message({'type':kind,'payload':payload,'sender_id':self.identity,'signature':self.sign(kind+'|'+payload)})
+  result=self.handler.handle_dht_message({'type':kind,'payload':payload,'sender_id':self.identity,'signature':self.sign(kind+'|'+payload),'public_key':self.public_key})
   if result.get('status')!='success':raise ProtocolError('NATIVE_REJECTED',result.get('message','native protocol rejected'))
   data=result.get('data')
   if isinstance(data,str):

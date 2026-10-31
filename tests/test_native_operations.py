@@ -221,7 +221,11 @@ r.operation_dispatch("corium",root,"default",config,"operation.commit",{"operati
         with closing(sqlite3.connect(forum)) as db:db.executescript(schema('_init_app_db'))
         from unittest.mock import patch
         with patch.dict(os.environ,{'CORIUM_ROOT':str(self.state),'CORIUM_NETWORK_ID':'default'}):
-            native=CoriumProtocol(self.providers[1]);result=native.publish_cbb('Actual MCP emergency bulletin 世界')
+            native=CoriumProtocol(self.providers[1])
+            with closing(sqlite3.connect(chain)) as db:db.execute('DELETE FROM validators');db.commit()
+            self.assertTrue(native.call('PING','')['native_verified'])
+            with closing(sqlite3.connect(chain)) as db:db.execute('INSERT INTO validators(public_key,public_key_hash,stake) VALUES (?,?,?)',(public,identity,1000));db.commit()
+            result=native.publish_cbb('Actual MCP emergency bulletin 世界')
             self.assertTrue(result['native_verified'])
             messages=native.call('CBB_SYNC_REQUEST','')['data']
             self.assertEqual(messages[0]['message'],'Actual MCP emergency bulletin 世界')
