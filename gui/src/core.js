@@ -63,7 +63,7 @@ export function getRemoteNodes() {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(n => ({...n,authToken: nodeSecrets.get(n.id) || '',status:'unverified'}));
     }
   } catch (e) {}
-  return [...DEFAULT_REMOTE_NODES];
+  return DEFAULT_REMOTE_NODES.map(n=>({...n,authToken:nodeSecrets.get(n.id)||''}));
 }
 
 export function saveRemoteNodes(nodes) {

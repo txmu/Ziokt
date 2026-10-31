@@ -11,6 +11,7 @@ import {
   Events,
   setStorage,
   getRemoteNodes,
+  saveRemoteNodes,
   getActiveRemoteNode,
   setActiveRemoteNode,
   addRemoteNode,
@@ -376,7 +377,7 @@ export function renderSettings(container) {
         const target = nodes.find(n => n.id === id);
         if (target) {
           target.authToken = val;
-          setStorage('ziokt_remote_nodes', JSON.stringify(nodes));
+          saveRemoteNodes(nodes);
           if (State.activeRemoteNodeId === id) {
             setStorage('ziokt_auth_token', val);
             State.authToken = val;

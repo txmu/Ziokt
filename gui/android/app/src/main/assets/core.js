@@ -29,11 +29,24 @@ function getInitialLang() {
 const nodeSecrets = new Map();
 try { localStorage.removeItem('ziokt_auth_token'); const old = JSON.parse(localStorage.getItem('ziokt_remote_nodes') || '[]'); localStorage.setItem('ziokt_remote_nodes', JSON.stringify(old.map(({authToken, ...n}) => n))); } catch (_) {}
 
+export function configuredEndpoint(name, path = '/') {
+  const explicit = getStorage('ziokt_endpoint_' + name) || (State.serviceEndpoints || {})[name] || (typeof document !== 'undefined' ? document.querySelector('meta[name="ziokt-' + name + '"]')?.content : '');
+  const base = State.runtimeMode === 'local' ? State.localGatewayUrl : (getActiveRemoteNode()?.url || State.gatewayUrl);
+  const url = new URL(explicit || path, base);
+  if (!['https:', 'http:', 'nntps:'].includes(url.protocol) || url.username || url.password) throw Error('Invalid configured service endpoint');
+  return url.href;
+}
+function initialGateway() {
+  const explicit=getStorage('ziokt_default_gateway') || (typeof document !== 'undefined' ? document.querySelector('meta[name="ziokt-gateway"]')?.content : '');
+  if(explicit)return explicit;
+  return typeof location!=='undefined' && ['https:','http:'].includes(location.protocol) && !['tauri.localhost','appassets.androidplatform.net'].includes(location.hostname) ? location.origin : getStorage('ziokt_local_gateway','http://127.0.0.1:8185');
+}
+
 export const DEFAULT_REMOTE_NODES = [
   {
     id: 'node-official-tokyo',
-    name: 'Ziokt Mainnet Gateway (Tokyo)',
-    url: (typeof location !== 'undefined' && ['app.ziokt.com','cor-web.ziokt.com'].includes(location.hostname)) ? location.origin : 'https://app.ziokt.com',
+    name: 'Configured Gateway',
+    url: initialGateway(),
     authToken: '',
     isDefault: true,
     status: 'unverified',
@@ -50,7 +63,7 @@ export function getRemoteNodes() {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(n => ({...n,authToken: nodeSecrets.get(n.id) || '',status:'unverified'}));
     }
   } catch (e) {}
-  return [...DEFAULT_REMOTE_NODES];
+  return DEFAULT_REMOTE_NODES.map(n=>({...n,authToken:nodeSecrets.get(n.id)||''}));
 }
 
 export function saveRemoteNodes(nodes) {
@@ -72,12 +85,14 @@ export function setActiveRemoteNode(id) {
   if (target) {
     State.activeRemoteNodeId = target.id;
     State.gatewayUrl = target.url;
+    State.serviceEndpoints = {};
     setStorage('ziokt_active_node_id', target.id);
     setStorage('ziokt_gateway', target.url);
     if (target.authToken) {
       setStorage('ziokt_auth_token', target.authToken);
     }
     Events.emit('active_node_changed', target);
+    discoverServiceEndpoints();
     updateAppNodeBadge();
     return true;
   }
@@ -123,9 +138,10 @@ export const State = {
   currentTab: 'home',
   language: getInitialLang(),
   theme: getStorage('ziokt_theme', 'dark'),
-  runtimeMode: getStorage('ziokt_mode', typeof location !== 'undefined' && location.protocol === 'https:' ? 'remote' : 'local'), // 'local' | 'remote' | 'hybrid'
-  gatewayUrl: getStorage('ziokt_gateway', 'https://cor-web.ziokt.com'),
-  localGatewayUrl: 'http://127.0.0.1:8185',
+  runtimeMode: getStorage('ziokt_mode', typeof location !== 'undefined' && ['http:','https:'].includes(location.protocol) && !['tauri.localhost','appassets.androidplatform.net'].includes(location.hostname) ? 'remote' : 'local'), // 'local' | 'remote' | 'hybrid'
+  gatewayUrl: getStorage('ziokt_gateway', initialGateway()),
+  localGatewayUrl: getStorage('ziokt_local_gateway','http://127.0.0.1:8185'),
+  serviceEndpoints: {},
   localNodeStatus: 'checking', // 'checking' | 'online' | 'offline'
   localNodeDetails: null,
   remoteNodes: getRemoteNodes(),
@@ -257,7 +273,7 @@ export function showJsonModal(title, data) {
   
   titleEl.textContent = title;
   const jsonStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-  bodyEl.innerHTML = `<pre style="background:var(--bg-input);padding:14px;border-radius:6px;font-family:var(--font-mono);font-size:0.8rem;color:var(--accent-cyan);overflow:auto;max-height:55vh;white-space:pre-wrap;">${jsonStr}</pre>`;
+  const pre=document.createElement('pre');pre.style.cssText='background:var(--bg-input);padding:14px;border-radius:6px;font-family:var(--font-mono);font-size:0.8rem;color:var(--accent-cyan);overflow:auto;max-height:55vh;white-space:pre-wrap';pre.textContent=jsonStr;bodyEl.replaceChildren(pre);
   footerEl.innerHTML = `
     <button class="btn btn-secondary" id="modal-copy">${t('common.copy')}</button>
     <button class="btn btn-primary" id="modal-close">${t('common.close')}</button>
@@ -290,6 +306,7 @@ export async function checkLocalNodeHealth() {
 
     if (res.ok) {
       const data = await res.json();
+      if(data.schema==='ziokt.gateway.v1')State.serviceEndpoints=data.service_endpoints||{};
       State.localNodeStatus = 'online';
       State.localNodeDetails = data;
       Events.emit('local_node_status_changed', { status: 'unverified', data });
@@ -630,4 +647,11 @@ export async function renderToolPanel(container, title, filter, fileOperations =
     }catch(e){fail(e);}finally{btn.disabled=false;}
   };
 
+}
+
+// Public discovery never forwards application credentials to advertised services.
+export async function discoverServiceEndpoints() {
+  const base=State.runtimeMode==='local'?State.localGatewayUrl:getActiveRemoteNode().url;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+  try { const response=await fetch(new URL('/api/gateway/status',base),{credentials:'omit',cache:'no-store',signal:controller.signal});if(!response.ok)return;const data=await response.json();if(data.schema!=='ziokt.gateway.v1')return;const endpoints={};for(const [name,value] of Object.entries(data.service_endpoints||{})){if(!/^[a-z]{1,16}$/.test(name)||typeof value!=='string')continue;const url=new URL(value);if(['https:','http:','nntps:'].includes(url.protocol)&&!url.username&&!url.password)endpoints[name]=url.href;}if(base===(State.runtimeMode==='local'?State.localGatewayUrl:getActiveRemoteNode().url))State.serviceEndpoints=endpoints;}catch(_){}finally{clearTimeout(timer)}
 }

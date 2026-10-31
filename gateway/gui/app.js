@@ -287,6 +287,7 @@ globalThis.ZioktPrivateSharing={
   }
 };
 
+
   // --- Module: core.js ---
 // ==============================================================================
 // Ziokt Unified Graphical Client - Core Application Framework & State Manager
@@ -348,7 +349,7 @@ function getRemoteNodes() {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(n => ({...n,authToken: nodeSecrets.get(n.id) || '',status:'unverified'}));
     }
   } catch (e) {}
-  return [...DEFAULT_REMOTE_NODES];
+  return DEFAULT_REMOTE_NODES.map(n=>({...n,authToken:nodeSecrets.get(n.id)||''}));
 }
 function saveRemoteNodes(nodes) {
   nodes.forEach(n => nodeSecrets.set(n.id, n.authToken || ''));
@@ -1028,7 +1029,6 @@ function mountPrivateOffline(container){
 // ==============================================================================
 // Module: Home Overview & System Telemetry Dashboard
 // ==============================================================================
-
 function renderHome(container) {
   const isEn = State.language === 'en';
   const isLocal = State.runtimeMode === 'local';
@@ -1275,7 +1275,6 @@ function renderHome(container) {
 
   // --- Module: modules/chat.js ---
 /* Native WATChat owns authentication, keys, encryption and delivery receipts. */
-
 function renderChat(container) {
   const label = (zh, en) => State.language === 'en' ? en : zh;
   const node = (tag, text) => { const el = document.createElement(tag); el.textContent = text; return el; };
@@ -1811,245 +1810,25 @@ function renderFiles(container) {
 
 
   // --- Module: modules/apps.js ---
-// ==============================================================================
-// Module: dCPM Decentralized App Store & Signed Package Manager
-// ==============================================================================
+function renderApps(container){
+ renderEcosystem(container);
+ mountWebsiteHub(container);
+ const native=document.createElement('section');native.className='card';container.append(native);
+ renderToolPanel(native,'dCPM / Native packages',name=>/^(dcpm_|package_)/.test(name)).catch(error=>{native.textContent=error.message;});
+}
 
-let packages = [
-  {
-    id: 'ziokt-core',
-    name: 'Ziokt Core Runtime',
-    version: '1.0.8',
-    prevVersion: '1.0.7',
-    publisher: 'ed25519:4a8f9b...12c',
-    size: '12.4 MB',
-    status: 'installed',
-    digest: 'sha256:4a8f9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a',
-    dependencies: ['etp-onion-gateway >= 2.0.0'],
-    description: 'Ziokt 原生微架构核心运行时，提供去中心化事件总线、状态共识与安全执行环境。'
-  },
-  {
-    id: 'tc16-vm-isa',
-    name: 'TC-16 Virtual Machine ISA',
-    version: '1.0.2',
-    prevVersion: '1.0.1',
-    publisher: 'ed25519:7b1e2c...90f',
-    size: '4.8 MB',
-    status: 'installed',
-    digest: 'sha256:7b1e2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b',
-    dependencies: ['ziokt-core >= 1.0.0'],
-    description: '16位确定性微虚拟机指令集包，支持隔离环境中的可信计算与 Gas 算力控制。'
-  },
-  {
-    id: 'etp-onion-gateway',
-    name: 'ETP Native Onion Gateway',
-    version: '2.1.0',
-    prevVersion: '2.0.8',
-    publisher: 'ed25519:91df3e...44a',
-    size: '8.2 MB',
-    status: 'installed',
-    digest: 'sha256:91df3e2a1b0c9d8e7f6a5b4c3d2e1f0a4a8f9b8c7d6e5f4a3b2c1d0e9f8a7b6c',
-    dependencies: [],
-    description: 'ETP 洋葱多跳原生网关路由包，实现抗审查与高匿名性的端到端数据传输。'
-  },
-  {
-    id: 'shadow6-broker',
-    name: 'Shadow6 Virtual Broker Mesh',
-    version: '3.4.1',
-    prevVersion: '3.4.0',
-    publisher: 'ed25519:6c5d4e...88a',
-    size: '18.5 MB',
-    status: 'installed',
-    digest: 'sha256:6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a91df3e2a1b0c9d8e7f6a5b4c3d2e1f',
-    dependencies: ['ziokt-core >= 1.0.0'],
-    description: 'Shadow6 虚拟 Broker 代理与 13 语言核心 Profile 集群运行容器。'
-  },
-  {
-    id: 'safefs-crypto',
-    name: 'SafeFS AEAD Storage Driver',
-    version: '1.1.0',
-    prevVersion: '1.0.9',
-    publisher: 'ed25519:1a2b3c...55d',
-    size: '3.6 MB',
-    status: 'available',
-    digest: 'sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b',
-    dependencies: ['ziokt-core >= 1.0.0'],
-    description: '高级 AEAD 加密文件保险箱驱动程序，提供外层诱饵卷与内层隐蔽卷的可抵赖存储能力。'
-  }
-];
-
-let activeTab = 'installed'; // 'installed' | 'market'
-function renderApps(container) {
-  const filtered = activeTab === 'installed' 
-    ? packages.filter(p => p.status === 'installed')
-    : packages;
-
-  container.innerHTML = `
-    <div style="max-width: 1050px; margin: 0 auto;">
-      <!-- Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
-        <div>
-          <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan);">${t('apps.title')}</h2>
-          <p style="font-size: 0.82rem; color: var(--text-muted);">${t('apps.subtitle')}</p>
-        </div>
-        <div style="display: flex; gap: 10px;">
-          <input type="file" id="dcpm-package-upload" style="display:none;" accept=".dcpm,application/octet-stream">
-          <button id="import-pkg-btn" class="btn btn-primary">📤 ${t('apps.install_pkg')}</button>
-          <button id="check-updates-btn" class="btn btn-secondary">🔄 ${t('apps.update')}</button>
-        </div>
-      </div>
-
-      <!-- Navigation Tabs -->
-      <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-        <button class="btn btn-sm ${activeTab === 'installed' ? 'btn-primary' : 'btn-secondary'} app-tab-btn" data-tab="installed">${t('apps.installed_tab')} (${packages.filter(p=>p.status==='installed').length})</button>
-        <button class="btn btn-sm ${activeTab === 'market' ? 'btn-primary' : 'btn-secondary'} app-tab-btn" data-tab="market">${t('apps.market_tab')} (${packages.length})</button>
-      </div>
-
-      <!-- Packages Cards Grid -->
-      <div style="display: flex; flex-direction: column; gap: 16px;">
-        ${filtered.map(pkg => `
-          <div class="card" style="padding: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
-              <div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-main);">${pkg.name}</h3>
-                  <span class="mode-pill" style="font-size: 0.72rem; color: var(--accent-cyan);">v${pkg.version}</span>
-                  ${pkg.status === 'installed' ? `<span class="status-badge" style="font-size: 0.7rem; color: var(--accent-green);"><span class="status-dot"></span> 已就绪</span>` : `<span class="mode-pill" style="color:var(--text-dim);border-color:var(--border-subtle);">未安装</span>`}
-                </div>
-                <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">ID: ${pkg.id} &bull; ${pkg.size}</div>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button class="btn btn-sm btn-secondary view-manifest-btn" data-id="${pkg.id}">📜 校验摘要</button>
-                ${pkg.status === 'installed' ? `
-                  <button class="btn btn-sm btn-secondary rollback-btn" data-id="${pkg.id}">⏪ ${t('apps.rollback')}</button>
-                  <button class="btn btn-sm btn-danger uninstall-btn" data-id="${pkg.id}">🗑️ ${t('apps.uninstall')}</button>
-                ` : `
-                  <button class="btn btn-sm btn-primary install-btn" data-id="${pkg.id}">📥 安装</button>
-                `}
-              </div>
-            </div>
-
-            <p style="color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; margin-bottom: 14px;">${pkg.description}</p>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; border-top: 1px solid var(--border-subtle); padding-top: 10px; color: var(--text-dim); flex-wrap: wrap; gap: 8px;">
-              <div>
-                <span>发布签名: </span>
-                <span style="font-family: var(--font-mono); color: var(--accent-cyan);">${pkg.publisher}</span>
-              </div>
-              <div>
-                <span>依赖要求: </span>
-                <span style="color: var(--accent-green); font-weight: 500;">${pkg.dependencies.length ? pkg.dependencies.join(', ') : '无独立外部依赖'}</span>
-              </div>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-
-    </div>
-  `;
-
-  mountWebsiteHub(container);
-
-  // Tab switching
-  container.querySelectorAll('.app-tab-btn').forEach(btn => {
-    btn.onclick = () => {
-      activeTab = btn.dataset.tab;
-      renderApps(container);
-    };
-  });
-
-  // Import / Upload .dcpm Package
-  const uploadInput = container.querySelector('#dcpm-package-upload');
-  container.querySelector('#import-pkg-btn').onclick = () => {
-    uploadInput.click();
-  };
-  uploadInput.onchange = (e) => {
-    if (!e.target.files.length) return;
-    const file = e.target.files[0];
-    showToast(`正在验签并导入 "${file.name}" ...`, 'info');
-    setTimeout(() => {
-      const newPkg = {
-        id: file.name.replace(/\.dcpm$/, ''),
-        name: `User App (${file.name})`,
-        version: '1.0.0',
-        prevVersion: '0.9.0',
-        publisher: 'ed25519:user-custom...88c',
-        size: `${(file.size / 1024).toFixed(1)} KB`,
-        status: 'installed',
-        digest: 'sha256:' + Math.random().toString(16).slice(2, 10),
-        dependencies: [],
-        description: '用户通过 dCPM 客户端上传的已签名应用程序扩展。'
-      };
-      packages.unshift(newPkg);
-      showToast(`软件包 "${file.name}" 验签通过，沙箱挂载成功！`, 'success');
-      renderApps(container);
-    }, 800);
-  };
-
-  // Check Updates
-  container.querySelector('#check-updates-btn').onclick = () => {
-    showToast('已向 dCPM 生态源查询，所有核心软件包均处于最新签名版本', 'success');
-  };
-
-  // View Manifest Modal
-  container.querySelectorAll('.view-manifest-btn').forEach(btn => {
-    btn.onclick = () => {
-      const pkg = packages.find(p => p.id === btn.dataset.id);
-      showJsonModal(`dCPM 软件包契约: ${pkg.name}`, {
-        package_id: pkg.id,
-        version: pkg.version,
-        sha256_digest: pkg.digest,
-        publisher_key: pkg.publisher,
-        dependencies: pkg.dependencies,
-        isolation_policy: 'confined_tcc_sandbox'
-      });
-    };
-  });
-
-  // Rollback Action
-  container.querySelectorAll('.rollback-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const pkg = packages.find(p => p.id === btn.dataset.id);
-      const ok = await showConfirm('版本回滚确认', `确定将 "${pkg.name}" 从 v${pkg.version} 回滚至上一版本 v${pkg.prevVersion} 吗？`);
-      if (ok) {
-        showToast(`正在安全恢复上一状态快照 ...`, 'info');
-        setTimeout(() => {
-          pkg.version = pkg.prevVersion;
-          showToast(`已成功回滚至 v${pkg.version}`, 'success');
-          renderApps(container);
-        }, 600);
-      }
-    };
-  });
-
-  // Uninstall Action
-  container.querySelectorAll('.uninstall-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const pkg = packages.find(p => p.id === btn.dataset.id);
-      const ok = await showConfirm('卸载应用确认', `确定卸载 "${pkg.name}" 及其本地运行时缓存吗？`);
-      if (ok) {
-        pkg.status = 'available';
-        showToast(`"${pkg.name}" 已卸载并清除沙箱缓存`, 'success');
-        renderApps(container);
-      }
-    };
-  });
-
-  // Install Action
-  container.querySelectorAll('.install-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const pkg = packages.find(p => p.id === btn.dataset.id);
-      const ok = await showConfirm('安装确认', `确定安装 "${pkg.name}" (v${pkg.version}) 吗？将严格在隔离沙箱中执行。`);
-      if (ok) {
-        showToast(`正在拉取并校验依赖项 ...`, 'info');
-        setTimeout(() => {
-          pkg.status = 'installed';
-          showToast(`"${pkg.name}" 安装成功`, 'success');
-          renderApps(container);
-        }, 700);
-      }
-    };
-  });
+function mountWebsiteHub(container){
+ const label=(zh,en)=>State.language.startsWith('en')?en:zh;
+ const box=document.createElement('section');box.className='card';box.style.padding='20px';
+ const heading=document.createElement('h2');heading.textContent=label('独立建站与节点 ZDNS','Websites and node ZDNS');
+ const note=document.createElement('p');note.textContent=label('访问静态站点、Wiki 与博客导出；多层子域按签名逐层验证，私有应用单独授权。','Browse native static sites, wiki and blog exports. Subdomains require signed delegations; private apps require separate grants.');
+ const form=document.createElement('form'),name=document.createElement('input'),path=document.createElement('input'),open=document.createElement('button'),catalog=document.createElement('button'),result=document.createElement('pre');
+ name.required=true;name.placeholder='blog.team.example.corix';name.setAttribute('aria-label',label('Ziokt 完整域名','Full Ziokt name'));path.placeholder='posts/hello/';path.setAttribute('aria-label',label('文件路径','File path'));
+ open.textContent=label('通过当前节点打开','Open through this node');open.className='btn btn-primary';catalog.textContent=label('查看建站方式与实际节点配置','Website methods and node configuration');catalog.type='button';catalog.className='btn btn-secondary';result.style.whiteSpace='pre-wrap';
+ const base=()=>new URL(State.runtimeMode==='local'?State.localGatewayUrl:(getActiveRemoteNode()?.url||State.gatewayUrl)).origin;
+ form.onsubmit=event=>{event.preventDefault();try{window.open(ZioktSiteUrl(base(),name.value.trim(),path.value),'_blank','noopener,noreferrer');}catch(error){result.textContent=error.message;}};
+ catalog.onclick=async()=>{try{const response=await fetch(new URL('/api/gateway/sites',base()),{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});if(!response.ok)throw Error('Site catalog unavailable');result.textContent=JSON.stringify(await response.json(),null,2);}catch(error){result.textContent=error.message;}};
+ form.append(name,path,open);box.append(heading,note,form,catalog,result);container.prepend(box);
 }
 
 
@@ -2100,10 +1879,13 @@ function renderLibrary(container){
     const personal=contentElement('details'),personalPanel=contentElement('section');personal.append(contentElement('summary',State.language==='en'?'My notes and collections':'我的笔记与藏书'),personalPanel);reader.append(personal);
     ZioktPersonalViews.library(personalPanel,{call:(op,args)=>readTool(op,args,!op.endsWith('.list')&&!op.endsWith('.get')),book,language:State.language,status:value=>status.textContent=value,position:()=>reader._zioktReader?.position()||({offset:reader.querySelector('pre')?.scrollTop||0}),navigate:anchor=>{if(reader._zioktReader)return reader._zioktReader.navigate(anchor);const text=reader.querySelector('pre');if(text)text.scrollTop=anchor.offset||0;}});
     const info=await readTool('content.object.info',{id:book.file_id});
-    if(['application/epub+zip','application/pdf','application/vnd.comicbook+zip','application/x-cbz'].includes(info.mime)){
+    let mounted=false;
+    try{
       const document=contentElement('section');reader.append(document);reader._zioktReader=await ZioktDocumentReader.mount(document,{call:readTool,id:book.id,language:State.language,status:value=>status.textContent=value});
-      reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:reader._zioktReader.position()},true);status.textContent='阅读位置已保存';},status));return;
-    }
+      reader.append(contentAction('保存阅读位置',async()=>{await readTool('library.reading.save',{id:book.id,state:reader._zioktReader.position()},true);status.textContent='阅读位置已保存';},status));
+      mounted=true;
+    }catch(_){}
+    if(mounted)return;
     if(info.size>16*1024*1024)throw Error('此文件超过浏览器阅读预算，请使用流式客户端下载。');
     const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await readTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}
     const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');
@@ -2111,7 +1893,7 @@ function renderLibrary(container){
     else reader.append(contentElement('p','此格式请下载后使用相应阅读器打开。'));
     const link=contentElement('a','下载已校验文件');link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);reader.append(link);
   }
-  async function downloadBook(book){status.textContent='正在下载 '+book.title+'…';const info=await contentTool('content.object.info',{id:book.file_id});if(info.size>16*1024*1024)throw Error('此文件超过浏览器下载预算，请使用流式客户端下载。');const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');const link=contentElement('a','保存 '+book.title);link.href=URL.createObjectURL(blob);link.download=book.title;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);document.body.append(link);link.click();link.remove();status.textContent='文件校验通过并已下载';}
+  async function downloadBook(book){status.textContent='正在下载 '+book.title+'…';const info=await contentTool('content.object.info',{id:book.file_id});if(info.size>16*1024*1024)throw Error('此文件超过浏览器下载预算，请使用流式客户端下载。');const parts=[];for(let position=0;position<Math.ceil(info.size/16384);position++){const part=await contentTool('content.object.get',{id:book.file_id,position});parts.push(Uint8Array.from(atob(part.data),c=>c.charCodeAt(0)));}const blob=new Blob(parts),bytes=await blob.arrayBuffer();if(await sha256(bytes)!==info.digest)throw Error('文件完整性校验失败');let filename=book.title;if(!filename.includes('.')&&info.name?.includes('.'))filename+=info.name.slice(info.name.lastIndexOf('.'));const link=contentElement('a','保存 '+filename);link.href=URL.createObjectURL(blob);link.download=filename;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(link.href),60000);document.body.append(link);link.click();link.remove();status.textContent='文件校验通过并已下载';}
   async function load(){results.replaceChildren();const data=await contentTool('library.search',{query:query.value,limit:30,offset:0,locale:State.language});for(const book of data.items){const card=contentElement('article');card.style.cssText='padding:20px;border:1px solid var(--border-subtle);border-radius:8px';card.append(contentElement('h2',book.title),contentElement('p',(book.authors||[]).join(' · ')),contentElement('p',book.visibility==='private'?'私人藏书':'公开馆藏'),contentElement('small',book.local?'本地来源':'联邦目录，下载可用性需实际验证'),contentAction('阅读',()=>show(book),status),contentAction('下载',()=>downloadBook(book),status),contentAction('加密保存离线副本',()=>saveOfflineBook(book,status),status));results.append(card);}status.textContent=`找到 ${data.items.length} 本书`;
   }
   searchForm.append(contentAction('搜索',load,status));container.append(searchForm,results,reader);
@@ -2119,7 +1901,7 @@ function renderLibrary(container){
   const file=contentField(form,'文件（浏览器上限 16 MiB）','file','file'),title=contentField(form,'书名','title'),author=contentField(form,'作者','author'),work=contentField(form,'作品标识','work'),edition=contentField(form,'版本标识','edition'),license=contentField(form,'许可证 / 保存权声明','license');
   const visibility=contentElement('select');visibility.setAttribute('aria-label','传播范围');for(const [value,label] of [['private','私人藏书'],['public','公开分发（确认有传播权）']]){const option=contentElement('option',label);option.value=value;visibility.append(option);}form.append(visibility);
   const progress=contentElement('progress');progress.max=100;progress.value=0;progress.setAttribute('aria-label','上传进度');form.append(progress);
-  form.append(contentAction('上传并保存书目',async()=>{const selected=file.files[0];if(!selected||!title.value||!work.value||!edition.value||!license.value)throw Error('请填写文件、书名、作品、版本和权利声明');if(selected.size>16*1024*1024)throw Error('浏览器上限 16 MiB，大文件请使用流式客户端');const upload=crypto.randomUUID(),digest=await sha256(await selected.arrayBuffer());await contentTool('content.upload.begin',{upload,size:selected.size,digest,mime:selected.type||'application/octet-stream'},true);for(let position=0,start=0;start<selected.size;position++,start+=16384){const bytes=new Uint8Array(await selected.slice(start,start+16384).arrayBuffer());let raw='';for(const b of bytes)raw+=String.fromCharCode(b);await contentTool('content.upload.put',{upload,position,data:btoa(raw)},true);progress.value=Math.min(100,(start+16384)/selected.size*100);}const object=await contentTool('content.upload.finish',{upload},true);await contentTool('library.publish',{metadata:{title:title.value,authors:[author.value],work_id:work.value,edition_id:edition.value,license:license.value,visibility:visibility.value,file_id:object.id}},true);progress.value=100;status.textContent='已保存';await load();},status));
+  form.append(contentAction('上传并保存书目',async()=>{const selected=file.files[0];if(!selected||!title.value||!work.value||!edition.value||!license.value)throw Error('请填写文件、书名、作品、版本和权利声明');if(selected.size>16*1024*1024)throw Error('浏览器上限 16 MiB，大文件请使用流式客户端');let mime=selected.type||'';const lowerName=(selected.name||'').toLowerCase();if(!mime||mime==='application/octet-stream'||mime==='application/zip'||mime==='application/x-zip-compressed'){if(lowerName.endsWith('.epub'))mime='application/epub+zip';else if(lowerName.endsWith('.cbz')||lowerName.endsWith('.cbr'))mime='application/vnd.comicbook+zip';else if(lowerName.endsWith('.pdf'))mime='application/pdf';else if(lowerName.endsWith('.txt'))mime='text/plain';else if(lowerName.endsWith('.md'))mime='text/markdown';else if(lowerName.endsWith('.html')||lowerName.endsWith('.htm'))mime='text/html';else if(lowerName.endsWith('.zip'))mime='application/zip';}const upload=crypto.randomUUID(),digest=await sha256(await selected.arrayBuffer());await contentTool('content.upload.begin',{upload,size:selected.size,digest,mime:mime||'application/octet-stream',name:selected.name},true);for(let position=0,start=0;start<selected.size;position++,start+=16384){const bytes=new Uint8Array(await selected.slice(start,start+16384).arrayBuffer());let raw='';for(const b of bytes)raw+=String.fromCharCode(b);await contentTool('content.upload.put',{upload,position,data:btoa(raw)},true);progress.value=Math.min(100,(start+16384)/selected.size*100);}const object=await contentTool('content.upload.finish',{upload},true);await contentTool('library.publish',{metadata:{title:title.value,authors:[author.value],work_id:work.value,edition_id:edition.value,license:license.value,visibility:visibility.value,file_id:object.id}},true);progress.value=100;status.textContent='已保存';await load();},status));
   load().catch(()=>{});
 }
 function renderNetnews(container){
@@ -3462,7 +3244,7 @@ function renderSettings(container) {
         const target = nodes.find(n => n.id === id);
         if (target) {
           target.authToken = val;
-          setStorage('ziokt_remote_nodes', JSON.stringify(nodes));
+          saveRemoteNodes(nodes);
           if (State.activeRemoteNodeId === id) {
             setStorage('ziokt_auth_token', val);
             State.authToken = val;
@@ -3845,16 +3627,3 @@ function renderSettings(container) {
   }
 
 })();
-
-function mountWebsiteHub(container){
- const box=document.createElement('section');box.className='card';box.style.padding='20px';
- const heading=document.createElement('h2');heading.textContent=label('独立建站与节点 ZDNS','Websites and node ZDNS');
- const note=document.createElement('p');note.textContent=label('访问静态站点、Wiki 与博客导出；多层子域按签名逐层验证，私有应用单独授权。','Browse native static sites, wiki and blog exports. Subdomains require signed delegations; private apps require separate grants.');
- const form=document.createElement('form'),name=document.createElement('input'),path=document.createElement('input'),open=document.createElement('button'),catalog=document.createElement('button'),result=document.createElement('pre');
- name.required=true;name.placeholder='blog.team.example.corix';name.setAttribute('aria-label',label('Ziokt 完整域名','Full Ziokt name'));path.placeholder='posts/hello/';path.setAttribute('aria-label',label('文件路径','File path'));
- open.textContent=label('通过当前节点打开','Open through this node');open.className='btn btn-primary';catalog.textContent=label('查看建站方式与实际节点配置','Website methods and node configuration');catalog.type='button';catalog.className='btn btn-secondary';result.style.whiteSpace='pre-wrap';
- const base=()=>new URL(State.runtimeMode==='local'?State.localGatewayUrl:(getActiveRemoteNode()?.url||State.gatewayUrl)).origin;
- form.onsubmit=event=>{event.preventDefault();try{window.open(ZioktSiteUrl(base(),name.value.trim(),path.value),'_blank','noopener,noreferrer');}catch(error){result.textContent=error.message;}};
- catalog.onclick=async()=>{try{const response=await fetch(new URL('/api/gateway/sites',base()),{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});if(!response.ok)throw Error('Site catalog unavailable');result.textContent=JSON.stringify(await response.json(),null,2);}catch(error){result.textContent=error.message;}};
- form.append(name,path,open);box.append(heading,note,form,catalog,result);container.prepend(box);
-}

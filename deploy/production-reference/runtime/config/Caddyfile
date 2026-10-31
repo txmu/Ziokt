@@ -130,8 +130,14 @@ cor-web.ziokt.com {
 		reverse_proxy 127.0.0.1:8186
 	}
 
+	@explorer path /explorer /explorer/* /api/explorer/*
+	handle @explorer {
+		reverse_proxy 127.0.0.1:8081 {
+			header_up Host fendou.ziokt.com
+		}
+	}
 	@root path / /index.html
-	rewrite @root /nns/corium
+	redir @root /explorer/ 302
 	reverse_proxy 127.0.0.1:8080
 	header {
 		Strict-Transport-Security "max-age=31536000"
