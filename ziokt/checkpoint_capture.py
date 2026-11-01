@@ -12,8 +12,10 @@ def native(source,root,network,operation):
  result=subprocess.run(['bash','-c',script,'checkpoint-capture',str(source),str(root),network],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
  return json.loads(result.stdout)
 
-def capture_pair(config,store_root,*,bundle=None):
+def capture_pair(config,store_root,*,bundle=None,scope=None):
  require(config['schema']=='ziokt.local-checkpoint-capture.v1'and set(config['chains'])=={'primary','dna'},'both local native chains required')
+ scope=config.get('scope',scope) or 'local-checkpoint'
+ require(scope in {'local-checkpoint','explicit-signer-bootstrap'},'unsupported capture scope')
  source=Path(config['native_source']);require(source.is_absolute()and source.is_file()and not source.is_symlink(),'pinned native source required')
  sha=hashlib.sha256(source.read_bytes()).hexdigest();require(sha==hexid(config['native_sha256']),'native source digest differs')
  paths=[];specs={}
@@ -21,7 +23,7 @@ def capture_pair(config,store_root,*,bundle=None):
   root=Path(spec['root']);network=spec['network_id'];require(root.is_absolute()and not root.is_symlink(),'local native root required')
   require(type(network)is str and 1<=len(network)<=64 and all(c.isalnum()or c in '_-' for c in network),'bounded native network required')
   base=root/'var/lib/corix/networks'/network;chain=base/'blockchain/chain.db';application=base/'forum/forum.db'
-  consumers=spec.get('consumers',[]);require(len(consumers)<=2,'at most two local consumer journals per chain')
+  consumers=spec.get('consumers',[]) if scope=='local-checkpoint' else [];require(len(consumers)<=2,'at most two local consumer journals per chain')
   paths.extend([chain,application]+[Path(c['database'])for c in consumers]);specs[role]=(root,network,chain,consumers)
  require(len(set(map(str,paths)))==len(paths),'independent native databases required')
  for path in paths:require(path.is_absolute()and path.is_file()and not path.is_symlink(),'existing local database required')
@@ -55,13 +57,13 @@ def capture_pair(config,store_root,*,bundle=None):
      journal,parts=capture_consumer(consumer['database'],consumer['id'],owner,meta['state']['chain']);journals.append(journal);objects.update(parts)
     chains[role]={'network_id':network,'genesis_hash':genesis,'chain_id':meta['state']['chain'],'height':height,'block_hash':block_hash,'consensus_rules':{'version':version,'policy_hash':mode['policy']},'verifier_sha256':sha,'state_root':descriptor['sha256'],'state':descriptor,'database_schema':schema_descriptor,'consumer_state':journals}
   finally:barrier.rollback()
- manifest=seal(chains,keys,int(time.time()));expected={role:{k:c[k]for k in ['network_id','genesis_hash','chain_id','verifier_sha256','consensus_rules']}for role,c in chains.items()};signers={role:{manifest['signatures'][role]['identity']}for role in chains}
+ manifest=seal(chains,keys,int(time.time()),scope=scope);expected={role:{k:c[k]for k in ['network_id','genesis_hash','chain_id','verifier_sha256','consensus_rules']}for role,c in chains.items()};signers={role:{manifest['signatures'][role]['identity']}for role in chains}
  # Different verifier/policy contexts retain independent local generations.
  context={'expected':expected,'local_owners':{role:sorted(ids)for role,ids in signers.items()}}
  directory=Path(store_root)/digest(canonical(context));store=CheckpointStore(directory,expected,signers)
  policy=directory/'local-policy.json'
  if not policy.exists():write_new(policy,canonical(context))
  else:require(policy.read_bytes()==canonical(context),'local checkpoint policy changed')
- result=store.publish(manifest,objects)
+ result=store.publish(manifest,objects,allow_bootstrap=(scope=='explicit-signer-bootstrap'))
  if bundle is not None:export_bundle(bundle,manifest,objects)
- return {'schema':'ziokt.local-checkpoint-capture-result.v1','snapshot_hash':manifest['snapshot_hash'],'store':str(directory),'verification_level':result.verification_level,'chains':{role:{k:c[k]for k in ['network_id','height','block_hash','state_root']}for role,c in chains.items()},'consumer_journals':sum(len(c['consumer_state'])for c in chains.values()),'native_databases_modified':False}
+ return {'schema':'ziokt.local-checkpoint-capture-result.v1','snapshot_hash':manifest['snapshot_hash'],'pair_commitment':manifest['pair_commitment'],'store':str(directory),'verification_level':result.verification_level,'scope':scope,'chains':{role:{k:c[k]for k in ['network_id','height','block_hash','state_root']}for role,c in chains.items()},'consumer_journals':sum(len(c['consumer_state'])for c in chains.values()),'native_databases_modified':False}

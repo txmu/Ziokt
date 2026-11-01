@@ -24,3 +24,12 @@ class LocalMaterializationTests(unittest.TestCase):
   self.store.publish(self.manifest,self.objects);target=self.root/'existing';target.mkdir();(target/'keep').write_text('valid data')
   with self.assertRaises(CheckpointError):materialize_local(self.store,target)
   self.assertEqual((target/'keep').read_text(),'valid data')
+ def test_bootstrap_checkpoint_materialization_with_consent(self):
+  bootstrap_manifest=seal(self.chains,self.keys,1,'explicit-signer-bootstrap')
+  self.store.publish(bootstrap_manifest,self.objects,allow_bootstrap=True)
+  with self.assertRaises(CheckpointError):materialize_local(self.store,self.root/'restored-disallowed')
+  result=materialize_local(self.store,self.root/'restored-allowed',allow_bootstrap=True)
+  self.assertEqual(result['verification_level'],'explicitly-trusted-bootstrap')
+  for role,chain in self.chains.items():
+   with sqlite3.connect(self.root/'restored-allowed'/role/'chain.db')as db:
+    self.assertEqual(db.execute('SELECT height,hash FROM blocks ORDER BY height').fetchall(),[(0,chain['genesis_hash']),(1,chain['block_hash'])])

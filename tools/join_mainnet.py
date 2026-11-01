@@ -86,6 +86,10 @@ def main():
     parser.add_argument('--dna-network');parser.add_argument('--advertise-host',default='127.0.0.1')
     parser.add_argument('--p2p-port',type=int);parser.add_argument('--dna-p2p-port',type=int)
     parser.add_argument('--service-prefix',default='ziokt')
+    parser.add_argument('--checkpoint-policy',type=Path,help='Trusted peer checkpoint policy JSON')
+    parser.add_argument('--checkpoint-source',action='append',help='HTTPS checkpoint bundle URL (repeat for quorum)')
+    parser.add_argument('--checkpoint-quorum',type=int,default=2,help='Required matching peer signatures')
+    parser.add_argument('--checkpoint-bundle',type=Path,help='Explicit bootstrap checkpoint bundle file')
     args=parser.parse_args();root=args.root.resolve()
     if args.custom_network and not args.sha256:raise ValueError('a custom network requires its independently obtained bootstrap SHA-256')
     if args.create and (not re.fullmatch('[A-Za-z0-9_-]{1,59}',args.create) or args.create in {'ziokt-main','mainnet','ziokt-dna-side-20261024'}):raise ValueError('choose a distinct sovereign network name')
@@ -120,6 +124,26 @@ def main():
         for relative,expected in manifest['files'].items():
             if Path(relative).is_absolute() or '..' in Path(relative).parts or hashlib.sha256((bundle/relative).read_bytes()).hexdigest()!=expected:raise ValueError('bootstrap file digest differs')
         source=bundle/'native/corix_v108.sh';source.chmod(0o700)
+        checkpoint_admission=None;checkpoint_materialized=None
+        if getattr(args,'checkpoint_policy',None) and (getattr(args,'checkpoint_source',None) or getattr(args,'checkpoint_bundle',None)):
+            sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+            from ziokt.checkpoint_store import CheckpointStore
+            from ziokt.checkpoint_restore import materialize_local
+            from tools.verify_peer_checkpoints import verify_peer_checkpoints
+            policy=json.loads(args.checkpoint_policy.read_text())
+            expected,signers=policy['expected'],{k:set(v) for k,v in policy['signers'].items()}
+            store_dir=root/'checkpoints';mat_dir=root/'checkpoint-materialized'
+            if getattr(args,'checkpoint_source',None):
+                v_res=verify_peer_checkpoints(policy,args.checkpoint_source,quorum=args.checkpoint_quorum,import_to=store_dir,materialize_to=mat_dir)
+            else:
+                dest_store=CheckpointStore(store_dir,expected,signers)
+                dest_store.import_bundle(args.checkpoint_bundle,allow_bootstrap=True)
+                materialize_local(dest_store,mat_dir,allow_bootstrap=True)
+                cur=dest_store.current(allow_bootstrap=True)
+                v_res={'pair_commitment':cur.manifest['pair_commitment'],'snapshot_hash':cur.manifest['snapshot_hash'],'independent_signers':1,'chains':{r:{k:cur.manifest['chains'][r][k] for k in ('network_id','height','block_hash','state_root')} for r in cur.manifest['chains']},'verification_level':cur.verification_level}
+            checkpoint_materialized=mat_dir
+            checkpoint_admission={'schema':'ziokt.checkpoint-admission-receipt.v1','admitted_at':int(time.time()),'pair_commitment':v_res['pair_commitment'],'snapshot_hash':v_res['snapshot_hash'],'independent_signers':v_res['independent_signers'],'verification_level':v_res['verification_level'],'chains':v_res['chains'],'historical_validity_proved':False,'trust_assumptions':'State authenticated by explicitly trusted signers; historical transition validity was not replayed from genesis.'}
+            write(root/'checkpoint-admission-receipt.json',checkpoint_admission)
         providers=[];units=[];chains={};ports={};listeners=[]
         for role in ('primary','dna'):
             item=manifest['chains'][role];network=item['network'];port=item['port']
@@ -156,7 +180,17 @@ def main():
                 shutil.copyfile(bundle/relative,cache/(host+'_'+str(seedport)+'.pem'))
                 subprocess.run(['bash','-c','source "$1"; dht_add_node "$2" tcp "$3" "$4"','ziokt-seed',str(source),identity,host,str(seedport)],env=env,check=True,timeout=30)
             ledger=bundle/role/'chain.db'
-            if not args.create:subprocess.run(['python3',str(bundle/'tools/sync_native_snapshot.py'),'--source',str(source),'--root',str(state),'--network',network,'--snapshot',str(ledger),'--sha256',manifest['files'][role+'/chain.db'],'--apply'],env=env,check=True)
+            if not args.create:
+                if checkpoint_materialized is not None:
+                    bdir=state/'var/lib/corix/networks'/network/'blockchain'
+                    fdir=state/'var/lib/corix/networks'/network/'forum'
+                    bdir.mkdir(parents=True,exist_ok=True,mode=0o700)
+                    fdir.mkdir(parents=True,exist_ok=True,mode=0o700)
+                    shutil.copyfile(checkpoint_materialized/role/'chain.db',bdir/'chain.db')
+                    shutil.copyfile(checkpoint_materialized/role/'forum.db',fdir/'forum.db')
+                    (bdir/'chain.db').chmod(0o600);(fdir/'forum.db').chmod(0o600)
+                else:
+                    subprocess.run(['python3',str(bundle/'tools/sync_native_snapshot.py'),'--source',str(source),'--root',str(state),'--network',network,'--snapshot',str(ledger),'--sha256',manifest['files'][role+'/chain.db'],'--apply'],env=env,check=True)
             key=(etc/'identity.key.pub').read_text().rstrip('\n');identity=hashlib.sha256(key.encode()).hexdigest()
             chains[role]={'root':str(state),'network_id':network,'identity':identity,'http_port_offset':http_offset,'file_port_offset':file_offset}
             providers.append({'native_project':'corium','provider_id':role+'-node','root':str(source.parent),'native_config':str(conf),'entrypoint_digest':'sha256:'+hashlib.sha256(source.read_bytes()).hexdigest(),'network_id':network,'state_root':str(state)})
@@ -194,7 +228,7 @@ def main():
             subprocess.run(systemctl+['daemon-reload'],check=True)
             subprocess.run(systemctl+['enable','--now',*[name for name,_ in units]],check=True)
         write(root/'managed-services.json',{'schema':'ziokt.managed-services.v1','scope':'system' if os.geteuid()==0 else 'user','services':{name:str(directory/name) if args.enable_services else str(path) for name,path in units},'enabled':args.enable_services})
-        print(json.dumps({'schema':'ziokt.mainnet-joined.v1','root':str(root),'business_chain':args.business_chain,'chains':chains,'services_enabled':args.enable_services,'mode':'created' if args.create else 'joined','export':exported}))
+        print(json.dumps({'schema':'ziokt.mainnet-joined.v1','root':str(root),'business_chain':args.business_chain,'chains':chains,'services_enabled':args.enable_services,'mode':'created' if args.create else 'joined','export':exported,'checkpoint_admission':checkpoint_admission}))
 
 def sys_platform_linux():
     import sys

@@ -7,8 +7,8 @@ from pathlib import Path
 from .checkpoint_format import assemble,canonical,require
 from .checkpoint_store import write_new,sync_directory
 
-def materialize_local(store,target):
- checkpoint=store.current();require(checkpoint.verification_level=='local-authenticated-checkpoint','owner-local restore requires an owner-local checkpoint')
+def materialize_local(store,target,*,allow_bootstrap=False):
+ checkpoint=store.current(allow_bootstrap=allow_bootstrap);require(checkpoint.verification_level in {'local-authenticated-checkpoint','explicitly-trusted-bootstrap'} if allow_bootstrap else checkpoint.verification_level=='local-authenticated-checkpoint','owner-local restore requires an owner-local checkpoint')
  target=Path(target).absolute();require(not target.exists()and not target.is_symlink(),'new checkpoint staging destination required');target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
  generation=store.generations/checkpoint.manifest['snapshot_hash']
  def read(identity):
