@@ -20,10 +20,10 @@ with tempfile.TemporaryDirectory(prefix='ziokt-native-udp-loss-')as temporary:
    cfg=root/(str(i)+'.json');cfg.write_text(json.dumps({'bind':addresses[i],'transport':'udp','private_key':keys[i].private_bytes_raw().hex(),'peers':{a:keys[j].public_key().public_bytes_raw().hex()for j,a in enumerate(addresses)if j!=i},'relay':True}));cfg.chmod(0o600)
    worker=EtpGateway(installed,digest,cfg);workers.append(worker);worker.call('etp.stats',{})
   iptables('-N',chain);created=True
-  # Drop every eighth full onion fragment, leaving control traffic and unrelated jobs alone.
+  # Silently drop every eighth fragment at the receiver; OUTPUT DROP would return EPERM to send_to instead of modelling network loss.
   iptables('-A',chain,'-m','length','--length','1000:1200','-m','statistic','--mode','nth','--every','8','--packet','0','-j','DROP')
   for source in [0,2]:
-   rule=['-p','udp','--sport',str(ports[source]),'--dport',str(ports[1]),'-j',chain];iptables('-I','OUTPUT',*rule);rules.append(rule)
+   rule=['-p','udp','--sport',str(ports[source]),'--dport',str(ports[1]),'-j',chain];iptables('-I','INPUT',*rule);rules.append(rule)
   cipher=AESGCM(AESGCM.generate_key(bit_length=256))
   for source,dest,size in [(0,2,16384),(2,0,65536)]:
    plain=secrets.token_bytes(size-28);nonce=secrets.token_bytes(12);sealed=nonce+cipher.encrypt(nonce,plain,b'ziokt-udp-kernel-loss-v1')
@@ -35,6 +35,6 @@ with tempfile.TemporaryDirectory(prefix='ziokt-native-udp-loss-')as temporary:
   counters=subprocess.check_output(['sudo','iptables','-L',chain,'-v','-n','-x'],text=True);assert any(int(line.split()[0])>0 for line in counters.splitlines()if 'DROP'in line),'fault rule did not drop actual datagrams'
   print(json.dumps({'schema':'ziokt.native-udp-loss-regression.v1','native_binary':digest,'actual_kernel_udp':True,'fault':'every eighth full onion datagram dropped by kernel','native_engines':3,'hops':2,'results':results}))
  finally:
-  for rule in reversed(rules):iptables('-D','OUTPUT',*rule)
+  for rule in reversed(rules):iptables('-D','INPUT',*rule)
   if created:iptables('-F',chain);iptables('-X',chain)
   for worker in workers:worker.close()
