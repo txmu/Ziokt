@@ -41,7 +41,8 @@ def main():
             report['chains'][role]={'state':'unavailable'};continue
         heights=set.intersection(*(set(value['recent_blocks']) for value in values))
         matches=[int(height) for height in heights if len({value['recent_blocks'][height] for value in values})==1]
-        conflicts=[int(height) for height in heights if len({value['recent_blocks'][height] for value in values})!=1]
+        pair_heights=set.union(*(set(value['recent_blocks']) for value in values))
+        conflicts=[int(height) for height in pair_heights if len({value['recent_blocks'][height] for value in values if height in value['recent_blocks']})>1]
         tip_heights=[value['tip'][0] for value in values]
         report['chains'][role]={'state':'fork' if conflicts else 'same_recent_branch' if matches else 'no_common_recent_height','latest_common_height':max(matches) if matches else None,'conflicting_heights':sorted(conflicts,reverse=True)[:5],'tip_heights':tip_heights,'tip_lag':max(tip_heights)-min(tip_heights)}
     try:
