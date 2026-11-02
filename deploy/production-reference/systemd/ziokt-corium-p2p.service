@@ -11,6 +11,7 @@ ExecStart=/home/admin/.local/share/ziokt-production/bin/corium-service p2p
 Environment=XDG_DATA_HOME=/home/admin/.local/share/ziokt-production/caddy-data
 Environment=XDG_CONFIG_HOME=/home/admin/.local/share/ziokt-production/caddy-config
 UMask=0077
+LimitNOFILE=65536
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

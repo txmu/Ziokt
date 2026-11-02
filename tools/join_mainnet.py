@@ -197,10 +197,10 @@ def main():
             write(state/'allow_empty_blocks','')
             for action in ('p2p','consensus'):
                 runner=root/(role+'-'+action+'.sh')
-                script='#!/bin/bash\numask 077\nexport CORIUM_ROOT='+shlex.quote(str(state))+' CORIUM_NETWORK_ID_OVERRIDE='+shlex.quote(network)+' CORIUM_GATEWAY_PORT='+str(port+3000)+'\nexport PYTHON_CMD='+shlex.quote(sys.executable)+' PATH='+shlex.quote(str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH',os.defpath))+'\nsource '+shlex.quote(str(source))+'\nload_config || exit\n'+('dht_server_daemon; wait' if action=='p2p' else 'export CORIUM_MINER_POLL_SECONDS=${CORIUM_MINER_POLL_SECONDS:-'+('300' if role=='primary' else '180')+'}; _consensus_daemon_loop')+'\n'
+                script='#!/bin/bash\numask 077\nulimit -n 65536 2>/dev/null || true\nexport CORIUM_ROOT='+shlex.quote(str(state))+' CORIUM_NETWORK_ID_OVERRIDE='+shlex.quote(network)+' CORIUM_GATEWAY_PORT='+str(port+3000)+'\nexport PYTHON_CMD='+shlex.quote(sys.executable)+' PATH='+shlex.quote(str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH',os.defpath))+'\nsource '+shlex.quote(str(source))+'\nload_config || exit\n'+('dht_server_daemon; wait' if action=='p2p' else 'export CORIUM_MINER_POLL_SECONDS=${CORIUM_MINER_POLL_SECONDS:-'+('300' if role=='primary' else '180')+'}; _consensus_daemon_loop')+'\n'
                 write(runner,script);runner.chmod(0o700)
                 name=args.service_prefix+'-'+role+'-'+action+'.service'
-                unit='[Unit]\nDescription=Ziokt '+role+' '+action+'\nAfter=network-online.target\n[Service]\nType=simple\nExecStart='+shlex.quote(str(runner))+'\nRestart=always\nRestartSec=5\nSuccessExitStatus=143 130\nTimeoutStopSec=30\nKillMode=control-group\nUMask=0077\n[Install]\nWantedBy='+('multi-user.target' if os.geteuid()==0 else 'default.target')+'\n'
+                unit='[Unit]\nDescription=Ziokt '+role+' '+action+'\nAfter=network-online.target\n[Service]\nType=simple\nExecStart='+shlex.quote(str(runner))+'\nRestart=always\nRestartSec=5\nSuccessExitStatus=143 130\nTimeoutStopSec=30\nKillMode=control-group\nUMask=0077\nLimitNOFILE=65536\n[Install]\nWantedBy='+('multi-user.target' if os.geteuid()==0 else 'default.target')+'\n'
                 write(root/name,unit);units.append((name,root/name))
         write(root/'federation.json',{'schema':'ziokt.federation.v1','enabled':True,'federation_id':'ziokt-mainnet','providers':providers})
         write(root/'chain-pair.json',{'schema':'ziokt.chain-pair.v1','business_chain':args.business_chain,'chains':chains,'bootstrap_sha256':digest})
@@ -211,7 +211,7 @@ def main():
             original='ziokt-'+role+'-consumer.service';name=args.service_prefix+'-'+role+'-consumer.service';units.append((name,consumer/original))
         refresh=['/usr/bin/python3',str(bundle/'tools/refresh_peer_addresses.py'),'--source',str(source)]
         for role,item in chains.items():refresh.extend(['--chain',item['root'],item['network_id']])
-        address_unit='[Unit]\nDescription=Refresh mainnet peer addresses\nAfter=network-online.target\n[Service]\nType=oneshot\nUMask=0077\nExecStart='+shlex.join(refresh).replace('%','%%')+'\n'
+        address_unit='[Unit]\nDescription=Refresh mainnet peer addresses\nAfter=network-online.target\n[Service]\nType=oneshot\nUMask=0077\nLimitNOFILE=65536\nExecStart='+shlex.join(refresh).replace('%','%%')+'\n'
         write(root/'ziokt-peer-addresses.service',address_unit)
         write(root/'ziokt-peer-addresses.timer','[Unit]\nDescription=Track mainnet public address changes\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=60s\n[Install]\nWantedBy=timers.target\n')
         units.extend((args.service_prefix+name[len('ziokt'):],root/name) for name in ('ziokt-peer-addresses.service','ziokt-peer-addresses.timer'))

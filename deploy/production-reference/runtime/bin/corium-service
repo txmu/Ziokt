@@ -1,5 +1,6 @@
 #!/bin/bash
 umask 077
+ulimit -n 65536 2>/dev/null || true
 export CORIUM_ROOT=/home/admin/.local/share/ziokt-production/corium
 export CORIUM_NETWORK_ID_OVERRIDE=ziokt-main
 source /home/admin/.local/share/ziokt-production/bin/corix_v108.sh

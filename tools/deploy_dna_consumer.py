@@ -74,6 +74,7 @@ ExecStart={sys.executable} -m ziokt.dna_consumer --config {configpath}
 Restart=on-failure
 RestartSec=5
 UMask=0077
+LimitNOFILE=65536
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
