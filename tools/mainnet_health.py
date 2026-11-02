@@ -22,11 +22,17 @@ def main():
         'a':['python3',str(args.inventory),'/home/admin/.local/share/ziokt-production'],
         'b':['sshpass','-f',str(args.rainyun_password_file),'ssh','-o','ConnectTimeout=8','-o','StrictHostKeyChecking=yes','root@38.175.194.110','python3 - /opt/ziokt-main-validator'],
         'c':['ssh','-i',str(args.upcloud_ssh_key),*common,'root@94.237.57.186','python3 - /opt/ziokt-main-validator joined']}
+    service_commands={
+        'a':['systemctl','is-active','ziokt-corium-consensus','ziokt-corium-dna-consensus'],
+        'b':['sshpass','-f',str(args.rainyun_password_file),'ssh','-o','ConnectTimeout=8','-o','StrictHostKeyChecking=yes','root@38.175.194.110','systemctl is-active ziokt-corium-consensus ziokt-corium-dna-consensus'],
+        'c':['ssh','-i',str(args.upcloud_ssh_key),*common,'root@94.237.57.186','systemctl is-active ziokt-primary-consensus ziokt-dna-consensus']}
     report={'schema':'ziokt.mainnet-health.v1','observed_at':int(time.time()),'nodes':{},'chains':{},'observer_coverage':None,'healthy':False}
     for name,command in commands.items():
         try:
             data=json.loads(run(command,None if name=='a' else inventory))
             report['nodes'][name]={'host':data['host'],'chains':{role:{'identity':chain['identity'],'tip':chain['tip'],'recent_blocks':{str(block[0]):block[1] for block in chain['recent_blocks']}} for role,chain in data['chains'].items()}}
+            services=subprocess.run(service_commands[name],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
+            report['nodes'][name]['consensus_services']=services.stdout.decode().splitlines()
         except (OSError,ValueError,KeyError,subprocess.TimeoutExpired,RuntimeError) as error:
             report['nodes'][name]={'error':type(error).__name__+': '+str(error)}
     for role in ('primary','dna'):
@@ -36,11 +42,12 @@ def main():
         heights=set.intersection(*(set(value['recent_blocks']) for value in values))
         matches=[int(height) for height in heights if len({value['recent_blocks'][height] for value in values})==1]
         conflicts=[int(height) for height in heights if len({value['recent_blocks'][height] for value in values})!=1]
-        report['chains'][role]={'state':'fork' if conflicts else 'same_recent_branch' if matches else 'no_common_recent_height','latest_common_height':max(matches) if matches else None,'conflicting_heights':sorted(conflicts,reverse=True)[:5],'tip_heights':[value['tip'][0] for value in values]}
+        tip_heights=[value['tip'][0] for value in values]
+        report['chains'][role]={'state':'fork' if conflicts else 'same_recent_branch' if matches else 'no_common_recent_height','latest_common_height':max(matches) if matches else None,'conflicting_heights':sorted(conflicts,reverse=True)[:5],'tip_heights':tip_heights,'tip_lag':max(tip_heights)-min(tip_heights)}
     try:
         with urllib.request.urlopen('https://p2p.ziokt.com/api/p2p/topology',timeout=10) as response:report['observer_coverage']=json.load(response)['coverage']
     except (OSError,ValueError,KeyError) as error:report['observer_coverage']={'error':type(error).__name__}
-    report['healthy']=all(value['state']=='same_recent_branch' for value in report['chains'].values()) and report['observer_coverage'].get('verified_observers',0)==3
+    report['healthy']=all(value['state']=='same_recent_branch' and value['tip_lag']<=10 for value in report['chains'].values()) and all(node.get('consensus_services')==['active','active'] for node in report['nodes'].values()) and report['observer_coverage'].get('verified_observers',0)==3
     args.output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     with tempfile.NamedTemporaryFile('w',dir=args.output.parent,prefix='.health-',delete=False) as stream:
         os.fchmod(stream.fileno(),0o600);json.dump(report,stream,separators=(',',':'));stream.write('\n');stream.flush();os.fsync(stream.fileno());name=stream.name
