@@ -1,6 +1,6 @@
 {
   "schema": "ziokt.reviewed-static-audit.v1",
-  "date": "2026-10-27",
+  "date": "2026-11-03",
   "tools": {
     "semgrep": "1.182.1",
     "bandit": "1.9.4"
@@ -672,6 +672,60 @@
       "scanner": "bandit",
       "severity": "MEDIUM",
       "review": "The wildcard bind address is normalized to localhost only for the fixed owner-configured loopback status client. Status uses SHA-256 Digest credentials from a private file, disallows redirects and proxies, verifies TLS if enabled, and bounds the response to 64 KiB."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/mainnet_health.py",
+      "line": 49,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "8a7af7e2bf6c7aa6c22c7ee8cdfa62288ad1bbf3abc0d642cf5bbff98dbdade0",
+      "review": "The URL is a literal public HTTPS topology endpoint. The probe is a read-only local systemd job; no external value can select a host or path. Its response affects only health reporting."
+    },
+    {
+      "scanner": "semgrep",
+      "path": "tools/verify_peer_checkpoints.py",
+      "line": 44,
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "severity": "WARNING",
+      "fingerprint": "a7dfeb969c721d211956a72bf4a2f0da6857592e645c4ee61d78da0c71fe52f2",
+      "review": "Sources are explicit local administrator CLI arguments, not remotely supplied. The function permits HTTPS or local file only, rejects URL credentials and HTTPS downgrade, enforces a response byte budget, and verifies the bundle against pinned signer identities before import. Admin-selected HTTPS hosts remain an explicit trust boundary."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/mainnet_health.py",
+      "line": 49,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "6689b62f8fa977fbfd16059ccb005b2633ed764aa6fa8e7ec9808b671cf16954",
+      "review": "The URL is a literal public HTTPS topology endpoint in a read-only local systemd probe; no untrusted input reaches urllib.request.urlopen."
+    },
+    {
+      "scanner": "bandit",
+      "path": "tools/verify_peer_checkpoints.py",
+      "line": 44,
+      "rule": "B310",
+      "severity": "MEDIUM",
+      "fingerprint": "4ca1a90ee86163655c73a7ccfc5d13cb216cd0d17c012ba8e32cbe53e684eb7b",
+      "review": "Only administrator-selected HTTPS URLs reach urlopen; non-HTTPS network schemes and credential-bearing URLs are rejected, downgrade is rejected, and the downloaded bundle is size-bounded and signature-verified. This CLI must not be exposed as an unauthenticated remote fetch service."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/checkpoint_consumer.py",
+      "line": 72,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "a936cf9a52fc5a288d525d0d55daa891c9c5f2bf88abc9133be49d04d97a7f1d",
+      "review": "The interpolated table identifier is a key of the module-level COLUMNS constant, not user input. The database is opened read-only and the selected schema columns are checked against that constant before the SELECT."
+    },
+    {
+      "scanner": "bandit",
+      "path": "ziokt/checkpoint_restore.py",
+      "line": 35,
+      "rule": "B608",
+      "severity": "MEDIUM",
+      "fingerprint": "058788bb794285491e22c15d231d651c24d50da2b3cc35c0f26d0e6aa0b1ad8f",
+      "review": "The inserted table and column identifiers come from a verified checkpoint whose state and native schema are bound to pinned signer identities. Table names are restricted to SQL identifiers; row keys must be present in the committed SQLite schema. Values are bound with placeholders. The explicit trusted-signer bootstrap mode is not an independent trustless proof."
     }
   ],
   "whole_source_scan": {
